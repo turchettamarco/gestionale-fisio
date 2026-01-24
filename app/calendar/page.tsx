@@ -213,6 +213,8 @@ export default function CalendarPage() {
     amount?: number | null;
     treatment_type?: string;
     price_type?: string;
+    start?: Date;
+    end?: Date;
   } | null>(null);
 
   const [editStatus, setEditStatus] = useState<Status>("booked");
@@ -220,6 +222,11 @@ export default function CalendarPage() {
   const [editAmount, setEditAmount] = useState<string>("");
   const [editTreatmentType, setEditTreatmentType] = useState<"seduta" | "macchinario">("seduta");
   const [editPriceType, setEditPriceType] = useState<"invoiced" | "cash">("invoiced");
+  
+  // Stati per modifica orario e giorno
+  const [editDate, setEditDate] = useState<string>("");
+  const [editStartTime, setEditStartTime] = useState<string>("09:00");
+  const [editDuration, setEditDuration] = useState<"1" | "1.5" | "2">("1");
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createStartISO, setCreateStartISO] = useState<string>("");
@@ -262,9 +269,10 @@ export default function CalendarPage() {
     originalStart: Date;
     originalEnd: Date;
   } | null>(null);
-  const [draggingOver, setDraggingOver] = useState<{dayIndex: number, hour: number} | null>(null);
+  const [draggingOver, setDraggingOver] = useState<{dayIndex: number, hour: number, minute: number} | null>(null);
 
   const [printMenuOpen, setPrintMenuOpen] = useState(false);
+const [filtersExpanded, setFiltersExpanded] = useState(false);
   const printMenuRef = useRef<HTMLDivElement>(null);
 
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -300,6 +308,9 @@ export default function CalendarPage() {
     eventId?: string;
   } | null>(null);
 
+  const [todaysAppointments, setTodaysAppointments] = useState<any[]>([]);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+
   // Timer per linea del tempo corrente
   useEffect(() => {
     const timer = setInterval(() => {
@@ -307,6 +318,27 @@ export default function CalendarPage() {
     }, 60000);
     return () => clearInterval(timer);
   }, []);
+
+  // Carica appuntamenti della giornata corrente per il menu laterale
+  useEffect(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+
+    const todaysEvents = events.filter(event => {
+      const eventDate = new Date(event.start);
+      eventDate.setHours(0, 0, 0, 0);
+      return eventDate.getTime() === today.getTime() && event.status !== "cancelled";
+    });
+
+    // Ordina per orario
+    const sortedEvents = [...todaysEvents].sort((a, b) => 
+      a.start.getTime() - b.start.getTime()
+    );
+
+    setTodaysAppointments(sortedEvents);
+  }, [events]);
 
   // Dichiarazioni delle costanti useMemo devono essere PRIMA delle funzioni che le usano
   const timeSelectSlots = useMemo(() => {
@@ -444,12 +476,6 @@ export default function CalendarPage() {
         e.preventDefault();
         if (viewType === 'week') goToNextWeek();
         else setCurrentDate(prev => addDays(prev, 1));
-      }
-      
-      // T: Vai a oggi
-      if (e.key === 't' || e.key === 'T') {
-        e.preventDefault();
-        goToToday();
       }
     };
     
@@ -680,7 +706,7 @@ export default function CalendarPage() {
         calendar_note: a.calendar_note,
         treatment_type: a.treatment_type || "seduta",
         price_type: a.price_type || "invoiced",
-        amount: a.amount || null
+        amount: a.amount
       };
     });
 
@@ -717,7 +743,7 @@ export default function CalendarPage() {
       confirmed: filteredEvents.filter(e => e.status === "confirmed").length,
       booked: filteredEvents.filter(e => e.status === "booked").length,
       revenue: filteredEvents.reduce((sum, e) => {
-        if (e.amount) {
+        if (e.amount !== undefined && e.amount !== null) {
           return e.status === "done" ? sum + e.amount : sum;
         } else {
           const price = e.treatment_type === "seduta" 
@@ -739,7 +765,7 @@ export default function CalendarPage() {
         e.patient_name,
         statusLabel(e.status),
         e.treatment_type === "seduta" ? "Seduta" : "Macchinario",
-        e.amount ? `€${e.amount}` : (e.treatment_type === "seduta" 
+        e.amount !== undefined && e.amount !== null ? `€${e.amount}` : (e.treatment_type === "seduta" 
           ? (e.price_type === "invoiced" ? "€40" : "€35")
           : (e.price_type === "invoiced" ? "€25" : "€20")),
         e.location === "domicile" ? "DOMICILIO" : e.clinic_site,
@@ -765,7 +791,7 @@ export default function CalendarPage() {
     const eventsToExport = filteredEvents.map(event => ({
       summary: `${event.patient_name} - ${statusLabel(event.status)}`,
       location: event.location === 'studio' ? event.clinic_site : event.domicile_address,
-      description: `Trattamento: ${event.treatment_type === 'seduta' ? 'Seduta' : 'Macchinario'}\nPrezzo: €${event.amount || (event.treatment_type === 'seduta' ? (event.price_type === 'invoiced' ? 40 : 35) : (event.price_type === 'invoiced' ? 25 : 20))}\nNote: ${event.calendar_note || 'Nessuna nota'}`,
+      description: `Trattamento: ${event.treatment_type === 'seduta' ? 'Seduta' : 'Macchinario'}\nPrezzo: €${event.amount !== undefined && event.amount !== null ? event.amount : (event.treatment_type === 'seduta' ? (event.price_type === 'invoiced' ? 40 : 35) : (event.price_type === 'invoiced' ? 25 : 20))}\nNote: ${event.calendar_note || 'Nessuna nota'}`,
       start: {
         dateTime: event.start.toISOString(),
         timeZone: 'Europe/Rome',
@@ -790,6 +816,25 @@ export default function CalendarPage() {
       window.open(`${calendarUrl}&${params.toString()}`, '_blank');
     }
   }, [filteredEvents]);
+
+function formatPhoneForWhatsAppWeb(phone: string): string {
+  if (!phone) return phone;
+  
+  // Rimuovi spazi, parentesi, trattini, punti
+  let clean = phone.replace(/[\s\(\)\-\.]/g, '');
+  
+  // Se inizia con 0, sostituisci con 39 (per Italia)
+  if (clean.startsWith('0')) {
+    clean = '39' + clean.substring(1);
+  }
+  
+  // Se non inizia con +, aggiungilo
+  if (!clean.startsWith('+')) {
+    clean = '+' + clean;
+  }
+  
+  return clean;
+}
 
   const sendReminder = useCallback(async (appointmentId: string, patientPhone?: string, patientName?: string, isConfirmation?: boolean) => {
     if (!patientPhone) {
@@ -832,7 +877,7 @@ Fisioterapia e Osteopatia`;
       templateText = templateData.template;
     }
     
-    const cleanPhone = patientPhone.replace(/\s+/g, '').replace('+', '');
+    const cleanPhone = formatPhoneForWhatsAppWeb(patientPhone);
     
     const dataRelativa = formatDateRelative(appointment.start);
     const ora = fmtTime(appointment.start.toISOString());
@@ -856,7 +901,7 @@ Fisioterapia e Osteopatia`;
     
     const encodedMessage = encodeURIComponent(message);
     
-        const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodedMessage}`;
+        const whatsappUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMessage}`;
     
     const confirmText = isConfirmation 
       ? `📱 CONFERMA NUOVO APPOINTAMENTO WHATSAPP\n\nDestinatario: ${patientPhone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp e inviare.`
@@ -1100,14 +1145,12 @@ Fisioterapia e Osteopatia`;
     }
   }
 
-  let amount: number;
-  if (useCustomPrice && customAmount) {
+  let amount: number | null = null;
+  if (useCustomPrice && customAmount !== "") {
     const parsed = parseFloat(customAmount.replace(',', '.'));
-    if (isNaN(parsed) || parsed <= 0) {
-      setError("Importo personalizzato non valido.");
-      return;
+    if (!isNaN(parsed) && parsed >= 0) {
+      amount = parsed;
     }
-    amount = parsed;
   } else {
     amount = treatmentType === "seduta" 
       ? (priceType === "invoiced" ? 40 : 35)
@@ -1145,7 +1188,7 @@ Fisioterapia e Osteopatia`;
         createdAppointmentId = data.id;
         
         if (sendWhatsApp) {
-          const cleanPhone = (selectedPatient.phone || "").replace(/\s+/g, '').replace('+', '');
+          const cleanPhone = formatPhoneForWhatsAppWeb(selectedPatient.phone || "");
           
           if (!cleanPhone) {
             alert("Nessun telefono registrato per questo paziente");
@@ -1174,9 +1217,9 @@ Dr. Marco Turchetta
 Fisioterapia e Osteopatia`;
             
             const encodedMessage = encodeURIComponent(message);
-            const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodedMessage}`;
-            
-            window.open(whatsappUrl, '_blank');
+const whatsappUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMessage}`;
+
+window.open(whatsappUrl, '_blank');
           }
         }
       }
@@ -1239,44 +1282,61 @@ Fisioterapia e Osteopatia`;
 ]);
 
   const saveAppointment = useCallback(async () => {
-    if (!selectedEvent) return;
+  if (!selectedEvent) return;
 
-    setError("");
+  setError("");
 
-    let amount: number | null = null;
-    if (editAmount) {
-      const parsed = parseFloat(editAmount.replace(',', '.'));
-      if (!isNaN(parsed) && parsed > 0) {
-        amount = parsed;
-      }
+  let amount: number | null = null;
+  if (editAmount !== "" && editAmount !== null && editAmount !== undefined) {
+    const parsed = parseFloat(editAmount.replace(',', '.'));
+    if (!isNaN(parsed) && parsed >= 0) {
+      amount = parsed;
     }
+  }
 
-    const updateData: any = {
-      status: editStatus,
-      calendar_note: editNote.trim() || null,
-      treatment_type: editTreatmentType,
-      price_type: editPriceType,
-    };
+  // Calcola nuove date e orari se modificati
+  let newStartDate = selectedEvent.start;
+  let newEndDate = selectedEvent.end;
+  
+  if (editDate && editStartTime) {
+    const [hours, minutes] = editStartTime.split(':').map(Number);
+    newStartDate = parseDateInput(editDate);
+    newStartDate.setHours(hours, minutes, 0, 0);
+    
+    const durationHours = parseFloat(editDuration);
+    newEndDate = new Date(newStartDate.getTime() + durationHours * 60 * 60000);
+  }
 
-    if (amount !== null) {
-      updateData.amount = amount;
-    }
+  const updateData: any = {
+    status: editStatus,
+    calendar_note: editNote.trim() || null,
+    treatment_type: editTreatmentType,
+    price_type: editPriceType,
+    start_at: newStartDate.toISOString(),
+    end_at: newEndDate.toISOString(),
+  };
 
-    const { error } = await supabase
-      .from("appointments")
-      .update(updateData)
-      .eq("id", selectedEvent.id);
+  if (amount !== null) {
+    updateData.amount = amount;
+  } else {
+    updateData.amount = null;
+  }
 
-    if (error) {
-      setError(`Errore salvataggio: ${error.message}`);
-      return;
-    }
+  const { error } = await supabase
+    .from("appointments")
+    .update(updateData)
+    .eq("id", selectedEvent.id);
 
-    setSelectedEvent(null);
-    const startOfWeek = startOfISOWeekMonday(currentDate);
-    const endOfWeek = addDays(startOfWeek, 7);
-    await loadAppointments(startOfWeek, endOfWeek);
-  }, [selectedEvent, editStatus, editNote, editAmount, editTreatmentType, editPriceType, currentDate, loadAppointments]);
+  if (error) {
+    setError(`Errore salvataggio: ${error.message}`);
+    return;
+  }
+
+  setSelectedEvent(null);
+  const startOfWeek = startOfISOWeekMonday(currentDate);
+  const endOfWeek = addDays(startOfWeek, 7);
+  await loadAppointments(startOfWeek, endOfWeek);
+}, [selectedEvent, editStatus, editNote, editAmount, editTreatmentType, editPriceType, editDate, editStartTime, editDuration, currentDate, loadAppointments]);
 
   const deleteAppointment = useCallback(async () => {
     if (!selectedEvent) return;
@@ -1343,12 +1403,12 @@ Fisioterapia e Osteopatia`;
     }
   }, []);
 
-  const handleDragOver = useCallback((event: React.DragEvent, dayIndex?: number, hour?: number) => {
+  const handleDragOver = useCallback((event: React.DragEvent, dayIndex?: number, hour?: number, minute: number = 0) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
     
     if (dayIndex !== undefined && hour !== undefined) {
-      setDraggingOver({ dayIndex, hour });
+      setDraggingOver({ dayIndex, hour, minute });
     }
     
     if (event.currentTarget instanceof HTMLElement) {
@@ -1363,7 +1423,7 @@ Fisioterapia e Osteopatia`;
     }
   }, []);
 
-  const handleDrop = useCallback(async (event: React.DragEvent, targetDate: Date, targetHour: number, targetMinute?: number) => {
+  const handleDrop = useCallback(async (event: React.DragEvent, targetDate: Date, targetHour: number, targetMinute: number = 0) => {
     event.preventDefault();
     setDraggingOver(null);
     
@@ -1377,7 +1437,7 @@ Fisioterapia e Osteopatia`;
     if (apptId !== draggingEvent.id) return;
 
     const newStart = new Date(targetDate);
-    newStart.setHours(targetHour, targetMinute || 0, 0, 0);
+    newStart.setHours(targetHour, targetMinute, 0, 0);
     
     const duration = draggingEvent.originalEnd.getTime() - draggingEvent.originalStart.getTime();
     const newEnd = new Date(newStart.getTime() + duration);
@@ -1423,26 +1483,117 @@ Fisioterapia e Osteopatia`;
     if (selectedEvent) {
       const event = events.find(e => e.id === selectedEvent.id);
       if (event) {
-        setEditAmount(event.amount ? event.amount.toString() : "");
+        setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
         setEditTreatmentType(event.treatment_type || "seduta");
         setEditPriceType(event.price_type || "invoiced");
+        
+        // Imposta i valori per la modifica di orario e giorno
+        setEditDate(toDateInputValue(event.start));
+        setEditStartTime(`${pad2(event.start.getHours())}:${pad2(event.start.getMinutes())}`);
+        
+        const durationHours = (event.end.getTime() - event.start.getTime()) / (60 * 60000);
+        if (durationHours === 1) setEditDuration("1");
+        else if (durationHours === 1.5) setEditDuration("1.5");
+        else if (durationHours === 2) setEditDuration("2");
       }
     }
   }, [selectedEvent, events]);
 
+  // Nuova funzione per il drag and drop su slot di 30 minuti
+  const renderTimeGrid = useCallback((day: Date, dayIndex: number) => {
+    const slots = [];
+    
+    for (let hour = 7; hour < 22; hour++) {
+      for (let minute of [0, 30]) {
+        const slotStart = new Date(day);
+        slotStart.setHours(hour, minute, 0, 0);
+        
+        const slotEnd = new Date(slotStart.getTime() + 30 * 60000);
+        
+        const isOccupied = events.some(event => 
+          event.start.getDate() === day.getDate() &&
+          event.start.getMonth() === day.getMonth() &&
+          event.start.getFullYear() === day.getFullYear() &&
+          (
+            (event.start >= slotStart && event.start < slotEnd) ||
+            (event.end > slotStart && event.end <= slotEnd) ||
+            (event.start <= slotStart && event.end >= slotEnd)
+          )
+        );
+
+        slots.push({
+          hour,
+          minute,
+          start: slotStart,
+          end: slotEnd,
+          isOccupied
+        });
+      }
+    }
+    
+    return slots.map((slot, slotIndex) => (
+      <div
+        key={`${dayIndex}-${slot.hour}-${slot.minute}`}
+        style={{
+          height: "30px",
+          borderBottom: `1px solid ${THEME.border}`,
+          cursor: "pointer",
+          background: showAvailableOnly ? 
+            (slot.isOccupied ? "transparent" : "rgba(34, 197, 94, 0.05)") 
+            : "transparent",
+          boxSizing: "border-box",
+          position: "relative",
+        }}
+        onClick={() => {
+          handleSlotClick(day, slot.hour, slot.minute);
+        }}
+        onContextMenu={(e) => handleContextMenu(e)}
+        onDragOver={(e) => handleDragOver(e, dayIndex, slot.hour, slot.minute)}
+        onDragLeave={handleDragLeave}
+        onDrop={(e) => {
+          handleDrop(e, day, slot.hour, slot.minute);
+        }}
+        title={`Clicca per creare appuntamento alle ${pad2(slot.hour)}:${pad2(slot.minute)}`}
+      >
+        {draggingOver && draggingOver.dayIndex === dayIndex && 
+         draggingOver.hour === slot.hour && draggingOver.minute === slot.minute && (
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              border: `2px dashed ${THEME.blue}`,
+              background: "rgba(37, 99, 235, 0.1)",
+              zIndex: 1,
+              pointerEvents: "none",
+            }}
+          />
+        )}
+      </div>
+    ));
+  }, [events, showAvailableOnly, handleSlotClick, handleContextMenu, handleDragOver, handleDragLeave, handleDrop]);
+
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: THEME.appBg }}>
       <aside
+        ref={sidebarRef}
         className="no-print"
         style={{
-          width: 250,
+          width: 300,
           background: THEME.panelBg,
           borderRight: `1px solid ${THEME.border}`,
           padding: 16,
           flexShrink: 0,
+          position: "sticky",
+          top: 0,
+          height: "100vh",
+          overflowY: "auto",
         }}
       >
-        <div style={{ fontSize: 18, fontWeight: 900, color: THEME.blueDark, letterSpacing: -0.2 }}>FisioHub</div>
+        <div style={{ fontSize: 18, fontWeight: 900, color: THEME.blueDark, letterSpacing: -0.2 }}>FisioHub
+</div>
 
         <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
           <Link href="/" style={{ 
@@ -1465,6 +1616,16 @@ Fisioterapia e Osteopatia`;
           }}>
             📅 Calendario
           </Link>
+          <Link href="/reports" style={{ 
+            color: THEME.blueDark, 
+            fontWeight: 800, 
+            textDecoration: "none",
+            display: "flex", 
+            alignItems: "center", 
+            gap: 8,
+          }}>
+  📊 Report
+          </Link>
           <Link href="/patients" style={{ 
             color: THEME.blueDark, 
             fontWeight: 800, 
@@ -1477,8 +1638,230 @@ Fisioterapia e Osteopatia`;
           </Link>
         </div>
 
+
+
         <div style={{ marginTop: 26, fontSize: 12, color: THEME.muted }}>
           Gestione agenda appuntamenti
+        </div>
+
+        {/* Sezione Appuntamenti Imminenti */}
+        <div style={{ marginTop: 30, borderTop: `1px solid ${THEME.border}`, paddingTop: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 900, color: THEME.textSoft }}>
+              🕐 Appuntamenti imminenti
+            </div>
+            <div style={{ 
+              fontSize: 11, 
+              fontWeight: 900, 
+              color: "#fff", 
+              background: THEME.blue, 
+              padding: "4px 8px", 
+              borderRadius: 12 
+            }}>
+              {todaysAppointments.length}
+            </div>
+          </div>
+
+          {todaysAppointments.length === 0 ? (
+            <div style={{ 
+              textAlign: "center", 
+              padding: "20px 12px", 
+              background: THEME.panelSoft, 
+              borderRadius: 8,
+              border: `1px solid ${THEME.border}`
+            }}>
+              <div style={{ fontSize: 14, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>
+                Nessun appuntamento oggi
+              </div>
+              <div style={{ fontSize: 11, color: THEME.muted }}>
+                Puoi creare nuovi appuntamenti cliccando sugli slot liberi
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, maxHeight: "400px", overflowY: "auto" }}>
+              {todaysAppointments.map((appointment) => {
+                const isPast = appointment.end < new Date();
+                const isNow = appointment.start <= new Date() && appointment.end >= new Date();
+                
+                return (
+                  <div
+                    key={appointment.id}
+                    style={{
+                      background: isNow ? "rgba(37, 99, 235, 0.1)" : isPast ? THEME.panelSoft : "#fff",
+                      border: `1px solid ${isNow ? THEME.blue : THEME.border}`,
+                      borderRadius: 8,
+                      padding: 12,
+                      cursor: "pointer",
+                      transition: "all 0.2s",
+                      position: "relative",
+                      overflow: "hidden",
+                    }}
+                    onClick={() => {
+                      setSelectedEvent({
+                        id: appointment.id,
+                        title: appointment.patient_name,
+                        patient_id: appointment.patient_id,
+                        location: appointment.location,
+                        clinic_site: appointment.clinic_site,
+                        domicile_address: appointment.domicile_address,
+                        treatment: appointment.treatment,
+                        diagnosis: appointment.diagnosis,
+                        amount: appointment.amount,
+                        treatment_type: appointment.treatment_type,
+                        price_type: appointment.price_type,
+                        start: appointment.start,
+                        end: appointment.end,
+                      });
+                      setEditStatus(appointment.status);
+                      setEditNote(appointment.calendar_note || "");
+                      setEditAmount(appointment.amount !== undefined && appointment.amount !== null ? appointment.amount.toString() : "");
+                      setEditTreatmentType(appointment.treatment_type || "seduta");
+                      setEditPriceType(appointment.price_type || "invoiced");
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = "translateY(-2px)";
+                      e.currentTarget.style.boxShadow = "0 4px 12px rgba(15,23,42,0.1)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = "translateY(0)";
+                      e.currentTarget.style.boxShadow = "none";
+                    }}
+                  >
+                    <div style={{ 
+                      position: "absolute", 
+                      top: 0, 
+                      left: 0, 
+                      width: 4, 
+                      height: "100%", 
+                      background: statusColor(appointment.status) 
+                    }} />
+                    
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginLeft: 4 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ 
+                          display: "flex", 
+                          alignItems: "center", 
+                          gap: 6, 
+                          marginBottom: 4 
+                        }}>
+                          <div style={{ 
+                            fontSize: 12, 
+                            fontWeight: 900, 
+                            color: isNow ? THEME.blue : THEME.text,
+                            background: isNow ? "rgba(37, 99, 235, 0.1)" : THEME.panelSoft,
+                            padding: "2px 6px",
+                            borderRadius: 4
+                          }}>
+                            {fmtTime(appointment.start.toISOString())}
+                          </div>
+                          {isNow && (
+                            <div style={{ 
+                              fontSize: 10, 
+                              fontWeight: 900, 
+                              color: "#fff",
+                              background: THEME.blue,
+                              padding: "2px 6px",
+                              borderRadius: 4
+                            }}>
+                              IN CORSO
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div style={{ 
+                          fontSize: 13, 
+                          fontWeight: 900, 
+                          color: THEME.text,
+                          lineHeight: 1.2,
+                          marginBottom: 4
+                        }}>
+                          {appointment.patient_name}
+                        </div>
+                        
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <div style={{ 
+                            fontSize: 10, 
+                            fontWeight: 900, 
+                            color: THEME.muted,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 2
+                          }}>
+                            <div style={{ 
+                              width: 8, 
+                              height: 8, 
+                              borderRadius: "50%", 
+                              background: statusColor(appointment.status) 
+                            }} />
+                            {statusLabel(appointment.status)}
+                          </div>
+                          
+                          {appointment.location === "domicile" && (
+                            <div style={{ 
+                              fontSize: 10, 
+                              fontWeight: 900, 
+                              color: THEME.amber,
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 2
+                            }}>
+                              🏠 Domicilio
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleDoneQuick(appointment.id, appointment.status);
+                        }}
+                        style={{
+                          width: 20,
+                          height: 20,
+                          borderRadius: 4,
+                          border: `2px solid ${appointment.status === "done" ? THEME.greenDark : THEME.border}`,
+                          background: appointment.status === "done" ? THEME.greenDark : "transparent",
+                          cursor: "pointer",
+                          flex: "0 0 auto",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: 10,
+                          color: "#fff",
+                        }}
+                        title={appointment.status === "done" ? "Segna come non eseguito" : "Segna come eseguito"}
+                      >
+                        {appointment.status === "done" && "✓"}
+                      </button>
+                    </div>
+                    
+                    {appointment.calendar_note && (
+                      <div style={{ 
+                        marginTop: 8, 
+                        fontSize: 11, 
+                        color: THEME.muted, 
+                        fontStyle: "italic",
+                        paddingLeft: 4,
+                        borderLeft: `2px solid ${THEME.borderSoft}`
+                      }}>
+                        {appointment.calendar_note}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          
+          <div style={{ marginTop: 20, fontSize: 11, color: THEME.muted, textAlign: "center" }}>
+            {todaysAppointments.length > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>Completati: {todaysAppointments.filter(a => a.status === "done").length}</span>
+                <span>Prenotati: {todaysAppointments.filter(a => a.status === "booked" || a.status === "confirmed").length}</span>
+              </div>
+            )}
+          </div>
         </div>
       </aside>
 
@@ -1498,7 +1881,7 @@ Fisioterapia e Osteopatia`;
                 Agenda
               </h1>
               <div style={{ marginTop: 6, fontSize: 12, color: THEME.muted, fontWeight: 800 }}>
-                Domenica rimossa · Eventi squadrati · Ricorrenze · Stampa
+                Dr. Turchetta Marco
               </div>
             </div>
 
@@ -1698,125 +2081,144 @@ Fisioterapia e Osteopatia`;
           )}
 
           <div className="no-print" style={{ 
-            marginBottom: 12,
-            padding: "16px",
-            background: THEME.panelBg,
-            borderRadius: 8,
-            border: `1px solid ${THEME.border}`
-          }}>
-            <div style={{ fontSize: 14, fontWeight: 900, color: THEME.textSoft, marginBottom: 12 }}>
-              🎛️ Filtri Avanzati
-            </div>
-            
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>Luogo📍 </div>
-                <select
-                  value={filters.location}
-                  onChange={(e) => setFilters(prev => ({ ...prev, location: e.target.value as any }))}
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    borderRadius: 6,
-                    border: `1px solid ${THEME.borderSoft}`,
-                    background: "#fff",
-                    fontSize: 12,
-                    fontWeight: 900,
-                  }}
-                >
-                  <option value="all">Tutti i luoghi</option>
-                  <option value="studio">Studio</option>
-                  <option value="domicile">Domicilio</option>
-                </select>
-              </div>
-              
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>Trattamento</div>
-                <select
-                  value={filters.treatmentType}
-                  onChange={(e) => setFilters(prev => ({ ...prev, treatmentType: e.target.value as any }))}
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    borderRadius: 6,
-                    border: `1px solid ${THEME.borderSoft}`,
-                    background: "#fff",
-                    fontSize: 12,
-                    fontWeight: 900,
-                  }}
-                >
-                  <option value="all">Tutti i trattamenti</option>
-                  <option value="seduta">Seduta</option>
-                  <option value="macchinario">Macchinario</option>
-                </select>
-              </div>
-              
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>Importo Min</div>
-                <input
-                  type="number"
-                  value={filters.minAmount}
-                  onChange={(e) => setFilters(prev => ({ ...prev, minAmount: e.target.value }))}
-                  placeholder="€ Min"
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    borderRadius: 6,
-                    border: `1px solid ${THEME.borderSoft}`,
-                    background: "#fff",
-                    fontSize: 12,
-                    fontWeight: 900,
-                  }}
-                />
-              </div>
-              
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>Importo Max</div>
-                <input
-                  type="number"
-                  value={filters.maxAmount}
-                  onChange={(e) => setFilters(prev => ({ ...prev, maxAmount: e.target.value }))}
-                  placeholder="€ Max"
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    borderRadius: 6,
-                    border: `1px solid ${THEME.borderSoft}`,
-                    background: "#fff",
-                    fontSize: 12,
-                    fontWeight: 900,
-                  }}
-                />
-              </div>
-            </div>
-            
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12, alignItems: "center" }}>
-              <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted }}>
-                {filteredEvents.length} eventi trovati
-              </div>
-              <button
-                onClick={() => setFilters({
-                  location: "all",
-                  treatmentType: "all",
-                  priceType: "all",
-                  minAmount: "",
-                  maxAmount: "",
-                })}
-                style={{
-                  padding: "6px 12px",
-                  borderRadius: 6,
-                  border: `1px solid ${THEME.borderSoft}`,
-                  background: THEME.panelSoft,
-                  color: THEME.text,
-                  fontSize: 12,
-                  fontWeight: 900,
-                  cursor: "pointer",
-                }}
-              >
-                Reset Filtri
-              </button>
-            </div>
-          </div>
+  marginBottom: 12,
+  padding: "16px",
+  background: THEME.panelBg,
+  borderRadius: 8,
+  border: `1px solid ${THEME.border}`
+}}>
+  <div 
+    onClick={() => setFiltersExpanded(!filtersExpanded)}
+    style={{ 
+      fontSize: 14, 
+      fontWeight: 900, 
+      color: THEME.textSoft, 
+      marginBottom: filtersExpanded ? 12 : 0,
+      cursor: "pointer",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between"
+    }}
+  >
+    <span>🎛️ Filtri Avanzati</span>
+    <span style={{ fontSize: 12 }}>{filtersExpanded ? "▲" : "▼"}</span>
+  </div>
+  
+  {filtersExpanded && (
+    <>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>Luogo📍 </div>
+          <select
+            value={filters.location}
+            onChange={(e) => setFilters(prev => ({ ...prev, location: e.target.value as any }))}
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              borderRadius: 6,
+              border: `1px solid ${THEME.borderSoft}`,
+              background: "#fff",
+              fontSize: 12,
+              fontWeight: 900,
+              color: THEME.text,
+            }}
+          >
+            <option value="all">Tutti i luoghi</option>
+            <option value="studio">Studio</option>
+            <option value="domicile">Domicilio</option>
+          </select>
+        </div>
+        
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>Trattamento</div>
+          <select
+            value={filters.treatmentType}
+            onChange={(e) => setFilters(prev => ({ ...prev, treatmentType: e.target.value as any }))}
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              borderRadius: 6,
+              border: `1px solid ${THEME.borderSoft}`,
+              background: "#fff",
+              fontSize: 12,
+              fontWeight: 900,
+              color: THEME.text,
+            }}
+          >
+            <option value="all">Tutti i trattamenti</option>
+            <option value="seduta">Seduta</option>
+            <option value="macchinario">Macchinario</option>
+          </select>
+        </div>
+        
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>Importo Min</div>
+          <input
+            type="number"
+            value={filters.minAmount}
+            onChange={(e) => setFilters(prev => ({ ...prev, minAmount: e.target.value }))}
+            placeholder="€ Min"
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              borderRadius: 6,
+              border: `1px solid ${THEME.borderSoft}`,
+              background: "#fff",
+              fontSize: 12,
+              fontWeight: 900,
+            }}
+          />
+        </div>
+        
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>Importo Max</div>
+          <input
+            type="number"
+            value={filters.maxAmount}
+            onChange={(e) => setFilters(prev => ({ ...prev, maxAmount: e.target.value }))}
+            placeholder="€ Max"
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              borderRadius: 6,
+              border: `1px solid ${THEME.borderSoft}`,
+              background: "#fff",
+              fontSize: 12,
+              fontWeight: 900,
+            }}
+          />
+        </div>
+      </div>
+      
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12, alignItems: "center" }}>
+        <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted }}>
+          {filteredEvents.length} eventi trovati
+        </div>
+        <button
+          onClick={() => setFilters({
+            location: "all",
+            treatmentType: "all",
+            priceType: "all",
+            minAmount: "",
+            maxAmount: "",
+          })}
+          style={{
+            padding: "6px 12px",
+            borderRadius: 6,
+            border: `1px solid ${THEME.borderSoft}`,
+            background: THEME.panelSoft,
+            color: THEME.text,
+            fontSize: 12,
+            fontWeight: 900,
+            cursor: "pointer",
+          }}
+        >
+          Reset Filtri
+        </button>
+      </div>
+    </>
+  )}
+</div>
 
           <div className="no-print" style={{ 
             display: "flex", 
@@ -1826,7 +2228,9 @@ Fisioterapia e Osteopatia`;
             padding: "12px 16px",
             background: THEME.panelBg,
             borderRadius: 8,
-            border: `1px solid ${THEME.border}`
+            border: `1px solid ${THEME.border}`,
+            top: 0,
+            zIndex: 9,
           }}>
             <div style={{ display: "flex", gap: 8 }}>
               {viewType === "week" ? (
@@ -2027,8 +2431,8 @@ Fisioterapia e Osteopatia`;
             padding: "12px 16px",
             background: THEME.panelSoft,
             borderRadius: 8,
-            border: `1px solid ${THEME.border}`
-          }}>
+            border: `1px solid ${THEME.border}`,
+                      }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginRight: 8 }}>
                 FILTRI STATO:
@@ -2080,418 +2484,470 @@ Fisioterapia e Osteopatia`;
               }}
             >
               <div style={{ 
-                display: "grid", 
-                gridTemplateColumns: "80px repeat(6, minmax(0, 1fr))",
-                borderBottom: `1px solid ${THEME.border}`,
-                background: THEME.panelSoft,
-              }}>
-                <div style={{ 
-                  padding: "16px 8px", 
-                  borderRight: `1px solid ${THEME.border}`,
-                  fontSize: 12,
-                  fontWeight: 900,
-                  color: THEME.muted,
-                  textAlign: "center",
-                  boxSizing: "border-box",
-                }}>
-                  ORA
-                </div>
-                {weekDays.map((day, index) => {
-                  const forecast = getAvailabilityForecast(day);
-                  return (
+  display: "grid", 
+  gridTemplateColumns: "80px repeat(6, minmax(0, 1fr))",
+  borderBottom: `1px solid ${THEME.border}`,
+  background: THEME.panelSoft,
+  position: "sticky",
+  top: 0,
+  zIndex: 8,
+}}>
+  <div style={{ 
+    padding: "12px 8px", 
+    borderRight: `1px solid ${THEME.border}`,
+    fontSize: 12,
+    fontWeight: 900,
+    color: THEME.muted,
+    textAlign: "center",
+    boxSizing: "border-box",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    height: "100%",
+  }}>
+    ORA
+  </div>
+  {weekDays.map((day, index) => {
+    const forecast = getAvailabilityForecast(day);
+    return (
+      <div 
+        key={index}
+        style={{ 
+          padding: "8px 4px", 
+          borderRight: index < 5 ? `1px solid ${THEME.border}` : "none",
+          textAlign: "center",
+          fontSize: 12,
+          fontWeight: 900,
+          color: THEME.blueDark,
+          boxSizing: "border-box",
+          width: "100%",
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          minHeight: "60px", // Altezza minima aumentata
+        }}
+      >
+        <div style={{ marginBottom: 2 }}>
+          {dayLabels[index].label}
+        </div>
+        <div style={{ fontSize: 11, marginBottom: 4 }}>
+          {formatDMY(day)}
+        </div>
+        <div style={{
+          fontSize: 9,
+          fontWeight: 900,
+          color: forecast.occupancyRate > 80 ? THEME.red : 
+                 forecast.occupancyRate > 60 ? THEME.amber : THEME.green,
+          opacity: 0.9,
+          lineHeight: 1.2,
+          padding: "2px 4px",
+          background: forecast.occupancyRate > 80 ? "rgba(220,38,38,0.1)" : 
+                     forecast.occupancyRate > 60 ? "rgba(249,115,22,0.1)" : "rgba(22,163,74,0.1)",
+          borderRadius: 4,
+          margin: "0 2px",
+        }}>
+          {forecast.totalEvents} appt • {forecast.recommendation}
+        </div>
+      </div>
+    );
+  })}
+</div>
+
+              <div style={{ position: "relative", height: "calc(15 * 60px)", overflowY: "auto" }}>
+                <div style={{ position: "relative", minHeight: "100%" }}>
+                  {timeSlots.map((time, timeIndex) => (
                     <div 
-                      key={index}
+                      key={timeIndex}
                       style={{ 
-                        padding: "16px 8px", 
-                        borderRight: index < 5 ? `1px solid ${THEME.border}` : "none",
-                        textAlign: "center",
-                        fontSize: 13,
-                        fontWeight: 900,
-                        color: THEME.blueDark,
-                        boxSizing: "border-box",
-                        width: "100%",
-                        overflow: "hidden",
+                        height: "60px",
+                        borderBottom: `1px solid ${THEME.border}`,
                         position: "relative",
-                      }}
-                    >
-                      {dayLabels[index].label}<br />
-                      {formatDMY(day)}
-                      <div style={{
-                        position: "absolute",
-                        bottom: 4,
-                        left: 0,
-                        right: 0,
-                        fontSize: 10,
-                        fontWeight: 900,
-                        color: forecast.occupancyRate > 80 ? THEME.red : 
-                               forecast.occupancyRate > 60 ? THEME.amber : THEME.green,
-                        opacity: 0.8,
-                      }}>
-                        {forecast.totalEvents} appt • {forecast.recommendation}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div style={{ position: "relative", height: "calc(15 * 60px)" }}>
-                {timeSlots.map((time, timeIndex) => (
-                  <div 
-                    key={timeIndex}
-                    style={{ 
-                      height: "60px",
-                      borderBottom: `1px solid ${THEME.border}`,
-                      position: "relative",
-                      display: "flex",
-                    }}
-                  >
-                    <div style={{ 
-                      width: "80px",
-                      height: "100%",
-                      display: "flex",
-                      alignItems: "center",
-                      paddingLeft: 8,
-                      borderRight: `1px solid ${THEME.border}`,
-                      fontSize: 12,
-                      fontWeight: 900,
-                      color: THEME.muted,
-                      background: THEME.panelSoft,
-                      zIndex: 1,
-                      flexShrink: 0,
-                      boxSizing: "border-box",
-                    }}>
-                      {time}
-                    </div>
-
-                    {weekDays.map((day, dayIndex) => {
-                      const slotStart = new Date(day);
-                      const hour = parseInt(time.split(':')[0]);
-                      slotStart.setHours(hour, 0, 0, 0);
-                      
-                      const slotEnd = new Date(slotStart.getTime() + 60 * 60000);
-                      
-                      const isOccupied = events.some(event => 
-                        event.start.getDate() === day.getDate() &&
-                        event.start.getMonth() === day.getMonth() &&
-                        event.start.getFullYear() === day.getFullYear() &&
-                        (
-                          (event.start >= slotStart && event.start < slotEnd) ||
-                          (event.end > slotStart && event.end <= slotEnd) ||
-                          (event.start <= slotStart && event.end >= slotEnd)
-                        )
-                      );
-
-                      return (
-                        <div
-                          key={`${timeIndex}-${dayIndex}`}
-                          style={{
-                            flex: 1,
-                            minWidth: 0,
-                            height: "100%",
-                            borderRight: dayIndex < 5 ? `1px solid ${THEME.border}` : "none",
-                            cursor: "pointer",
-                            background: showAvailableOnly ? 
-                              (isOccupied ? "transparent" : "rgba(34, 197, 94, 0.05)") 
-                              : "transparent",
-                            boxSizing: "border-box",
-                            position: "relative",
-                          }}
-                          onClick={() => {
-                            handleSlotClick(day, hour, 0);
-                          }}
-                          onContextMenu={(e) => handleContextMenu(e)}
-                          onDragOver={(e) => handleDragOver(e, dayIndex, hour)}
-                          onDragLeave={handleDragLeave}
-                          onDrop={(e) => {
-                            handleDrop(e, day, hour);
-                          }}
-                          title={`Clicca per creare appuntamento alle ${time}`}
-                        >
-                          {draggingOver && draggingOver.dayIndex === dayIndex && draggingOver.hour === hour && (
-                            <div
-                              style={{
-                                position: "absolute",
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                border: `2px dashed ${THEME.blue}`,
-                                background: "rgba(37, 99, 235, 0.1)",
-                                zIndex: 1,
-                                pointerEvents: "none",
-                              }}
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
-
-                {filteredEvents.map((event) => {
-                  const dayIndex = weekDays.findIndex(day => 
-                    event.start.getDate() === day.getDate() &&
-                    event.start.getMonth() === day.getMonth() &&
-                    event.start.getFullYear() === day.getFullYear()
-                  );
-
-                  if (dayIndex === -1) return null;
-
-                  const { top, height } = getEventPosition(event.start, event.end);
-                  const col = getEventColor(event);
-                  const isDone = event.status === "done";
-                  const isDomicile = event.location === "domicile";
-
-                  return (
-                    <div
-                      key={event.id}
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, event.id, event.start, event.end)}
-                      onDragEnd={handleDragEnd}
-                      onContextMenu={(e) => handleContextMenu(e, event)}
-                      style={{
-                        position: "absolute",
-                        left: `calc(80px + ${dayIndex} * calc((100% - 80px) / 6))`,
-                        top: `${top}px`,
-                        width: `calc((100% - 80px) / 6 - 4px)`,
-                        height: `${Math.max(height, 30)}px`,
-                        background: col,
-                        color: "#fff",
-                        borderRadius: 8,
-                        padding: "8px",
-                        boxSizing: "border-box",
-                        border: `2px solid ${col}`,
-                        cursor: "move",
-                        zIndex: 2,
-                        overflow: "hidden",
-                        transition: "opacity 0.2s",
                         display: "flex",
-                        flexDirection: "column",
-                      }}
-                      onClick={() => {
-                        setSelectedEvent({
-                          id: event.id,
-                          title: event.patient_name,
-                          patient_id: event.patient_id,
-                          location: event.location,
-                          clinic_site: event.clinic_site,
-                          domicile_address: event.domicile_address,
-                          treatment: event.treatment,
-                          diagnosis: event.diagnosis,
-                          amount: event.amount,
-                          treatment_type: event.treatment_type,
-                          price_type: event.price_type,
-                        });
-                        setEditStatus(event.status);
-                        setEditNote(event.calendar_note || "");
-                        setEditAmount(event.amount ? event.amount.toString() : "");
-                        setEditTreatmentType(event.treatment_type || "seduta");
-                        setEditPriceType(event.price_type || "invoiced");
-                        
-                        if (event.patient_id) {
-                          loadPatientFromEvent(event.patient_id);
-                        }
                       }}
                     >
-                      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                        <button
-                          title={isDone ? "Segna come NON eseguita" : "Segna come ESEGUITA"}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            toggleDoneQuick(event.id, event.status);
-                          }}
-                          style={{
-                            width: 16,
-                            height: 16,
-                            borderRadius: 4,
-                            border: "2px solid rgba(255,255,255,0.9)",
-                            background: isDone ? THEME.greenDark : "rgba(255,255,255,0.3)",
-                            cursor: "pointer",
-                            flex: "0 0 auto",
-                            marginTop: 2,
-                          }}
-                        />
+                      <div style={{ 
+                        width: "80px",
+                        height: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        paddingLeft: 8,
+                        borderRight: `1px solid ${THEME.border}`,
+                        fontSize: 12,
+                        fontWeight: 900,
+                        color: THEME.muted,
+                        background: THEME.panelSoft,
+                        zIndex: 1,
+                        flexShrink: 0,
+                        boxSizing: "border-box",
+                        position: "sticky",
+                        left: 0,
+                      }}>
+                        {time}
+                      </div>
 
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                          <div style={{ 
-                            fontWeight: 900, 
-                            lineHeight: 1.2, 
-                            fontSize: 12, 
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}>
-                            {event.patient_name}
-                          </div>
-                          {isDomicile && (
-                            <div style={{ 
-                              fontSize: 10, 
-                              fontWeight: 900, 
-                              color: "rgba(255,255,255,0.9)",
-                              marginTop: 2,
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 4
-                            }}>
-                              <span>🏠</span>
-                              <span>DOMICILIO</span>
-                            </div>
-                          )}
-                        </div>
+                      {weekDays.map((day, dayIndex) => {
+                        const hour = parseInt(time.split(':')[0]);
                         
-                        {event.status !== "done" && event.status !== "cancelled" && event.patient_phone && (
-                          <button
-                            title="Invia promemoria WhatsApp"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              sendReminder(event.id, event.patient_phone, event.patient_name);
-                            }}
+                        return (
+                          <div
+                            key={`${timeIndex}-${dayIndex}`}
                             style={{
-                              width: 20,
-                              height: 20,
-                              borderRadius: 4,
-                              border: "1px solid rgba(255,255,255,0.9)",
-                              background: "rgba(37, 211, 102, 0.8)",
-                              cursor: "pointer",
-                              flex: "0 0 auto",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              fontSize: 10,
-                              color: "#fff",
+                              flex: 1,
+                              minWidth: 0,
+                              height: "100%",
+                              borderRight: dayIndex < 5 ? `1px solid ${THEME.border}` : "none",
+                              boxSizing: "border-box",
+                              position: "relative",
                             }}
                           >
-                            📱
-                          </button>
-                        )}
-                      </div>
-
-                      <div style={{ 
-                        fontSize: 11, 
-                        fontWeight: 900, 
-                        opacity: 0.9,
-                        marginTop: "auto",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "flex-end"
-                      }}>
-                        <span>{fmtTime(event.start.toISOString())}</span>
-                        <span>{statusLabel(event.status)}</span>
-                      </div>
+                            {/* Slot 00-30 minuti */}
+                            <div
+                              style={{
+                                height: "30px",
+                                borderBottom: `1px solid ${THEME.border}`,
+                                cursor: "pointer",
+                                boxSizing: "border-box",
+                                position: "relative",
+                              }}
+                              onClick={() => {
+                                handleSlotClick(day, hour, 0);
+                              }}
+                              onContextMenu={(e) => handleContextMenu(e)}
+                              onDragOver={(e) => handleDragOver(e, dayIndex, hour, 0)}
+                              onDragLeave={handleDragLeave}
+                              onDrop={(e) => {
+                                handleDrop(e, day, hour, 0);
+                              }}
+                              title={`Clicca per creare appuntamento alle ${pad2(hour)}:00`}
+                            >
+                              {draggingOver && draggingOver.dayIndex === dayIndex && 
+                               draggingOver.hour === hour && draggingOver.minute === 0 && (
+                                <div
+                                  style={{
+                                    position: "absolute",
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    border: `2px dashed ${THEME.blue}`,
+                                    background: "rgba(37, 99, 235, 0.1)",
+                                    zIndex: 1,
+                                    pointerEvents: "none",
+                                  }}
+                                />
+                              )}
+                            </div>
+                            
+                            {/* Slot 30-60 minuti */}
+                            <div
+                              style={{
+                                height: "30px",
+                                cursor: "pointer",
+                                boxSizing: "border-box",
+                                position: "relative",
+                              }}
+                              onClick={() => {
+                                handleSlotClick(day, hour, 30);
+                              }}
+                              onContextMenu={(e) => handleContextMenu(e)}
+                              onDragOver={(e) => handleDragOver(e, dayIndex, hour, 30)}
+                              onDragLeave={handleDragLeave}
+                              onDrop={(e) => {
+                                handleDrop(e, day, hour, 30);
+                              }}
+                              title={`Clicca per creare appuntamento alle ${pad2(hour)}:30`}
+                            >
+                              {draggingOver && draggingOver.dayIndex === dayIndex && 
+                               draggingOver.hour === hour && draggingOver.minute === 30 && (
+                                <div
+                                  style={{
+                                    position: "absolute",
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    border: `2px dashed ${THEME.blue}`,
+                                    background: "rgba(37, 99, 235, 0.1)",
+                                    zIndex: 1,
+                                    pointerEvents: "none",
+                                  }}
+                                />
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
-                
-                {showAvailableOnly && weekDays.map((day, dayIndex) => {
-                  const availableSlots = getAvailableSlots(day);
-                  
-                  return availableSlots.map((slot, slotIndex) => {
-                    const { top, height } = getEventPosition(slot.start, slot.end);
-                    
+                  ))}
+
+                  {filteredEvents.map((event) => {
+                    const dayIndex = weekDays.findIndex(day => 
+                      event.start.getDate() === day.getDate() &&
+                      event.start.getMonth() === day.getMonth() &&
+                      event.start.getFullYear() === day.getFullYear()
+                    );
+
+                    if (dayIndex === -1) return null;
+
+                    const { top, height } = getEventPosition(event.start, event.end);
+                    const col = getEventColor(event);
+                    const isDone = event.status === "done";
+                    const isDomicile = event.location === "domicile";
+
                     return (
                       <div
-                        key={`slot-${dayIndex}-${slotIndex}`}
+                        key={event.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, event.id, event.start, event.end)}
+                        onDragEnd={handleDragEnd}
+                        onContextMenu={(e) => handleContextMenu(e, event)}
                         style={{
                           position: "absolute",
                           left: `calc(80px + ${dayIndex} * calc((100% - 80px) / 6))`,
                           top: `${top}px`,
                           width: `calc((100% - 80px) / 6 - 4px)`,
-                          height: `${height}px`,
-                          background: "rgba(34, 197, 94, 0.1)",
-                          border: "2px dashed rgba(34, 197, 94, 0.5)",
+                          height: `${Math.max(height, 30)}px`,
+                          background: col,
+                          color: "#fff",
                           borderRadius: 8,
-                          cursor: "pointer",
-                          zIndex: 0,
+                          padding: "8px",
+                          boxSizing: "border-box",
+                          border: `2px solid ${col}`,
+                          cursor: "move",
+                          zIndex: 2,
+                          overflow: "hidden",
+                          transition: "opacity 0.2s",
                           display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          transition: "all 0.2s",
+                          flexDirection: "column",
                         }}
                         onClick={() => {
-                          const hour = slot.start.getHours();
-                          const minute = slot.start.getMinutes();
-                          handleSlotClick(day, hour, minute);
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = "rgba(34, 197, 94, 0.2)";
-                          e.currentTarget.style.border = "2px solid rgba(34, 197, 94, 0.7)";
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = "rgba(34, 197, 94, 0.1)";
-                          e.currentTarget.style.border = "2px dashed rgba(34, 197, 94, 0.5)";
+                          setSelectedEvent({
+                            id: event.id,
+                            title: event.patient_name,
+                            patient_id: event.patient_id,
+                            location: event.location,
+                            clinic_site: event.clinic_site,
+                            domicile_address: event.domicile_address,
+                            treatment: event.treatment,
+                            diagnosis: event.diagnosis,
+                            amount: event.amount,
+                            treatment_type: event.treatment_type,
+                            price_type: event.price_type,
+                            start: event.start,
+                            end: event.end,
+                          });
+                          setEditStatus(event.status);
+                          setEditNote(event.calendar_note || "");
+                          setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
+                          setEditTreatmentType(event.treatment_type || "seduta");
+                          setEditPriceType(event.price_type || "invoiced");
+                          
+                          if (event.patient_id) {
+                            loadPatientFromEvent(event.patient_id);
+                          }
                         }}
                       >
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                          <button
+                            title={isDone ? "Segna come NON eseguita" : "Segna come ESEGUITA"}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              toggleDoneQuick(event.id, event.status);
+                            }}
+                            style={{
+                              width: 16,
+                              height: 16,
+                              borderRadius: 4,
+                              border: "2px solid rgba(255,255,255,0.9)",
+                              background: isDone ? THEME.greenDark : "rgba(255,255,255,0.3)",
+                              cursor: "pointer",
+                              flex: "0 0 auto",
+                              marginTop: 2,
+                            }}
+                          />
+
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ 
+                              fontWeight: 900, 
+                              lineHeight: 1.2, 
+                              fontSize: 12, 
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}>
+                              {event.patient_name}
+                            </div>
+                            {isDomicile && (
+                              <div style={{ 
+                                fontSize: 10, 
+                                fontWeight: 900, 
+                                color: "rgba(255,255,255,0.9)",
+                                marginTop: 2,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 4
+                              }}>
+                                <span>🏠</span>
+                                <span>DOMICILIO</span>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {event.status !== "done" && event.status !== "cancelled" && event.patient_phone && (
+                            <button
+                              title="Invia promemoria WhatsApp"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                sendReminder(event.id, event.patient_phone, event.patient_name);
+                              }}
+                              style={{
+                                width: 20,
+                                height: 20,
+                                borderRadius: 4,
+                                border: "1px solid rgba(255,255,255,0.9)",
+                                background: "rgba(37, 211, 102, 0.8)",
+                                cursor: "pointer",
+                                flex: "0 0 auto",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: 10,
+                                color: "#fff",
+                              }}
+                            >
+                              📱
+                            </button>
+                          )}
+                        </div>
+
                         <div style={{ 
                           fontSize: 11, 
                           fontWeight: 900, 
-                          color: THEME.green,
-                          textAlign: "center",
-                          opacity: 0.8
+                          opacity: 0.9,
+                          marginTop: "auto",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-end"
                         }}>
-                          {slot.time}
+                          <span>{fmtTime(event.start.toISOString())}</span>
+                          <span>{statusLabel(event.status)}</span>
                         </div>
                       </div>
                     );
-                  });
-                })}
+                  })}
+                  
+                  {showAvailableOnly && weekDays.map((day, dayIndex) => {
+                    const availableSlots = getAvailableSlots(day);
+                    
+                    return availableSlots.map((slot, slotIndex) => {
+                      const { top, height } = getEventPosition(slot.start, slot.end);
+                      
+                      return (
+                        <div
+                          key={`slot-${dayIndex}-${slotIndex}`}
+                          style={{
+                            position: "absolute",
+                            left: `calc(80px + ${dayIndex} * calc((100% - 80px) / 6))`,
+                            top: `${top}px`,
+                            width: `calc((100% - 80px) / 6 - 4px)`,
+                            height: `${height}px`,
+                            background: "rgba(34, 197, 94, 0.1)",
+                            border: "2px dashed rgba(34, 197, 94, 0.5)",
+                            borderRadius: 8,
+                            cursor: "pointer",
+                            zIndex: 0,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            transition: "all 0.2s",
+                          }}
+                          onClick={() => {
+                            const hour = slot.start.getHours();
+                            const minute = slot.start.getMinutes();
+                            handleSlotClick(day, hour, minute);
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = "rgba(34, 197, 94, 0.2)";
+                            e.currentTarget.style.border = "2px solid rgba(34, 197, 94, 0.7)";
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = "rgba(34, 197, 94, 0.1)";
+                            e.currentTarget.style.border = "2px dashed rgba(34, 197, 94, 0.5)";
+                          }}
+                        >
+                          <div style={{ 
+                            fontSize: 11, 
+                            fontWeight: 900, 
+                            color: THEME.green,
+                            textAlign: "center",
+                            opacity: 0.8
+                          }}>
+                            {slot.time}
+                          </div>
+                        </div>
+                      );
+                    });
+                  })}
 
-                <div
-                  style={{
-                    position: "absolute",
-                    left: 0,
-                    top: 0,
-                    right: 0,
-                    bottom: 0,
-                    pointerEvents: "none",
-                    zIndex: 3,
-                  }}
-                >
-                  {(() => {
-                    const now = currentTime;
-                    const currentDayIndex = weekDays.findIndex(day => 
-                      now.getDate() === day.getDate() &&
-                      now.getMonth() === day.getMonth() &&
-                      now.getFullYear() === day.getFullYear()
-                    );
-                    
-                    if (currentDayIndex === -1) return null;
-                    
-                    const currentHour = now.getHours();
-                    const currentMinute = now.getMinutes();
-                    const topPosition = ((currentHour - 7) * 60 + currentMinute);
-                    
-                    const dayWidth = `calc((100% - 80px) / 6)`;
-                    const leftPosition = `calc(80px + ${currentDayIndex} * (${dayWidth}))`;
-                    
-                    return (
-                      <div
-                        style={{
-                          position: "absolute",
-                          left: leftPosition,
-                          top: `${topPosition}px`,
-                          width: `calc(${dayWidth} - 2px)`,
-                          height: "2px",
-                          background: THEME.red,
-                          zIndex: 4,
-                        }}
-                      >
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      top: 0,
+                      right: 0,
+                      bottom: 0,
+                      pointerEvents: "none",
+                      zIndex: 3,
+                    }}
+                  >
+                    {(() => {
+                      const now = currentTime;
+                      const currentDayIndex = weekDays.findIndex(day => 
+                        now.getDate() === day.getDate() &&
+                        now.getMonth() === day.getMonth() &&
+                        now.getFullYear() === day.getFullYear()
+                      );
+                      
+                      if (currentDayIndex === -1) return null;
+                      
+                      const currentHour = now.getHours();
+                      const currentMinute = now.getMinutes();
+                      const topPosition = ((currentHour - 7) * 60 + currentMinute);
+                      
+                      const dayWidth = `calc((100% - 80px) / 6)`;
+                      const leftPosition = `calc(80px + ${currentDayIndex} * (${dayWidth}))`;
+                      
+                      return (
                         <div
                           style={{
                             position: "absolute",
-                            left: "50%",
-                            top: "-4px",
-                            transform: "translateX(-50%)",
-                            width: "8px",
-                            height: "8px",
-                            borderRadius: "50%",
+                            left: leftPosition,
+                            top: `${topPosition}px`,
+                            width: `calc(${dayWidth} - 2px)`,
+                            height: "2px",
                             background: THEME.red,
+                            zIndex: 4,
                           }}
-                        />
-                      </div>
-                    );
-                  })()}
+                        >
+                          <div
+                            style={{
+                              position: "absolute",
+                              left: "50%",
+                              top: "-4px",
+                              transform: "translateX(-50%)",
+                              width: "8px",
+                              height: "8px",
+                              borderRadius: "50%",
+                              background: THEME.red,
+                            }}
+                          />
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
               </div>
             </div>
@@ -2539,22 +2995,7 @@ Fisioterapia e Osteopatia`;
               <div style={{ position: "relative", height: "calc(15 * 60px)" }}>
                 {timeSlots.map((time, timeIndex) => {
                   const hour = parseInt(time.split(':')[0]);
-                  const slotStart = new Date(currentDate);
-                  slotStart.setHours(hour, 0, 0, 0);
                   
-                  const slotEnd = new Date(slotStart.getTime() + 60 * 60000);
-                  
-                  const isOccupied = events.some(event => 
-                    event.start.getDate() === currentDate.getDate() &&
-                    event.start.getMonth() === currentDate.getMonth() &&
-                    event.start.getFullYear() === currentDate.getFullYear() &&
-                    (
-                      (event.start >= slotStart && event.start < slotEnd) ||
-                      (event.end > slotStart && event.end <= slotEnd) ||
-                      (event.start <= slotStart && event.end >= slotEnd)
-                    )
-                  );
-
                   return (
                     <div 
                       key={timeIndex}
@@ -2583,29 +3024,88 @@ Fisioterapia e Osteopatia`;
                         {time}
                       </div>
 
-                      <div
-                        style={{
-                          flex: 1,
-                          minWidth: 0,
-                          height: "100%",
-                          cursor: "pointer",
-                          background: showAvailableOnly ? 
-                            (isOccupied ? "transparent" : "rgba(34, 197, 94, 0.05)") 
-                            : "transparent",
-                          boxSizing: "border-box",
-                          position: "relative",
-                        }}
-                        onClick={() => {
-                          handleSlotClick(currentDate, hour, 0);
-                        }}
-                        onContextMenu={(e) => handleContextMenu(e)}
-                        onDragOver={(e) => handleDragOver(e)}
-                        onDragLeave={handleDragLeave}
-                        onDrop={(e) => {
-                          handleDrop(e, currentDate, hour);
-                        }}
-                        title={`Clicca per creare appuntamento alle ${time}`}
-                      />
+                      <div style={{
+                        flex: 1,
+                        minWidth: 0,
+                        height: "100%",
+                        boxSizing: "border-box",
+                        position: "relative",
+                      }}>
+                        {/* Slot 00-30 minuti */}
+                        <div
+                          style={{
+                            height: "30px",
+                            borderBottom: `1px solid ${THEME.border}`,
+                            cursor: "pointer",
+                            boxSizing: "border-box",
+                            position: "relative",
+                          }}
+                          onClick={() => {
+                            handleSlotClick(currentDate, hour, 0);
+                          }}
+                          onContextMenu={(e) => handleContextMenu(e)}
+                          onDragOver={(e) => handleDragOver(e, 0, hour, 0)}
+                          onDragLeave={handleDragLeave}
+                          onDrop={(e) => {
+                            handleDrop(e, currentDate, hour, 0);
+                          }}
+                          title={`Clicca per creare appuntamento alle ${pad2(hour)}:00`}
+                        >
+                          {draggingOver && draggingOver.dayIndex === 0 && 
+                           draggingOver.hour === hour && draggingOver.minute === 0 && (
+                            <div
+                              style={{
+                                position: "absolute",
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                border: `2px dashed ${THEME.blue}`,
+                                background: "rgba(37, 99, 235, 0.1)",
+                                zIndex: 1,
+                                pointerEvents: "none",
+                              }}
+                            />
+                          )}
+                        </div>
+                        
+                        {/* Slot 30-60 minuti */}
+                        <div
+                          style={{
+                            height: "30px",
+                            cursor: "pointer",
+                            boxSizing: "border-box",
+                            position: "relative",
+                          }}
+                          onClick={() => {
+                            handleSlotClick(currentDate, hour, 30);
+                          }}
+                          onContextMenu={(e) => handleContextMenu(e)}
+                          onDragOver={(e) => handleDragOver(e, 0, hour, 30)}
+                          onDragLeave={handleDragLeave}
+                          onDrop={(e) => {
+                            handleDrop(e, currentDate, hour, 30);
+                          }}
+                          title={`Clicca per creare appuntamento alle ${pad2(hour)}:30`}
+                        >
+                          {draggingOver && draggingOver.dayIndex === 0 && 
+                           draggingOver.hour === hour && draggingOver.minute === 30 && (
+                            <div
+                              style={{
+                                position: "absolute",
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                border: `2px dashed ${THEME.blue}`,
+                                background: "rgba(37, 99, 235, 0.1)",
+                                zIndex: 1,
+                                pointerEvents: "none",
+                              }}
+                            />
+                          )}
+                        </div>
+                      </div>
                     </div>
                   );
                 })}
@@ -2714,10 +3214,12 @@ Fisioterapia e Osteopatia`;
                             amount: event.amount,
                             treatment_type: event.treatment_type,
                             price_type: event.price_type,
+                            start: event.start,
+                            end: event.end,
                           });
                           setEditStatus(event.status);
                           setEditNote(event.calendar_note || "");
-                          setEditAmount(event.amount ? event.amount.toString() : "");
+                          setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
                           setEditTreatmentType(event.treatment_type || "seduta");
                           setEditPriceType(event.price_type || "invoiced");
                           
@@ -3201,7 +3703,7 @@ Fisioterapia e Osteopatia`;
                         fontSize: 13,
                       }}
                     >
-                      {treatmentType === "seduta" ? "€ 35 a nero" : "€ 20 a nero"}
+                      {treatmentType === "seduta" ? "€ 35 contanti" : "€ 20 contanti"}
                     </button>
                   </div>
                 </div>
@@ -3227,26 +3729,26 @@ Fisioterapia e Osteopatia`;
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <div style={{ fontSize: 13, fontWeight: 900, color: THEME.text }}>€</div>
                     <input
-                      value={customAmount}
-                      onChange={(e) => {
-                        const value = e.target.value.replace(/[^0-9.,]/g, '');
-                        setCustomAmount(value);
-                      }}
-                      placeholder="Importo personalizzato"
-                      style={{
-                        flex: 1,
-                        padding: "10px 12px",
-                        borderRadius: 8,
-                        border: `1px solid ${THEME.blue}`,
-                        background: "#fff",
-                        color: THEME.text,
-                        outline: "none",
-                        fontWeight: 800,
-                        fontSize: 13,
-                      }}
-                    />
+  value={customAmount}
+  onChange={(e) => {
+    const value = e.target.value;
+    setCustomAmount(value);
+  }}
+  placeholder="Importo personalizzato (0 per gratis)"
+  style={{
+    flex: 1,
+    padding: "10px 12px",
+    borderRadius: 8,
+    border: `1px solid ${THEME.blue}`,
+    background: "#fff",
+    color: THEME.text,
+    outline: "none",
+    fontWeight: 800,
+    fontSize: 13,
+  }}
+/>
                     <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 900 }}>
-                      Inserisci l'importo in euro
+                      Inserisci l'importo in euro (0 per terapia gratuita)
                     </div>
                   </div>
                 )}
@@ -3255,7 +3757,7 @@ Fisioterapia e Osteopatia`;
               <div style={{ marginTop: 12, fontSize: 13, color: THEME.muted, fontWeight: 900, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span>Totale:</span>
                 <strong style={{ color: THEME.text, fontSize: 16 }}>
-                  {useCustomPrice && customAmount ? 
+                  {useCustomPrice && customAmount !== "" ? 
                     `€ ${parseFloat(customAmount.replace(',', '.')).toFixed(2)}` :
                     treatmentType === "seduta" 
                       ? (priceType === "invoiced" ? "€ 40.00" : "€ 35.00")
@@ -3823,6 +4325,94 @@ Fisioterapia e Osteopatia`;
 
             <div style={{ marginBottom: 20, border: `1px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
               <div style={{ fontSize: 14, fontWeight: 900, color: THEME.textSoft, marginBottom: 12 }}>
+                Modifica Data e Orario
+              </div>
+              
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 8 }}>
+                    Data
+                  </label>
+                  <input
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: "#fff",
+                      color: THEME.text,
+                      outline: "none",
+                      fontWeight: 800,
+                      fontSize: 13,
+                    }}
+                  />
+                </div>
+                
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 8 }}>
+                    Orario Inizio
+                  </label>
+                  <select
+                    value={editStartTime}
+                    onChange={(e) => setEditStartTime(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: "#fff",
+                      color: THEME.text,
+                      outline: "none",
+                      fontWeight: 800,
+                      fontSize: 13,
+                    }}
+                  >
+                    {timeSelectSlots.map((time) => (
+                      <option key={time} value={time}>
+                        {time}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 8 }}>
+                    Durata
+                  </label>
+                  <select
+                    value={editDuration}
+                    onChange={(e) => setEditDuration(e.target.value as "1" | "1.5" | "2")}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: "#fff",
+                      color: THEME.text,
+                      outline: "none",
+                      fontWeight: 800,
+                      fontSize: 13,
+                    }}
+                  >
+                    <option value="1">1 ora</option>
+                    <option value="1.5">1.5 ore</option>
+                    <option value="2">2 ore</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 900, marginTop: 8 }}>
+                Nuovo orario: {editDate && editStartTime ? 
+                  `${editDate.split('-').reverse().join('/')} alle ${editStartTime}` : 
+                  "Seleziona data e orario"}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 20, border: `1px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
+              <div style={{ fontSize: 14, fontWeight: 900, color: THEME.textSoft, marginBottom: 12 }}>
                 Trattamento e Prezzo
               </div>
               
@@ -3902,7 +4492,7 @@ Fisioterapia e Osteopatia`;
                         fontSize: 12,
                       }}
                     >
-                      A nero
+                      Contanti
                     </button>
                   </div>
                 </div>
@@ -3919,7 +4509,7 @@ Fisioterapia e Osteopatia`;
                       const value = e.target.value.replace(/[^0-9.,]/g, '');
                       setEditAmount(value);
                     }}
-                    placeholder="Importo personalizzato (lasciare vuoto per prezzo standard)"
+                    placeholder="Importo personalizzato(lasciare vuoto per prezzo standard)"
                     style={{
                       flex: 1,
                       padding: "10px 12px",

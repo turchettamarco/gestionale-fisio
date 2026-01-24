@@ -17,6 +17,13 @@ const COLORS = {
   card: "#ffffff",
   border: "#e2e8f0",
   text: "#0f172a",
+  
+  // Aggiunti per il menu laterale
+  appBg: "#f1f5f9",
+  panelBg: "#ffffff",
+  panelSoft: "#f7f9fd",
+  blueDark: "#1e40af",
+  patientsAccent: "#0d9488",
 };
 
 type Period = "day" | "week" | "month";
@@ -143,10 +150,9 @@ export default function ReportsPage() {
 
       console.log(`Caricamento dati da ${fromStr} a ${toStr}`);
 
-      // 1. Fetch FATTURE (Invoices) - CORRETTO: Join con tabella patients
+      // 1. Fetch FATTURE (Invoices)
       const { data: invoicesData, error: invoicesError } = await supabase
         .from("invoices")
-        // Qui richiediamo i dati dalla tabella collegata 'patients'
         .select("id, amount, paid_at, status, patients (first_name, last_name)")
         .eq("status", "paid")
         .gte("paid_at", fromStr)
@@ -178,17 +184,15 @@ export default function ReportsPage() {
 
       if (appointmentsError) {
         console.error("Errore nel caricamento appuntamenti:", appointmentsError);
-        // Non blocchiamo se ci sono errori solo sugli appuntamenti
       }
 
       console.log("Fatture trovate:", invoicesData?.length || 0);
       console.log("Appuntamenti trovati:", appointmentsData?.length || 0);
 
-      // Processiamo FATTURE - CORRETTO: Estrazione nome paziente
+      // Processiamo FATTURE
       const invoices: FinancialItem[] = (invoicesData || []).map((i: any) => {
         const amount = parseFloat(String(i.amount)) || 0;
         
-        // Costruzione nome paziente dai dati collegati
         const patientName = i.patients 
           ? `${i.patients.last_name || ''} ${i.patients.first_name || ''}`.trim()
           : undefined;
@@ -256,8 +260,15 @@ export default function ReportsPage() {
           }
         } else if (period === "week") {
           const idx = dt.getDay(); // Domenica = 0, Lunedì = 1, etc.
-          if (idx >= 0 && idx < 7) {
-            buckets[idx] += item.amount;
+          // Adjust for JS Sunday=0, Monday=1, but labels might be Mon=0
+          // Helper startOfWeek assumes Mon=0.
+          // Let's align with makeLabels which is: Mon, Tue, Wed...
+          // JS getDay(): 0 (Sun), 1 (Mon)... 6 (Sat)
+          // We need: 0 (Mon), 1 (Tue)... 6 (Sun)
+          const adjustedIdx = (idx + 6) % 7;
+          
+          if (adjustedIdx >= 0 && adjustedIdx < 7) {
+            buckets[adjustedIdx] += item.amount;
           }
         } else {
           // month
@@ -280,6 +291,8 @@ export default function ReportsPage() {
   }
 
   useEffect(() => {
+    // Reset series when period changes to avoid mismatch flickering
+    setSeries([]); 
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period, dateStr]);
@@ -296,372 +309,403 @@ export default function ReportsPage() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: COLORS.background }}>
-      <header
+    <div style={{ display: "flex", minHeight: "100vh", background: COLORS.appBg }}>
+      {/* Menu Laterale - Stesso stile del Calendario */}
+      <aside
+        className="no-print"
         style={{
-          background: `linear-gradient(135deg, ${COLORS.primary} 0%, ${COLORS.secondary} 100%)`,
-          color: "white",
-          padding: "20px 24px",
-          borderBottom: `1px solid ${COLORS.border}`,
+          width: 250,
+          background: COLORS.panelBg,
+          borderRight: `1px solid ${COLORS.border}`,
+          padding: 16,
+          flexShrink: 0,
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 900 }}>📈 Report Incassi</h1>
-          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <Link
-              href="/calendar"
+        <div style={{ fontSize: 18, fontWeight: 900, color: COLORS.blueDark, letterSpacing: -0.2 }}>
+          FisioHub
+        </div>
+
+        <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+          <Link 
+            href="/" 
+            style={{ 
+              color: COLORS.blueDark, 
+              fontWeight: 800, 
+              textDecoration: "none", 
+              display: "flex", 
+              alignItems: "center", 
+              gap: 8,
+            }}
+          >
+            🏠 Home
+          </Link>
+          <Link 
+            href="/calendar" 
+            style={{ 
+              color: COLORS.blueDark, 
+              fontWeight: 800, 
+              textDecoration: "none",
+              display: "flex", 
+              alignItems: "center", 
+              gap: 8,
+            }}
+          >
+            📅 Calendario
+          </Link>
+          <Link 
+            href="/reports" 
+            style={{ 
+              color: COLORS.primary,
+              fontWeight: 800, 
+              textDecoration: "none",
+              display: "flex", 
+              alignItems: "center", 
+              gap: 8,
+            }}
+          >
+            📊 Report
+          </Link>
+          <Link 
+            href="/patients" 
+            style={{ 
+              color: COLORS.blueDark, 
+              fontWeight: 800, 
+              textDecoration: "none",
+              display: "flex", 
+              alignItems: "center", 
+              gap: 8,
+            }}
+          >
+            👤 Pazienti
+          </Link>
+        </div>
+
+        <div style={{ marginTop: 26, fontSize: 12, color: COLORS.muted }}>
+          Analisi dati e statistiche incassi
+        </div>
+
+        {/* Sezione Informazioni */}
+        <div style={{ marginTop: 32, padding: 12, background: COLORS.panelSoft, borderRadius: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 900, color: COLORS.blueDark, marginBottom: 6 }}>
+            ℹ️ Informazioni
+          </div>
+          <div style={{ fontSize: 11, color: COLORS.muted, lineHeight: 1.4 }}>
+            I report mostrano gli incassi provenienti da fatture pagate e appuntamenti completati.
+          </div>
+        </div>
+
+        {/* Sezione Filtri Rapidi */}
+        <div style={{ marginTop: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 900, color: COLORS.blueDark, marginBottom: 8 }}>
+            ⚡ Filtri Rapidi
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <button
+              onClick={() => {
+                setPeriod("day");
+                setDateStr(toISODate(new Date()));
+              }}
               style={{
-                background: "rgba(255,255,255,0.2)",
-                color: "white",
-                padding: "8px 14px",
-                borderRadius: 10,
-                textDecoration: "none",
-                fontWeight: 700,
-                fontSize: 13,
+                padding: "8px 12px",
+                borderRadius: 6,
+                border: `1px solid ${COLORS.border}`,
+                background: COLORS.panelSoft,
+                color: COLORS.text,
+                cursor: "pointer",
+                fontWeight: 800,
+                fontSize: 12,
+                textAlign: "left",
                 display: "flex",
                 alignItems: "center",
                 gap: 6,
-                border: "1px solid rgba(255,255,255,0.3)",
               }}
             >
-              <span>📅</span>
-              Calendario
-            </Link>
-            <Link
-              href="/"
-              style={{
-                background: "rgba(255,255,255,0.15)",
-                color: "white",
-                padding: "8px 14px",
-                borderRadius: 10,
-                textDecoration: "none",
-                fontWeight: 700,
-                fontSize: 13,
+              📅 Oggi
+            </button>
+            <button
+              onClick={() => {
+                setPeriod("week");
+                setDateStr(toISODate(new Date()));
               }}
-            >
-              ← Torna alla Home
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <main style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
-        {/* Filtri */}
-        <div
-          style={{
-            background: COLORS.card,
-            borderRadius: 16,
-            padding: 16,
-            border: `1px solid ${COLORS.border}`,
-            marginBottom: 16,
-            boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
-          }}
-        >
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-            <div
               style={{
-                display: "inline-flex",
-                background: "#eef2ff",
-                padding: 4,
-                borderRadius: 12,
+                padding: "8px 12px",
+                borderRadius: 6,
                 border: `1px solid ${COLORS.border}`,
+                background: COLORS.panelSoft,
+                color: COLORS.text,
+                cursor: "pointer",
+                fontWeight: 800,
+                fontSize: 12,
+                textAlign: "left",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
               }}
             >
-              {[
-                { k: "day", label: "Giorno", icon: "📅" },
-                { k: "week", label: "Settimana", icon: "📆" },
-                { k: "month", label: "Mese", icon: "📊" },
-              ].map((p) => (
-                <button
-                  key={p.k}
-                  onClick={() => setPeriod(p.k as Period)}
-                  style={{
-                    cursor: "pointer",
-                    padding: "8px 16px",
-                    border: "none",
-                    borderRadius: 8,
-                    fontWeight: 900,
-                    fontSize: 13,
-                    color: period === p.k ? "white" : COLORS.primary,
-                    background: period === p.k ? COLORS.primary : "transparent",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    transition: "all 0.2s",
-                  }}
-                >
-                  <span>{p.icon}</span>
-                  {p.label}
-                </button>
-              ))}
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input
-                type="date"
-                value={dateStr}
-                onChange={(e) => setDateStr(e.target.value)}
-                style={{
-                  border: `1px solid ${COLORS.border}`,
-                  background: "white",
-                  padding: "10px 12px",
-                  borderRadius: 8,
-                  fontSize: 14,
-                  fontWeight: 600,
-                  minWidth: 160,
-                }}
-              />
-              
-              <button 
-                onClick={() => setDateStr(toISODate(new Date()))}
-                style={{
-                  cursor: "pointer",
-                  padding: "10px 16px",
-                  borderRadius: 8,
-                  border: `1px solid ${COLORS.border}`,
-                  background: "white",
-                  fontWeight: 800,
-                  fontSize: 13,
-                  color: COLORS.primary,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                }}
-              >
-                <span>🎯</span>
-                Oggi
-              </button>
-
-              <button 
-                onClick={loadData}
-                disabled={loading}
-                style={{
-                  cursor: loading ? "wait" : "pointer",
-                  padding: "10px 16px",
-                  borderRadius: 8,
-                  border: `1px solid ${COLORS.accent}`,
-                  background: loading ? COLORS.muted : COLORS.accent,
-                  fontWeight: 800,
-                  fontSize: 13,
-                  color: "white",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                }}
-              >
-                <span>🔄</span>
-                {loading ? "Caricamento..." : "Ricarica"}
-              </button>
-            </div>
-
-            <div style={{ marginLeft: "auto", fontSize: 13, color: COLORS.muted, fontWeight: 700 }}>
-              {formatDateLabel(baseDate)}
-            </div>
+              📆 Settimana Corrente
+            </button>
+            <button
+              onClick={() => {
+                setPeriod("month");
+                setDateStr(toISODate(new Date()));
+              }}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 6,
+                border: `1px solid ${COLORS.border}`,
+                background: COLORS.panelSoft,
+                color: COLORS.text,
+                cursor: "pointer",
+                fontWeight: 800,
+                fontSize: 12,
+                textAlign: "left",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              📊 Mese Corrente
+            </button>
           </div>
         </div>
 
-        {/* Statistiche */}
-        <div
-          style={{
-            background: COLORS.card,
-            borderRadius: 16,
-            padding: 20,
-            border: `1px solid ${COLORS.border}`,
-            boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
-            marginBottom: 24,
-          }}
-        >
-          <div style={{ 
-            display: "flex", 
-            justifyContent: "space-between", 
-            alignItems: "center", 
-            marginBottom: 20,
-            borderBottom: `1px solid ${COLORS.border}`,
-            paddingBottom: 16 
-          }}>
-            <div>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: COLORS.text }}>
-                Statistiche Incassi
-              </h2>
-              <div style={{ color: COLORS.muted, fontSize: 13, marginTop: 4 }}>
-                {period === "day" ? "Giornaliero" : period === "week" ? "Settimanale" : "Mensile"}
-              </div>
-            </div>
-            
-            {error && (
-              <div style={{ 
-                padding: "8px 12px", 
-                background: "rgba(220,38,38,0.1)", 
-                borderRadius: 8,
-                border: `1px solid rgba(220,38,38,0.3)`,
-                color: COLORS.danger, 
-                fontWeight: "bold",
-                fontSize: 13 
-              }}>
-                ⚠️ {error}
+        {/* Statistiche Veloci */}
+        <div style={{ marginTop: 32 }}>
+          <div style={{ fontSize: 13, fontWeight: 900, color: COLORS.blueDark, marginBottom: 8 }}>
+            📈 Dati Recenti
+          </div>
+          <div style={{ fontSize: 11, color: COLORS.muted }}>
+            {rawData.length > 0 ? (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span>Totale incassato:</span>
+                  <span style={{ fontWeight: 900, color: COLORS.success }}>
+                    {currency.format(statistics.total)}
+                  </span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span>Transazioni:</span>
+                  <span style={{ fontWeight: 900, color: COLORS.primary }}>
+                    {rawData.length}
+                  </span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span>Media:</span>
+                  <span style={{ fontWeight: 900, color: COLORS.accent }}>
+                    {currency.format(statistics.averageAmount)}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div style={{ padding: 8, textAlign: "center", fontStyle: "italic" }}>
+                Nessun dato disponibile
               </div>
             )}
           </div>
+        </div>
+      </aside>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 }}>
-            {/* Totale Incassi */}
-            <div style={{
-              background: "linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)",
-              borderRadius: 12,
-              padding: 20,
-              border: `1px solid ${COLORS.border}`,
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-                <div style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 10,
-                  background: COLORS.accent,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "white",
-                  fontSize: 18,
-                }}>
-                  €
-                </div>
-                <div>
-                  <div style={{ color: COLORS.muted, fontSize: 12, fontWeight: 900, textTransform: "uppercase" }}>
-                    Totale Incassato
-                  </div>
-                  <div style={{ fontSize: 24, fontWeight: 1000, color: COLORS.accent, marginTop: 4 }}>
-                    {loading ? "..." : currency.format(statistics.total)}
-                  </div>
-                </div>
+      {/* Contenuto Principale */}
+      <main style={{ 
+  flex: 1, 
+  display: "flex", 
+  flexDirection: "column", 
+  padding: 24, 
+  minWidth: 0,
+  width: "100%",
+  overflowX: "hidden"
+}}>
+        {/* Header con titolo e pulsanti */}
+        <div style={{ width: "100%" }}>
+          <div className="no-print" style={{ 
+            display: "flex", 
+            alignItems: "center", 
+            justifyContent: "space-between", 
+            gap: 20, 
+            flexWrap: "wrap", 
+            marginBottom: 24,
+            padding: "0 4px"
+          }}>
+            <div style={{ flex: 1, minWidth: 300 }}>
+              <h1 style={{ margin: 0, color: COLORS.blueDark, fontWeight: 900, fontSize: 32, letterSpacing: -0.2 }}>
+                Report Incassi
+              </h1>
+              <div style={{ marginTop: 6, fontSize: 12, color: COLORS.muted, fontWeight: 800 }}>
+                Analisi dettagliata dei ricavi
               </div>
             </div>
 
-            {/* Numero Transazioni */}
-            <div style={{
-              background: "linear-gradient(135deg, #fef7ff 0%, #f5f3ff 100%)",
-              borderRadius: 12,
-              padding: 20,
-              border: `1px solid ${COLORS.border}`,
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-                <div style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 10,
+<div style={{ 
+  display: "flex", 
+  gap: 16, 
+  flexWrap: "wrap", 
+  alignItems: "center",
+  justifyContent: "flex-end",
+  flex: 1,
+  minWidth: "min(100%, 400px)",
+  marginTop: 8,
+  maxWidth: "100%"
+}}>
+              <Link
+                href="/calendar"
+                style={{
+                  padding: "12px 20px",
+                  borderRadius: 8,
+                  border: `1px solid ${COLORS.primary}`,
                   background: COLORS.primary,
+                  color: "white",
+                  textDecoration: "none",
+                  fontWeight: 900,
+                  fontSize: 13,
                   display: "flex",
                   alignItems: "center",
-                  justifyContent: "center",
-                  color: "white",
-                  fontSize: 18,
-                }}>
-                  📊
-                </div>
-                <div>
-                  <div style={{ color: COLORS.muted, fontSize: 12, fontWeight: 900, textTransform: "uppercase" }}>
-                    Transazioni
-                  </div>
-                  <div style={{ fontSize: 24, fontWeight: 1000, color: COLORS.primary, marginTop: 4 }}>
-                    {loading ? "..." : rawData.length}
-                  </div>
-                  <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 2 }}>
-                    {statistics.invoiceCount} fatture • {statistics.appointmentCount} appuntamenti
-                  </div>
-                </div>
-              </div>
+                  gap: 8,
+                  height: 46,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <span>📅</span>
+                Vai al Calendario
+              </Link>
+              
+              <Link
+                href="/"
+                style={{
+                  padding: "12px 20px",
+                  borderRadius: 8,
+                  border: `1px solid ${COLORS.border}`,
+                  background: COLORS.panelSoft,
+                  color: COLORS.text,
+                  textDecoration: "none",
+                  fontWeight: 900,
+                  fontSize: 13,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  height: 46,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                ← Torna alla Home
+              </Link>
             </div>
+          </div>
 
-            {/* Media per Transazione */}
-            <div style={{
-              background: "linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)",
-              borderRadius: 12,
-              padding: 20,
+          {/* Filtri */}
+          <div
+            style={{
+              background: COLORS.card,
+              borderRadius: 16,
+              padding: 16,
               border: `1px solid ${COLORS.border}`,
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-                <div style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 10,
-                  background: COLORS.success,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "white",
-                  fontSize: 18,
-                }}>
-                  📈
-                </div>
-                <div>
-                  <div style={{ color: COLORS.muted, fontSize: 12, fontWeight: 900, textTransform: "uppercase" }}>
-                    Media per Transazione
-                  </div>
-                  <div style={{ fontSize: 24, fontWeight: 1000, color: COLORS.success, marginTop: 4 }}>
-                    {loading ? "..." : currency.format(statistics.averageAmount)}
-                  </div>
-                  <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 2 }}>
-                    Min: {currency.format(statistics.minAmount)} • Max: {currency.format(statistics.maxAmount)}
-                  </div>
-                </div>
+              marginBottom: 16,
+              boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
+            }}
+          >
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+              <div
+                style={{
+                  display: "inline-flex",
+                  background: "#eef2ff",
+                  padding: 4,
+                  borderRadius: 12,
+                  border: `1px solid ${COLORS.border}`,
+                }}
+              >
+                {[
+                  { k: "day", label: "Giorno", icon: "📅" },
+                  { k: "week", label: "Settimana", icon: "📆" },
+                  { k: "month", label: "Mese", icon: "📊" },
+                ].map((p) => (
+                  <button
+                    key={p.k}
+                    onClick={() => setPeriod(p.k as Period)}
+                    style={{
+                      cursor: "pointer",
+                      padding: "8px 16px",
+                      border: "none",
+                      borderRadius: 8,
+                      fontWeight: 900,
+                      fontSize: 13,
+                      color: period === p.k ? "white" : COLORS.primary,
+                      background: period === p.k ? COLORS.primary : "transparent",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      transition: "all 0.2s",
+                    }}
+                  >
+                    <span>{p.icon}</span>
+                    {p.label}
+                  </button>
+                ))}
               </div>
-            </div>
 
-            {/* Dettaglio Fonti */}
-            <div style={{
-              background: "linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)",
-              borderRadius: 12,
-              padding: 20,
-              border: `1px solid ${COLORS.border}`,
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-                <div style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 10,
-                  background: COLORS.warning,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "white",
-                  fontSize: 18,
-                }}>
-                  🔍
-                </div>
-                <div>
-                  <div style={{ color: COLORS.muted, fontSize: 12, fontWeight: 900, textTransform: "uppercase" }}>
-                    Dettaglio Fonti
-                  </div>
-                  <div style={{ fontSize: 14, fontWeight: 900, color: COLORS.warning, marginTop: 4 }}>
-                    {statistics.invoiceCount > 0 && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                        <span style={{ fontSize: 12 }}>📄</span>
-                        Fatture: {currency.format(
-                          rawData
-                            .filter(item => item.source === 'invoice')
-                            .reduce((sum, item) => sum + item.amount, 0)
-                        )}
-                      </div>
-                    )}
-                    {statistics.appointmentCount > 0 && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 12 }}>📅</span>
-                        Appuntamenti: {currency.format(
-                          rawData
-                            .filter(item => item.source === 'appointment')
-                            .reduce((sum, item) => sum + item.amount, 0)
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input
+                  type="date"
+                  value={dateStr}
+                  onChange={(e) => setDateStr(e.target.value)}
+                  style={{
+                    border: `1px solid ${COLORS.border}`,
+                    background: "white",
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    fontSize: 14,
+                    fontWeight: 600,
+                    minWidth: 160,
+                  }}
+                />
+                
+                <button 
+                  onClick={() => setDateStr(toISODate(new Date()))}
+                  style={{
+                    cursor: "pointer",
+                    padding: "10px 16px",
+                    borderRadius: 8,
+                    border: `1px solid ${COLORS.border}`,
+                    background: "white",
+                    fontWeight: 800,
+                    fontSize: 13,
+                    color: COLORS.primary,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  <span>🎯</span>
+                  Oggi
+                </button>
+
+                <button 
+                  onClick={loadData}
+                  disabled={loading}
+                  style={{
+                    cursor: loading ? "wait" : "pointer",
+                    padding: "10px 16px",
+                    borderRadius: 8,
+                    border: `1px solid ${COLORS.accent}`,
+                    background: loading ? COLORS.muted : COLORS.accent,
+                    fontWeight: 800,
+                    fontSize: 13,
+                    color: "white",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  <span>🔄</span>
+                  {loading ? "Caricamento..." : "Ricarica"}
+                </button>
+              </div>
+
+              <div style={{ marginLeft: "auto", fontSize: 13, color: COLORS.muted, fontWeight: 700 }}>
+                {formatDateLabel(baseDate)}
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Grafico e Dettagli */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 24 }}>
-          {/* Grafico */}
+          {/* Statistiche */}
           <div
             style={{
               background: COLORS.card,
@@ -669,6 +713,7 @@ export default function ReportsPage() {
               padding: 20,
               border: `1px solid ${COLORS.border}`,
               boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
+              marginBottom: 24,
             }}
           >
             <div style={{ 
@@ -677,214 +722,432 @@ export default function ReportsPage() {
               alignItems: "center", 
               marginBottom: 20,
               borderBottom: `1px solid ${COLORS.border}`,
-              paddingBottom: 12 
+              paddingBottom: 16 
             }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: COLORS.text }}>
-                  Distribuzione Incassi
-                </h3>
-                <div style={{ color: COLORS.muted, fontSize: 12, marginTop: 2 }}>
-                  {period === "day" ? "Per ore del giorno" : 
-                   period === "week" ? "Per giorni della settimana" : 
-                   "Per giorni del mese"}
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: COLORS.text }}>
+                  Statistiche Incassi
+                </h2>
+                <div style={{ color: COLORS.muted, fontSize: 13, marginTop: 4 }}>
+                  {period === "day" ? "Giornaliero" : period === "week" ? "Settimanale" : "Mensile"}
                 </div>
               </div>
-              <div style={{ fontSize: 12, color: COLORS.muted, fontWeight: 700 }}>
-                Totale: {currency.format(series.reduce((a, b) => a + b, 0))}
-              </div>
-            </div>
-
-            {series.length > 0 ? (
-              <EnhancedBarChart labels={labels} values={series} period={period} />
-            ) : (
-              <div style={{ 
-                height: 300, 
-                display: "flex", 
-                flexDirection: "column", 
-                alignItems: "center", 
-                justifyContent: "center",
-                color: COLORS.muted,
-                fontSize: 14,
-                fontWeight: 700
-              }}>
-                📊 Nessun dato disponibile per il periodo selezionato
-                <div style={{ fontSize: 12, marginTop: 8, opacity: 0.7 }}>
-                  Prova a cambiare data o periodo
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Lista Transazioni */}
-          <div
-            style={{
-              background: COLORS.card,
-              borderRadius: 16,
-              padding: 20,
-              border: `1px solid ${COLORS.border}`,
-              boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
-              maxHeight: 600,
-              overflow: "hidden",
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
-            <div style={{ 
-              display: "flex", 
-              justifyContent: "space-between", 
-              alignItems: "center", 
-              marginBottom: 16,
-              borderBottom: `1px solid ${COLORS.border}`,
-              paddingBottom: 12 
-            }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: COLORS.text }}>
-                📋 Transazioni
-              </h3>
-              <div style={{ fontSize: 11, color: COLORS.muted, fontWeight: 700 }}>
-                {rawData.length} elementi
-              </div>
-            </div>
-
-            <div style={{ flex: 1, overflowY: "auto", paddingRight: 4 }}>
-              {loading ? (
+              
+              {error && (
                 <div style={{ 
-                  display: "flex", 
-                  alignItems: "center", 
-                  justifyContent: "center", 
-                  height: 200,
-                  color: COLORS.muted,
-                  fontSize: 14
+                  padding: "8px 12px", 
+                  background: "rgba(220,38,38,0.1)", 
+                  borderRadius: 8,
+                  border: `1px solid rgba(220,38,38,0.3)`,
+                  color: COLORS.danger, 
+                  fontWeight: "bold",
+                  fontSize: 13 
                 }}>
-                  Caricamento...
-                </div>
-              ) : rawData.length === 0 ? (
-                <div style={{ 
-                  textAlign: "center", 
-                  padding: 40, 
-                  color: COLORS.muted,
-                  fontSize: 13
-                }}>
-                  Nessuna transazione trovata
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {rawData.map((item, index) => (
-                    <div
-                      key={index}
-                      style={{
-                        padding: 12,
-                        background: item.source === 'invoice' 
-                          ? "rgba(37, 99, 235, 0.05)" 
-                          : "rgba(13, 148, 136, 0.05)",
-                        borderRadius: 8,
-                        border: `1px solid ${
-                          item.source === 'invoice' 
-                            ? "rgba(37, 99, 235, 0.2)" 
-                            : "rgba(13, 148, 136, 0.2)"
-                        }`,
-                      }}
-                    >
-                      <div style={{ 
-                        display: "flex", 
-                        justifyContent: "space-between", 
-                        alignItems: "flex-start",
-                        marginBottom: 4 
-                      }}>
-                        <div>
-                          <div style={{ 
-                            fontSize: 13, 
-                            fontWeight: 900,
-                            color: COLORS.text
-                          }}>
-                            {currency.format(item.amount)}
-                          </div>
-                          <div style={{ 
-                            fontSize: 11, 
-                            color: COLORS.muted,
-                            marginTop: 2 
-                          }}>
-                            {new Date(item.date).toLocaleDateString('it-IT', {
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </div>
-                        </div>
-                        <div style={{
-                          fontSize: 10,
-                          fontWeight: 900,
-                          padding: "2px 6px",
-                          borderRadius: 4,
-                          background: item.source === 'invoice' 
-                            ? "rgba(37, 99, 235, 0.1)" 
-                            : "rgba(13, 148, 136, 0.1)",
-                          color: item.source === 'invoice' ? COLORS.secondary : COLORS.accent,
-                        }}>
-                          {item.source === 'invoice' ? 'FATTURA' : 'APPUNTAMENTO'}
-                        </div>
-                      </div>
-                      
-                      {item.patient_name && (
-                        <div style={{ 
-                          fontSize: 11, 
-                          color: COLORS.text,
-                          marginTop: 4,
-                          fontWeight: 700
-                        }}>
-                          👤 {item.patient_name}
-                        </div>
-                      )}
-                      
-                      {item.description && (
-                        <div style={{ 
-                          fontSize: 10, 
-                          color: COLORS.muted,
-                          marginTop: 2
-                        }}>
-                          {item.description}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                  ⚠️ {error}
                 </div>
               )}
             </div>
-          </div>
-        </div>
 
-        {/* Debug Info (solo in sviluppo) */}
-        {process.env.NODE_ENV === 'development' && (
-          <div style={{ 
-            marginTop: 24, 
-            padding: 16, 
-            background: "#f8f9fa", 
-            borderRadius: 8,
-            border: "1px dashed #dee2e6",
-            fontSize: 12,
-            color: COLORS.muted
-          }}>
-            <div style={{ fontWeight: 900, marginBottom: 8 }}>🔧 Debug Info:</div>
-            <pre style={{ 
-              margin: 0, 
-              fontSize: 11, 
-              overflow: "auto", 
-              maxHeight: 200,
-              padding: 8,
-              background: "white",
-              borderRadius: 4
-            }}>
-              {JSON.stringify({
-                period,
-                dateStr,
-                baseDate: baseDate.toISOString(),
-                statistics,
-                seriesLength: series.length,
-                rawDataLength: rawData.length,
-                loading,
-                error
-              }, null, 2)}
-            </pre>
+            <div style={{ 
+  display: "grid", 
+  gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", 
+  gap: 16,
+  width: "100%"
+}}>
+              {/* Totale Incassi */}
+              <div style={{
+                background: "linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)",
+                borderRadius: 12,
+                padding: 20,
+                border: `1px solid ${COLORS.border}`,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                  <div style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    background: COLORS.accent,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "white",
+                    fontSize: 18,
+                  }}>
+                    €
+                  </div>
+                  <div>
+                    <div style={{ color: COLORS.muted, fontSize: 12, fontWeight: 900, textTransform: "uppercase" }}>
+                      Totale Incassato
+                    </div>
+                    <div style={{ fontSize: 24, fontWeight: 1000, color: COLORS.accent, marginTop: 4 }}>
+                      {loading ? "..." : currency.format(statistics.total)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Numero Transazioni */}
+              <div style={{
+                background: "linear-gradient(135deg, #fef7ff 0%, #f5f3ff 100%)",
+                borderRadius: 12,
+                padding: 20,
+                border: `1px solid ${COLORS.border}`,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                  <div style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    background: COLORS.primary,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "white",
+                    fontSize: 18,
+                  }}>
+                    📊
+                  </div>
+                  <div>
+                    <div style={{ color: COLORS.muted, fontSize: 12, fontWeight: 900, textTransform: "uppercase" }}>
+                      Transazioni
+                    </div>
+                    <div style={{ fontSize: 24, fontWeight: 1000, color: COLORS.primary, marginTop: 4 }}>
+                      {loading ? "..." : rawData.length}
+                    </div>
+                    <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 2 }}>
+                      {statistics.invoiceCount} fatture • {statistics.appointmentCount} appuntamenti
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Media per Transazione */}
+              <div style={{
+                background: "linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)",
+                borderRadius: 12,
+                padding: 20,
+                border: `1px solid ${COLORS.border}`,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                  <div style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    background: COLORS.success,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "white",
+                    fontSize: 18,
+                  }}>
+                    📈
+                  </div>
+                  <div>
+                    <div style={{ color: COLORS.muted, fontSize: 12, fontWeight: 900, textTransform: "uppercase" }}>
+                      Media per Transazione
+                    </div>
+                    <div style={{ fontSize: 24, fontWeight: 1000, color: COLORS.success, marginTop: 4 }}>
+                      {loading ? "..." : currency.format(statistics.averageAmount)}
+                    </div>
+                    <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 2 }}>
+                      Min: {currency.format(statistics.minAmount)} • Max: {currency.format(statistics.maxAmount)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dettaglio Fonti */}
+              <div style={{
+                background: "linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)",
+                borderRadius: 12,
+                padding: 20,
+                border: `1px solid ${COLORS.border}`,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                  <div style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    background: COLORS.warning,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "white",
+                    fontSize: 18,
+                  }}>
+                    🔍
+                  </div>
+                  <div>
+                    <div style={{ color: COLORS.muted, fontSize: 12, fontWeight: 900, textTransform: "uppercase" }}>
+                      Dettaglio Fonti
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 900, color: COLORS.warning, marginTop: 4 }}>
+                      {statistics.invoiceCount > 0 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                          <span style={{ fontSize: 12 }}>📄</span>
+                          Fatture: {currency.format(
+                            rawData
+                              .filter(item => item.source === 'invoice')
+                              .reduce((sum, item) => sum + item.amount, 0)
+                          )}
+                        </div>
+                      )}
+                      {statistics.appointmentCount > 0 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 12 }}>📅</span>
+                          Appuntamenti: {currency.format(
+                            rawData
+                              .filter(item => item.source === 'appointment')
+                              .reduce((sum, item) => sum + item.amount, 0)
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-        )}
+
+          {/* Grafico e Dettagli */}
+         <div style={{ 
+  display: "grid", 
+  gridTemplateColumns: "minmax(0, 1fr) 300px", 
+  gap: 24,
+  width: "100%",
+  maxWidth: "100%",
+  overflow: "hidden"
+}}>
+            {/* Grafico */}
+            <div
+  style={{
+    background: COLORS.card,
+    borderRadius: 16,
+    padding: 20,
+    border: `1px solid ${COLORS.border}`,
+    boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
+    width: "100%",
+    overflow: "hidden",
+    minWidth: 0
+  }}
+>
+              <div style={{ 
+                display: "flex", 
+                justifyContent: "space-between", 
+                alignItems: "center", 
+                marginBottom: 20,
+                borderBottom: `1px solid ${COLORS.border}`,
+                paddingBottom: 12 
+              }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: COLORS.text }}>
+                    Distribuzione Incassi
+                  </h3>
+                  <div style={{ color: COLORS.muted, fontSize: 12, marginTop: 2 }}>
+                    {period === "day" ? "Per ore del giorno" : 
+                     period === "week" ? "Per giorni della settimana" : 
+                     "Per giorni del mese"}
+                  </div>
+                </div>
+                <div style={{ fontSize: 12, color: COLORS.muted, fontWeight: 700 }}>
+                  Totale: {currency.format(series.reduce((a, b) => a + b, 0))}
+                </div>
+              </div>
+
+              {series.length > 0 ? (
+                <EnhancedBarChart labels={labels} values={series} period={period} />
+              ) : (
+                <div style={{ 
+                  height: 300, 
+                  display: "flex", 
+                  flexDirection: "column", 
+                  alignItems: "center", 
+                  justifyContent: "center",
+                  color: COLORS.muted,
+                  fontSize: 14,
+                  fontWeight: 700
+                }}>
+                  📊 Nessun dato disponibile per il periodo selezionato
+                  <div style={{ fontSize: 12, marginTop: 8, opacity: 0.7 }}>
+                    Prova a cambiare data o periodo
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Lista Transazioni */}
+           <div
+  style={{
+    background: COLORS.card,
+    borderRadius: 16,
+    padding: 20,
+    border: `1px solid ${COLORS.border}`,
+    boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
+    maxHeight: 600,
+    overflow: "hidden",
+    display: "flex",
+    flexDirection: "column",
+    width: "300px",
+    flexShrink: 0
+  }}
+>
+              <div style={{ 
+                display: "flex", 
+                justifyContent: "space-between", 
+                alignItems: "center", 
+                marginBottom: 16,
+                borderBottom: `1px solid ${COLORS.border}`,
+                paddingBottom: 12 
+              }}>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: COLORS.text }}>
+                  📋 Transazioni
+                </h3>
+                <div style={{ fontSize: 11, color: COLORS.muted, fontWeight: 700 }}>
+                  {rawData.length} elementi
+                </div>
+              </div>
+
+              <div style={{ flex: 1, overflowY: "auto", paddingRight: 4 }}>
+                {loading ? (
+                  <div style={{ 
+                    display: "flex", 
+                    alignItems: "center", 
+                    justifyContent: "center", 
+                    height: 200,
+                    color: COLORS.muted,
+                    fontSize: 14
+                  }}>
+                    Caricamento...
+                  </div>
+                ) : rawData.length === 0 ? (
+                  <div style={{ 
+                    textAlign: "center", 
+                    padding: 40, 
+                    color: COLORS.muted,
+                    fontSize: 13
+                  }}>
+                    Nessuna transazione trovata
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {rawData.map((item, index) => (
+                      <div
+                        key={index}
+                        style={{
+                          padding: 12,
+                          background: item.source === 'invoice' 
+                            ? "rgba(37, 99, 235, 0.05)" 
+                            : "rgba(13, 148, 136, 0.05)",
+                          borderRadius: 8,
+                          border: `1px solid ${
+                            item.source === 'invoice' 
+                              ? "rgba(37, 99, 235, 0.2)" 
+                              : "rgba(13, 148, 136, 0.2)"
+                          }`,
+                        }}
+                      >
+                        <div style={{ 
+                          display: "flex", 
+                          justifyContent: "space-between", 
+                          alignItems: "flex-start",
+                          marginBottom: 4 
+                        }}>
+                          <div>
+                            <div style={{ 
+                              fontSize: 13, 
+                              fontWeight: 900,
+                              color: COLORS.text
+                            }}>
+                              {currency.format(item.amount)}
+                            </div>
+                            <div style={{ 
+                              fontSize: 11, 
+                              color: COLORS.muted,
+                              marginTop: 2 
+                            }}>
+                              {new Date(item.date).toLocaleDateString('it-IT', {
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </div>
+                          </div>
+                          <div style={{
+                            fontSize: 10,
+                            fontWeight: 900,
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            background: item.source === 'invoice' 
+                              ? "rgba(37, 99, 235, 0.1)" 
+                              : "rgba(13, 148, 136, 0.1)",
+                            color: item.source === 'invoice' ? COLORS.secondary : COLORS.accent,
+                          }}>
+                            {item.source === 'invoice' ? 'FATTURA' : 'APPUNTAMENTO'}
+                          </div>
+                        </div>
+                        
+                        {item.patient_name && (
+                          <div style={{ 
+                            fontSize: 11, 
+                            color: COLORS.text,
+                            marginTop: 4,
+                            fontWeight: 700
+                          }}>
+                            👤 {item.patient_name}
+                          </div>
+                        )}
+                        
+                        {item.description && (
+                          <div style={{ 
+                            fontSize: 10, 
+                            color: COLORS.muted,
+                            marginTop: 2
+                          }}>
+                            {item.description}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Debug Info (solo in sviluppo) */}
+          {process.env.NODE_ENV === 'development' && (
+            <div style={{ 
+              marginTop: 24, 
+              padding: 16, 
+              background: "#f8f9fa", 
+              borderRadius: 8,
+              border: "1px dashed #dee2e6",
+              fontSize: 12,
+              color: COLORS.muted
+            }}>
+              <div style={{ fontWeight: 900, marginBottom: 8 }}>🔧 Debug Info:</div>
+              <pre style={{ 
+                margin: 0, 
+                fontSize: 11, 
+                overflow: "auto", 
+                maxHeight: 200,
+                padding: 8,
+                background: "white",
+                borderRadius: 4
+              }}>
+                {JSON.stringify({
+                  period,
+                  dateStr,
+                  baseDate: baseDate.toISOString(),
+                  statistics,
+                  seriesLength: series.length,
+                  rawDataLength: rawData.length,
+                  loading,
+                  error
+                }, null, 2)}
+              </pre>
+            </div>
+          )}
+        </div>
       </main>
     </div>
   );
@@ -929,7 +1192,12 @@ function EnhancedBarChart({ labels, values, period }: {
   }
 
   return (
-    <div style={{ width: "100%", overflowX: "auto", paddingBottom: 8 }}>
+    <div style={{ 
+  width: "100%", 
+  overflowX: "auto", 
+  paddingBottom: 8,
+  maxWidth: "100%"
+}}>
       <div
         style={{
           minWidth: period === 'month' ? 800 : 600,
@@ -968,6 +1236,12 @@ function EnhancedBarChart({ labels, values, period }: {
         </div>
 
         {values.map((v, i) => {
+          // FIX IMPORTANTE: Protezione contro mismatch di array
+          // Se stiamo passando da 'month' a 'week', 'values' potrebbe avere 30 elementi
+          // mentre 'labels' ne ha solo 7 finché i dati non vengono ricaricati.
+          const label = labels[i];
+          if (!label) return null;
+
           const barHeight = (v / max) * (chartHeight - 80); // 80px per etichette
           const percentage = max > 0 ? (v / max) * 100 : 0;
           const isActive = v > 0;
@@ -1004,7 +1278,7 @@ function EnhancedBarChart({ labels, values, period }: {
                 zIndex: 100,
                 boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
               }}>
-                <div>{labels[i]}</div>
+                <div>{label}</div>
                 <div style={{ fontSize: 10, opacity: 0.9, marginTop: 2 }}>
                   {currency.format(v)}
                   {total > 0 && ` (${((v / total) * 100).toFixed(1)}%)`}
@@ -1073,9 +1347,9 @@ function EnhancedBarChart({ labels, values, period }: {
                 textOverflow: "ellipsis",
                 padding: "0 2px",
               }}>
-                {period === 'month' && labels[i].length > 2 
-                  ? labels[i] 
-                  : labels[i].substring(0, 3)}
+                {period === 'month' && label.length > 2 
+                  ? label 
+                  : label.substring(0, 3)}
               </div>
             </div>
           );

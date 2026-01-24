@@ -212,7 +212,7 @@ export default function PatientsPage() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }} onClick={() => setShowIncompleteList(!showIncompleteList)}>
               <div>
                 <h2 style={{ margin: 0, fontWeight: 1000, fontSize: 18, color: THEME.amber }}>⚠️ Pazienti da Completare</h2>
-                <p style={{ margin: "4px 0 0", fontSize: 13, color: THEME.muted, fontWeight: 700 }}>Priorità: {patientsToComplete.filter(p => !p.phone).length} mancano di telefono</p>
+                <p style={{ margin: "4px 0 0", fontSize: 13, color: THEME.muted, fontWeight: 700 }}>Priorità: {patientsToComplete.filter(p => !p.phone).length} mancano num. di telefono</p>
               </div>
               <span>{showIncompleteList ? "−" : "+"}</span>
             </div>

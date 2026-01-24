@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../src/lib/supabaseClient";
 
-// --- CONFIGURAZIONE COLORI ---
 const COLORS = {
   primary: "#1e3a8a",
   secondary: "#2563eb",
@@ -19,7 +18,6 @@ const COLORS = {
   border: "#e2e8f0",
 };
 
-// --- TIPI ---
 type Appointment = {
   id: string;
   start_at: string;
@@ -35,22 +33,53 @@ type Patient = {
   birth_date?: string | null;
 };
 
-type Stats = {
+type DashboardStats = {
   totalPatients: number;
   todayAppointmentsCount: number;
   incompletePatients: number;
-  monthlyRevenue: number;
   dailyRevenue: number;
+  monthlyRevenue: number;
+  dailyStats: {
+    total: number;
+    invoiceCount: number;
+    appointmentCount: number;
+    averageAmount: number;
+    transactionCount: number;
+  };
+  monthlyStats: {
+    total: number;
+    invoiceCount: number;
+    appointmentCount: number;
+    averageAmount: number;
+    transactionCount: number;
+  };
 };
 
-// --- HELPER DATE & VALUTA ---
-
 function toYMD(d: Date) {
-  // Restituisce YYYY-MM-DD in base all'orario locale (per evitare problemi di fuso)
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
+}
+
+function startOfDay(d: Date) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function endOfDay(d: Date) {
+  const x = new Date(d);
+  x.setHours(23, 59, 59, 999);
+  return x;
+}
+
+function startOfMonth(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
+}
+
+function endOfMonth(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
 }
 
 function euro(n: number) {
@@ -61,98 +90,98 @@ function euro(n: number) {
   }
 }
 
-// --- HELPER PARSING ROBUSTI ---
+async function fetchRevenueStats(supabase: any, fromDate: Date, toDate: Date) {
+  const fromStr = fromDate.toISOString();
+  const toStr = toDate.toISOString();
 
-function parseInvoiceAmount(inv: any): number {
-  // 1. Cerca il campo contenente l'importo
-  const candidates = [
-    inv?.grand_total,
-    inv?.total_amount,
-    inv?.paid_amount,
-    inv?.amount,
-    inv?.total,
-    inv?.importo,
-    inv?.totale,
-    inv?.prezzo,
-  ];
+  // 1. Fatture del periodo
+  const { data: invoicesData } = await supabase
+    .from("invoices")
+    .select("id, amount, paid_at, status, patients (first_name, last_name)")
+    .eq("status", "paid")
+    .gte("paid_at", fromStr)
+    .lte("paid_at", toStr)
+    .order("paid_at", { ascending: true });
 
-  const val = candidates.find((x) => x !== undefined && x !== null && x !== "");
-  if (val === undefined) return 0;
+  // 2. Appuntamenti del periodo
+  const { data: appointmentsData } = await supabase
+    .from("appointments")
+    .select(`
+      id,
+      amount,
+      start_at,
+      status,
+      treatment_type,
+      price_type,
+      patients (first_name, last_name)
+    `)
+    .eq("status", "done")
+    .gt("amount", 0)
+    .gte("start_at", fromStr)
+    .lte("start_at", toStr)
+    .order("start_at", { ascending: true });
 
-  // 2. Se è già numero, ritorna
-  if (typeof val === "number") return val;
+  // Processa fatture
+  const invoices = (invoicesData || []).map((i: any) => {
+    const amount = parseFloat(String(i.amount)) || 0;
+    return { amount, date: i.paid_at, source: 'invoice' as const };
+  }).filter(item => item.amount > 0);
 
-  // 3. Se è stringa, pulisci e converti
-  if (typeof val === "string") {
-    // Rimuovi tutto ciò che non è numero, virgola, punto o meno
-    let clean = val.replace(/[^0-9,.-]/g, ""); 
-    
-    // Gestione formato italiano (1.200,50 -> 1200.50)
-    // Se c'è una virgola, assumiamo sia il decimale e rimuoviamo i punti delle migliaia
-    if (clean.includes(",")) {
-      clean = clean.replace(/\./g, "").replace(",", ".");
-    }
-    
-    const num = parseFloat(clean);
-    return Number.isFinite(num) ? num : 0;
-  }
+  // Processa appuntamenti
+  const appointments = (appointmentsData || []).map((a: any) => {
+    const amount = parseFloat(String(a.amount)) || 0;
+    return { amount, date: a.start_at, source: 'appointment' as const };
+  }).filter(item => item.amount > 0);
 
-  return 0;
+  // Combina i dati
+  const allData = [...invoices, ...appointments];
+  const amounts = allData.map(item => item.amount);
+  const total = amounts.reduce((sum, amount) => sum + amount, 0);
+  const invoiceCount = invoices.length;
+  const appointmentCount = appointments.length;
+  const averageAmount = amounts.length > 0 ? total / amounts.length : 0;
+
+  return {
+    total,
+    invoiceCount,
+    appointmentCount,
+    averageAmount,
+    transactionCount: allData.length,
+  };
 }
-
-function parseInvoiceDate(inv: any): Date | null {
-  // Priorità: Data Pagamento -> Data Emissione -> Data Creazione Record
-  const candidates = [
-    inv?.paid_at,
-    inv?.payment_date,
-    inv?.paid_date,
-    inv?.issued_at,
-    inv?.date,
-    inv?.data,
-    inv?.created_at
-  ];
-
-  const v = candidates.find((x) => typeof x === "string" && x.length >= 10);
-  if (!v) return null;
-
-  const d = new Date(v);
-  return Number.isFinite(d.getTime()) ? d : null;
-}
-
-function isLikelyPaid(inv: any): boolean {
-  const s = String(inv?.status || "").toLowerCase().trim();
-  // Se vuoto, lo contiamo (assumiamo OK)
-  if (!s) return true;
-
-  // Escludi solo ciò che è esplicitamente annullato o bozza
-  const unpaidKeywords = ["draft", "bozza", "annullata", "void", "canceled", "refunded"];
-  if (unpaidKeywords.some((k) => s.includes(k))) return false;
-
-  return true;
-}
-
-// --- COMPONENTE PRINCIPALE ---
 
 export default function HomePage() {
   const router = useRouter();
 
   const [todayAppointments, setTodayAppointments] = useState<Appointment[]>([]);
   const [recentPatients, setRecentPatients] = useState<Patient[]>([]);
-  
-  const [stats, setStats] = useState<Stats>({
+  const [stats, setStats] = useState<DashboardStats>({
     totalPatients: 0,
     todayAppointmentsCount: 0,
     incompletePatients: 0,
-    monthlyRevenue: 0,
     dailyRevenue: 0,
+    monthlyRevenue: 0,
+    dailyStats: {
+      total: 0,
+      invoiceCount: 0,
+      appointmentCount: 0,
+      averageAmount: 0,
+      transactionCount: 0,
+    },
+    monthlyStats: {
+      total: 0,
+      invoiceCount: 0,
+      appointmentCount: 0,
+      averageAmount: 0,
+      transactionCount: 0,
+    },
   });
-  
   const [loading, setLoading] = useState(true);
 
-  // Date per UI
   const todayYMD = useMemo(() => toYMD(new Date()), []);
+  const today = new Date();
   const greetings = ["Buongiorno", "Buon pomeriggio", "Buonasera"];
-  const currentHour = new Date().getHours();
+  const currentHour = today.getHours();
   const greeting = currentHour < 12 ? greetings[0] : currentHour < 18 ? greetings[1] : greetings[2];
 
   useEffect(() => {
@@ -163,96 +192,61 @@ export default function HomePage() {
   async function loadDashboardData() {
     setLoading(true);
 
-    try {
-      const now = new Date();
-      const currentYMD = toYMD(now);          // Es: "2024-03-25"
-      const currentMonthISO = currentYMD.substring(0, 7); // Es: "2024-03"
+    const startISO = `${todayYMD}T00:00:00`;
+    const endISO = `${todayYMD}T23:59:59`;
 
-      const startOfDay = `${currentYMD}T00:00:00`;
-      const endOfDay = `${currentYMD}T23:59:59`;
+    // 1) Appuntamenti di oggi
+    const { data: appointments } = await supabase
+      .from("appointments")
+      .select("*, patients(first_name, last_name)")
+      .gte("start_at", startISO)
+      .lt("start_at", endISO)
+      .order("start_at", { ascending: true })
+      .limit(5);
 
-      // 1) Appuntamenti di OGGI
-      const { data: appointments } = await supabase
-        .from("appointments")
-        .select("*, patients(first_name, last_name)")
-        .gte("start_at", startOfDay)
-        .lt("start_at", endOfDay)
-        .order("start_at", { ascending: true });
+    // 2) Ultimi pazienti
+    const { data: patients } = await supabase
+      .from("patients")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(5);
 
-      // 2) Pazienti Recenti
-      const { data: patients } = await supabase
-        .from("patients")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(5);
+    // 3) Totale pazienti
+    const { count: totalPatients } = await supabase
+      .from("patients")
+      .select("*", { count: "exact", head: true });
 
-      // 3) Totale Pazienti
-      const { count: totalPatients } = await supabase
-        .from("patients")
-        .select("*", { count: "exact", head: true });
+    const incomplete = (patients || []).filter((p: any) => !p.phone || !p.birth_date).length;
 
-      const incompleteCount = (patients || []).filter((p: any) => !p.phone || !p.birth_date).length;
+    // 4) Statistiche giornaliere (oggi)
+    const dailyStats = await fetchRevenueStats(
+      supabase,
+      startOfDay(today),
+      endOfDay(today)
+    );
 
-      // 4) INCASSI
-      // Scarichiamo un range ampio per essere sicuri di prendere tutto, poi filtriamo in JS
-      // (Limit 2000 è sufficiente per l'anno corrente nella maggior parte dei casi)
-      const yearStart = `${now.getFullYear()}-01-01T00:00:00`;
-      
-      const { data: invoices } = await supabase
-        .from("invoices")
-        .select("*")
-        .gte("created_at", yearStart) 
-        .order("created_at", { ascending: false })
-        .limit(2000);
+    // 5) Statistiche mensili (questo mese)
+    const monthlyStats = await fetchRevenueStats(
+      supabase,
+      startOfMonth(today),
+      endOfMonth(today)
+    );
 
-      let dailyRevenue = 0;
-      let monthlyRevenue = 0;
+    setTodayAppointments((appointments as any[]) || []);
+    setRecentPatients((patients as any[]) || []);
+    setStats({
+      totalPatients: totalPatients || 0,
+      todayAppointmentsCount: (appointments as any[])?.length || 0,
+      incompletePatients: incomplete || 0,
+      dailyRevenue: dailyStats.total,
+      monthlyRevenue: monthlyStats.total,
+      dailyStats,
+      monthlyStats,
+    });
 
-      if (invoices) {
-        for (const inv of invoices) {
-          // Filtra bozze/annullate
-          if (!isLikelyPaid(inv)) continue;
-
-          const amount = parseInvoiceAmount(inv);
-          const d = parseInvoiceDate(inv);
-          
-          if (!d) continue;
-
-          // Converti data incasso in stringa locale YYYY-MM-DD
-          const invYMD = toYMD(d);
-          const invMonth = invYMD.substring(0, 7); // YYYY-MM
-
-          // SOMMA MESE CORRENTE
-          if (invMonth === currentMonthISO) {
-            monthlyRevenue += amount;
-            
-            // SOMMA GIORNO CORRENTE
-            if (invYMD === currentYMD) {
-              dailyRevenue += amount;
-            }
-          }
-        }
-      }
-
-      setTodayAppointments((appointments as any[]) || []);
-      setRecentPatients((patients as any[]) || []);
-      
-      setStats({
-        totalPatients: totalPatients || 0,
-        todayAppointmentsCount: (appointments as any[])?.length || 0,
-        incompletePatients: incompleteCount,
-        monthlyRevenue,
-        dailyRevenue,
-      });
-
-    } catch (error) {
-      console.error("Errore caricamento dashboard:", error);
-    } finally {
-      setLoading(false);
-    }
+    setLoading(false);
   }
 
-  // --- HANDLERS ---
   const quickLinks = [
     { icon: "📅", title: "Calendario", desc: "Gestisci appuntamenti", href: "/calendar", color: COLORS.primary },
     { icon: "👥", title: "Pazienti", desc: "Anagrafica completa", href: "/patients", color: COLORS.accent },
@@ -267,11 +261,15 @@ export default function HomePage() {
   };
 
   const goToReportsDay = () => {
-    router.push(`/reports?range=day&date=${todayYMD}`);
+    router.push(`/reports?period=day&date=${todayYMD}`);
   };
 
   const goToReportsMonth = () => {
-    router.push(`/reports?range=month&date=${todayYMD}`);
+    router.push(`/reports?period=month&date=${todayYMD}`);
+  };
+
+  const goToReports = () => {
+    router.push("/reports");
   };
 
   if (loading) {
@@ -325,7 +323,7 @@ export default function HomePage() {
       </header>
 
       <main style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
-        {/* WELCOME */}
+        {/* WELCOME MESSAGE */}
         <div
           style={{
             background: COLORS.card,
@@ -339,11 +337,12 @@ export default function HomePage() {
           <h2 style={{ margin: 0, fontSize: 22, color: COLORS.primary }}>{greeting}, Dottore! 👋</h2>
           <div style={{ marginTop: 8, fontSize: 14, color: COLORS.muted }}>
             Hai {stats.todayAppointmentsCount} appuntamenti oggi •{" "}
-            {stats.incompletePatients > 0 && `${stats.incompletePatients} pazienti recenti da completare`}
+            {stats.incompletePatients > 0 && `${stats.incompletePatients} pazienti da completare`}
+            {stats.dailyStats.total > 0 && ` • ${euro(stats.dailyStats.total)} incassati oggi`}
           </div>
         </div>
 
-        {/* QUICK ACCESS */}
+        {/* QUICK ACCESS CARDS */}
         <div style={{ marginBottom: 24 }}>
           <h3 style={{ margin: "0 0 16px 0", color: COLORS.primary, fontSize: 18 }}>Accesso Rapido</h3>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 16 }}>
@@ -383,9 +382,9 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* TWO COLS */}
+        {/* TWO COLUMNS LAYOUT */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
-          {/* OGGI */}
+          {/* COLONNA SINISTRA: Appuntamenti di Oggi */}
           <div
             style={{
               background: COLORS.card,
@@ -406,7 +405,7 @@ export default function HomePage() {
                   alignItems: "center",
                   gap: 8,
                 }}
-                title="Apri il calendario in vista giorno"
+                title="Apri il calendario in vista giorno (oggi)"
               >
                 <h3 style={{ margin: 0, color: COLORS.primary, fontSize: 18 }}>📅 Appuntamenti di Oggi</h3>
                 <span style={{ fontSize: 12, color: COLORS.muted, fontWeight: 800 }}>→ vista giorno</span>
@@ -430,7 +429,7 @@ export default function HomePage() {
               <div style={{ textAlign: "center", padding: 40, color: COLORS.muted }}>Nessun appuntamento oggi</div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {todayAppointments.slice(0, 5).map((appt, idx) => (
+                {todayAppointments.map((appt, idx) => (
                   <div
                     key={appt.id}
                     style={{
@@ -441,7 +440,7 @@ export default function HomePage() {
                       cursor: "pointer",
                     }}
                     onClick={goToTodayDayView}
-                    title="Apri calendario"
+                    title="Apri vista giorno del calendario"
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <div>
@@ -449,6 +448,7 @@ export default function HomePage() {
                           style={{
                             display: "inline-block",
                             fontSize: 14,
+                            fontWeight: 0,
                             color: COLORS.primary,
                             background: "rgba(37,99,235,0.08)",
                             padding: "2px 8px",
@@ -461,7 +461,15 @@ export default function HomePage() {
                             minute: "2-digit",
                           })}
                         </div>
-                        <div style={{ fontSize: 14, marginTop: 4, color: COLORS.primary, fontWeight: 700 }}>
+
+                        <div
+                          style={{
+                            fontSize: 14,
+                            marginTop: 4,
+                            color: COLORS.primary,
+                            fontWeight: 700,
+                          }}
+                        >
                           {appt.patients?.first_name} {appt.patients?.last_name}
                         </div>
                       </div>
@@ -512,7 +520,7 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* PAZIENTI RECENTI */}
+          {/* COLONNA DESTRA: Pazienti Recenti */}
           <div
             style={{
               background: COLORS.card,
@@ -546,7 +554,10 @@ export default function HomePage() {
                   <Link
                     key={patient.id}
                     href={`/patients/${patient.id}`}
-                    style={{ textDecoration: "none", color: "inherit" }}
+                    style={{
+                      textDecoration: "none",
+                      color: "inherit",
+                    }}
                   >
                     <div
                       style={{
@@ -609,13 +620,13 @@ export default function HomePage() {
                   fontSize: 14,
                 }}
               >
-                Vai a Lista Pazienti →
+                Vai a Lista Pazienti Completa →
               </Link>
             </div>
           </div>
         </div>
 
-        {/* STATISTICHE (Incassi) */}
+        {/* STATISTICHE VELOCI CON DATI REPORT */}
         <div
           style={{
             marginTop: 24,
@@ -626,14 +637,47 @@ export default function HomePage() {
             boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
           }}
         >
-          <h3 style={{ margin: "0 0 16px 0", color: COLORS.primary, fontSize: 18 }}>📊 Statistiche Rapide</h3>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <h3 style={{ margin: 0, color: COLORS.primary, fontSize: 18 }}>📊 Statistiche Rapide</h3>
+            <button
+              type="button"
+              onClick={goToReports}
+              style={{
+                all: "unset",
+                cursor: "pointer",
+                fontSize: 13,
+                fontWeight: 700,
+                color: COLORS.primary,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "8px 12px",
+                borderRadius: 8,
+                background: "rgba(37, 99, 235, 0.1)",
+                transition: "all 0.2s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(37, 99, 235, 0.2)";
+                e.currentTarget.style.transform = "translateY(-1px)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "rgba(37, 99, 235, 0.1)";
+                e.currentTarget.style.transform = "translateY(0)";
+              }}
+            >
+              <span>📈</span>
+              Vai ai Report Completi →
+            </button>
+          </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 20 }}>
+            {/* Pazienti Totali */}
             <div style={{ textAlign: "center" }}>
               <div style={{ fontSize: 32, fontWeight: 1000, color: COLORS.primary }}>{stats.totalPatients}</div>
               <div style={{ fontSize: 13, color: COLORS.muted, marginTop: 4 }}>Pazienti Totali</div>
             </div>
 
+            {/* Appuntamenti Oggi */}
             <div style={{ textAlign: "center" }}>
               <div style={{ fontSize: 32, fontWeight: 1000, color: COLORS.success }}>{stats.todayAppointmentsCount}</div>
               <div style={{ fontSize: 13, color: COLORS.muted, marginTop: 4 }}>Appuntamenti Oggi</div>
@@ -657,11 +701,13 @@ export default function HomePage() {
               onMouseLeave={(e) => {
                 (e.currentTarget as HTMLButtonElement).style.background = "transparent";
               }}
-              title="Vedi Report Giornaliero"
+              title="Apri Report (incassato oggi)"
             >
-              <div style={{ fontSize: 28, fontWeight: 1000, color: COLORS.success }}>{euro(stats.dailyRevenue)}</div>
+              <div style={{ fontSize: 28, fontWeight: 1000, color: COLORS.success }}>{euro(stats.dailyStats.total)}</div>
               <div style={{ fontSize: 13, color: COLORS.muted, marginTop: 4 }}>Incassato Oggi</div>
-              <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 2 }}>→ Report</div>
+              <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 2 }}>
+                {stats.dailyStats.transactionCount} transazioni • Media: {euro(stats.dailyStats.averageAmount)}
+              </div>
             </button>
 
             {/* INCASSATO MESE */}
@@ -682,12 +728,48 @@ export default function HomePage() {
               onMouseLeave={(e) => {
                 (e.currentTarget as HTMLButtonElement).style.background = "transparent";
               }}
-              title="Vedi Report Mensile"
+              title="Apri Report (incassato mese)"
             >
-              <div style={{ fontSize: 28, fontWeight: 1000, color: COLORS.accent }}>{euro(stats.monthlyRevenue)}</div>
+              <div style={{ fontSize: 28, fontWeight: 1000, color: COLORS.accent }}>{euro(stats.monthlyStats.total)}</div>
               <div style={{ fontSize: 13, color: COLORS.muted, marginTop: 4 }}>Incassato Mese</div>
-              <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 2 }}>→ Report</div>
+              <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 2 }}>
+                {stats.monthlyStats.transactionCount} transazioni • Media: {euro(stats.monthlyStats.averageAmount)}
+              </div>
             </button>
+          </div>
+
+          {/* DETTAGLIO FONTI */}
+          <div style={{ marginTop: 20, padding: 16, background: "rgba(241,245,249,0.5)", borderRadius: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 900, color: COLORS.primary, marginBottom: 12 }}>
+              📋 Dettaglio Fonti Incassi
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              {/* Oggi */}
+              <div>
+                <div style={{ fontSize: 12, color: COLORS.muted, fontWeight: 700, marginBottom: 8 }}>Oggi</div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                  <span style={{ color: COLORS.success }}>📄 Fatture: <strong>{stats.dailyStats.invoiceCount}</strong></span>
+                  <span>{euro(stats.dailyStats.total * (stats.dailyStats.invoiceCount / Math.max(stats.dailyStats.transactionCount, 1)))}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginTop: 4 }}>
+                  <span style={{ color: COLORS.accent }}>📅 Appuntamenti: <strong>{stats.dailyStats.appointmentCount}</strong></span>
+                  <span>{euro(stats.dailyStats.total * (stats.dailyStats.appointmentCount / Math.max(stats.dailyStats.transactionCount, 1)))}</span>
+                </div>
+              </div>
+
+              {/* Questo Mese */}
+              <div>
+                <div style={{ fontSize: 12, color: COLORS.muted, fontWeight: 700, marginBottom: 8 }}>Questo Mese</div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                  <span style={{ color: COLORS.success }}>📄 Fatture: <strong>{stats.monthlyStats.invoiceCount}</strong></span>
+                  <span>{euro(stats.monthlyStats.total * (stats.monthlyStats.invoiceCount / Math.max(stats.monthlyStats.transactionCount, 1)))}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginTop: 4 }}>
+                  <span style={{ color: COLORS.accent }}>📅 Appuntamenti: <strong>{stats.monthlyStats.appointmentCount}</strong></span>
+                  <span>{euro(stats.monthlyStats.total * (stats.monthlyStats.appointmentCount / Math.max(stats.monthlyStats.transactionCount, 1)))}</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </main>
@@ -703,13 +785,22 @@ export default function HomePage() {
           fontSize: 13,
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", maxWidth: 1200, margin: "0 auto" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            maxWidth: 1200,
+            margin: "0 auto",
+          }}
+        >
           <div>
             <strong>© 2024 Studio Medico</strong> • Tutti i diritti riservati
           </div>
           <div style={{ display: "flex", gap: 20 }}>
             <span>🟢 Sistema Online</span>
             <span>🔄 Ultimo backup: oggi 03:00</span>
+            <span>📞 Supporto: +39 3209631792</span>
           </div>
         </div>
       </footer>
