@@ -2533,7 +2533,8 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
               <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginRight: 8 }}>
                 FILTRI STATO:
               </div>
-              {["all", "booked", "confirmed", "done", "no_show", "cancelled"].map((status) => (
+              {["all", "booked", "confirmed", "done", "not_paid", "cancelled"]
+.map((status) => (
                 <button
                   key={status}
                   onClick={() => setStatusFilter(status as any)}
@@ -4718,7 +4719,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                     <option value="booked">Prenotato</option>
                     <option value="confirmed">Confermato</option>
                     <option value="done">Eseguito</option>
-                    <option value="no_show">Non pagata</option>
+                    <option value="not_paid">Non pagata</option>
                     <option value="cancelled">Annullato</option>
                   </select>
                 </label>
