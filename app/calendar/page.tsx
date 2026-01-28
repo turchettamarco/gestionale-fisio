@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../src/lib/supabaseClient";
+import { useSearchParams } from "next/navigation";
+
 
 type Status = "booked" | "confirmed" | "done" | "cancelled" | "no_show";
 type LocationType = "studio" | "domicile";
@@ -197,6 +199,7 @@ const CLINIC_ADDRESSES: Record<string, string> = {
 };
 
 export default function CalendarPage() {
+  const params = useSearchParams();
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -1607,6 +1610,53 @@ const updateData: any = {
       </div>
     ));
   }, [events, showAvailableOnly, handleSlotClick, handleContextMenu, handleDragOver, handleDragLeave, handleDrop]);
+
+useEffect(() => {
+  if (typeof window === "undefined") return;
+
+  const isNew = params.get("new");
+  if (isNew !== "1") return;
+
+  // evita doppia apertura
+  if (createOpen) return;
+
+  const dateStr = params.get("date");
+  const view = params.get("view");
+
+  // forza vista giorno
+  setViewType(view === "week" ? "week" : "day");
+
+  // imposta data
+  let d = new Date();
+  if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [y, m, day] = dateStr.split("-").map(Number);
+    d = new Date(y, m - 1, day);
+  }
+  // scegli uno slot libero “furbo”
+const slots = getAvailableSlots(d);
+const now = new Date();
+const isToday =
+  d.getFullYear() === now.getFullYear() &&
+  d.getMonth() === now.getMonth() &&
+  d.getDate() === now.getDate();
+
+let chosen = slots[0]?.start ?? new Date(d);
+if (isToday) {
+  const candidate = slots.find(s => s.start.getTime() >= now.getTime() + 10 * 60 * 1000);
+  if (candidate) chosen = candidate.start;
+}
+
+setCurrentDate(chosen);
+
+// apre modale creazione
+openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
+
+
+  // pulizia URL
+  const url = new URL(window.location.href);
+  url.searchParams.delete("new");
+  window.history.replaceState({}, "", url.toString());
+}, []);
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: THEME.appBg }}>
