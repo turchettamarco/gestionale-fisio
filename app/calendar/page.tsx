@@ -709,8 +709,9 @@ const mapped = (data ?? []).map(
       }>;
     }
   ) => {
-    const p = a.patients?.[0];
-    const name = p ? `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() : "Paziente";
+    const patient = Array.isArray(a.patients) ? a.patients[0] : a.patients;
+const name = patient ? `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim() : "Paziente";
+
 
     return {
       id: a.id,
