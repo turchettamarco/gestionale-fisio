@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../src/lib/supabaseClient";
 import { useSearchParams } from "next/navigation";
 
@@ -199,6 +199,16 @@ const CLINIC_ADDRESSES: Record<string, string> = {
 };
 
 export default function CalendarPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: 24 }}>Caricamento calendario…</div>}>
+      <CalendarPageInner />
+    </Suspense>
+  );
+}
+
+
+function CalendarPageInner() {
+
   const params = useSearchParams();
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
