@@ -6,7 +6,8 @@ import { supabase } from "../../src/lib/supabaseClient";
 import { useSearchParams } from "next/navigation";
 
 
-type Status = "booked" | "confirmed" | "done" | "cancelled" | "no_show";
+type Status = "booked" | "confirmed" | "done" | "cancelled" | "not_paid";
+
 type LocationType = "studio" | "domicile";
 
 type AppointmentRow = {
@@ -63,8 +64,8 @@ function statusColor(status: Status) {
       return THEME.green;
     case "confirmed":
       return THEME.blue;
-    case "no_show":
-      return THEME.amber;
+    case "not_paid":
+      return THEME.amber; // oppure THEME.red se vuoi più “urgente”
     case "cancelled":
       return THEME.gray;
     case "booked":
@@ -73,13 +74,14 @@ function statusColor(status: Status) {
   }
 }
 
+
 function statusLabel(status: Status) {
   switch (status) {
     case "confirmed":
       return "Confermato";
     case "done":
       return "Eseguito";
-    case "no_show":
+    case "not_paid":
       return "Non pagata";
     case "cancelled":
       return "Annullato";
@@ -87,6 +89,7 @@ function statusLabel(status: Status) {
       return "Prenotato";
   }
 }
+
 
 function fmtTime(iso: string) {
   const d = new Date(iso);
