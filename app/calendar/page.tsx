@@ -729,9 +729,10 @@ const name = patient ? `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.
 
       // dati paziente (prima riga della relazione)
       patient_name: name,
-      patient_phone: p?.phone ?? null,
-      treatment: p?.treatment ?? null,
-      diagnosis: p?.diagnosis ?? null,
+      patient_phone: patient?.phone ?? null,
+treatment: patient?.treatment ?? null,
+diagnosis: patient?.diagnosis ?? null,
+
     };
   }
 );
