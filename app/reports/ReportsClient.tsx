@@ -131,6 +131,18 @@ type Statistic = {
   unpaidInvoiceCount: number;
 };
 
+function logSupabaseError(label: string, err: any) {
+  if (!err) return;
+  console.error(label, {
+    message: err?.message,
+    details: err?.details,
+    hint: err?.hint,
+    code: err?.code,
+    status: err?.status,
+    name: err?.name,
+  });
+}
+
 export default function ReportsPage() {
   const params = useSearchParams();
   const initialPeriod = (params.get("period") as Period) || "month";
@@ -226,7 +238,7 @@ export default function ReportsPage() {
         .order("created_at", { ascending: true });
 
       if (unpaidInvoicesError) {
-        console.error("Errore nel caricamento fatture non pagate:", unpaidInvoicesError);
+        logSupabaseError("Errore nel caricamento fatture non pagate:", unpaidInvoicesError);
       } else {
         unpaidInvoicesData = unpaidInvoices || [];
       }
