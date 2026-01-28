@@ -125,13 +125,15 @@ async function fetchRevenueStats(supabase: any, fromDate: Date, toDate: Date) {
   const invoices = (invoicesData || []).map((i: any) => {
     const amount = parseFloat(String(i.amount)) || 0;
     return { amount, date: i.paid_at, source: 'invoice' as const };
-  }).filter(item => item.amount > 0);
+  }).filter((item: { amount: number; date: any; source: "invoice" | "appointment" }) => item.amount > 0);
+
 
   // Processa appuntamenti
   const appointments = (appointmentsData || []).map((a: any) => {
     const amount = parseFloat(String(a.amount)) || 0;
     return { amount, date: a.start_at, source: 'appointment' as const };
-  }).filter(item => item.amount > 0);
+  }).filter((item: { amount: number; date: any; source: "invoice" | "appointment" }) => item.amount > 0);
+
 
   // Combina i dati
   const allData = [...invoices, ...appointments];

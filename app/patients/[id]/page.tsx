@@ -796,7 +796,8 @@ export default function PatientDetailPage({
           </Link>
         </div>
 
-        <div style={{ marginTop: 26, fontSize: 12, color: THEME.muted }}>
+        <div style={{ marginTop: 26, fontSize: 12, color: THEME.textMuted
+ }}>
           Scheda paziente
         </div>
       </div>

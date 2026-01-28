@@ -685,30 +685,55 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
       return;
     }
 
-    const mapped = (data ?? []).map((a: AppointmentRow & { treatment_type?: string; price_type?: string; amount?: number; patients?: { phone?: string } }) => {
-      const name = a.patients ? `${a.patients.first_name} ${a.patients.last_name}` : "Paziente";
-      const title = name;
+const mapped = (data ?? []).map(
+  (
+    a: {
+      id: string;
+      patient_id: string;
+      start_at: string;
+      end_at: string;
+      status: string;
+      calendar_note?: string | null;
+      location?: string | null;
+      clinic_site?: string | null;
+      domicile_address?: string | null;
+      treatment_type?: string | null;
+      price_type?: string | null;
+      amount?: number | null;
+      patients?: Array<{
+        first_name?: string;
+        last_name?: string;
+        treatment?: string;
+        diagnosis?: string;
+        phone?: string;
+      }>;
+    }
+  ) => {
+    const p = a.patients?.[0];
+    const name = p ? `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() : "Paziente";
 
-      return {
-        id: a.id,
-        title,
-        start: new Date(a.start_at),
-        end: new Date(a.end_at),
-        status: a.status,
-        patient_id: a.patient_id,
-        location: a.location,
-        clinic_site: a.clinic_site,
-        domicile_address: a.domicile_address,
-        treatment: a.patients?.treatment || null,
-        diagnosis: a.patients?.diagnosis || null,
-        patient_phone: a.patients?.phone || null,
-        patient_name: name,
-        calendar_note: a.calendar_note,
-        treatment_type: a.treatment_type || "seduta",
-        price_type: a.price_type || "invoiced",
-        amount: a.amount
-      };
-    });
+    return {
+      id: a.id,
+      title: name,
+      start: new Date(a.start_at),
+      end: new Date(a.end_at),
+      status: a.status,
+      calendar_note: a.calendar_note ?? null,
+      location: a.location ?? null,
+      clinic_site: a.clinic_site ?? null,
+      domicile_address: a.domicile_address ?? null,
+      treatment_type: a.treatment_type ?? null,
+      price_type: a.price_type ?? null,
+      amount: a.amount ?? null,
+
+      // dati paziente (prima riga della relazione)
+      patient_name: name,
+      patient_phone: p?.phone ?? null,
+      treatment: p?.treatment ?? null,
+      diagnosis: p?.diagnosis ?? null,
+    };
+  }
+);
 
     setEvents(mapped);
     setLoading(false);
@@ -918,7 +943,7 @@ Fisioterapia e Osteopatia`;
     if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
       console.log("window.open bloccato, provo con location.href");
       
-      const manualOpen = confirm(
+      const manualOpen = window.confirm(
         `Il browser ha bloccato l'apertura automatica di WhatsApp.\n\n` +
         `URL: ${whatsappUrl}\n\n` +
         `Clicca OK per provare ad aprire, oppure Annulla per copiare il link.`
@@ -1307,14 +1332,20 @@ window.open(whatsappUrl, '_blank');
     newEndDate = new Date(newStartDate.getTime() + durationHours * 60 * 60000);
   }
 
-  const updateData: any = {
-    status: editStatus,
-    calendar_note: editNote.trim() || null,
-    treatment_type: editTreatmentType,
-    price_type: editPriceType,
-    start_at: newStartDate.toISOString(),
-    end_at: newEndDate.toISOString(),
-  };
+ if (!newStartDate || !newEndDate) {
+  alert("Errore: data o ora non valida");
+  return;
+}
+
+const updateData: any = {
+  status: editStatus,
+  calendar_note: editNote.trim() || null,
+  treatment_type: editTreatmentType,
+  price_type: editPriceType,
+  start_at: newStartDate.toISOString(),
+  end_at: newEndDate.toISOString(),
+};
+
 
   if (amount !== null) {
     updateData.amount = amount;
