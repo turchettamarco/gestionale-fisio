@@ -1,18 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 
 /**
  * app/mobile/page.tsx
- * Home mobile: Oggi + azioni rapide + alert (incompleti, non pagati) + bottom nav
- * Nota: questo è scheletro. Qui tieni TUTTO in un file per partire veloce.
- * Poi, quando è stabile, spacchetti in componenti.
+ * Home mobile: Oggi + azioni rapide + alert + bottom nav
  */
 
-type ApptStatus = "booked" | "confirmed" | "done" | "not_paid" | string;
+type ApptStatus = "booked" | "confirmed" | "done" | "cancelled" | "not_paid" | string;
 
 type Appointment = {
   id: string;
@@ -20,18 +18,8 @@ type Appointment = {
   status: ApptStatus | null;
   amount?: number | null;
   treatment_type?: string | null;
-  place?: string | null; // se ce l'hai
   patient_id?: string | null;
   patients?: { first_name?: string | null; last_name?: string | null; phone?: string | null } | null;
-};
-
-type Patient = {
-  id: string;
-  first_name?: string | null;
-  last_name?: string | null;
-  phone?: string | null;
-  birth_date?: string | null;
-  tax_code?: string | null;
 };
 
 const UI = {
@@ -68,35 +56,46 @@ function fullName(p?: Appointment["patients"]) {
 }
 
 function statusPill(status?: string | null) {
-  if (status === "done") return { label: "Eseguito", bg: "rgba(22,163,74,0.12)", fg: UI.success, bd: "rgba(22,163,74,0.35)" };
-  if (status === "confirmed") return { label: "Confermato", bg: "rgba(37,99,235,0.10)", fg: UI.secondary, bd: "rgba(37,99,235,0.30)" };
-  if (status === "not_paid") return { label: "Non pagato", bg: "rgba(220,38,38,0.10)", fg: UI.danger, bd: "rgba(220,38,38,0.30)" };
+  if (status === "done")
+    return { label: "Eseguito", bg: "rgba(22,163,74,0.12)", fg: UI.success, bd: "rgba(22,163,74,0.35)" };
+  if (status === "confirmed")
+    return { label: "Confermato", bg: "rgba(37,99,235,0.10)", fg: UI.secondary, bd: "rgba(37,99,235,0.30)" };
+  if (status === "not_paid")
+    return { label: "Non pagato", bg: "rgba(220,38,38,0.10)", fg: UI.danger, bd: "rgba(220,38,38,0.30)" };
+  if (status === "cancelled")
+    return { label: "Annullato", bg: "rgba(100,116,139,0.10)", fg: UI.muted, bd: "rgba(100,116,139,0.30)" };
   return { label: "Prenotato", bg: "rgba(249,115,22,0.10)", fg: UI.warning, bd: "rgba(249,115,22,0.30)" };
 }
 
 export default function MobileHomePage() {
   const router = useRouter();
 
-  const today = useMemo(() => new Date(), []);
-  const todayYMD = useMemo(() => toYMD(new Date()), []);
+  // “oggi” stabile
+  const [today] = useState(() => new Date());
+  const [todayYMD] = useState(() => toYMD(new Date()));
   const startISO = useMemo(() => `${todayYMD}T00:00:00`, [todayYMD]);
   const endISO = useMemo(() => `${todayYMD}T23:59:59`, [todayYMD]);
 
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>("");
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [patientsToCompleteCount, setPatientsToCompleteCount] = useState(0);
   const [unpaidCount, setUnpaidCount] = useState(0);
 
-  // scelta “prodotto”: su mobile non vuoi 200 cose. Qui carichi SOLO il necessario.
-  useEffect(() => {
-    void loadMobileHome();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const goAgendaToday = useCallback(() => {
+    router.push(`/calendar?view=day&date=${todayYMD}`);
+  }, [router, todayYMD]);
 
-  async function loadMobileHome() {
+  const goNewAppointment = useCallback(() => {
+    // Questo DEVE essere supportato da /calendar (vedi fix sotto)
+    router.push(`/calendar?view=day&date=${todayYMD}&new=1`);
+  }, [router, todayYMD]);
+
+  const loadMobileHome = useCallback(async () => {
     setLoading(true);
+    setError("");
 
-    // 1) Appuntamenti di oggi (quelli che ti servono)
+    // 1) Appuntamenti di oggi
     const apptRes = await supabase
       .from("appointments")
       .select("id, start_at, status, amount, treatment_type, patient_id, patients(first_name, last_name, phone)")
@@ -104,50 +103,53 @@ export default function MobileHomePage() {
       .lt("start_at", endISO)
       .order("start_at", { ascending: true });
 
-    // 2) pazienti incompleti: conteggio (non lista)
-    // Nota: qui prendo una manciata di campi per contare. Se hai RLS o colonne diverse, adatti.
-    const patRes = await supabase
-      .from("patients")
-      .select("id, phone, birth_date, tax_code");
+    if (apptRes.error) {
+      setError(`Errore caricamento appuntamenti: ${apptRes.error.message}`);
+      setAppointments([]);
+    } else {
+      setAppointments((apptRes.data ?? []) as Appointment[]);
+    }
 
-    // 3) non pagati: conteggio (esempio: status = not_paid su appointments)
-    // Se tu usi is_paid + status done, adatta qui.
+    // 2) pazienti incompleti (conteggio)
+    const patRes = await supabase.from("patients").select("id, phone, birth_date, tax_code");
+    if (patRes.error) {
+      setError((prev) => prev || `Errore caricamento pazienti: ${patRes.error!.message}`);
+      setPatientsToCompleteCount(0);
+    } else {
+      const pats = (patRes.data ?? []) as any[];
+      const incomplete = pats.filter((p) => !p.phone || !p.birth_date || !p.tax_code).length;
+      setPatientsToCompleteCount(incomplete);
+    }
+
+    // 3) non pagati (count)
     const unpaidRes = await supabase
       .from("appointments")
       .select("id", { count: "exact", head: true })
       .eq("status", "not_paid");
 
-    const appts = (apptRes.data ?? []) as any[];
-    setAppointments(appts as Appointment[]);
-
-    const pats = (patRes.data ?? []) as any[];
-    const incomplete = pats.filter((p) => !p.phone || !p.birth_date || !p.tax_code).length;
-    setPatientsToCompleteCount(incomplete);
-
-    setUnpaidCount(unpaidRes.count ?? 0);
+    if (unpaidRes.error) {
+      setError((prev) => prev || `Errore conteggio non pagati: ${unpaidRes.error!.message}`);
+      setUnpaidCount(0);
+    } else {
+      setUnpaidCount(unpaidRes.count ?? 0);
+    }
 
     setLoading(false);
-  }
+  }, [startISO, endISO]);
+
+  useEffect(() => {
+    void loadMobileHome();
+  }, [loadMobileHome]);
 
   const nextAppt = useMemo(() => {
     const now = new Date();
-    // prossimo appuntamento non “passato”
     const n = appointments.find((a) => new Date(a.start_at).getTime() >= now.getTime());
     return n ?? appointments[0] ?? null;
   }, [appointments]);
 
-  function goAgendaToday() {
-    router.push(`/calendar?view=day&date=${todayYMD}`);
-  }
-
-  function goNewAppointment() {
-    // scegli tu dove vuoi atterrare: pagina calendario con modal aperta, oppure /mobile/new-appointment
-    router.push(`/calendar?view=day&date=${todayYMD}&new=1`);
-  }
-
   return (
     <div style={{ minHeight: "100vh", background: UI.bg, paddingBottom: 84 }}>
-      {/* HEADER FISSO */}
+      {/* HEADER */}
       <div
         style={{
           position: "sticky",
@@ -159,9 +161,7 @@ export default function MobileHomePage() {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          <div style={{ fontWeight: 1000, color: UI.text, fontSize: 14 }}>
-            📅 {itDate(today)}
-          </div>
+          <div style={{ fontWeight: 1000, color: UI.text, fontSize: 14 }}>📅 {itDate(today)}</div>
           <div
             style={{
               fontSize: 12,
@@ -217,12 +217,9 @@ export default function MobileHomePage() {
               </button>
             </div>
           ) : (
-            <div style={{ marginTop: 6, color: UI.muted, fontWeight: 800, fontSize: 13 }}>
-              Nessun appuntamento oggi.
-            </div>
+            <div style={{ marginTop: 6, color: UI.muted, fontWeight: 800, fontSize: 13 }}>Nessun appuntamento oggi.</div>
           )}
 
-          {/* CTA principale */}
           <button
             onClick={goNewAppointment}
             style={{
@@ -240,24 +237,33 @@ export default function MobileHomePage() {
           >
             ➕ Nuovo Appuntamento
           </button>
+
+          {error && (
+            <div
+              style={{
+                marginTop: 10,
+                padding: 10,
+                borderRadius: 12,
+                border: "1px solid rgba(220,38,38,0.25)",
+                background: "rgba(220,38,38,0.08)",
+                color: UI.text,
+                fontWeight: 900,
+                fontSize: 12,
+              }}
+            >
+              {error}
+            </div>
+          )}
         </div>
       </div>
 
       {/* CONTENUTO */}
       <div style={{ padding: 14 }}>
-        {/* OGGI */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 2 }}>
           <div style={{ fontSize: 14, fontWeight: 1000, color: UI.text }}>📋 Oggi</div>
           <button
             onClick={goAgendaToday}
-            style={{
-              border: "none",
-              background: "transparent",
-              color: UI.primary,
-              fontWeight: 1000,
-              cursor: "pointer",
-              fontSize: 13,
-            }}
+            style={{ border: "none", background: "transparent", color: UI.primary, fontWeight: 1000, cursor: "pointer", fontSize: 13 }}
           >
             Vai in agenda →
           </button>
@@ -267,16 +273,7 @@ export default function MobileHomePage() {
           {loading ? (
             <div style={{ color: UI.muted, fontWeight: 800, padding: 16 }}>Caricamento…</div>
           ) : appointments.length === 0 ? (
-            <div
-              style={{
-                background: UI.card,
-                border: `1px solid ${UI.border}`,
-                borderRadius: 16,
-                padding: 14,
-                color: UI.muted,
-                fontWeight: 800,
-              }}
-            >
+            <div style={{ background: UI.card, border: `1px solid ${UI.border}`, borderRadius: 16, padding: 14, color: UI.muted, fontWeight: 800 }}>
               Nessun appuntamento oggi.
             </div>
           ) : (
@@ -341,20 +338,14 @@ export default function MobileHomePage() {
         {/* ALERT */}
         <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
           {patientsToCompleteCount > 0 && (
-            <button
-              onClick={() => router.push("/patients")}
-              style={alertStyle("warning")}
-            >
+            <button onClick={() => router.push("/patients")} style={alertStyle("warning")}>
               ⚠️ {patientsToCompleteCount} pazienti da completare
               <span style={{ color: UI.primary, fontWeight: 1000 }}>Apri →</span>
             </button>
           )}
 
           {unpaidCount > 0 && (
-            <button
-              onClick={() => router.push("/reports")}
-              style={alertStyle("danger")}
-            >
+            <button onClick={() => router.push("/reports")} style={alertStyle("danger")}>
               🔴 {unpaidCount} terapie non pagate
               <span style={{ color: UI.primary, fontWeight: 1000 }}>Apri →</span>
             </button>
@@ -408,17 +399,7 @@ export default function MobileHomePage() {
   );
 }
 
-function NavItem({
-  href,
-  label,
-  icon,
-  active,
-}: {
-  href: string;
-  label: string;
-  icon: string;
-  active?: boolean;
-}) {
+function NavItem({ href, label, icon, active }: { href: string; label: string; icon: string; active?: boolean }) {
   return (
     <Link
       href={href}
