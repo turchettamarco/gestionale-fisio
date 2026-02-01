@@ -36,6 +36,14 @@ type CalendarEvent = {
   price_type: string | null;
 };
 
+type MessageTemplate = {
+  id: string;
+  name: string;
+  template: string;
+  is_default: boolean;
+  created_at: string;
+};
+
 const THEME = {
   appBg: "#f1f5f9",
   panelBg: "#ffffff",
@@ -147,15 +155,6 @@ function statusBg(status: Status) {
   }
 }
 
-/**
- * ✅ Template WhatsApp (base). Se hai template desktop, puoi sostituire questa funzione.
- */
-function buildWhatsAppMessage(ev: CalendarEvent) {
-  const when = `${fmtTime(ev.start)}`;
-  const where = ev.location === "domicile" ? "a domicilio" : "in studio";
-  return `Ciao ${ev.patient_name}, promemoria appuntamento ${where} alle ${when}. Confermi?`;
-}
-
 export default function CalendarPage() {
   return (
     <Suspense fallback={<div style={{ padding: 24 }}>Caricamento calendario…</div>}>
@@ -175,6 +174,11 @@ function CalendarPageInner() {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  // Template WhatsApp
+  const [messageTemplates, setMessageTemplates] = useState<MessageTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
 
   // Modal edit
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
@@ -203,6 +207,41 @@ function CalendarPageInner() {
   const [quickFirstName, setQuickFirstName] = useState("");
   const [quickLastName, setQuickLastName] = useState("");
   const [quickPhone, setQuickPhone] = useState("");
+
+  // Carica template WhatsApp
+  useEffect(() => {
+    loadMessageTemplates();
+  }, []);
+
+  const loadMessageTemplates = useCallback(async () => {
+    setLoadingTemplates(true);
+    try {
+      const { data, error } = await supabase
+        .from("message_templates")
+        .select("*")
+        .order("is_default", { ascending: false })
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Errore caricamento template:", error);
+        return;
+      }
+
+      setMessageTemplates(data || []);
+      
+      // Imposta il template predefinito come selezionato
+      const defaultTemplate = data?.find(t => t.is_default);
+      if (defaultTemplate) {
+        setSelectedTemplateId(defaultTemplate.id);
+      } else if (data && data.length > 0) {
+        setSelectedTemplateId(data[0].id);
+      }
+    } catch (err) {
+      console.error("Errore:", err);
+    } finally {
+      setLoadingTemplates(false);
+    }
+  }, []);
 
   // timer current time line
   useEffect(() => {
@@ -283,7 +322,7 @@ function CalendarPageInner() {
     // 2) new=1 → apri create UNA VOLTA e poi pulisci URL
     const isNew = searchParams.get("new") === "1";
     if (!isNew) {
-      handledNewRef.current = false; // se torna false, permetti nuova apertura al prossimo new=1
+      handledNewRef.current = false;
       return;
     }
     if (handledNewRef.current) return;
@@ -294,17 +333,17 @@ function CalendarPageInner() {
     const qTime = searchParams.get("time");
     const prefillTime = qTime && isValidHHMM(qTime) ? qTime : undefined;
 
-    // Apri create “come se avessi cliccato”
+    // Apri create
     openCreate(prefillTime, baseDate);
 
-    // pulisci URL: togli new (e time), mantieni date/view se ci sono
+    // pulisci URL
     const params = new URLSearchParams(searchParams.toString());
     params.delete("new");
     params.delete("time");
     const next = params.toString();
     router.replace(`/calendar${next ? `?${next}` : ""}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, router]); // volutamente NON dipende da currentDate per evitare loop
+  }, [searchParams, router]);
 
   const dayEvents = useMemo(() => events.filter((e) => isSameDay(e.start, currentDate)), [events, currentDate]);
 
@@ -315,7 +354,7 @@ function CalendarPageInner() {
     return { total, done, revenue };
   }, [dayEvents]);
 
-  // dynamic hours range (prevents “lost events”)
+  // dynamic hours range
   const { dayStartHour, dayEndHour } = useMemo(() => {
     if (dayEvents.length === 0) return { dayStartHour: DEFAULT_START_HOUR, dayEndHour: DEFAULT_END_HOUR };
 
@@ -343,10 +382,37 @@ function CalendarPageInner() {
     (start: Date, end: Date) => {
       const top = (start.getHours() - dayStartHour) * 60 + start.getMinutes();
       const height = (end.getHours() - start.getHours()) * 60 + (end.getMinutes() - start.getMinutes());
-      return { top: Math.max(0, top), height: Math.max(44, height) }; // minimo tappabile/leggibile
+      return { top: Math.max(0, top), height: Math.max(44, height) };
     },
     [dayStartHour]
   );
+
+  // Funzione per creare messaggio WhatsApp con template
+  const buildWhatsAppMessage = useCallback((ev: CalendarEvent) => {
+    if (!selectedTemplateId || messageTemplates.length === 0) {
+      // Fallback al vecchio template se non ci sono template configurati
+      const when = `${fmtTime(ev.start)}`;
+      const where = ev.location === "domicile" ? "a domicilio" : "in studio";
+      return `Ciao ${ev.patient_name}, promemoria appuntamento ${where} alle ${when}. Confermi?`;
+    }
+
+    const template = messageTemplates.find(t => t.id === selectedTemplateId) || 
+                     messageTemplates.find(t => t.is_default) || 
+                     messageTemplates[0];
+    
+    if (!template) {
+      return "Messaggio di promemoria appuntamento";
+    }
+
+    // Sostituisci i placeholder con i dati reali
+    return template.template
+      .replace(/{nome}/g, ev.patient_name)
+      .replace(/{data_relativa}/g, formatDMY(ev.start))
+      .replace(/{ora}/g, fmtTime(ev.start))
+      .replace(/{luogo}/g, ev.location === "domicile" 
+        ? (ev.domicile_address || "a domicilio") 
+        : (ev.clinic_site || DEFAULT_CLINIC_SITE));
+  }, [selectedTemplateId, messageTemplates]);
 
   // navigation
   const goPrev = useCallback(() => setCurrentDate((p) => addDays(p, -1)), []);
@@ -369,7 +435,7 @@ function CalendarPageInner() {
     const msg = buildWhatsAppMessage(ev);
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
     window.open(url, "_blank");
-  }, []);
+  }, [buildWhatsAppMessage]);
 
   // save edit
   const saveEvent = useCallback(async () => {
@@ -426,7 +492,6 @@ function CalendarPageInner() {
   }, [selectedEvent, currentDate, loadAppointments]);
 
   // --- CREATE APPOINTMENT FLOW ---
-  // ✅ ora supporta anche prefill date/time da query param
   const openCreate = useCallback(
     (prefillTime?: string, prefillDateISO?: string) => {
       setCreateOpen(true);
@@ -812,6 +877,59 @@ function CalendarPageInner() {
               </select>
             </div>
 
+            {/* SELEZIONE TEMPLATE WHATSAPP */}
+            {messageTemplates.length > 0 && (
+              <div>
+                <div style={labelStyle()}>Template WhatsApp</div>
+                <select 
+                  value={selectedTemplateId || ""}
+                  onChange={(e) => setSelectedTemplateId(e.target.value)}
+                  style={inputStyle()}
+                  disabled={loadingTemplates}
+                >
+                  {loadingTemplates ? (
+                    <option value="">Caricamento template...</option>
+                  ) : (
+                    messageTemplates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name} {template.is_default && "(Predefinito)"}
+                      </option>
+                    ))
+                  )}
+                </select>
+                
+                {selectedTemplateId && !loadingTemplates && (
+                  <div style={{
+                    marginTop: 8,
+                    padding: 10,
+                    background: THEME.panelSoft,
+                    borderRadius: 8,
+                    fontSize: 12,
+                    border: `1px solid ${THEME.border}`,
+                    maxHeight: 100,
+                    overflowY: 'auto',
+                    whiteSpace: 'pre-wrap'
+                  }}>
+                    <div style={{ fontWeight: 900, marginBottom: 4, color: THEME.text }}>Anteprima:</div>
+                    <div style={{ color: THEME.muted }}>
+                      {(() => {
+                        const template = messageTemplates.find(t => t.id === selectedTemplateId);
+                        if (!template) return "Nessun template selezionato";
+                        
+                        return template.template
+                          .replace(/{nome}/g, selectedEvent.patient_name)
+                          .replace(/{data_relativa}/g, formatDMY(selectedEvent.start))
+                          .replace(/{ora}/g, fmtTime(selectedEvent.start))
+                          .replace(/{luogo}/g, selectedEvent.location === "domicile" 
+                            ? (selectedEvent.domicile_address || "a domicilio") 
+                            : (selectedEvent.clinic_site || DEFAULT_CLINIC_SITE));
+                      })()}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div>
               <div style={labelStyle()}>Importo</div>
               <input value={editAmount} onChange={(e) => setEditAmount(e.target.value)} inputMode="decimal" placeholder="es. 35" style={inputStyle()} />
@@ -1019,8 +1137,6 @@ function CalendarPageInner() {
               </div>
             </div>
 
-            {/* qui sotto continua il tuo form (location, importo, note, salva) */}
-            {/* NON ho toccato la logica, solo aggiunto routing param e prefill */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div>
                 <div style={labelStyle()}>Luogo</div>
@@ -1076,7 +1192,7 @@ function CalendarPageInner() {
   );
 }
 
-/* ---------- UI helpers (immutati nello stile) ---------- */
+/* ---------- UI helpers ---------- */
 
 function navBtnStyle() {
   return {
@@ -1140,17 +1256,11 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
         inset: 0,
         background: "rgba(2,6,23,0.45)",
         zIndex: 999,
-
-        // ✅ scroll dell’overlay (così su mobile non “taglia”)
         overflowY: "auto",
         WebkitOverflowScrolling: "touch",
-
-        // ✅ centra ma permette scorrimento
         display: "flex",
         justifyContent: "center",
         alignItems: "flex-start",
-
-        // spazio sopra/sotto
         padding: 14,
       }}
     >
@@ -1162,8 +1272,6 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
           border: `1px solid ${THEME.border}`,
           padding: 14,
           boxShadow: "0 18px 50px rgba(0,0,0,0.25)",
-
-          // ✅ fondamentale: non superare viewport
           margin: "14px 0",
           maxHeight: "calc(100vh - 28px)",
           overflowY: "auto",
