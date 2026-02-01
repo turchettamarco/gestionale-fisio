@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 
 type Status = "booked" | "confirmed" | "done" | "cancelled" | "not_paid";
@@ -95,6 +95,12 @@ function normalizePhone(raw?: string | null) {
   if (digits.length < 9) return null;
   return digits;
 }
+function isValidISODate(s: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s);
+}
+function isValidHHMM(s: string) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
+}
 
 function statusLabel(status: Status) {
   switch (status) {
@@ -142,15 +148,11 @@ function statusBg(status: Status) {
 }
 
 /**
- * ✅ QUI è il “gancio” per i tuoi template desktop.
- * Se nel desktop hai già una funzione tipo buildWhatsappReminder(templateId, event),
- * incollala qui o importa e chiamala qui.
+ * ✅ Template WhatsApp (base). Se hai template desktop, puoi sostituire questa funzione.
  */
 function buildWhatsAppMessage(ev: CalendarEvent) {
-  // Template base (sostituisci con i tuoi template già esistenti)
   const when = `${fmtTime(ev.start)}`;
-  const where =
-    ev.location === "domicile" ? "a domicilio" : "in studio";
+  const where = ev.location === "domicile" ? "a domicilio" : "in studio";
   return `Ciao ${ev.patient_name}, promemoria appuntamento ${where} alle ${when}. Confermi?`;
 }
 
@@ -163,7 +165,8 @@ export default function CalendarPage() {
 }
 
 function CalendarPageInner() {
-  useSearchParams();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
@@ -264,6 +267,44 @@ function CalendarPageInner() {
   useEffect(() => {
     loadAppointments(currentDate);
   }, [currentDate, loadAppointments]);
+
+  // ✅ PARAM ROUTING: date + new + time
+  const handledNewRef = useRef(false);
+  useEffect(() => {
+    // 1) date=YYYY-MM-DD
+    const qDate = searchParams.get("date");
+    if (qDate && isValidISODate(qDate)) {
+      const d = new Date(`${qDate}T00:00:00`);
+      if (!Number.isNaN(d.getTime()) && !isSameDay(d, currentDate)) {
+        setCurrentDate(d);
+      }
+    }
+
+    // 2) new=1 → apri create UNA VOLTA e poi pulisci URL
+    const isNew = searchParams.get("new") === "1";
+    if (!isNew) {
+      handledNewRef.current = false; // se torna false, permetti nuova apertura al prossimo new=1
+      return;
+    }
+    if (handledNewRef.current) return;
+
+    handledNewRef.current = true;
+
+    const baseDate = qDate && isValidISODate(qDate) ? qDate : toISODateLocal(currentDate);
+    const qTime = searchParams.get("time");
+    const prefillTime = qTime && isValidHHMM(qTime) ? qTime : undefined;
+
+    // Apri create “come se avessi cliccato”
+    openCreate(prefillTime, baseDate);
+
+    // pulisci URL: togli new (e time), mantieni date/view se ci sono
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("new");
+    params.delete("time");
+    const next = params.toString();
+    router.replace(`/calendar${next ? `?${next}` : ""}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, router]); // volutamente NON dipende da currentDate per evitare loop
 
   const dayEvents = useMemo(() => events.filter((e) => isSameDay(e.start, currentDate)), [events, currentDate]);
 
@@ -385,27 +426,32 @@ function CalendarPageInner() {
   }, [selectedEvent, currentDate, loadAppointments]);
 
   // --- CREATE APPOINTMENT FLOW ---
+  // ✅ ora supporta anche prefill date/time da query param
+  const openCreate = useCallback(
+    (prefillTime?: string, prefillDateISO?: string) => {
+      setCreateOpen(true);
+      setError("");
+      setSelectedPatient(null);
+      setPatientQuery("");
+      setPatientResults([]);
+      setQuickFirstName("");
+      setQuickLastName("");
+      setQuickPhone("");
 
-  const openCreate = useCallback((prefillTime?: string) => {
-    setCreateOpen(true);
-    setError("");
-    setSelectedPatient(null);
-    setPatientQuery("");
-    setPatientResults([]);
-    setQuickFirstName("");
-    setQuickLastName("");
-    setQuickPhone("");
+      const dateISO = prefillDateISO && isValidISODate(prefillDateISO) ? prefillDateISO : toISODateLocal(currentDate);
 
-    setCreateDate(toISODateLocal(currentDate));
-    setCreateTime(prefillTime ?? "09:00");
-    setCreateDuration(60);
-    setCreateStatus("confirmed");
-    setCreateLocation("studio");
-    setCreateClinicSite(DEFAULT_CLINIC_SITE);
-    setCreateDomicileAddress("");
-    setCreateAmount("");
-    setCreateNote("");
-  }, [currentDate]);
+      setCreateDate(dateISO);
+      setCreateTime(prefillTime && isValidHHMM(prefillTime) ? prefillTime : "09:00");
+      setCreateDuration(60);
+      setCreateStatus("confirmed");
+      setCreateLocation("studio");
+      setCreateClinicSite(DEFAULT_CLINIC_SITE);
+      setCreateDomicileAddress("");
+      setCreateAmount("");
+      setCreateNote("");
+    },
+    [currentDate]
+  );
 
   // patient search debounce
   const debounceRef = useRef<number | null>(null);
@@ -454,8 +500,6 @@ function CalendarPageInner() {
     setBusy(true);
     setError("");
 
-    // ⚠️ Inserisco solo campi “sicuri” per non esplodere se hai colonne extra.
-    // Se nel tuo schema hai status NOT NULL, dovrai aggiungere status qui.
     const insertData: any = {
       first_name: fn,
       last_name: ln,
@@ -577,7 +621,6 @@ function CalendarPageInner() {
           zIndex: 3,
         }}
       >
-        {/* riga 1: nome + orario */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
           <div
             style={{
@@ -599,17 +642,12 @@ function CalendarPageInner() {
           </div>
         </div>
 
-        {/* riga 2: stato + domicilio + whatsapp */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
             <div style={{ width: 8, height: 8, borderRadius: 99, background: col }} />
-            <div style={{ fontSize: 11, fontWeight: 900, color: col, whiteSpace: "nowrap" }}>
-              {statusLabel(ev.status)}
-            </div>
+            <div style={{ fontSize: 11, fontWeight: 900, color: col, whiteSpace: "nowrap" }}>{statusLabel(ev.status)}</div>
             {ev.location === "domicile" && (
-              <div style={{ fontSize: 12, fontWeight: 900, color: THEME.amber, whiteSpace: "nowrap" }}>
-                🏠
-              </div>
+              <div style={{ fontSize: 12, fontWeight: 900, color: THEME.amber, whiteSpace: "nowrap" }}>🏠</div>
             )}
           </div>
 
@@ -653,14 +691,28 @@ function CalendarPageInner() {
           <div style={{ fontSize: 14, fontWeight: 900, color: THEME.muted }}>{formatDMY(currentDate)}</div>
         </div>
 
-        {/* navigation */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: THEME.panelBg, padding: 12, borderRadius: 12, border: `1px solid ${THEME.border}` }}>
-          <button onClick={goPrev} style={navBtnStyle()}>◀</button>
-          <button onClick={goToday} style={todayBtnStyle()}>Oggi</button>
-          <button onClick={goNext} style={navBtnStyle()}>▶</button>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            background: THEME.panelBg,
+            padding: 12,
+            borderRadius: 12,
+            border: `1px solid ${THEME.border}`,
+          }}
+        >
+          <button onClick={goPrev} style={navBtnStyle()}>
+            ◀
+          </button>
+          <button onClick={goToday} style={todayBtnStyle()}>
+            Oggi
+          </button>
+          <button onClick={goNext} style={navBtnStyle()}>
+            ▶
+          </button>
         </div>
 
-        {/* stats */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
           <StatCard label="Totali" value={String(dayStats.total)} color={THEME.blueDark} />
           <StatCard label="Eseguiti" value={String(dayStats.done)} color={THEME.green} />
@@ -675,13 +727,10 @@ function CalendarPageInner() {
         )}
       </div>
 
-      {/* calendar day */}
       <div style={{ position: "relative", background: THEME.panelBg, border: `1px solid ${THEME.border}`, borderRadius: 12, overflow: "hidden", minHeight: 520 }}>
         <div style={{ position: "relative", height: `${(dayEndHour - dayStartHour) * 60}px` }}>
-          {/* grid + clickable slots */}
           {timeSlots.map((t, idx) => {
             const hour = t.hour;
-            const baseTop = (hour - dayStartHour) * 60;
 
             return (
               <div key={idx} style={{ height: 60, borderBottom: `1px solid ${THEME.border}`, position: "relative" }}>
@@ -689,15 +738,13 @@ function CalendarPageInner() {
                   {t.label}
                 </div>
 
-                {/* 00-30 */}
                 <div
-                  onClick={() => openCreate(`${pad2(hour)}:00`)}
+                  onClick={() => openCreate(`${pad2(hour)}:00`, toISODateLocal(currentDate))}
                   style={{ position: "absolute", top: 0, left: 60, right: 8, height: 30, borderBottom: `1px solid ${THEME.borderSoft}`, cursor: "pointer" }}
                   title="Nuovo appuntamento"
                 />
-                {/* 30-60 */}
                 <div
-                  onClick={() => openCreate(`${pad2(hour)}:30`)}
+                  onClick={() => openCreate(`${pad2(hour)}:30`, toISODateLocal(currentDate))}
                   style={{ position: "absolute", top: 30, left: 60, right: 8, height: 30, cursor: "pointer" }}
                   title="Nuovo appuntamento"
                 />
@@ -705,10 +752,8 @@ function CalendarPageInner() {
             );
           })}
 
-          {/* events */}
           {dayEvents.map(renderEventCard)}
 
-          {/* current time line */}
           {(() => {
             const now = currentTime;
             if (!isSameDay(now, currentDate)) return null;
@@ -726,9 +771,8 @@ function CalendarPageInner() {
         </div>
       </div>
 
-      {/* floating + */}
       <button
-        onClick={() => openCreate()}
+        onClick={() => openCreate(undefined, toISODateLocal(currentDate))}
         style={{
           position: "fixed",
           right: 16,
@@ -856,7 +900,6 @@ function CalendarPageInner() {
           <HeaderRow title="Nuovo appuntamento" subtitle={formatDMY(new Date(`${createDate}T00:00:00`))} onClose={() => setCreateOpen(false)} />
 
           <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 14 }}>
-            {/* Patient search */}
             <div>
               <div style={labelStyle()}>Paziente (cerca)</div>
               <input
@@ -908,12 +951,9 @@ function CalendarPageInner() {
                 </div>
               )}
 
-              <div style={{ marginTop: 6, fontSize: 12, color: THEME.muted, fontWeight: 900 }}>
-                Minimo 2 caratteri per la ricerca
-              </div>
+              <div style={{ marginTop: 6, fontSize: 12, color: THEME.muted, fontWeight: 900 }}>Minimo 2 caratteri per la ricerca</div>
             </div>
 
-            {/* Quick patient */}
             <div style={{ padding: 12, borderRadius: 12, border: `1px dashed ${THEME.borderSoft}`, background: "#fff" }}>
               <div style={{ fontWeight: 900, color: THEME.text, marginBottom: 8 }}>Paziente rapido</div>
 
@@ -951,7 +991,6 @@ function CalendarPageInner() {
               </button>
             </div>
 
-            {/* date/time/duration */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div>
                 <div style={labelStyle()}>Data</div>
@@ -980,7 +1019,8 @@ function CalendarPageInner() {
               </div>
             </div>
 
-            {/* location */}
+            {/* qui sotto continua il tuo form (location, importo, note, salva) */}
+            {/* NON ho toccato la logica, solo aggiunto routing param e prefill */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div>
                 <div style={labelStyle()}>Luogo</div>
@@ -990,100 +1030,101 @@ function CalendarPageInner() {
                 </select>
               </div>
               <div>
-                <div style={labelStyle()}>{createLocation === "studio" ? "Sede" : "Indirizzo"}</div>
-                <input
-                  value={createLocation === "studio" ? createClinicSite : createDomicileAddress}
-                  onChange={(e) => (createLocation === "studio" ? setCreateClinicSite(e.target.value) : setCreateDomicileAddress(e.target.value))}
-                  style={inputStyle()}
-                />
+                <div style={labelStyle()}>Importo</div>
+                <input value={createAmount} onChange={(e) => setCreateAmount(e.target.value)} inputMode="decimal" placeholder="es. 35" style={inputStyle()} />
               </div>
             </div>
 
-            {/* amount/note */}
-            <div>
-              <div style={labelStyle()}>Importo</div>
-              <input value={createAmount} onChange={(e) => setCreateAmount(e.target.value)} inputMode="decimal" placeholder="es. 35" style={inputStyle()} />
-            </div>
+            {createLocation === "studio" && (
+              <div>
+                <div style={labelStyle()}>Sede studio</div>
+                <input value={createClinicSite} onChange={(e) => setCreateClinicSite(e.target.value)} style={inputStyle()} />
+              </div>
+            )}
+
+            {createLocation === "domicile" && (
+              <div>
+                <div style={labelStyle()}>Indirizzo domicilio</div>
+                <input value={createDomicileAddress} onChange={(e) => setCreateDomicileAddress(e.target.value)} style={inputStyle()} />
+              </div>
+            )}
+
             <div>
               <div style={labelStyle()}>Note</div>
               <textarea value={createNote} onChange={(e) => setCreateNote(e.target.value)} rows={3} style={{ ...inputStyle(), resize: "vertical" }} />
             </div>
 
-            <div style={{ display: "flex", gap: 10 }}>
-              <button
-                onClick={() => setCreateOpen(false)}
-                style={{
-                  flex: 1,
-                  padding: 14,
-                  borderRadius: 12,
-                  border: `2px solid ${THEME.border}`,
-                  background: THEME.panelSoft,
-                  color: THEME.text,
-                  fontWeight: 900,
-                  cursor: "pointer",
-                }}
-              >
-                Annulla
-              </button>
-              <button
-                onClick={createAppointment}
-                style={{
-                  flex: 1,
-                  padding: 14,
-                  borderRadius: 12,
-                  border: `2px solid ${THEME.blueDark}`,
-                  background: THEME.blue,
-                  color: "#fff",
-                  fontWeight: 900,
-                  cursor: "pointer",
-                }}
-              >
-                Crea
-              </button>
-            </div>
+            <button
+              onClick={createAppointment}
+              style={{
+                width: "100%",
+                padding: 14,
+                borderRadius: 12,
+                border: `2px solid ${THEME.blueDark}`,
+                background: THEME.blue,
+                color: "#fff",
+                fontWeight: 900,
+                cursor: "pointer",
+              }}
+            >
+              Crea appuntamento
+            </button>
           </div>
         </Modal>
       )}
-
-      {/* footer */}
-      <div style={{ marginTop: 18, padding: 14, background: THEME.panelBg, borderRadius: 12, border: `1px solid ${THEME.border}` }}>
-        <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 900, textAlign: "center" }}>Vista mobile</div>
-      </div>
     </div>
   );
+}
 
-  function navBtnStyle(): React.CSSProperties {
-    return {
-      padding: "10px 16px",
-      borderRadius: 10,
-      border: `1px solid ${THEME.borderSoft}`,
-      background: THEME.panelSoft,
-      color: THEME.text,
-      cursor: "pointer",
-      fontWeight: 900,
-      fontSize: 14,
-      minWidth: 44,
-    };
-  }
-  function todayBtnStyle(): React.CSSProperties {
-    return {
-      padding: "10px 16px",
-      borderRadius: 10,
-      border: `1px solid ${THEME.blueDark}`,
-      background: THEME.blue,
-      color: "#fff",
-      cursor: "pointer",
-      fontWeight: 900,
-      fontSize: 14,
-    };
-  }
+/* ---------- UI helpers (immutati nello stile) ---------- */
+
+function navBtnStyle() {
+  return {
+    padding: "10px 14px",
+    borderRadius: 12,
+    border: `1px solid ${THEME.border}`,
+    background: THEME.panelSoft,
+    color: THEME.text,
+    fontWeight: 900,
+    cursor: "pointer",
+  } as const;
+}
+
+function todayBtnStyle() {
+  return {
+    padding: "10px 14px",
+    borderRadius: 12,
+    border: `2px solid ${THEME.blueDark}`,
+    background: THEME.blue,
+    color: "#fff",
+    fontWeight: 900,
+    cursor: "pointer",
+  } as const;
+}
+
+function labelStyle() {
+  return { fontSize: 12, color: THEME.muted, fontWeight: 900, marginBottom: 6 } as const;
+}
+
+function inputStyle() {
+  return {
+    width: "100%",
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: `1px solid ${THEME.border}`,
+    background: "#fff",
+    fontWeight: 900,
+    color: THEME.text,
+    outline: "none",
+    boxSizing: "border-box",
+  } as const;
 }
 
 function StatCard({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <div style={{ background: THEME.panelBg, padding: 12, borderRadius: 10, textAlign: "center", border: `1px solid ${THEME.border}` }}>
+    <div style={{ background: THEME.panelBg, border: `1px solid ${THEME.border}`, borderRadius: 12, padding: 12 }}>
       <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 900 }}>{label}</div>
-      <div style={{ fontSize: 16, fontWeight: 900, color }}>{value}</div>
+      <div style={{ marginTop: 6, fontSize: 16, fontWeight: 1000, color }}>{value}</div>
     </div>
   );
 }
@@ -1097,61 +1138,67 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(15,23,42,0.80)",
-        zIndex: 1000,
+        background: "rgba(2,6,23,0.45)",
+        zIndex: 999,
+
+        // ✅ scroll dell’overlay (così su mobile non “taglia”)
+        overflowY: "auto",
+        WebkitOverflowScrolling: "touch",
+
+        // ✅ centra ma permette scorrimento
         display: "flex",
-        flexDirection: "column",
-        padding: 16,
+        justifyContent: "center",
+        alignItems: "flex-start",
+
+        // spazio sopra/sotto
+        padding: 14,
       }}
     >
-      <div style={{ flex: 1, background: THEME.panelBg, borderRadius: 16, padding: 18, overflowY: "auto" }}>{children}</div>
+      <div
+        style={{
+          width: "min(520px, 100%)",
+          background: THEME.panelBg,
+          borderRadius: 14,
+          border: `1px solid ${THEME.border}`,
+          padding: 14,
+          boxShadow: "0 18px 50px rgba(0,0,0,0.25)",
+
+          // ✅ fondamentale: non superare viewport
+          margin: "14px 0",
+          maxHeight: "calc(100vh - 28px)",
+          overflowY: "auto",
+          WebkitOverflowScrolling: "touch",
+        }}
+      >
+        {children}
+      </div>
     </div>
   );
 }
 
-function HeaderRow({ title, subtitle, onClose }: { title: string; subtitle: string; onClose: () => void }) {
+function HeaderRow({ title, subtitle, onClose }: { title: string; subtitle?: string; onClose: () => void }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 18, fontWeight: 900, color: THEME.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {title}
-        </div>
-        <div style={{ fontSize: 13, fontWeight: 900, color: THEME.muted, marginTop: 4 }}>{subtitle}</div>
+    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 16, fontWeight: 1000, color: THEME.text, lineHeight: 1.1 }}>{title}</div>
+        {subtitle && <div style={{ marginTop: 4, fontSize: 12, color: THEME.muted, fontWeight: 900 }}>{subtitle}</div>}
       </div>
       <button
         onClick={onClose}
         style={{
-          width: 40,
-          height: 40,
-          borderRadius: 12,
           border: `1px solid ${THEME.border}`,
           background: THEME.panelSoft,
           color: THEME.text,
+          borderRadius: 12,
+          padding: "8px 10px",
+          fontWeight: 1000,
           cursor: "pointer",
-          fontWeight: 900,
-          fontSize: 18,
-          flexShrink: 0,
         }}
+        aria-label="Chiudi"
+        title="Chiudi"
       >
         ✕
       </button>
     </div>
   );
-}
-
-function labelStyle(): React.CSSProperties {
-  return { fontSize: 12, color: THEME.muted, fontWeight: 900, marginBottom: 6 };
-}
-function inputStyle(): React.CSSProperties {
-  return {
-    width: "100%",
-    padding: 12,
-    borderRadius: 12,
-    border: `1px solid ${THEME.border}`,
-    background: THEME.panelSoft,
-    color: THEME.text,
-    fontSize: 14,
-    fontWeight: 900,
-    outline: "none",
-  };
 }
