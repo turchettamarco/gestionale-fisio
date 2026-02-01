@@ -1350,41 +1350,55 @@ window.open(whatsappUrl, '_blank');
     newEndDate = new Date(newStartDate.getTime() + durationHours * 60 * 60000);
   }
 
- if (!newStartDate || !newEndDate) {
-  alert("Errore: data o ora non valida");
-  return;
-}
-
-const updateData: any = {
-  status: editStatus,
-  calendar_note: editNote.trim() || null,
-  treatment_type: editTreatmentType,
-  price_type: editPriceType,
-  start_at: newStartDate.toISOString(),
-  end_at: newEndDate.toISOString(),
-};
-
-
-  if (amount !== null) {
-    updateData.amount = amount;
-  } else {
-    updateData.amount = null;
-  }
-
-  const { error } = await supabase
-    .from("appointments")
-    .update(updateData)
-    .eq("id", selectedEvent.id);
-
-  if (error) {
-    setError(`Errore salvataggio: ${error.message}`);
+  if (!newStartDate || !newEndDate) {
+    alert("Errore: data o ora non valida");
     return;
   }
 
-  setSelectedEvent(null);
-  const startOfWeek = startOfISOWeekMonday(currentDate);
-  const endOfWeek = addDays(startOfWeek, 7);
-  await loadAppointments(startOfWeek, endOfWeek);
+  const ALLOWED = new Set(["booked","confirmed","done","cancelled","not_paid"]);
+
+  const normalizedStatus =
+    editStatus === ("no_show" as any) ? "not_paid" : editStatus;
+
+  if (!ALLOWED.has(normalizedStatus)) {
+    setError(`STATUS ILLEGALE: ${String(normalizedStatus)}`);
+    return;
+  }
+
+  // Creiamo l'oggetto di aggiornamento
+  const updateData = {
+    status: normalizedStatus,
+    calendar_note: editNote,
+    amount: amount,
+    treatment_type: editTreatmentType,
+    price_type: editPriceType,
+    start_at: newStartDate.toISOString(),
+    end_at: newEndDate.toISOString(),
+  };
+
+  // Rimuoviamo le proprietà undefined/null
+  const cleanedData = Object.fromEntries(
+    Object.entries(updateData).filter(([_, v]) => v !== null && v !== undefined)
+  );
+
+  try {
+    const { error } = await supabase
+      .from("appointments")
+      .update(cleanedData)
+      .eq("id", selectedEvent.id);
+
+    if (error) {
+      setError(`Errore salvataggio: ${error.message}`);
+      return;
+    }
+
+    setSelectedEvent(null);
+    const startOfWeek = startOfISOWeekMonday(currentDate);
+    const endOfWeek = addDays(startOfWeek, 7);
+    await loadAppointments(startOfWeek, endOfWeek);
+  } catch (err: any) {
+    setError(`Errore salvataggio: ${err.message}`);
+  }
 }, [selectedEvent, editStatus, editNote, editAmount, editTreatmentType, editPriceType, editDate, editStartTime, editDuration, currentDate, loadAppointments]);
 
   const deleteAppointment = useCallback(async () => {
