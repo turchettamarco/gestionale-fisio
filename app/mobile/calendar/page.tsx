@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
+import { Menu, X, Home, Calendar, BarChart3, Users } from "lucide-react";
 
 type Status = "booked" | "confirmed" | "done" | "cancelled" | "not_paid";
 type LocationType = "studio" | "domicile";
@@ -61,6 +62,20 @@ const THEME = {
   red: "#dc2626",
   amber: "#f97316",
   gray: "#64748b",
+};
+
+const COLORS = {
+  primary: "#1e3a8a",
+  secondary: "#2563eb",
+  accent: "#0d9488",
+  success: "#16a34a",
+  warning: "#f97316",
+  danger: "#dc2626",
+  muted: "#64748b",
+  background: "#f8fafc",
+  card: "#ffffff",
+  border: "#e2e8f0",
+  text: "#0f172a",
 };
 
 const DEFAULT_START_HOUR = 7;
@@ -155,6 +170,169 @@ function statusBg(status: Status) {
   }
 }
 
+// --- BARRA LATERALE MOBILE (MENU) ---
+function MobileMenu({ showMenu, setShowMenu }: { showMenu: boolean, setShowMenu: (show: boolean) => void }) {
+  return (
+    <>
+      {/* Pulsante per aprire il menu */}
+      <button
+        onClick={() => setShowMenu(!showMenu)}
+        style={{
+          background: "none",
+          border: "none",
+          padding: 8,
+          cursor: "pointer",
+          color: COLORS.primary,
+        }}
+      >
+        <Menu size={24} />
+      </button>
+
+      {/* Menu laterale mobile */}
+      {showMenu && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: "rgba(0,0,0,0.5)",
+          zIndex: 1000,
+        }} onClick={() => setShowMenu(false)}>
+          <div style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            bottom: 0,
+            width: "80%",
+            maxWidth: 300,
+            background: COLORS.card,
+            padding: 20,
+            display: "flex",
+            flexDirection: "column",
+            gap: 20,
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ 
+              display: "flex", 
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 20 
+            }}>
+              <h2 style={{ margin: 0, color: COLORS.primary }}>FisioHub</h2>
+              <button onClick={() => setShowMenu(false)}>
+                <X size={24} />
+              </button>
+            </div>
+            
+            <Link 
+              href="/" 
+              style={{ 
+                display: "flex", 
+                alignItems: "center", 
+                gap: 12,
+                color: COLORS.text,
+                textDecoration: "none",
+                padding: "12px 0",
+              }}
+              onClick={() => setShowMenu(false)}
+            >
+              <Home size={20} />
+              Home
+            </Link>
+            
+            <Link 
+              href="/calendar" 
+              style={{ 
+                display: "flex", 
+                alignItems: "center", 
+                gap: 12,
+                color: COLORS.text,
+                textDecoration: "none",
+                padding: "12px 0",
+              }}
+              onClick={() => setShowMenu(false)}
+            >
+              <Calendar size={20} />
+              Calendario
+            </Link>
+            
+            <Link 
+              href="/reports" 
+              style={{ 
+                display: "flex", 
+                alignItems: "center", 
+                gap: 12,
+                color: COLORS.primary,
+                textDecoration: "none",
+                padding: "12px 0",
+                fontWeight: "bold",
+              }}
+              onClick={() => setShowMenu(false)}
+            >
+              <BarChart3 size={20} />
+              Report
+            </Link>
+            
+            <Link 
+              href="/patients" 
+              style={{ 
+                display: "flex", 
+                alignItems: "center", 
+                gap: 12,
+                color: COLORS.text,
+                textDecoration: "none",
+                padding: "12px 0",
+              }}
+              onClick={() => setShowMenu(false)}
+            >
+              <Users size={20} />
+              Pazienti
+            </Link>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// --- BARRA INFERIORE MOBILE (TAB BAR) ---
+function MobileTabBar() {
+  return (
+    <div style={{
+      position: "fixed",
+      bottom: 0,
+      left: 0,
+      right: 0,
+      background: COLORS.card,
+      borderTop: `1px solid ${COLORS.border}`,
+      display: "flex",
+      justifyContent: "space-around",
+      padding: "12px 0",
+      zIndex: 50,
+    }}>
+      <Link href="/" style={{ textDecoration: "none", color: COLORS.muted, textAlign: "center" }}>
+        <div style={{ fontSize: 24 }}>🏠</div>
+        <div style={{ fontSize: 10 }}>Home</div>
+      </Link>
+      
+      <Link href="/calendar" style={{ textDecoration: "none", color: COLORS.muted, textAlign: "center" }}>
+        <div style={{ fontSize: 24 }}>📅</div>
+        <div style={{ fontSize: 10 }}>Calendario</div>
+      </Link>
+      
+      <div style={{ textDecoration: "none", color: COLORS.primary, textAlign: "center" }}>
+        <div style={{ fontSize: 24 }}>📊</div>
+        <div style={{ fontSize: 10, fontWeight: "bold" }}>Report</div>
+      </div>
+      
+      <Link href="/patients" style={{ textDecoration: "none", color: COLORS.muted, textAlign: "center" }}>
+        <div style={{ fontSize: 24 }}>👥</div>
+        <div style={{ fontSize: 10 }}>Pazienti</div>
+      </Link>
+    </div>
+  );
+}
+
 export default function CalendarPage() {
   return (
     <Suspense fallback={<div style={{ padding: 24 }}>Caricamento calendario…</div>}>
@@ -167,6 +345,7 @@ function CalendarPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  const [showMenu, setShowMenu] = useState(false);
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
 
@@ -747,15 +926,17 @@ function CalendarPageInner() {
 
   // --- UI ---
   return (
-    <div style={{ minHeight: "100vh", background: THEME.appBg, padding: 16, fontSize: 14 }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 18 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <Link href="/" style={{ color: THEME.blueDark, fontWeight: 900, textDecoration: "none", fontSize: 18 }}>
-            ← Agenda
-          </Link>
-          <div style={{ fontSize: 14, fontWeight: 900, color: THEME.muted }}>{formatDMY(currentDate)}</div>
-        </div>
+    <div style={{ minHeight: "100vh", background: THEME.appBg, padding: 16, fontSize: 14, paddingBottom: 70 }}>
+      {/* Header con menu mobile */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <MobileMenu showMenu={showMenu} setShowMenu={setShowMenu} />
+        <div style={{ fontSize: 16, fontWeight: 900, color: THEME.text }}>{formatDMY(currentDate)}</div>
+        <Link href="/" style={{ color: THEME.blueDark, fontWeight: 900, textDecoration: "none", fontSize: 14 }}>
+          ← Agenda
+        </Link>
+      </div>
 
+      <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 18 }}>
         <div
           style={{
             display: "flex",
@@ -841,7 +1022,7 @@ function CalendarPageInner() {
         style={{
           position: "fixed",
           right: 16,
-          bottom: 18,
+          bottom: 80,
           width: 56,
           height: 56,
           borderRadius: 999,
@@ -1188,6 +1369,9 @@ function CalendarPageInner() {
           </div>
         </Modal>
       )}
+
+      {/* Barra inferiore mobile */}
+      <MobileTabBar />
     </div>
   );
 }
