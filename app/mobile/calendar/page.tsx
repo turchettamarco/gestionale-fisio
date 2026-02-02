@@ -93,6 +93,11 @@ function addDays(d: Date, days: number) {
 function formatDMY(d: Date) {
   return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
 }
+function formatFullDate(d: Date) {
+  const days = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
+  const dayName = days[d.getDay()];
+  return `${dayName} ${formatDMY(d)}`;
+}
 function isSameDay(a: Date, b: Date) {
   return a.getDate() === b.getDate() && a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
 }
@@ -246,9 +251,10 @@ function MobileMenu({ showMenu, setShowMenu }: { showMenu: boolean, setShowMenu:
                 display: "flex", 
                 alignItems: "center", 
                 gap: 12,
-                color: COLORS.text,
+                color: COLORS.primary,
                 textDecoration: "none",
                 padding: "12px 0",
+                fontWeight: "bold",
               }}
               onClick={() => setShowMenu(false)}
             >
@@ -262,10 +268,9 @@ function MobileMenu({ showMenu, setShowMenu }: { showMenu: boolean, setShowMenu:
                 display: "flex", 
                 alignItems: "center", 
                 gap: 12,
-                color: COLORS.primary,
+                color: COLORS.text,
                 textDecoration: "none",
                 padding: "12px 0",
-                fontWeight: "bold",
               }}
               onClick={() => setShowMenu(false)}
             >
@@ -292,44 +297,6 @@ function MobileMenu({ showMenu, setShowMenu }: { showMenu: boolean, setShowMenu:
         </div>
       )}
     </>
-  );
-}
-
-// --- BARRA INFERIORE MOBILE (TAB BAR) ---
-function MobileTabBar() {
-  return (
-    <div style={{
-      position: "fixed",
-      bottom: 0,
-      left: 0,
-      right: 0,
-      background: COLORS.card,
-      borderTop: `1px solid ${COLORS.border}`,
-      display: "flex",
-      justifyContent: "space-around",
-      padding: "12px 0",
-      zIndex: 50,
-    }}>
-      <Link href="/" style={{ textDecoration: "none", color: COLORS.muted, textAlign: "center" }}>
-        <div style={{ fontSize: 24 }}>🏠</div>
-        <div style={{ fontSize: 10 }}>Home</div>
-      </Link>
-      
-      <Link href="/calendar" style={{ textDecoration: "none", color: COLORS.muted, textAlign: "center" }}>
-        <div style={{ fontSize: 24 }}>📅</div>
-        <div style={{ fontSize: 10 }}>Calendario</div>
-      </Link>
-      
-      <div style={{ textDecoration: "none", color: COLORS.primary, textAlign: "center" }}>
-        <div style={{ fontSize: 24 }}>📊</div>
-        <div style={{ fontSize: 10, fontWeight: "bold" }}>Report</div>
-      </div>
-      
-      <Link href="/patients" style={{ textDecoration: "none", color: COLORS.muted, textAlign: "center" }}>
-        <div style={{ fontSize: 24 }}>👥</div>
-        <div style={{ fontSize: 10 }}>Pazienti</div>
-      </Link>
-    </div>
   );
 }
 
@@ -926,11 +893,11 @@ function CalendarPageInner() {
 
   // --- UI ---
   return (
-    <div style={{ minHeight: "100vh", background: THEME.appBg, padding: 16, fontSize: 14, paddingBottom: 70 }}>
+    <div style={{ minHeight: "100vh", background: THEME.appBg, padding: 16, fontSize: 14 }}>
       {/* Header con menu mobile */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <MobileMenu showMenu={showMenu} setShowMenu={setShowMenu} />
-        <div style={{ fontSize: 16, fontWeight: 900, color: THEME.text }}>{formatDMY(currentDate)}</div>
+        <div style={{ fontSize: 16, fontWeight: 900, color: THEME.text }}>{formatFullDate(currentDate)}</div>
         <Link href="/" style={{ color: THEME.blueDark, fontWeight: 900, textDecoration: "none", fontSize: 14 }}>
           ← Agenda
         </Link>
@@ -1022,7 +989,7 @@ function CalendarPageInner() {
         style={{
           position: "fixed",
           right: 16,
-          bottom: 80,
+          bottom: 16,
           width: 56,
           height: 56,
           borderRadius: 999,
@@ -1369,9 +1336,6 @@ function CalendarPageInner() {
           </div>
         </Modal>
       )}
-
-      {/* Barra inferiore mobile */}
-      <MobileTabBar />
     </div>
   );
 }

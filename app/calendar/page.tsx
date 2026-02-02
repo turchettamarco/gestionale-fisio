@@ -624,8 +624,8 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
       availableMinutes,
       occupancyRate,
       availableSlots: Math.floor(availableMinutes / 60),
-      recommendation: occupancyRate > 80 ? "ALTA OCCUPAZIONE" : 
-                      occupancyRate > 60 ? "MEDIA OCCUPAZIONE" : 
+      recommendation: occupancyRate > 40 ? "ALTA OCCUPAZIONE" : 
+                      occupancyRate > 20 ? "MEDIA OCCUPAZIONE" : 
                       "BASSA OCCUPAZIONE"
     };
   }, [events]);
