@@ -1,12 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { Menu, X, Home, Calendar, BarChart3, Users } from "lucide-react";
 
 type Plan = "invoice" | "no_invoice";
 type Status = "booked" | "confirmed" | "done";
+
+/**
+ * DocType:
+ * - nuovi tipi richiesti (rx/rmn/tac/ecografia/elettromiografia/prescrizione)
+ * - mantengo anche i legacy per non rompere i record già presenti
+ */
+type DocType =
+  | "rx"
+  | "rmn"
+  | "tac"
+  | "ecografia"
+  | "elettromiografia"
+  | "prescrizione"
+  | "gdpr_informativa_privacy"
+  | "consenso_trattamento"
+  | "altro";
 
 type Patient = {
   id: string;
@@ -27,11 +43,10 @@ type AppointmentRow = {
   is_paid: boolean;
 };
 
-type DocType = "gdpr_informativa_privacy" | "consenso_trattamento" | "altro";
 type PatientDoc = {
   id: string;
   patient_id: string;
-  doc_type: DocType;
+  doc_type: DocType | string; // string per tollerare valori legacy/DB non allineati
   file_name: string;
   storage_path: string;
   uploaded_at: string;
@@ -54,10 +69,15 @@ const THEME = {
 };
 
 // --- BARRA LATERALE MOBILE (MENU) ---
-function MobileMenu({ showMenu, setShowMenu }: { showMenu: boolean, setShowMenu: (show: boolean) => void }) {
+function MobileMenu({
+  showMenu,
+  setShowMenu,
+}: {
+  showMenu: boolean;
+  setShowMenu: (show: boolean) => void;
+}) {
   return (
     <>
-      {/* Pulsante per aprire il menu */}
       <button
         onClick={() => setShowMenu(!showMenu)}
         style={{
@@ -67,42 +87,50 @@ function MobileMenu({ showMenu, setShowMenu }: { showMenu: boolean, setShowMenu:
           cursor: "pointer",
           color: THEME.primary,
         }}
+        aria-label="Apri menu"
       >
         <Menu size={24} />
       </button>
 
-      {/* Menu laterale mobile */}
       {showMenu && (
-        <div style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: "rgba(0,0,0,0.5)",
-          zIndex: 1000,
-        }} onClick={() => setShowMenu(false)}>
-          <div style={{
-            position: "absolute",
+        <div
+          style={{
+            position: "fixed",
             top: 0,
             left: 0,
+            right: 0,
             bottom: 0,
-            width: "80%",
-            maxWidth: 300,
-            background: THEME.panelBg,
-            padding: 20,
-            display: "flex",
-            flexDirection: "column",
-            gap: 20,
-          }} onClick={e => e.stopPropagation()}>
-            <div style={{ 
-              display: "flex", 
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: 20 
-            }}>
+            background: "rgba(0,0,0,0.5)",
+            zIndex: 1000,
+          }}
+          onClick={() => setShowMenu(false)}
+        >
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              bottom: 0,
+              width: "80%",
+              maxWidth: 300,
+              background: THEME.panelBg,
+              padding: 20,
+              display: "flex",
+              flexDirection: "column",
+              gap: 20,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 20,
+              }}
+            >
               <h2 style={{ margin: 0, color: THEME.primary }}>FisioHub</h2>
-              <button 
+              <button
                 onClick={() => setShowMenu(false)}
                 style={{
                   background: "none",
@@ -110,16 +138,17 @@ function MobileMenu({ showMenu, setShowMenu }: { showMenu: boolean, setShowMenu:
                   cursor: "pointer",
                   color: THEME.text,
                 }}
+                aria-label="Chiudi menu"
               >
                 <X size={24} />
               </button>
             </div>
-            
-            <Link 
-              href="/" 
-              style={{ 
-                display: "flex", 
-                alignItems: "center", 
+
+            <Link
+              href="/"
+              style={{
+                display: "flex",
+                alignItems: "center",
                 gap: 12,
                 color: THEME.text,
                 textDecoration: "none",
@@ -130,12 +159,12 @@ function MobileMenu({ showMenu, setShowMenu }: { showMenu: boolean, setShowMenu:
               <Home size={20} />
               Home
             </Link>
-            
-            <Link 
-              href="/calendar" 
-              style={{ 
-                display: "flex", 
-                alignItems: "center", 
+
+            <Link
+              href="/calendar"
+              style={{
+                display: "flex",
+                alignItems: "center",
                 gap: 12,
                 color: THEME.text,
                 textDecoration: "none",
@@ -146,33 +175,33 @@ function MobileMenu({ showMenu, setShowMenu }: { showMenu: boolean, setShowMenu:
               <Calendar size={20} />
               Calendario
             </Link>
-            
-            <Link 
-              href="/reports" 
-              style={{ 
-                display: "flex", 
-                alignItems: "center", 
+
+            <Link
+              href="/reports"
+              style={{
+                display: "flex",
+                alignItems: "center",
                 gap: 12,
-                color: THEME.primary,
+                color: THEME.text,
                 textDecoration: "none",
                 padding: "12px 0",
-                fontWeight: 600,
               }}
               onClick={() => setShowMenu(false)}
             >
               <BarChart3 size={20} />
               Report
             </Link>
-            
-            <Link 
-              href="/patients" 
-              style={{ 
-                display: "flex", 
-                alignItems: "center", 
+
+            <Link
+              href="/patients"
+              style={{
+                display: "flex",
+                alignItems: "center",
                 gap: 12,
-                color: THEME.text,
+                color: THEME.primary,
                 textDecoration: "none",
                 padding: "12px 0",
+                fontWeight: 600,
               }}
               onClick={() => setShowMenu(false)}
             >
@@ -189,36 +218,38 @@ function MobileMenu({ showMenu, setShowMenu }: { showMenu: boolean, setShowMenu:
 // --- BARRA INFERIORE MOBILE (TAB BAR) ---
 function MobileTabBar() {
   return (
-    <div style={{
-      position: "fixed",
-      bottom: 0,
-      left: 0,
-      right: 0,
-      background: THEME.panelBg,
-      borderTop: `1px solid ${THEME.border}`,
-      display: "flex",
-      justifyContent: "space-around",
-      padding: "12px 0",
-      zIndex: 50,
-    }}>
+    <div
+      style={{
+        position: "fixed",
+        bottom: 0,
+        left: 0,
+        right: 0,
+        background: THEME.panelBg,
+        borderTop: `1px solid ${THEME.border}`,
+        display: "flex",
+        justifyContent: "space-around",
+        padding: "12px 0",
+        zIndex: 50,
+      }}
+    >
       <Link href="/" style={{ textDecoration: "none", color: THEME.textMuted, textAlign: "center" }}>
         <div style={{ fontSize: 24 }}>🏠</div>
         <div style={{ fontSize: 10 }}>Home</div>
       </Link>
-      
+
       <Link href="/calendar" style={{ textDecoration: "none", color: THEME.textMuted, textAlign: "center" }}>
         <div style={{ fontSize: 24 }}>📅</div>
         <div style={{ fontSize: 10 }}>Calendario</div>
       </Link>
-      
-      <div style={{ textDecoration: "none", color: THEME.primary, textAlign: "center" }}>
+
+      <Link href="/reports" style={{ textDecoration: "none", color: THEME.textMuted, textAlign: "center" }}>
         <div style={{ fontSize: 24 }}>📊</div>
-        <div style={{ fontSize: 10, fontWeight: 600 }}>Report</div>
-      </div>
-      
-      <Link href="/patients" style={{ textDecoration: "none", color: THEME.textMuted, textAlign: "center" }}>
+        <div style={{ fontSize: 10 }}>Report</div>
+      </Link>
+
+      <Link href="/patients" style={{ textDecoration: "none", color: THEME.primary, textAlign: "center" }}>
         <div style={{ fontSize: 24 }}>👥</div>
-        <div style={{ fontSize: 10 }}>Pazienti</div>
+        <div style={{ fontSize: 10, fontWeight: 600 }}>Pazienti</div>
       </Link>
     </div>
   );
@@ -256,13 +287,36 @@ function statusColor(s: Status) {
   return colors[s];
 }
 
-function docTypeLabel(t: DocType) {
-  const labels = {
+function docTypeLabel(t: string) {
+  const labels: Record<string, string> = {
+    rx: "Rx",
+    rmn: "RMN",
+    tac: "TAC",
+    ecografia: "Ecografia",
+    elettromiografia: "Elettromiografia",
+    prescrizione: "Prescrizione",
     gdpr_informativa_privacy: "GDPR Privacy",
     consenso_trattamento: "Consenso trattamento",
     altro: "Altro",
-  } as const;
-  return labels[t];
+  };
+  return labels[t] ?? t;
+}
+
+function docTypeHint(t: string) {
+  const hints: Record<string, string> = {
+    rx: "Radiografie / lastre",
+    rmn: "Risonanza magnetica",
+    tac: "Tomografia computerizzata",
+    ecografia: "Referti ecografici",
+    elettromiografia: "EMG / ENG",
+    prescrizione: "Prescrizioni mediche / impegnative",
+  };
+  return hints[t] ?? "";
+}
+
+function safeFileName(name: string) {
+  // pulizia aggressiva ma efficace: evita caratteri strani nei path storage
+  return name.replace(/[^\w.\-() ]+/g, "_");
 }
 
 export default function PatientDetailClient({ patientId }: { patientId: string }) {
@@ -288,8 +342,12 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   // Documenti
   const [docs, setDocs] = useState<PatientDoc[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [docType, setDocType] = useState<DocType>("gdpr_informativa_privacy");
-  const [file, setFile] = useState<File | null>(null);
+  const [docType, setDocType] = useState<DocType>("rx");
+  const [files, setFiles] = useState<File[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number; current?: string }>({
+    done: 0,
+    total: 0,
+  });
 
   // Terapie
   const [appointments, setAppointments] = useState<AppointmentRow[]>([]);
@@ -343,6 +401,8 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
 
   async function loadPatient() {
     setLoading(true);
+    setError("");
+
     const res = await supabase
       .from("patients")
       .select("id, first_name, last_name, phone, birth_date, preferred_plan, anamnesis, diagnosis, treatment")
@@ -363,10 +423,12 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
       setDiagnosis(p.diagnosis ?? "");
       setTreatment(p.treatment ?? "");
     }
+
     setLoading(false);
   }
 
   async function loadDocs() {
+    setError("");
     const res = await supabase
       .from("patient_documents")
       .select("*")
@@ -378,6 +440,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   }
 
   async function loadAppointments() {
+    setError("");
     const res = await supabase
       .from("appointments")
       .select("id, start_at, status, is_paid")
@@ -429,52 +492,85 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
     }
   }
 
-  async function uploadDocument() {
-    if (!file) {
-      setError("Seleziona un file");
+  function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.target.files ?? []);
+    setFiles(picked);
+  }
+
+  async function uploadDocuments() {
+    if (files.length === 0) {
+      setError("Seleziona almeno un file");
       return;
     }
 
     setUploading(true);
     setError("");
+    setUploadProgress({ done: 0, total: files.length });
 
-    const safeName = file.name.replace(/[^\w.\-() ]+/g, "_");
-    const path = `${patientId}/${Date.now()}_${safeName}`;
+    // Carico in sequenza per evitare casino su progress/error handling
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      setUploadProgress({ done: i, total: files.length, current: f.name });
 
-    const uploadRes = await supabase.storage.from("patient_docs").upload(path, file, { upsert: false });
+      const safeName = safeFileName(f.name);
+      const path = `${patientId}/${docType}/${Date.now()}_${safeName}`;
 
-    if (uploadRes.error) {
-      setError(`Upload fallito: ${uploadRes.error.message}`);
-      setUploading(false);
-      return;
+      const uploadRes = await supabase.storage.from("patient_docs").upload(path, f, { upsert: false });
+
+      if (uploadRes.error) {
+        setError(`Upload fallito (${f.name}): ${uploadRes.error.message}`);
+        setUploading(false);
+        return;
+      }
+
+      const insertRes = await supabase.from("patient_documents").insert({
+        patient_id: patientId,
+        doc_type: docType,
+        file_name: f.name,
+        storage_path: path,
+      });
+
+      if (insertRes.error) {
+        // rollback storage (per non lasciare spazzatura)
+        await supabase.storage.from("patient_docs").remove([path]);
+        setError(
+          `Errore DB (${f.name}): ${insertRes.error.message}\n` +
+            `Se doc_type è ENUM, devi aggiungere il valore "${docType}" in Supabase.`
+        );
+        setUploading(false);
+        return;
+      }
     }
 
-    const insertRes = await supabase.from("patient_documents").insert({
-      patient_id: patientId,
-      doc_type: docType,
-      file_name: file.name,
-      storage_path: path,
-    });
-
-    if (insertRes.error) setError(`Errore DB: ${insertRes.error.message}`);
-    else {
-      setFile(null);
-      await loadDocs();
-    }
-
+    setUploadProgress({ done: files.length, total: files.length });
+    setFiles([]);
+    await loadDocs();
     setUploading(false);
   }
 
   async function openDocument(doc: PatientDoc) {
-    const res = await supabase.storage.from("patient_docs").createSignedUrl(doc.storage_path, 60);
-    if (res.data?.signedUrl) window.open(res.data.signedUrl, "_blank");
+    setError("");
+    const res = await supabase.storage.from("patient_docs").createSignedUrl(doc.storage_path, 300);
+    if (res.data?.signedUrl) window.open(res.data.signedUrl, "_blank", "noopener,noreferrer");
     else setError("Impossibile aprire il documento");
   }
 
   async function deleteDocument(doc: PatientDoc) {
     if (!window.confirm("Eliminare questo documento?")) return;
-    await supabase.from("patient_documents").delete().eq("id", doc.id);
-    await supabase.storage.from("patient_docs").remove([doc.storage_path]);
+
+    setError("");
+    const dbRes = await supabase.from("patient_documents").delete().eq("id", doc.id);
+    if (dbRes.error) {
+      setError(`Errore DB: ${dbRes.error.message}`);
+      return;
+    }
+
+    const stRes = await supabase.storage.from("patient_docs").remove([doc.storage_path]);
+    if (stRes.error) {
+      setError(`Documento rimosso dal DB ma non dallo storage: ${stRes.error.message}`);
+      // non return: comunque ricarico
+    }
+
     await loadDocs();
   }
 
@@ -495,6 +591,32 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
     await supabase.from("patients").delete().eq("id", patientId);
     window.location.href = "/patients";
   }
+
+  const docsByType = useMemo(() => {
+    const groups: Record<string, PatientDoc[]> = {};
+    for (const d of docs) {
+      const k = (d.doc_type as string) ?? "altro";
+      if (!groups[k]) groups[k] = [];
+      groups[k].push(d);
+    }
+    return groups;
+  }, [docs]);
+
+  const orderedDocTypes: string[] = useMemo(
+    () => [
+      "rx",
+      "rmn",
+      "tac",
+      "ecografia",
+      "elettromiografia",
+      "prescrizione",
+      // legacy (in fondo)
+      "gdpr_informativa_privacy",
+      "consenso_trattamento",
+      "altro",
+    ],
+    []
+  );
 
   if (loading) {
     return (
@@ -557,6 +679,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
               fontWeight: 600,
               fontSize: 12,
               cursor: "pointer",
+              opacity: saving ? 0.7 : 1,
             }}
           >
             {saving ? "Salva..." : editMode ? "Salva" : "Modifica"}
@@ -580,6 +703,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
             borderRadius: 10,
             color: THEME.warning,
             fontSize: 14,
+            whiteSpace: "pre-wrap",
           }}
         >
           {error}
@@ -600,7 +724,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
           { id: "info", label: "Info" },
           { id: "clinical", label: "Clinica" },
           { id: "therapies", label: "Sedute" },
-          { id: "docs", label: "Documenti" },
+          { id: "docs", label: "Referti" },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -785,89 +909,224 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
 
         {activeTab === "docs" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {/* Upload box */}
             <div style={{ background: THEME.panelBg, borderRadius: 12, padding: 16 }}>
-              <div style={{ fontSize: 16, fontWeight: 600, color: THEME.text, marginBottom: 16 }}>Carica documento</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: THEME.text, marginBottom: 8 }}>Carica referti</div>
+              <div style={{ fontSize: 12, color: THEME.textMuted, marginBottom: 16 }}>
+                Seleziona il tipo e carica uno o più file (PDF o immagini). {docTypeHint(docType) ? `• ${docTypeHint(docType)}` : ""}
+              </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <select value={docType} onChange={(e) => setDocType(e.target.value as DocType)} style={inputStyle}>
-                  <option value="gdpr_informativa_privacy">GDPR Privacy</option>
-                  <option value="consenso_trattamento">Consenso trattamento</option>
+                  <option value="rx">Rx</option>
+                  <option value="rmn">RMN</option>
+                  <option value="tac">TAC</option>
+                  <option value="ecografia">Ecografia</option>
+                  <option value="elettromiografia">Elettromiografia</option>
+                  <option value="prescrizione">Prescrizione</option>
                   <option value="altro">Altro</option>
+                  <option value="gdpr_informativa_privacy">GDPR Privacy (legacy)</option>
+                  <option value="consenso_trattamento">Consenso trattamento (legacy)</option>
                 </select>
 
                 <input
                   type="file"
                   accept=".pdf,image/*"
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  multiple
+                  onChange={onPickFiles}
                   style={inputStyle}
                 />
 
+                {files.length > 0 && (
+                  <div
+                    style={{
+                      border: `1px solid ${THEME.border}`,
+                      borderRadius: 10,
+                      padding: 12,
+                      background: THEME.appBg,
+                      fontSize: 13,
+                      color: THEME.text,
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, marginBottom: 8 }}>
+                      Selezionati: {files.length} file
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {files.slice(0, 5).map((f) => (
+                        <div key={f.name} style={{ color: THEME.textSoft }}>
+                          • {f.name}
+                        </div>
+                      ))}
+                      {files.length > 5 && <div style={{ color: THEME.textMuted }}>…e altri {files.length - 5}</div>}
+                    </div>
+                  </div>
+                )}
+
                 <button
-                  onClick={uploadDocument}
-                  disabled={uploading || !file}
-                  style={{ ...buttonStyle.primary, opacity: uploading || !file ? 0.5 : 1 }}
+                  onClick={uploadDocuments}
+                  disabled={uploading || files.length === 0}
+                  style={{ ...buttonStyle.primary, opacity: uploading || files.length === 0 ? 0.5 : 1 }}
                 >
-                  {uploading ? "Caricamento..." : "Carica documento"}
+                  {uploading
+                    ? `Caricamento ${uploadProgress.done}/${uploadProgress.total}${uploadProgress.current ? ` • ${uploadProgress.current}` : ""}`
+                    : "Carica"}
                 </button>
               </div>
             </div>
 
+            {/* List */}
             <div style={{ background: THEME.panelBg, borderRadius: 12, padding: 16 }}>
-              <div style={{ fontSize: 16, fontWeight: 600, color: THEME.text, marginBottom: 16 }}>Documenti ({docs.length})</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: THEME.text, marginBottom: 16 }}>
+                Referti e documenti ({docs.length})
+              </div>
 
               {docs.length === 0 ? (
-                <div style={{ color: THEME.textMuted, fontSize: 14, textAlign: "center", padding: 20 }}>Nessun documento caricato</div>
+                <div style={{ color: THEME.textMuted, fontSize: 14, textAlign: "center", padding: 20 }}>
+                  Nessun documento caricato
+                </div>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {docs.map((doc) => (
-                    <div
-                      key={doc.id}
-                      style={{
-                        padding: 12,
-                        border: `1px solid ${THEME.border}`,
-                        borderRadius: 10,
-                        background: THEME.appBg,
-                      }}
-                    >
-                      <div style={{ fontSize: 14, fontWeight: 600, color: THEME.text, marginBottom: 4 }}>{docTypeLabel(doc.doc_type)}</div>
-                      <div style={{ fontSize: 12, color: THEME.textSoft, marginBottom: 8 }}>{doc.file_name}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  {orderedDocTypes
+                    .filter((t) => (docsByType[t]?.length ?? 0) > 0)
+                    .map((t) => (
+                      <div key={t}>
+                        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8 }}>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: THEME.text }}>
+                            {docTypeLabel(t)}
+                          </div>
+                          <div style={{ fontSize: 12, color: THEME.textMuted }}>
+                            {docsByType[t].length} file
+                          </div>
+                        </div>
 
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <button
-                          onClick={() => openDocument(doc)}
-                          style={{
-                            padding: "8px 12px",
-                            borderRadius: 8,
-                            border: `1px solid ${THEME.border}`,
-                            background: "#ffffff",
-                            color: THEME.primary,
-                            fontSize: 13,
-                            fontWeight: 600,
-                            cursor: "pointer",
-                            flex: 1,
-                          }}
-                        >
-                          Apri
-                        </button>
-                        <button
-                          onClick={() => deleteDocument(doc)}
-                          style={{
-                            padding: "8px 12px",
-                            borderRadius: 8,
-                            border: `1px solid ${THEME.danger}`,
-                            background: THEME.danger,
-                            color: "#ffffff",
-                            fontSize: 13,
-                            fontWeight: 600,
-                            cursor: "pointer",
-                            flex: 1,
-                          }}
-                        >
-                          Elimina
-                        </button>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          {docsByType[t].map((doc) => (
+                            <div
+                              key={doc.id}
+                              style={{
+                                padding: 12,
+                                border: `1px solid ${THEME.border}`,
+                                borderRadius: 10,
+                                background: THEME.appBg,
+                              }}
+                            >
+                              <div style={{ fontSize: 12, color: THEME.textMuted, marginBottom: 4 }}>
+                                {docTypeLabel(String(doc.doc_type))}
+                              </div>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: THEME.text, marginBottom: 6 }}>
+                                {doc.file_name}
+                              </div>
+                              <div style={{ fontSize: 12, color: THEME.textSoft, marginBottom: 10 }}>
+                                Caricato: {doc.uploaded_at ? formatDateTimeIT(doc.uploaded_at) : "—"}
+                              </div>
+
+                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                <button
+                                  onClick={() => openDocument(doc)}
+                                  style={{
+                                    padding: "8px 12px",
+                                    borderRadius: 8,
+                                    border: `1px solid ${THEME.border}`,
+                                    background: "#ffffff",
+                                    color: THEME.primary,
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                    flex: 1,
+                                  }}
+                                >
+                                  Apri
+                                </button>
+                                <button
+                                  onClick={() => deleteDocument(doc)}
+                                  style={{
+                                    padding: "8px 12px",
+                                    borderRadius: 8,
+                                    border: `1px solid ${THEME.danger}`,
+                                    background: THEME.danger,
+                                    color: "#ffffff",
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                    flex: 1,
+                                  }}
+                                >
+                                  Elimina
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+
+                  {/* Mostra eventuali tipi non previsti */}
+                  {Object.keys(docsByType)
+                    .filter((t) => !orderedDocTypes.includes(t))
+                    .map((t) => (
+                      <div key={t}>
+                        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8 }}>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: THEME.text }}>
+                            {docTypeLabel(t)}
+                          </div>
+                          <div style={{ fontSize: 12, color: THEME.textMuted }}>
+                            {docsByType[t].length} file
+                          </div>
+                        </div>
+
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          {docsByType[t].map((doc) => (
+                            <div
+                              key={doc.id}
+                              style={{
+                                padding: 12,
+                                border: `1px solid ${THEME.border}`,
+                                borderRadius: 10,
+                                background: THEME.appBg,
+                              }}
+                            >
+                              <div style={{ fontSize: 14, fontWeight: 700, color: THEME.text, marginBottom: 6 }}>
+                                {doc.file_name}
+                              </div>
+                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                <button
+                                  onClick={() => openDocument(doc)}
+                                  style={{
+                                    padding: "8px 12px",
+                                    borderRadius: 8,
+                                    border: `1px solid ${THEME.border}`,
+                                    background: "#ffffff",
+                                    color: THEME.primary,
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                    flex: 1,
+                                  }}
+                                >
+                                  Apri
+                                </button>
+                                <button
+                                  onClick={() => deleteDocument(doc)}
+                                  style={{
+                                    padding: "8px 12px",
+                                    borderRadius: 8,
+                                    border: `1px solid ${THEME.danger}`,
+                                    background: THEME.danger,
+                                    color: "#ffffff",
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                    flex: 1,
+                                  }}
+                                >
+                                  Elimina
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                 </div>
               )}
             </div>
@@ -875,8 +1134,16 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
         )}
       </div>
 
-      {/* Bottom Navigation */}
       <MobileTabBar />
     </div>
   );
 }
+
+/**
+ * NOTE PRATICHE (importanti):
+ * - Storage bucket: "patient_docs" deve esistere in Supabase Storage
+ * - Tabella: "patient_documents" deve esistere con campi almeno:
+ *   id, patient_id, doc_type, file_name, storage_path, uploaded_at
+ *
+ * Se doc_type è un ENUM e non contiene i nuovi valori, il TSX non può salvarli.
+ */

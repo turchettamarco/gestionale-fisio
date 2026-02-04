@@ -70,6 +70,35 @@ function statusPill(status?: string | null) {
 export default function MobileHomePage() {
   const router = useRouter();
 
+useEffect(() => {
+  let alive = true;
+
+  supabase.auth.getSession().then(({ data }) => {
+    if (!alive) return;
+    if (!data.session) router.replace("/login");
+  });
+
+  const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+    if (!session) router.replace("/login");
+  });
+
+  return () => {
+    alive = false;
+    sub.subscription.unsubscribe();
+  };
+}, [router]);
+
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data, error }) => {
+      console.log("SESSIONE (mobile home):", data.session, error);
+    });
+
+    supabase.auth.getUser().then(({ data, error }) => {
+      console.log("USER LOGGATO (mobile home):", data.user, error);
+    });
+  }, []);
+
   // “oggi” stabile
   const [today] = useState(() => new Date());
   const [todayYMD] = useState(() => toYMD(new Date()));

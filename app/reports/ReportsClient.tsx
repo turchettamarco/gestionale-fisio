@@ -116,6 +116,18 @@ type UnpaidTherapy = {
   treatment_type: string;
   days_since: number;
   status: string;
+
+
+};
+type AppointmentTherapy = {
+  id: string;
+  patient_id: string;
+  patient_name: string;
+  amount: number;
+  date: string; // start_at
+  treatment_type: string;
+  status: "done" | "not_paid";
+  price_type?: string | null;
 };
 
 type Statistic = {
@@ -168,6 +180,11 @@ export default function ReportsPage() {
   const [error, setError] = useState<string | null>(null);
   const [rawData, setRawData] = useState<FinancialItem[]>([]);
   const [unpaidTherapies, setUnpaidTherapies] = useState<UnpaidTherapy[]>([]);
+  // Lista completa (tutti i mesi) usata SOLO per stampa / dropdown "Report non pagati"
+  const [unpaidTherapiesAll, setUnpaidTherapiesAll] = useState<UnpaidTherapy[]>([]);
+  // Arretrati: appuntamenti non pagati prima del periodo selezionato, raggruppati per mese
+  const [arrearsMonths, setArrearsMonths] = useState<{ month: string; count: number; total: number }[]>([]);
+  const [reportTherapies, setReportTherapies] = useState<AppointmentTherapy[]>([]);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [dayDetails, setDayDetails] = useState<FinancialItem[]>([]);
   const [showUnpaidDropdown, setShowUnpaidDropdown] = useState<boolean>(false);
@@ -230,11 +247,13 @@ export default function ReportsPage() {
         patients: paidInvoicePatients.find(p => p.id === invoice.patient_id) || null
       }));
 
-      // 2. Fetch FATTURE NON PAGATE (TUTTE, senza filtro temporale)
+      // 2. Fetch FATTURE NON PAGATE (FILTRATE PER PERIODO SELEZIONATO)
       const { data: unpaidInvoices, error: unpaidInvoicesError } = await supabase
         .from("invoices")
         .select("id, amount, paid_at, created_at, status, patient_id")
         .eq("status", "not_paid")
+        .gte("created_at", fromStr)
+        .lte("created_at", toStr)
         .order("created_at", { ascending: true });
 
       if (unpaidInvoicesError) {
@@ -297,11 +316,13 @@ export default function ReportsPage() {
         patients: paidAppointmentPatients.find(p => p.id === appointment.patient_id) || null
       }));
 
-      // 4. Fetch APPUNTAMENTI NON PAGATI (TUTTI, senza filtro temporale)
+      // 4. Fetch APPUNTAMENTI NON PAGATI (FILTRATI PER PERIODO SELEZIONATO)
       const { data: unpaidAppointments, error: unpaidAppointmentsError } = await supabase
         .from("appointments")
         .select("id, amount, start_at, status, treatment_type, price_type, patient_id")
         .eq("status", "not_paid")
+        .gte("start_at", fromStr)
+        .lte("start_at", toStr)
         .order("start_at", { ascending: true });
 
       if (unpaidAppointmentsError) {
@@ -328,6 +349,171 @@ export default function ReportsPage() {
         ...appointment,
         patients: unpaidAppointmentPatients.find(p => p.id === appointment.patient_id) || null
       }));
+
+
+      // 4.bis Arretrati: appuntamenti non pagati PRIMA del periodo selezionato (raggruppati per mese)
+      const { data: arrearsAppointments, error: arrearsAppointmentsError } = await supabase
+        .from("appointments")
+        .select("id, amount, start_at, status")
+        .eq("status", "not_paid")
+        .lt("start_at", fromStr)
+        .order("start_at", { ascending: false })
+        .limit(5000);
+
+      if (arrearsAppointmentsError) {
+        console.error("Errore nel caricamento arretrati appuntamenti non pagati:", arrearsAppointmentsError);
+        setArrearsMonths([]);
+      } else {
+        const monthMap = new Map<string, { count: number; total: number }>();
+        (arrearsAppointments || []).forEach((a: any) => {
+          const amount = parseFloat(String(a.amount)) || 0;
+          if (amount <= 0) return;
+          const dt = new Date(a.start_at);
+          const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+          const prev = monthMap.get(key) || { count: 0, total: 0 };
+          monthMap.set(key, { count: prev.count + 1, total: prev.total + amount });
+        });
+
+        const sorted = Array.from(monthMap.entries())
+          .map(([month, v]) => ({ month, count: v.count, total: v.total }))
+          .sort((a, b) => (a.month < b.month ? 1 : -1)); // più recenti prima
+
+        setArrearsMonths(sorted);
+      }
+
+      // 5. Carica LISTA COMPLETA non pagati (tutti i mesi) per stampa / dropdown "Report Non Pagati"
+      //    NB: limitiamo a 5000 righe per evitare query enormi (se ti serve paginazione, la aggiungiamo).
+      const { data: unpaidInvoicesAllRaw, error: unpaidInvoicesAllError } = await supabase
+        .from("invoices")
+        .select("id, amount, paid_at, created_at, status, patient_id")
+        .eq("status", "not_paid")
+        .order("created_at", { ascending: true })
+        .limit(5000);
+
+      if (unpaidInvoicesAllError) {
+        console.error("Errore nel caricamento fatture non pagate (tutti i mesi):", unpaidInvoicesAllError);
+      }
+
+      const { data: unpaidAppointmentsAllRaw, error: unpaidAppointmentsAllError } = await supabase
+        .from("appointments")
+        .select("id, amount, start_at, status, treatment_type, price_type, patient_id")
+        .eq("status", "not_paid")
+        .order("start_at", { ascending: true })
+        .limit(5000);
+
+      if (unpaidAppointmentsAllError) {
+        console.error("Errore nel caricamento appuntamenti non pagati (tutti i mesi):", unpaidAppointmentsAllError);
+      }
+
+      const unpaidAllPatientIds = Array.from(
+        new Set([
+          ...((unpaidInvoicesAllRaw || []).map((i: any) => i.patient_id).filter(Boolean)),
+          ...((unpaidAppointmentsAllRaw || []).map((a: any) => a.patient_id).filter(Boolean)),
+        ])
+      );
+
+      let unpaidAllPatients: any[] = [];
+      if (unpaidAllPatientIds.length > 0) {
+        const { data: patientsData } = await supabase
+          .from("patients")
+          .select("id, first_name, last_name")
+          .in("id", unpaidAllPatientIds);
+
+        unpaidAllPatients = patientsData || [];
+      }
+
+      const todayAll = new Date();
+      const unpaidAllList: UnpaidTherapy[] = [];
+
+      (unpaidInvoicesAllRaw || []).forEach((inv: any) => {
+        const amount = parseFloat(String(inv.amount)) || 0;
+        if (amount <= 0) return;
+
+        const p = unpaidAllPatients.find((x) => x.id === inv.patient_id) || null;
+        const patientName = p ? `${p.last_name || ""} ${p.first_name || ""}`.trim() : "Sconosciuto";
+
+        const invoiceDate = new Date(inv.paid_at || inv.created_at);
+        const daysSince = Math.floor((todayAll.getTime() - invoiceDate.getTime()) / (1000 * 60 * 60 * 24));
+
+        unpaidAllList.push({
+          id: inv.id,
+          patient_id: inv.patient_id,
+          patient_name: patientName,
+          amount,
+          date: inv.paid_at || inv.created_at,
+          treatment_type: "Fattura",
+          days_since: daysSince,
+          status: "not_paid",
+        });
+      });
+
+      (unpaidAppointmentsAllRaw || []).forEach((app: any) => {
+        const amount = parseFloat(String(app.amount)) || 0;
+        if (amount <= 0) return;
+
+        const p = unpaidAllPatients.find((x) => x.id === app.patient_id) || null;
+        const patientName = p ? `${p.last_name || ""} ${p.first_name || ""}`.trim() : "Sconosciuto";
+
+        const appDate = new Date(app.start_at);
+        const daysSince = Math.floor((todayAll.getTime() - appDate.getTime()) / (1000 * 60 * 60 * 24));
+
+        unpaidAllList.push({
+          id: app.id,
+          patient_id: app.patient_id,
+          patient_name: patientName,
+          amount,
+          date: app.start_at,
+          treatment_type: app.treatment_type || "Seduta",
+          days_since: daysSince,
+          status: app.status,
+        });
+      });
+
+      unpaidAllList.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      setUnpaidTherapiesAll(unpaidAllList);
+
+
+      // Terapie (solo appuntamenti) per stampa report generale - filtrate per periodo selezionato
+      const therapiesForPrint: AppointmentTherapy[] = [
+        ...(appointmentsData || []).map((a: any) => {
+          const patientName = a.patients
+            ? `${a.patients.last_name || ""} ${a.patients.first_name || ""}`.trim()
+            : "Senza nome";
+          return {
+            id: String(a.id),
+            patient_id: String(a.patient_id || ""),
+            patient_name: patientName,
+            amount: parseFloat(String(a.amount)) || 0,
+            date: a.start_at,
+            treatment_type: a.treatment_type || "Terapia",
+            status: "done" as const,
+            price_type: a.price_type ?? null,
+          };
+        }),
+        ...(unpaidAppointmentsData || []).map((a: any) => {
+          const patientName = a.patients
+            ? `${a.patients.last_name || ""} ${a.patients.first_name || ""}`.trim()
+            : "Senza nome";
+          return {
+            id: String(a.id),
+            patient_id: String(a.patient_id || ""),
+            patient_name: patientName,
+            amount: parseFloat(String(a.amount)) || 0,
+            date: a.start_at,
+            treatment_type: a.treatment_type || "Terapia",
+            status: "not_paid" as const,
+            price_type: a.price_type ?? null,
+          };
+        }),
+      ]
+        .filter((t) => !!t.date)
+        .sort((x, y) => {
+          const pn = x.patient_name.localeCompare(y.patient_name, "it");
+          if (pn !== 0) return pn;
+          return new Date(x.date).getTime() - new Date(y.date).getTime();
+        });
+
+      setReportTherapies(therapiesForPrint);
 
       // Processa FATTURE PAGATE
       const invoices: FinancialItem[] = invoicesData.map((i: any) => {
@@ -550,12 +736,12 @@ export default function ReportsPage() {
 
   // Funzione per stampare report COMPLETO delle terapie non pagate
   function printUnpaidReport() {
-    printReport(unpaidTherapies, "Report Terapie Non Pagate");
+    printReport(unpaidTherapiesAll, "Report Terapie Non Pagate");
   }
 
   // Funzione per stampare report di UN SOLO PAZIENTE
   function printPatientReport(patientName: string) {
-    const patientTherapies = unpaidTherapies.filter(t => t.patient_name === patientName);
+    const patientTherapies = unpaidTherapiesAll.filter(t => t.patient_name === patientName);
     printReport(patientTherapies, `Report Terapie Non Pagate - ${patientName}`);
   }
 
@@ -820,11 +1006,18 @@ export default function ReportsPage() {
     return date.toLocaleDateString('it-IT', options);
   }
 
+  function formatMonthKey(monthKey: string): string {
+    // monthKey: YYYY-MM
+    const [y, m] = monthKey.split('-').map(Number);
+    const dt = new Date(y, (m || 1) - 1, 1);
+    return dt.toLocaleDateString('it-IT', { month: 'short', year: 'numeric' });
+  }
+
   // Ottieni pazienti unici per il dropdown
   const uniquePatients = useMemo(() => {
-    const patients = new Set(unpaidTherapies.map(t => t.patient_name));
+    const patients = new Set(unpaidTherapiesAll.map(t => t.patient_name));
     return Array.from(patients).sort();
-  }, [unpaidTherapies]);
+  }, [unpaidTherapiesAll]);
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: COLORS.appBg }}>
@@ -1085,6 +1278,96 @@ export default function ReportsPage() {
                     day: 'numeric'
                   });
 
+
+                  const { from, to } = getRange(period, baseDate);
+                  const labelsRangeLabel =
+                    period === "day"
+                      ? from.toLocaleDateString("it-IT")
+                      : period === "week"
+                        ? `${from.toLocaleDateString("it-IT")} → ${to.toLocaleDateString("it-IT")}`
+                        : from.toLocaleDateString("it-IT", { month: "long", year: "numeric" });
+
+                  const escapeHtml = (s: any) =>
+                    String(s ?? "")
+                      .replaceAll("&", "&amp;")
+                      .replaceAll("<", "&lt;")
+                      .replaceAll(">", "&gt;")
+                      .replaceAll('"', "&quot;")
+                      .replaceAll("'", "&#039;");
+
+                  // Terapie svolte nel periodo selezionato, organizzate per paziente (solo appuntamenti)
+                  const byPatient = reportTherapies.reduce<Record<string, AppointmentTherapy[]>>((acc, t) => {
+                    const key = (t.patient_name || "Senza nome").trim();
+                    if (!acc[key]) acc[key] = [];
+                    acc[key].push(t);
+                    return acc;
+                  }, {});
+
+                  const patientNames = Object.keys(byPatient).sort((a, b) => a.localeCompare(b, "it"));
+
+                  const therapiesByPatientHtml =
+                    patientNames.length === 0
+                      ? `<div style="margin-top: 2cm; font-size: 11pt; color: #555;">Nessuna terapia (appuntamento) trovata nel periodo selezionato.</div>`
+                      : `
+                        <div class="details">
+                          <h2>🧑‍⚕️ Terapie effettuate (per paziente)</h2>
+                          <div style="font-size: 10pt; color: #555; margin-bottom: 10px;">
+                            Periodo: <strong>${escapeHtml(labelsRangeLabel)}</strong>
+                          </div>
+                          ${patientNames
+                            .map((name) => {
+                              const list = (byPatient[name] || []).slice().sort((x, y) => new Date(x.date).getTime() - new Date(y.date).getTime());
+                              const tot = list.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+                              const paid = list.filter((x) => x.status === "done").reduce((s, x) => s + (Number(x.amount) || 0), 0);
+                              const unpaid = list.filter((x) => x.status === "not_paid").reduce((s, x) => s + (Number(x.amount) || 0), 0);
+
+                              return `
+                                <div style="margin-top: 18px; padding-top: 12px; border-top: 1px solid #ddd;">
+                                  <div style="display:flex; justify-content: space-between; align-items: baseline;">
+                                    <div style="font-size: 13pt; font-weight: 800;">${escapeHtml(name)}</div>
+                                    <div style="font-size: 10pt; color: #555;">
+                                      Tot: <strong>${escapeHtml(currency.format(tot))}</strong> —
+                                      Incassato: <strong style="color:#16a34a;">${escapeHtml(currency.format(paid))}</strong> —
+                                      Non pagato: <strong style="color:#dc2626;">${escapeHtml(currency.format(unpaid))}</strong>
+                                    </div>
+                                  </div>
+
+                                  <table style="width:100%; border-collapse: collapse; margin-top: 10px; font-size: 10pt;">
+                                    <thead>
+                                      <tr>
+                                        <th style="text-align:left; border-bottom:1px solid #ccc; padding:6px;">Data</th>
+                                        <th style="text-align:left; border-bottom:1px solid #ccc; padding:6px;">Trattamento</th>
+                                        <th style="text-align:left; border-bottom:1px solid #ccc; padding:6px;">Stato</th>
+                                        <th style="text-align:right; border-bottom:1px solid #ccc; padding:6px;">Importo</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      ${list
+                                        .map((t) => {
+                                          const d = new Date(t.date);
+                                          const dateLabel = isNaN(d.getTime()) ? "" : d.toLocaleDateString("it-IT");
+                                          const stato = t.status === "done" ? "PAGATO" : "NON PAGATO";
+                                          const statoColor = t.status === "done" ? "#16a34a" : "#dc2626";
+                                          return `
+                                            <tr>
+                                              <td style="padding:6px; border-bottom:1px solid #eee;">${escapeHtml(dateLabel)}</td>
+                                              <td style="padding:6px; border-bottom:1px solid #eee;">${escapeHtml(t.treatment_type)}</td>
+                                              <td style="padding:6px; border-bottom:1px solid #eee; font-weight:700; color:${statoColor};">${escapeHtml(stato)}</td>
+                                              <td style="padding:6px; border-bottom:1px solid #eee; text-align:right;">${escapeHtml(currency.format(Number(t.amount) || 0))}</td>
+                                            </tr>
+                                          `;
+                                        })
+                                        .join("")}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              `;
+                            })
+                            .join("")}
+                        </div>
+                      `;
+
+
                   const totalPaid = statistics.total;
                   const totalUnpaid = statistics.unpaidTotal;
                   const grandTotal = totalPaid + totalUnpaid;
@@ -1287,6 +1570,8 @@ export default function ReportsPage() {
                             </div>
                         </div>
                         
+                        ${therapiesByPatientHtml}
+
                         <div style="margin-top: 3cm; padding-top: 1cm; border-top: 1px solid #ccc; font-size: 9pt; color: #555;">
                             <p>Report generato automaticamente da FisioHub</p>
                             <p>Data di generazione: ${new Date().toLocaleString('it-IT')}</p>
@@ -1534,22 +1819,46 @@ export default function ReportsPage() {
               </div>
 
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <input
-                  type="date"
-                  value={dateStr}
-                  onChange={(e) => setDateStr(e.target.value)}
-                  style={{
-                    border: `1px solid ${COLORS.border}`,
-                    background: "white",
-                    padding: "10px 12px",
-                    borderRadius: 8,
-                    fontSize: 14,
-                    fontWeight: 600,
-                    minWidth: 160,
-                  }}
-                />
-                
-                <button 
+                {period === "month" ? (
+                  <input
+                    type="month"
+                    value={dateStr.slice(0, 7)}
+                    onChange={(e) => {
+                      // mantiene il giorno = 01 per avere un range mese pulito
+                      const v = e.target.value; // YYYY-MM
+                      if (!v) return;
+                      setDateStr(`${v}-01`);
+                    }}
+                    style={{
+                      border: `1px solid ${COLORS.border}`,
+                      background: "white",
+                      color: COLORS.text,
+                      padding: "10px 12px",
+                      borderRadius: 8,
+                      fontSize: 14,
+                      fontWeight: 600,
+                      minWidth: 160,
+                    }}
+                  />
+                ) : (
+                  <input
+                    type="date"
+                    value={dateStr}
+                    onChange={(e) => setDateStr(e.target.value)}
+                    style={{
+                      border: `1px solid ${COLORS.border}`,
+                      background: "white",
+                      color: COLORS.text,
+                      padding: "10px 12px",
+                      borderRadius: 8,
+                      fontSize: 14,
+                      fontWeight: 600,
+                      minWidth: 160,
+                    }}
+                  />
+                )}
+
+                <button
                   onClick={() => setDateStr(toISODate(new Date()))}
                   style={{
                     cursor: "pointer",
@@ -1788,6 +2097,20 @@ export default function ReportsPage() {
           <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 2 }}>
             {statistics.unpaidAppointmentCount} appuntamenti • In attesa
           </div>
+          {arrearsMonths.length > 0 && (
+            <div style={{ fontSize: 10, color: COLORS.muted, marginTop: 6, lineHeight: 1.3 }}>
+              <strong>Arretrati (mesi precedenti):</strong>{" "}
+              {arrearsMonths.slice(0, 4).map((m, idx) => (
+                <span key={m.month}>
+                  {idx > 0 ? " • " : ""}
+                  {formatMonthKey(m.month)}: {m.count} ({currency.format(m.total)})
+                </span>
+              ))}
+              {arrearsMonths.length > 4 ? (
+                <span> • +{arrearsMonths.length - 4} mesi</span>
+              ) : null}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -2065,7 +2388,7 @@ export default function ReportsPage() {
                   ⚠️ Terapie Non Pagate
                 </h3>
                 <div style={{ fontSize: 11, color: COLORS.muted, fontWeight: 700 }}>
-                  {unpaidTherapies.length} elementi
+                  {unpaidTherapiesAll.length} elementi
                 </div>
               </div>
 
@@ -2081,7 +2404,7 @@ export default function ReportsPage() {
                   }}>
                     Caricamento...
                   </div>
-                ) : unpaidTherapies.length === 0 ? (
+                ) : unpaidTherapiesAll.length === 0 ? (
                   <div style={{ 
                     textAlign: "center", 
                     padding: 40, 
@@ -2092,7 +2415,7 @@ export default function ReportsPage() {
                   </div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {unpaidTherapies.map((therapy, index) => (
+                    {unpaidTherapiesAll.map((therapy, index) => (
                       <div
                         key={therapy.id}
                         style={{
@@ -2121,7 +2444,7 @@ export default function ReportsPage() {
                               color: COLORS.muted,
                               marginTop: 2 
                             }}>
-                              {new Date(therapy.date).toLocaleDateString('it-IT')} • {therapy.treatment_type}
+                              {new Date(therapy.date).toLocaleDateString('it-IT')} • {new Date(therapy.date).toLocaleDateString('it-IT', { month: 'short', year: 'numeric' })} • {therapy.treatment_type}
                             </div>
                           </div>
                           <div style={{
