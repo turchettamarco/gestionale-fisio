@@ -497,7 +497,8 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
     setFiles(picked);
   }
 
-  async function uploadDocuments() {
+  const uploadDocuments = async () => {
+
     if (files.length === 0) {
       setError("Seleziona almeno un file");
       return;

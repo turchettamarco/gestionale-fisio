@@ -325,6 +325,7 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
   } | null>(null);
 
   const [todaysAppointments, setTodaysAppointments] = useState<any[]>([]);
+  const [showAllUpcoming, setShowAllUpcoming] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
 
   // Timer per linea del tempo corrente
@@ -354,6 +355,9 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
     );
 
     setTodaysAppointments(sortedEvents);
+
+    // reset espansione lista imminenti quando cambia il contenuto
+    setShowAllUpcoming(false);
   }, [events]);
 
   // Dichiarazioni delle costanti useMemo devono essere PRIMA delle funzioni che le usano
@@ -726,11 +730,12 @@ const mapped = (data ?? []).map(
     }
   ) => {
     const patient = Array.isArray(a.patients) ? a.patients[0] : a.patients;
-const name = patient ? `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim() : "Paziente";
+const name = patient ? `${patient.last_name ?? ""} ${patient.first_name ?? ""}`.trim() : "Paziente";
 
 
     return {
       id: a.id,
+      patient_id: a.patient_id,
       title: name,
       start: new Date(a.start_at),
       end: new Date(a.end_at),
@@ -1687,9 +1692,25 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: THEME.appBg }}>
+      <style jsx global>{`
+        .sidebar-scroll {
+          overflow-y: auto;
+          scrollbar-width: none; /* Firefox: hide */
+          -ms-overflow-style: none; /* IE/Edge legacy */
+        }
+        .sidebar-scroll::-webkit-scrollbar { width: 0px; height: 0px; } /* Chrome/Safari: hide */
+
+        .sidebar-scroll.show-scrollbar {
+          scrollbar-width: auto; /* Firefox: show */
+        }
+        .sidebar-scroll.show-scrollbar::-webkit-scrollbar { width: 10px; height: 10px; }
+        .sidebar-scroll.show-scrollbar::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.25); border-radius: 10px; }
+        .sidebar-scroll.show-scrollbar::-webkit-scrollbar-track { background: rgba(15,23,42,0.06); border-radius: 10px; }
+      `}</style>
+
       <aside
         ref={sidebarRef}
-        className="no-print"
+        className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`}
         style={{
           width: 300,
           background: THEME.panelBg,
@@ -1757,227 +1778,327 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
         {/* Sezione Appuntamenti Imminenti */}
         <div style={{ marginTop: 30, borderTop: `1px solid ${THEME.border}`, paddingTop: 20 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-            <div style={{ fontSize: 14, fontWeight: 900, color: THEME.textSoft }}>
+            <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
               🕐 Appuntamenti imminenti
             </div>
-            <div style={{ 
-              fontSize: 11, 
-              fontWeight: 900, 
-              color: "#fff", 
-              background: THEME.blue, 
-              padding: "4px 8px", 
-              borderRadius: 12 
+            <div style={{
+              fontSize: 11,
+              fontWeight: 900,
+              color: "#fff",
+              background: THEME.blue,
+              padding: "4px 8px",
+              borderRadius: 12
             }}>
-              {todaysAppointments.length}
+              {(() => {
+                const now = currentTime || new Date();
+                const upcoming = todaysAppointments.filter(a => a.end > now);
+                return upcoming.length;
+              })()}
             </div>
           </div>
 
-          {todaysAppointments.length === 0 ? (
-            <div style={{ 
-              textAlign: "center", 
-              padding: "20px 12px", 
-              background: THEME.panelSoft, 
-              borderRadius: 8,
-              border: `1px solid ${THEME.border}`
-            }}>
-              <div style={{ fontSize: 14, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>
-                Nessun appuntamento oggi
-              </div>
-              <div style={{ fontSize: 11, color: THEME.muted }}>
-                Puoi creare nuovi appuntamenti cliccando sugli slot liberi
-              </div>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12, maxHeight: "400px", overflowY: "auto" }}>
-              {todaysAppointments.map((appointment) => {
-                const isPast = appointment.end < new Date();
-                const isNow = appointment.start <= new Date() && appointment.end >= new Date();
-                
-                return (
-                  <div
-                    key={appointment.id}
-                    style={{
-                      background: isNow ? "rgba(37, 99, 235, 0.1)" : isPast ? THEME.panelSoft : "#fff",
-                      border: `1px solid ${isNow ? THEME.blue : THEME.border}`,
-                      borderRadius: 8,
-                      padding: 12,
-                      cursor: "pointer",
-                      transition: "all 0.2s",
-                      position: "relative",
-                      overflow: "hidden",
-                    }}
-                    onClick={() => {
-                      setSelectedEvent({
-                        id: appointment.id,
-                        title: appointment.patient_name,
-                        patient_id: appointment.patient_id,
-                        location: appointment.location,
-                        clinic_site: appointment.clinic_site,
-                        domicile_address: appointment.domicile_address,
-                        treatment: appointment.treatment,
-                        diagnosis: appointment.diagnosis,
-                        amount: appointment.amount,
-                        treatment_type: appointment.treatment_type,
-                        price_type: appointment.price_type,
-                        start: appointment.start,
-                        end: appointment.end,
-                      });
-                      setEditStatus(appointment.status);
-                      setEditNote(appointment.calendar_note || "");
-                      setEditAmount(appointment.amount !== undefined && appointment.amount !== null ? appointment.amount.toString() : "");
-                      setEditTreatmentType(appointment.treatment_type || "seduta");
-                      setEditPriceType(appointment.price_type || "invoiced");
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = "translateY(-2px)";
-                      e.currentTarget.style.boxShadow = "0 4px 12px rgba(15,23,42,0.1)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.transform = "translateY(0)";
-                      e.currentTarget.style.boxShadow = "none";
-                    }}
-                  >
-                    <div style={{ 
-                      position: "absolute", 
-                      top: 0, 
-                      left: 0, 
-                      width: 4, 
-                      height: "100%", 
-                      background: statusColor(appointment.status) 
-                    }} />
-                    
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginLeft: 4 }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ 
-                          display: "flex", 
-                          alignItems: "center", 
-                          gap: 6, 
-                          marginBottom: 4 
-                        }}>
-                          <div style={{ 
-                            fontSize: 12, 
-                            fontWeight: 900, 
-                            color: isNow ? THEME.blue : THEME.text,
-                            background: isNow ? "rgba(37, 99, 235, 0.1)" : THEME.panelSoft,
-                            padding: "2px 6px",
-                            borderRadius: 4
-                          }}>
-                            {fmtTime(appointment.start.toISOString())}
-                          </div>
-                          {isNow && (
-                            <div style={{ 
-                              fontSize: 10, 
-                              fontWeight: 900, 
-                              color: "#fff",
-                              background: THEME.blue,
-                              padding: "2px 6px",
-                              borderRadius: 4
-                            }}>
-                              IN CORSO
-                            </div>
-                          )}
-                        </div>
-                        
-                        <div style={{ 
-                          fontSize: 13, 
-                          fontWeight: 900, 
-                          color: THEME.text,
-                          lineHeight: 1.2,
-                          marginBottom: 4
-                        }}>
-                          {appointment.patient_name}
-                        </div>
-                        
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                          <div style={{ 
-                            fontSize: 10, 
-                            fontWeight: 900, 
-                            color: THEME.muted,
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 2
-                          }}>
-                            <div style={{ 
-                              width: 8, 
-                              height: 8, 
-                              borderRadius: "50%", 
-                              background: statusColor(appointment.status) 
-                            }} />
-                            {statusLabel(appointment.status)}
-                          </div>
-                          
-                          {appointment.location === "domicile" && (
-                            <div style={{ 
-                              fontSize: 10, 
-                              fontWeight: 900, 
-                              color: THEME.amber,
+          {(() => {
+            const now = currentTime || new Date();
+            const upcomingAll = todaysAppointments
+              .filter(a => a.end > now) // sparisce quando finisce
+              .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+            const nextFuture = upcomingAll.find(a => a.start > now) || null;
+            const list = showAllUpcoming ? upcomingAll : upcomingAll.slice(0, 5);
+            const remaining = Math.max(0, upcomingAll.length - 5);
+
+            const timeStyle = (status: "past" | "current" | "next") => ({
+              fontSize: 12,
+              fontWeight: 800,
+              padding: "3px 6px",
+              borderRadius: 6,
+              minWidth: 52,
+              textAlign: "center" as const,
+              border:
+                status === "current"
+                  ? "2px solid #16a34a"
+                  : status === "next"
+                  ? "2px solid #2563eb"
+                  : "1px solid #cbd5e1",
+              color:
+                status === "current"
+                  ? "#16a34a"
+                  : status === "next"
+                  ? "#2563eb"
+                  : "#334155",
+              background:
+                status === "current"
+                  ? "rgba(22,163,74,0.08)"
+                  : status === "next"
+                  ? "rgba(37,99,235,0.08)"
+                  : "#f8fafc",
+            });
+
+            if (upcomingAll.length === 0) {
+              return (
+                <div style={{
+                  textAlign: "center",
+                  padding: "20px 12px",
+                  background: THEME.panelSoft,
+                  borderRadius: 8,
+                  border: `1px solid ${THEME.border}`
+                }}>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>
+                    Nessun appuntamento imminente
+                  </div>
+                  <div style={{ fontSize: 11, color: THEME.muted }}>
+                    Oggi non ci sono altri appuntamenti in arrivo
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: showAllUpcoming ? "520px" : "none", overflowY: showAllUpcoming ? "auto" : "hidden" }}>
+                  {list.map((appointment) => {
+                    const isNow = appointment.start <= now && appointment.end >= now;
+                    const isNext = !isNow && nextFuture && nextFuture.id === appointment.id;
+
+                    return (
+                      <div
+                        key={appointment.id}
+                        style={{
+                          background: isNow ? "rgba(37, 99, 235, 0.1)" : "#fff",
+                          border: `1px solid ${isNow ? THEME.blue : THEME.border}`,
+                          borderRadius: 8,
+                          padding: 10,
+                          cursor: "pointer",
+                          transition: "all 0.2s",
+                          position: "relative",
+                          overflow: "visible",
+                        }}
+                        onClick={() => {
+                          setQuickActionsMenu(null);
+                          setSelectedEvent({
+                            id: appointment.id,
+                            title: appointment.patient_name,
+                            patient_id: appointment.patient_id,
+                            location: appointment.location,
+                            clinic_site: appointment.clinic_site,
+                            domicile_address: appointment.domicile_address,
+                            treatment: appointment.treatment,
+                            diagnosis: appointment.diagnosis,
+                            amount: appointment.amount,
+                            treatment_type: appointment.treatment_type,
+                            price_type: appointment.price_type,
+                            start: appointment.start,
+                            end: appointment.end,
+                          });
+                          setEditStatus(appointment.status);
+                          setEditNote(appointment.calendar_note || "");
+                          setEditAmount(appointment.amount !== undefined && appointment.amount !== null ? appointment.amount.toString() : "");
+                          setEditTreatmentType(appointment.treatment_type || "seduta");
+                          setEditPriceType(appointment.price_type || "invoiced");
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.transform = "translateY(-2px)";
+                          e.currentTarget.style.boxShadow = "0 4px 12px rgba(15,23,42,0.1)";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.boxShadow = "none";
+                        }}
+                      >
+                        <div style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          width: 4,
+                          height: "100%",
+                          background: statusColor(appointment.status)
+                        }} />
+
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginLeft: 4 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{
                               display: "flex",
                               alignItems: "center",
-                              gap: 2
+                              gap: 6,
+                              marginBottom: 4
                             }}>
-                              🏠 Domicilio
+                              <div style={timeStyle(isNow ? "current" : isNext ? "next" : "past")}>
+                                {fmtTime(appointment.start.toISOString())}
+                              </div>
+
+                              {isNow && (
+                                <div style={{
+                                  fontSize: 10,
+                                  fontWeight: 900,
+                                  color: "#fff",
+                                  background: "#16a34a",
+                                  padding: "2px 6px",
+                                  borderRadius: 4
+                                }}>
+                                  IN CORSO
+                                </div>
+                              )}
+
+                              {isNext && (
+                                <div style={{
+                                  fontSize: 10,
+                                  fontWeight: 900,
+                                  color: "#fff",
+                                  background: "#2563eb",
+                                  padding: "2px 6px",
+                                  borderRadius: 4
+                                }}>
+                                  PROSSIMO
+                                </div>
+                              )}
                             </div>
-                          )}
+
+                            <div style={{
+                              fontSize: 13,
+                              fontWeight: 900,
+                              color: THEME.text,
+                              lineHeight: 1.35,
+                              marginBottom: 4
+                            }}>
+                              {appointment.patient_name}
+                            </div>
+
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <div style={{
+                                fontSize: 10,
+                                fontWeight: 900,
+                                color: THEME.muted,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 2
+                              }}>
+                                <div style={{
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: "50%",
+                                  background: statusColor(appointment.status)
+                                }} />
+                                {statusLabel(appointment.status)}
+                              </div>
+
+                              {appointment.location === "domicile" && (
+                                <div style={{
+                                  fontSize: 10,
+                                  fontWeight: 900,
+                                  color: THEME.amber,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 2
+                                }}>
+                                  🏠 Domicilio
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleDoneQuick(appointment.id, appointment.status);
+                            }}
+                            style={{
+                              width: 20,
+                              height: 20,
+                              borderRadius: 4,
+                              border: `2px solid ${appointment.status === "done" ? THEME.greenDark : THEME.border}`,
+                              background: appointment.status === "done" ? THEME.greenDark : "transparent",
+                              cursor: "pointer",
+                              flex: "0 0 auto",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: 10,
+                              color: "#fff",
+                            }}
+                            title={appointment.status === "done" ? "Segna come non eseguito" : "Segna come eseguito"}
+                          >
+                            {appointment.status === "done" && "✓"}
+                          </button>
                         </div>
+
+                        {appointment.calendar_note && (
+                          <div style={{
+                            marginTop: 8,
+                            fontSize: 11,
+                            color: THEME.muted,
+                            fontStyle: "italic",
+                            paddingLeft: 4,
+                            borderLeft: `2px solid ${THEME.borderSoft}`
+                          }}>
+                            {appointment.calendar_note}
+                          </div>
+                        )}
                       </div>
-                      
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleDoneQuick(appointment.id, appointment.status);
-                        }}
-                        style={{
-                          width: 20,
-                          height: 20,
-                          borderRadius: 4,
-                          border: `2px solid ${appointment.status === "done" ? THEME.greenDark : THEME.border}`,
-                          background: appointment.status === "done" ? THEME.greenDark : "transparent",
-                          cursor: "pointer",
-                          flex: "0 0 auto",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontSize: 10,
-                          color: "#fff",
-                        }}
-                        title={appointment.status === "done" ? "Segna come non eseguito" : "Segna come eseguito"}
-                      >
-                        {appointment.status === "done" && "✓"}
-                      </button>
-                    </div>
-                    
-                    {appointment.calendar_note && (
-                      <div style={{ 
-                        marginTop: 8, 
-                        fontSize: 11, 
-                        color: THEME.muted, 
-                        fontStyle: "italic",
-                        paddingLeft: 4,
-                        borderLeft: `2px solid ${THEME.borderSoft}`
-                      }}>
-                        {appointment.calendar_note}
-                      </div>
-                    )}
+                    );
+                  })}
+                </div>
+
+                {remaining > 0 && !showAllUpcoming && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllUpcoming(true)}
+                    style={{
+                      marginTop: 12,
+                      width: "100%",
+                      border: `1px solid ${THEME.border}`,
+                      background: "#fff",
+                      borderRadius: 10,
+                      padding: "8px 10px",
+                      cursor: "pointer",
+                      fontSize: 12,
+                      fontWeight: 900,
+                      color: THEME.blue,
+                      textAlign: "center",
+                    }}
+                    title="Mostra tutti gli appuntamenti imminenti di oggi"
+                  >
+                    +{remaining} altri oggi
+                  </button>
+                )}
+
+                {showAllUpcoming && upcomingAll.length > 5 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllUpcoming(false)}
+                    style={{
+                      marginTop: 12,
+                      width: "100%",
+                      border: `1px solid ${THEME.border}`,
+                      background: THEME.panelSoft,
+                      borderRadius: 10,
+                      padding: "8px 10px",
+                      cursor: "pointer",
+                      fontSize: 12,
+                      fontWeight: 900,
+                      color: THEME.muted,
+                      textAlign: "center",
+                    }}
+                    title="Mostra solo i primi 5"
+                  >
+                    Mostra meno
+                  </button>
+                )}
+
+                <div style={{ marginTop: 16, fontSize: 11, color: THEME.muted, textAlign: "center" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span>Completati: {todaysAppointments.filter(a => a.status === "done").length}</span>
+                    <span>Prenotati: {todaysAppointments.filter(a => a.status === "booked" || a.status === "confirmed").length}</span>
                   </div>
-                );
-              })}
-            </div>
-          )}
-          
-          <div style={{ marginTop: 20, fontSize: 11, color: THEME.muted, textAlign: "center" }}>
-            {todaysAppointments.length > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>Completati: {todaysAppointments.filter(a => a.status === "done").length}</span>
-                <span>Prenotati: {todaysAppointments.filter(a => a.status === "booked" || a.status === "confirmed").length}</span>
-              </div>
-            )}
-          </div>
+                </div>
+              </>
+            );
+          })()}
         </div>
       </aside>
 
       <main className="print-wrap" style={{ flex: 1, display: "flex", flexDirection: "column", padding: 24, minWidth: 0 }}>
         <div style={{ width: "100%" }}>
-          <div className="no-print" style={{ 
+          <div className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`} style={{ 
             display: "flex", 
             alignItems: "center", 
             justifyContent: "space-between", 
@@ -2075,7 +2196,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                       boxShadow: "0 10px 30px rgba(15,23,42,0.10)",
                       zIndex: 1000,
                       minWidth: 160,
-                      overflow: "hidden",
+                      overflow: "visible",
                     }}
                   >
                     <button
@@ -2158,14 +2279,14 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
 
           {error && (
             <div
-              className="no-print"
+              className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`}
               style={{
                 marginTop: 12,
                 marginBottom: 16,
                 background: "rgba(220,38,38,0.08)",
                 border: "1px solid rgba(220,38,38,0.22)",
                 color: THEME.red,
-                padding: 12,
+                padding: 10,
                 borderRadius: 8,
                 fontWeight: 900,
                 fontSize: 12,
@@ -2190,7 +2311,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
             </div>
           )}
 
-          <div className="no-print" style={{ 
+          <div className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`} style={{ 
   marginBottom: 12,
   padding: "16px",
   background: THEME.panelBg,
@@ -2330,7 +2451,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
   )}
 </div>
 
-          <div className="no-print" style={{ 
+          <div className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`} style={{ 
             display: "flex", 
             justifyContent: "space-between", 
             alignItems: "center", 
@@ -2525,7 +2646,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
               </button>
             </div>
 
-            <div style={{ fontSize: 14, fontWeight: 900, color: THEME.blueDark }}>
+            <div style={{ fontSize: 13, fontWeight: 900, color: THEME.blueDark }}>
               {viewType === "week" 
                 ? `${formatDMY(weekDays[0])} - ${formatDMY(weekDays[5])}`
                 : `${formatDMY(currentDate)}`
@@ -2533,7 +2654,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
             </div>
           </div>
 
-          <div className="no-print" style={{ 
+          <div className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`} style={{ 
             display: "flex", 
             justifyContent: "space-between", 
             alignItems: "center",
@@ -2589,7 +2710,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                 border: `1px solid ${THEME.border}`,
                 borderRadius: 12,
                 minHeight: 600,
-                overflow: "hidden",
+                overflow: "visible",
                 boxShadow: "0 10px 30px rgba(15,23,42,0.10)",
                 position: "relative",
               }}
@@ -2632,7 +2753,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
           color: THEME.blueDark,
           boxSizing: "border-box",
           width: "100%",
-          overflow: "hidden",
+          overflow: "visible",
           display: "flex",
           flexDirection: "column",
           justifyContent: "center",
@@ -2827,7 +2948,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                           border: `2px solid ${col}`,
                           cursor: "move",
                           zIndex: 2,
-                          overflow: "hidden",
+                          overflow: "visible",
                           transition: "opacity 0.2s",
                           display: "flex",
                           flexDirection: "column",
@@ -3069,7 +3190,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                 border: `1px solid ${THEME.border}`,
                 borderRadius: 12,
                 minHeight: 600,
-                overflow: "hidden",
+                overflow: "visible",
                 boxShadow: "0 10px 30px rgba(15,23,42,0.10)",
                 position: "relative",
               }}
@@ -3307,7 +3428,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                           border: `2px solid ${col}`,
                           cursor: "move",
                           zIndex: 2,
-                          overflow: "hidden",
+                          overflow: "visible",
                           transition: "opacity 0.2s",
                           display: "flex",
                           flexDirection: "column",
@@ -3364,7 +3485,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                               fontWeight: 900, 
                               lineHeight: 1.2, 
                               fontSize: 12, 
-                              overflow: "hidden",
+                              overflow: "visible",
                               textOverflow: "ellipsis",
                               whiteSpace: "nowrap",
                             }}>
@@ -3497,7 +3618,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
 
       {createOpen && (
         <div
-          className="no-print"
+          className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`}
           onClick={() => setCreateOpen(false)}
           style={{
             position: "fixed",
@@ -3563,7 +3684,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                     style={{
                       width: "100%",
                       marginTop: 8,
-                      padding: 12,
+                      padding: 10,
                       borderRadius: 8,
                       border: `1px solid ${THEME.borderSoft}`,
                       background: THEME.panelBg,
@@ -3590,7 +3711,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                       style={{
                         width: "100%",
                         marginTop: 8,
-                        padding: 12,
+                        padding: 10,
                         borderRadius: 8,
                         border: `1px solid ${THEME.borderSoft}`,
                         background: THEME.panelBg,
@@ -3611,7 +3732,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                       style={{
                         width: "100%",
                         marginTop: 8,
-                        padding: 12,
+                        padding: 10,
                         borderRadius: 8,
                         border: `1px solid ${THEME.borderSoft}`,
                         background: THEME.panelBg,
@@ -3648,7 +3769,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                     style={{
                       width: "100%",
                       marginTop: 8,
-                      padding: 12,
+                      padding: 10,
                       borderRadius: 8,
                       border: `1px solid ${THEME.borderSoft}`,
                       background: THEME.panelBg,
@@ -3679,7 +3800,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                     style={{
                       width: "100%",
                       marginTop: 8,
-                      padding: 12,
+                      padding: 10,
                       borderRadius: 8,
                       border: `1px solid ${THEME.borderSoft}`,
                       background: THEME.panelBg,
@@ -3713,7 +3834,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                     style={{
                       width: "100%",
                       marginTop: 8,
-                      padding: 12,
+                      padding: 10,
                       borderRadius: 8,
                       border: `1px solid ${THEME.borderSoft}`,
                       background: THEME.panelBg,
@@ -3734,7 +3855,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
             </div>
 
             <div style={{ marginBottom: 20, border: `1px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
-              <div style={{ fontSize: 14, fontWeight: 900, color: THEME.textSoft, marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 12 }}>
                 Tipologia e Prezzo
               </div>
               
@@ -3848,7 +3969,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
   placeholder="Importo personalizzato (0 per gratis)"
   style={{
     flex: 1,
-    padding: "10px 12px",
+    padding: "8px 10px",
     borderRadius: 8,
     border: `1px solid ${THEME.blue}`,
     background: "#fff",
@@ -3901,7 +4022,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                             key={d.dow}
                             onClick={() => toggleRecurringDay(d.dow)}
                             style={{
-                              padding: "10px 12px",
+                              padding: "8px 10px",
                               borderRadius: 8,
                               border: `1px solid ${active ? THEME.blueDark : THEME.borderSoft}`,
                               background: active ? THEME.blue : "#fff",
@@ -3932,7 +4053,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                         style={{
                           width: "100%",
                           marginTop: 8,
-                          padding: 12,
+                          padding: 10,
                           borderRadius: 8,
                           border: `1px solid ${THEME.borderSoft}`,
                           background: "#fff",
@@ -3954,7 +4075,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
 
             <div style={{ marginBottom: 20 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <div style={{ fontSize: 14, fontWeight: 900, color: THEME.textSoft }}>
+                <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
                   Seleziona paziente
                 </div>
                 <button
@@ -3984,7 +4105,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                 placeholder="Cerca per nome o cognome (min 2 lettere)..."
                 style={{
                   width: "100%",
-                  padding: 12,
+                  padding: 10,
                   borderRadius: 8,
                   border: `1px solid ${THEME.borderSoft}`,
                   background: "#fff",
@@ -4014,7 +4135,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                     onChange={(e) => setQuickPatientFirstName(e.target.value)}
                     placeholder="Nome *"
                     style={{
-                      padding: "10px 12px",
+                      padding: "8px 10px",
                       borderRadius: 8,
                       border: `1px solid ${THEME.borderSoft}`,
                       background: "#fff",
@@ -4029,7 +4150,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                     onChange={(e) => setQuickPatientLastName(e.target.value)}
                     placeholder="Cognome *"
                     style={{
-                      padding: "10px 12px",
+                      padding: "8px 10px",
                       borderRadius: 8,
                       border: `1px solid ${THEME.borderSoft}`,
                       background: "#fff",
@@ -4044,7 +4165,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                     onChange={(e) => setQuickPatientPhone(e.target.value)}
                     placeholder="Telefono (opzionale)"
                     style={{
-                      padding: "10px 12px",
+                      padding: "8px 10px",
                       borderRadius: 8,
                       border: `1px solid ${THEME.borderSoft}`,
                       background: "#fff",
@@ -4100,7 +4221,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
             )}
 
             <div style={{ border: `1px solid ${THEME.border}`, background: "#fff", borderRadius: 8, overflow: "hidden" }}>
-              <div style={{ padding: 12, fontSize: 13, color: THEME.muted, fontWeight: 900, background: THEME.panelSoft }}>
+              <div style={{ padding: 10, fontSize: 13, color: THEME.muted, fontWeight: 900, background: THEME.panelSoft }}>
                 {searching ? "Ricerca in corso..." : `Risultati: ${patientResults.length}`}
               </div>
 
@@ -4207,7 +4328,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
         {showWhatsAppConfirm && (
         <>
           <div
-            className="no-print"
+            className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`}
             onClick={() => setShowWhatsAppConfirm(false)}
             style={{
               position: "fixed",
@@ -4349,7 +4470,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
 
       {selectedEvent && (
         <div
-          className="no-print"
+          className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`}
           onClick={() => setSelectedEvent(null)}
           style={{
             position: "fixed",
@@ -4435,7 +4556,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
             </div>
 
             <div style={{ marginBottom: 20, border: `1px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
-              <div style={{ fontSize: 14, fontWeight: 900, color: THEME.textSoft, marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 12 }}>
                 Modifica Data e Orario
               </div>
               
@@ -4450,7 +4571,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                     onChange={(e) => setEditDate(e.target.value)}
                     style={{
                       width: "100%",
-                      padding: "10px 12px",
+                      padding: "8px 10px",
                       borderRadius: 8,
                       border: `1px solid ${THEME.borderSoft}`,
                       background: "#fff",
@@ -4471,7 +4592,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                     onChange={(e) => setEditStartTime(e.target.value)}
                     style={{
                       width: "100%",
-                      padding: "10px 12px",
+                      padding: "8px 10px",
                       borderRadius: 8,
                       border: `1px solid ${THEME.borderSoft}`,
                       background: "#fff",
@@ -4498,7 +4619,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                     onChange={(e) => setEditDuration(e.target.value as "1" | "1.5" | "2")}
                     style={{
                       width: "100%",
-                      padding: "10px 12px",
+                      padding: "8px 10px",
                       borderRadius: 8,
                       border: `1px solid ${THEME.borderSoft}`,
                       background: "#fff",
@@ -4523,7 +4644,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
             </div>
 
             <div style={{ marginBottom: 20, border: `1px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
-              <div style={{ fontSize: 14, fontWeight: 900, color: THEME.textSoft, marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 12 }}>
                 Trattamento e Prezzo
               </div>
               
@@ -4537,7 +4658,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                       onClick={() => setEditTreatmentType("seduta")}
                       style={{
                         flex: 1,
-                        padding: "10px 12px",
+                        padding: "8px 10px",
                         borderRadius: 8,
                         border: `1px solid ${editTreatmentType === "seduta" ? THEME.blueDark : THEME.borderSoft}`,
                         background: editTreatmentType === "seduta" ? THEME.blue : "#fff",
@@ -4553,7 +4674,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                       onClick={() => setEditTreatmentType("macchinario")}
                       style={{
                         flex: 1,
-                        padding: "10px 12px",
+                        padding: "8px 10px",
                         borderRadius: 8,
                         border: `1px solid ${editTreatmentType === "macchinario" ? THEME.blueDark : THEME.borderSoft}`,
                         background: editTreatmentType === "macchinario" ? THEME.blue : "#fff",
@@ -4577,7 +4698,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                       onClick={() => setEditPriceType("invoiced")}
                       style={{
                         flex: 1,
-                        padding: "10px 12px",
+                        padding: "8px 10px",
                         borderRadius: 8,
                         border: `1px solid ${editPriceType === "invoiced" ? THEME.greenDark : THEME.borderSoft}`,
                         background: editPriceType === "invoiced" ? THEME.green : "#fff",
@@ -4593,7 +4714,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                       onClick={() => setEditPriceType("cash")}
                       style={{
                         flex: 1,
-                        padding: "10px 12px",
+                        padding: "8px 10px",
                         borderRadius: 8,
                         border: `1px solid ${editPriceType === "cash" ? THEME.amber : THEME.borderSoft}`,
                         background: editPriceType === "cash" ? "rgba(249,115,22,0.1)" : "#fff",
@@ -4623,7 +4744,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                     placeholder="Importo personalizzato(lasciare vuoto per prezzo standard)"
                     style={{
                       flex: 1,
-                      padding: "10px 12px",
+                      padding: "8px 10px",
                       borderRadius: 8,
                       border: `1px solid ${THEME.blue}`,
                       background: "#fff",
@@ -4712,7 +4833,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
               <div>
-                <label style={{ display: "block", fontSize: 14, fontWeight: 900, color: THEME.textSoft, marginBottom: 8 }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 8 }}>
                   Stato
                   <select
                     value={editStatus}
@@ -4720,7 +4841,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                     style={{
                       width: "100%",
                       marginTop: 8,
-                      padding: 12,
+                      padding: 10,
                       borderRadius: 8,
                       border: `1px solid ${THEME.borderSoft}`,
                       background: "#fff",
@@ -4740,7 +4861,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
               </div>
 
               <div>
-                <div style={{ fontSize: 14, fontWeight: 900, color: THEME.textSoft, marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 8 }}>
                   Promemoria
                 </div>
                 <button
@@ -4774,7 +4895,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
               </div>
             </div>
 
-            <label style={{ display: "block", fontSize: 14, fontWeight: 900, color: THEME.textSoft, marginBottom: 20 }}>
+            <label style={{ display: "block", fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 20 }}>
               Nota
               <textarea
                 value={editNote}
@@ -4783,7 +4904,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                 style={{
                   width: "100%",
                   marginTop: 8,
-                  padding: 12,
+                  padding: 10,
                   borderRadius: 8,
                   border: `1px solid ${THEME.borderSoft}`,
                   background: "#fff",
@@ -4875,7 +4996,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
             boxShadow: "0 10px 30px rgba(15,23,42,0.15)",
             zIndex: 10000,
             minWidth: 180,
-            overflow: "hidden",
+            overflow: "visible",
           }}
         >
           {quickActionsMenu.eventId ? (
