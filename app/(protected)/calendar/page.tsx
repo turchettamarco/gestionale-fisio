@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "../../src/lib/supabaseClient";
+import { supabase } from "@/src/lib/supabaseClient";
+
 import { useSearchParams } from "next/navigation";
 
 
@@ -750,6 +751,8 @@ const name = patient ? `${patient.last_name ?? ""} ${patient.first_name ?? ""}`.
 
       // dati paziente (prima riga della relazione)
       patient_name: name,
+      patient_first_name: patient?.first_name ?? null,
+      patient_last_name: patient?.last_name ?? null,
       patient_phone: patient?.phone ?? null,
 treatment: patient?.treatment ?? null,
 diagnosis: patient?.diagnosis ?? null,
@@ -884,7 +887,7 @@ function formatPhoneForWhatsAppWeb(phone: string): string {
   return clean;
 }
 
-  const sendReminder = useCallback(async (appointmentId: string, patientPhone?: string, patientName?: string, isConfirmation?: boolean) => {
+  const sendReminder = useCallback(async (appointmentId: string, patientPhone?: string, patientFirstName?: string, isConfirmation?: boolean) => {
     if (!patientPhone) {
       alert("Nessun telefono registrato per questo paziente");
       return;
@@ -939,7 +942,7 @@ Fisioterapia e Osteopatia`;
       luogo = `Presso il suo domicilio (${appointment.domicile_address})`;
     }
     
-    const nomePaziente = patientName ? patientName.split(' ')[0] : "Cliente";
+    const nomePaziente = (patientFirstName && patientFirstName.trim()) ? patientFirstName.trim() : "Cliente";
     
     let message = templateText
       .replace(/{nome}/g, nomePaziente)
@@ -3033,7 +3036,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                sendReminder(event.id, event.patient_phone, event.patient_name);
+                                sendReminder(event.id, event.patient_phone, event.patient_first_name ?? undefined);
                               }}
                               style={{
                                 width: 20,
@@ -3521,7 +3524,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                sendReminder(event.id, event.patient_phone, event.patient_name);
+                                sendReminder(event.id, event.patient_phone, event.patient_first_name ?? undefined);
                               }}
                               style={{
                                 width: 20,
@@ -4868,7 +4871,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                   onClick={() => {
                     const event = events.find(e => e.id === selectedEvent.id);
                     if (event) {
-                      sendReminder(event.id, event.patient_phone, event.patient_name);
+                      sendReminder(event.id, event.patient_phone, event.patient_first_name ?? undefined);
                     }
                   }}
                   disabled={!events.find(e => e.id === selectedEvent.id)?.patient_phone}
@@ -5031,7 +5034,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
                 onClick={() => {
                   const event = events.find(e => e.id === quickActionsMenu?.eventId);
                   if (event) {
-                    sendReminder(event.id, event.patient_phone, event.patient_name);
+                    sendReminder(event.id, event.patient_phone, event.patient_first_name ?? undefined);
                     setQuickActionsMenu(null);
                   }
                 }}

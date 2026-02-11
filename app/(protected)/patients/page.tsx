@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "../../src/lib/supabaseClient";
+import { supabase } from "../../../src/lib/supabaseClient";
+
 
 // --- TIPI ---
 type Plan = "invoice" | "no_invoice";

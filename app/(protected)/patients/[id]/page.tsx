@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import React, { useEffect, useMemo, useState } from "react";
-import { supabase } from "../../../src/lib/supabaseClient";
+import { supabase } from "../../../../src/lib/supabaseClient";
+
+
 
 type Plan = "invoice" | "no_invoice";
 type Status = "booked" | "confirmed" | "done";
