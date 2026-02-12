@@ -1,22 +1,48 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Image from "next/image";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 
+/**
+ * LOGIN — Desktop + Mobile
+ * Asset richiesto: /public/brand/fisiohub.png
+ *
+ * Obiettivo:
+ * - Desktop: split layout (brand left + form right)
+ * - Mobile: layout compatto a colonna, brand header, niente “doppia pagina”
+ */
 export default function LoginPage() {
   const router = useRouter();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string>("");
 
+  const [capsOn, setCapsOn] = useState(false);
+  const pwRef = useRef<HTMLInputElement | null>(null);
+
+  // Se già loggato, vai alla home protetta
   useEffect(() => {
-    // se già loggato, vai via
+    let alive = true;
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session) router.replace("/mobile/calendar");
+      if (!alive) return;
+      if (data.session) {
+        router.replace("/");
+        router.refresh();
+      }
     });
+    return () => {
+      alive = false;
+    };
   }, [router]);
+
+  const canSubmit = useMemo(() => {
+    return email.trim().length > 3 && password.length >= 6 && !loading;
+  }, [email, password, loading]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -24,311 +50,822 @@ export default function LoginPage() {
     setLoading(true);
 
     const { data, error } = await supabase.auth.signInWithPassword({
-      email,
+      email: email.trim(),
       password,
     });
 
     setLoading(false);
 
     if (error) {
-      setErr(error.message);
+      const msg =
+        error.message?.toLowerCase().includes("invalid login credentials")
+          ? "Credenziali non valide. Controlla email e password."
+          : error.message || "Errore di accesso.";
+      setErr(msg);
       return;
     }
 
     if (data.session) {
-      router.replace("/mobile/calendar");
+      router.replace("/");
+      router.refresh();
     } else {
       setErr("Login fallito: nessuna sessione ricevuta.");
     }
   }
 
+  function onPwKeyUp(e: React.KeyboardEvent<HTMLInputElement>) {
+    const caps = e.getModifierState?.("CapsLock") ?? false;
+    setCapsOn(caps);
+  }
+
   return (
-    <div style={{
-      minHeight: "100vh",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      padding: 16,
-      background: "linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)"
-    }}>
-      <div style={{
-        width: "100%",
-        maxWidth: 420,
-        background: "white",
-        borderRadius: 20,
-        padding: 40,
-        boxShadow: "0 10px 30px rgba(0, 0, 0, 0.1)",
-        position: "relative",
-        overflow: "hidden"
-      }}>
-        {/* Decorative top element */}
-        <div style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 6,
-          background: "linear-gradient(90deg, #4b6cb7 0%, #182848 100%)"
-        }}></div>
-        
-        {/* Logo/Header section */}
-        <div style={{
-          textAlign: "center",
-          marginBottom: 30
-        }}>
-          <div style={{
-            fontSize: 24,
-            fontWeight: 800,
-            color: "#182848",
-            letterSpacing: "0.5px",
-            marginBottom: 4
-          }}>
-            Fisio<strong style={{ color: "#4b6cb7" }}>Hub</strong>
-          </div>
-          <div style={{
-            fontSize: 14,
-            color: "#666",
-            fontWeight: 500,
-            marginBottom: 20
-          }}>
-            Gestione Clinica e Appuntamenti
-          </div>
-          
-          {/* Professional info */}
-          <div style={{
-            background: "linear-gradient(90deg, #f8f9fa 0%, #e9ecef 100%)",
-            padding: "16px 20px",
-            borderRadius: 12,
-            marginBottom: 30,
-            borderLeft: "4px solid #4b6cb7"
-          }}>
-            <div style={{
-              fontSize: 18,
-              fontWeight: 700,
-              color: "#182848",
-              marginBottom: 4
-            }}>
-              TURCHETTA MARCO
+    <div className="wrap">
+      <div className="bg" aria-hidden />
+
+      <div className="shell">
+        {/* Desktop brand panel */}
+        <aside className="brandPanel" aria-label="Brand">
+          <div className="brandTop">
+            <div className="logoRing">
+              <Image
+                src="/brand/fisiohub.png"
+                alt="FisioHub Galileo"
+                width={132}
+                height={132}
+                priority
+                className="logoImg"
+              />
             </div>
-            <div style={{
-              fontSize: 14,
-              fontWeight: 600,
-              color: "#4b6cb7"
-            }}>
-              FISIOTERAPISTA
+
+            <div className="brandText">
+              <div className="brandName">
+                Fisio<span>Hub</span>
+              </div>
+              <div className="brandSub">GALILEO • Gestionale clinico</div>
             </div>
           </div>
-        </div>
 
-        <form onSubmit={onSubmit}>
-          <div style={{ marginBottom: 20 }}>
-            <label style={{
-              display: "block",
-              fontSize: 14,
-              fontWeight: 600,
-              color: "#374151",
-              marginBottom: 8
-            }}>
-              Username / Email
-            </label>
-            <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              type="email"
-              autoComplete="email"
-              required
-              placeholder="inserisci la tua email"
-              style={{
-                width: "100%",
-                padding: "14px 16px",
-                border: "1px solid #e5e7eb",
-                borderRadius: 10,
-                fontSize: 15,
-                transition: "all 0.3s ease",
-                boxSizing: "border-box"
-              }}
-              onFocus={(e) => {
-                e.target.style.borderColor = "#4b6cb7";
-                e.target.style.boxShadow = "0 0 0 3px rgba(75, 108, 183, 0.1)";
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = "#e5e7eb";
-                e.target.style.boxShadow = "none";
-              }}
-            />
-          </div>
+          <div className="pitch">
+            <h1>Entra, lavora, chiudi il cerchio.</h1>
+            <p>
+              Dashboard, agenda e promemoria WhatsApp: tutto in un posto solo. Qui non
+              vinci con l’estetica: vinci con l’ordine.
+            </p>
 
-          <div style={{ marginBottom: 24 }}>
-            <label style={{
-              display: "block",
-              fontSize: 14,
-              fontWeight: 600,
-              color: "#374151",
-              marginBottom: 8
-            }}>
-              Password
-            </label>
-            <input
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              type="password"
-              autoComplete="current-password"
-              required
-              placeholder="inserisci la tua password"
-              style={{
-                width: "100%",
-                padding: "14px 16px",
-                border: "1px solid #e5e7eb",
-                borderRadius: 10,
-                fontSize: 15,
-                transition: "all 0.3s ease",
-                boxSizing: "border-box"
-              }}
-              onFocus={(e) => {
-                e.target.style.borderColor = "#4b6cb7";
-                e.target.style.boxShadow = "0 0 0 3px rgba(75, 108, 183, 0.1)";
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = "#e5e7eb";
-                e.target.style.boxShadow = "none";
-              }}
-            />
-          </div>
+            <div className="bullets">
+              <div className="bullet">
+                <div className="dot">✓</div>
+                <div>
+                  <div className="bTitle">KPI in tempo reale</div>
+                  <div className="bDesc">Pagati, non pagati, fatturato e trend. Niente fumo.</div>
+                </div>
+              </div>
 
-          {err && (
-            <div style={{
-              background: "#fee2e2",
-              border: "1px solid #ef4444",
-              padding: "12px 16px",
-              borderRadius: 10,
-              marginBottom: 20,
-              color: "#dc2626",
-              fontSize: 14,
-              display: "flex",
-              alignItems: "center",
-              gap: 8
-            }}>
-              <svg style={{ width: 18, height: 18, flexShrink: 0 }} fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-              </svg>
-              {err}
+              <div className="bullet">
+                <div className="dot">✓</div>
+                <div>
+                  <div className="bTitle">Promemoria sotto controllo</div>
+                  <div className="bDesc">Capisci subito se hai inviato WhatsApp o sei in ritardo.</div>
+                </div>
+              </div>
+
+              <div className="bullet">
+                <div className="dot">✓</div>
+                <div>
+                  <div className="bTitle">Flusso semplice</div>
+                  <div className="bDesc">Prenoti → tratti → incassi. Il resto è rumore.</div>
+                </div>
+              </div>
             </div>
-          )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              width: "100%",
-              padding: "16px",
-              borderRadius: 10,
-              border: "none",
-              fontWeight: 700,
-              fontSize: 16,
-              cursor: loading ? "not-allowed" : "pointer",
-              background: "linear-gradient(90deg, #4b6cb7 0%, #182848 100%)",
-              color: "white",
-              transition: "all 0.3s ease",
-              marginBottom: 20,
-              position: "relative",
-              overflow: "hidden"
-            }}
-            onMouseOver={(e) => {
-              if (!loading) {
-                e.currentTarget.style.transform = "translateY(-2px)";
-                e.currentTarget.style.boxShadow = "0 5px 15px rgba(75, 108, 183, 0.3)";
-              }
-            }}
-            onMouseOut={(e) => {
-              if (!loading) {
-                e.currentTarget.style.transform = "translateY(0)";
-                e.currentTarget.style.boxShadow = "none";
-              }
-            }}
-          >
-            {loading ? (
-              <>
-                <span style={{ opacity: 0.9 }}>Accesso in corso...</span>
-                <div style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent)",
-                  animation: "shimmer 1.5s infinite"
-                }}></div>
-              </>
-            ) : (
-              "LOGIN"
-            )}
-          </button>
-
-          <div style={{
-            display: "flex",
-            justifyContent: "space-between",
-            fontSize: 14,
-            color: "#6b7280"
-          }}>
-            <button
-              type="button"
-              onClick={() => {
-                // Aggiungi qui la logica per "Forgot Password?"
-                alert("Funzionalità 'Password dimenticata?' da implementare");
-              }}
-              style={{
-                background: "none",
-                border: "none",
-                color: "#4b6cb7",
-                cursor: "pointer",
-                fontSize: 14,
-                textDecoration: "underline",
-                padding: 0
-              }}
-            >
-              Forgot Password?
-            </button>
-            
-            <button
-              type="button"
-              onClick={() => {
-                // Aggiungi qui la logica per "Sign Up"
-                alert("Funzionalità 'Sign Up' da implementare");
-              }}
-              style={{
-                background: "none",
-                border: "none",
-                color: "#182848",
-                cursor: "pointer",
-                fontSize: 14,
-                fontWeight: 600,
-                padding: 0
-              }}
-            >
-              Sign Up
-            </button>
+            <div className="brandFooter">
+              <div className="miniTag">Studio-ready • Mobile-first • Supabase Auth</div>
+            </div>
           </div>
-        </form>
+        </aside>
 
-        <div style={{
-          fontSize: 12,
-          textAlign: "center",
-          marginTop: 30,
-          color: "#9ca3af",
-          paddingTop: 20,
-          borderTop: "1px solid #f3f4f6"
-        }}>
-          Usa le credenziali create in Supabase Auth per accedere.
-        </div>
+        {/* Form */}
+        <main className="formPanel">
+          {/* Mobile header brand (visibile solo mobile) */}
+          <div className="mobileBrand" aria-label="Brand mobile">
+            <div className="mobileLogo">
+              <Image
+                src="/brand/fisiohub.png"
+                alt="FisioHub Galileo"
+                width={92}
+                height={92}
+                priority
+                className="mobileLogoImg"
+              />
+            </div>
+            <div className="mobileText">
+              <div className="mobileName">
+                Fisio<span>Hub</span>
+              </div>
+              <div className="mobileSub">GALILEO • Gestionale clinico</div>
+            </div>
+          </div>
 
-        {/* Aggiungi questo stile per l'animazione dello shimmer */}
-        <style jsx>{`
-          @keyframes shimmer {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(100%); }
-          }
-        `}</style>
+          <div className="card">
+            <div className="cardTop">
+              <div className="cardTitle">Accesso</div>
+              <div className="cardHint">Inserisci le tue credenziali</div>
+            </div>
+
+            {err ? (
+              <div className="alert" role="alert">
+                <div className="alertIcon">!</div>
+                <div className="alertText">{err}</div>
+                <button
+                  type="button"
+                  className="alertClose"
+                  onClick={() => setErr("")}
+                  aria-label="Chiudi"
+                  title="Chiudi"
+                >
+                  ×
+                </button>
+              </div>
+            ) : null}
+
+            <form onSubmit={onSubmit} className="form">
+              <div className="field">
+                <label className="label" htmlFor="email">
+                  Email
+                </label>
+                <div className="control">
+                  <input
+                    id="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    type="email"
+                    autoComplete="email"
+                    required
+                    placeholder="nome@dominio.it"
+                    className="input"
+                    inputMode="email"
+                  />
+                  <div className="icon" aria-hidden>
+                    @
+                  </div>
+                </div>
+              </div>
+
+              <div className="field">
+                <label className="label" htmlFor="password">
+                  Password
+                </label>
+
+                <div className="control">
+                  <input
+                    ref={pwRef}
+                    id="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    onKeyUp={onPwKeyUp}
+                    type={showPw ? "text" : "password"}
+                    autoComplete="current-password"
+                    required
+                    placeholder="••••••••"
+                    className="input"
+                  />
+
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => setShowPw((s) => !s)}
+                    aria-label={showPw ? "Nascondi password" : "Mostra password"}
+                    title={showPw ? "Nascondi password" : "Mostra password"}
+                  >
+                    {showPw ? "Nascondi" : "Mostra"}
+                  </button>
+                </div>
+
+                {capsOn ? <div className="caps">Caps Lock attivo</div> : null}
+              </div>
+
+              <div className="row">
+                <label className="check">
+                  <input type="checkbox" />
+                  <span>Ricordami</span>
+                </label>
+
+                <a className="link" href="/reset-password">
+                  Password dimenticata?
+                </a>
+              </div>
+
+              <button type="submit" className="btn" disabled={!canSubmit}>
+                {loading ? (
+                  <span className="btnInner">
+                    <span className="spinner" aria-hidden />
+                    Accesso in corso…
+                  </span>
+                ) : (
+                  "Entra"
+                )}
+              </button>
+
+              <div className="micro">
+                Usa FisioHub come un chirurgo usa il bisturi: pulito, preciso, senza teatrini.
+              </div>
+
+              {/* Mobile: micro bullets compatti */}
+              <div className="mobileMini">
+                <div className="miniPill">KPI</div>
+                <div className="miniPill">Agenda</div>
+                <div className="miniPill">WhatsApp</div>
+                <div className="miniPill">Incassi</div>
+              </div>
+            </form>
+          </div>
+        </main>
       </div>
+
+      <style jsx>{`
+        :global(html, body) {
+          height: 100%;
+        }
+
+        .wrap {
+          min-height: 100vh;
+          position: relative;
+          overflow: hidden;
+          display: flex;
+          align-items: stretch;
+          justify-content: center;
+          padding: 28px;
+          background: #070b1a;
+        }
+
+        /* Background */
+        .bg {
+          position: absolute;
+          inset: -40px;
+          background:
+            radial-gradient(900px 600px at 20% 20%, rgba(35, 170, 255, 0.22), rgba(0, 0, 0, 0) 60%),
+            radial-gradient(800px 600px at 85% 75%, rgba(44, 217, 179, 0.18), rgba(0, 0, 0, 0) 58%),
+            radial-gradient(500px 500px at 35% 85%, rgba(135, 95, 255, 0.12), rgba(0, 0, 0, 0) 60%),
+            linear-gradient(180deg, rgba(7, 11, 26, 1), rgba(10, 14, 30, 1));
+          filter: saturate(1.1);
+        }
+
+        .shell {
+          position: relative;
+          z-index: 2;
+          width: 100%;
+          max-width: 1120px;
+          display: grid;
+          grid-template-columns: 1.15fr 0.85fr;
+          border-radius: 26px;
+          overflow: hidden;
+          box-shadow: 0 30px 90px rgba(0, 0, 0, 0.55);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: rgba(255, 255, 255, 0.04);
+          backdrop-filter: blur(14px);
+        }
+
+        /* Brand panel (desktop) */
+        .brandPanel {
+          position: relative;
+          padding: 38px 38px 30px;
+          color: rgba(255, 255, 255, 0.92);
+          background:
+            radial-gradient(1200px 700px at 30% 20%, rgba(35, 170, 255, 0.26), rgba(0, 0, 0, 0) 55%),
+            radial-gradient(900px 700px at 80% 80%, rgba(44, 217, 179, 0.22), rgba(0, 0, 0, 0) 55%),
+            linear-gradient(140deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+        }
+
+        .brandPanel:before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background-image: radial-gradient(rgba(255, 255, 255, 0.16) 1px, transparent 1px);
+          background-size: 18px 18px;
+          opacity: 0.07;
+          pointer-events: none;
+        }
+
+        .brandTop {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          position: relative;
+          z-index: 1;
+        }
+
+        .logoRing {
+          width: 86px;
+          height: 86px;
+          border-radius: 999px;
+          display: grid;
+          place-items: center;
+          background: radial-gradient(circle at 30% 30%, rgba(35, 170, 255, 0.30), rgba(44, 217, 179, 0.16) 45%, rgba(255, 255, 255, 0.08) 72%);
+          border: 1px solid rgba(255, 255, 255, 0.16);
+          box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+          overflow: hidden;
+        }
+
+        .logoImg {
+          width: 78px;
+          height: 78px;
+          object-fit: contain;
+          transform: translateY(1px);
+        }
+
+        .brandText {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .brandName {
+          font-size: 28px;
+          font-weight: 900;
+          letter-spacing: -0.4px;
+          line-height: 1.05;
+        }
+
+        .brandName span {
+          color: rgba(44, 217, 179, 1);
+        }
+
+        .brandSub {
+          font-size: 12px;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          color: rgba(255, 255, 255, 0.72);
+          font-weight: 700;
+        }
+
+        .pitch {
+          margin-top: 26px;
+          position: relative;
+          z-index: 1;
+          max-width: 520px;
+        }
+
+        .pitch h1 {
+          margin: 0 0 10px;
+          font-size: 34px;
+          letter-spacing: -0.6px;
+          line-height: 1.1;
+          font-weight: 950;
+        }
+
+        .pitch p {
+          margin: 0 0 18px;
+          color: rgba(255, 255, 255, 0.72);
+          font-size: 14px;
+          line-height: 1.55;
+          font-weight: 600;
+        }
+
+        .bullets {
+          display: grid;
+          gap: 12px;
+          margin-top: 18px;
+        }
+
+        .bullet {
+          display: flex;
+          gap: 12px;
+          align-items: flex-start;
+          padding: 12px 12px;
+          border-radius: 14px;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.10);
+        }
+
+        .dot {
+          width: 28px;
+          height: 28px;
+          border-radius: 999px;
+          display: grid;
+          place-items: center;
+          background: rgba(44, 217, 179, 0.18);
+          border: 1px solid rgba(44, 217, 179, 0.35);
+          color: rgba(255, 255, 255, 0.92);
+          font-weight: 900;
+          flex: 0 0 auto;
+          transform: translateY(1px);
+        }
+
+        .bTitle {
+          font-size: 13px;
+          font-weight: 900;
+          letter-spacing: -0.2px;
+        }
+
+        .bDesc {
+          font-size: 12px;
+          color: rgba(255, 255, 255, 0.70);
+          line-height: 1.35;
+          margin-top: 2px;
+          font-weight: 600;
+        }
+
+        .brandFooter {
+          margin-top: 18px;
+          padding-top: 14px;
+          border-top: 1px solid rgba(255, 255, 255, 0.10);
+        }
+
+        .miniTag {
+          display: inline-flex;
+          gap: 8px;
+          align-items: center;
+          font-size: 12px;
+          color: rgba(255, 255, 255, 0.70);
+          font-weight: 700;
+        }
+
+        /* Form panel */
+        .formPanel {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          padding: 28px;
+          background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
+        }
+
+        .mobileBrand {
+          display: none;
+          width: 100%;
+          max-width: 420px;
+          margin-bottom: 14px;
+          padding: 14px 14px;
+          border-radius: 18px;
+          background: rgba(255, 255, 255, 0.06);
+          border: 1px solid rgba(255, 255, 255, 0.10);
+          color: rgba(255, 255, 255, 0.90);
+          align-items: center;
+          gap: 12px;
+        }
+
+        .mobileLogo {
+          width: 54px;
+          height: 54px;
+          border-radius: 16px;
+          background: rgba(255, 255, 255, 0.10);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          display: grid;
+          place-items: center;
+          overflow: hidden;
+          flex: 0 0 auto;
+        }
+
+        .mobileLogoImg {
+          width: 48px;
+          height: 48px;
+          object-fit: contain;
+        }
+
+        .mobileText {
+          display: grid;
+          gap: 2px;
+        }
+
+        .mobileName {
+          font-size: 18px;
+          font-weight: 950;
+          letter-spacing: -0.2px;
+          line-height: 1.1;
+        }
+
+        .mobileName span {
+          color: rgba(44, 217, 179, 1);
+        }
+
+        .mobileSub {
+          font-size: 11px;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: rgba(255, 255, 255, 0.70);
+          font-weight: 800;
+        }
+
+        .card {
+          width: 100%;
+          max-width: 420px;
+          border-radius: 22px;
+          padding: 26px;
+          background: rgba(255, 255, 255, 0.92);
+          border: 1px solid rgba(255, 255, 255, 0.55);
+          box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+        }
+
+        .cardTop {
+          margin-bottom: 14px;
+        }
+
+        .cardTitle {
+          font-size: 22px;
+          font-weight: 950;
+          letter-spacing: -0.3px;
+          color: #0b1024;
+        }
+
+        .cardHint {
+          font-size: 12px;
+          color: rgba(15, 23, 42, 0.60);
+          font-weight: 700;
+          margin-top: 4px;
+        }
+
+        .alert {
+          display: flex;
+          gap: 10px;
+          align-items: flex-start;
+          background: rgba(239, 68, 68, 0.10);
+          border: 1px solid rgba(239, 68, 68, 0.35);
+          color: rgba(185, 28, 28, 1);
+          padding: 12px 12px;
+          border-radius: 14px;
+          margin-bottom: 14px;
+          position: relative;
+        }
+
+        .alertIcon {
+          width: 22px;
+          height: 22px;
+          border-radius: 999px;
+          background: rgba(239, 68, 68, 0.20);
+          border: 1px solid rgba(239, 68, 68, 0.35);
+          display: grid;
+          place-items: center;
+          font-weight: 950;
+          flex: 0 0 auto;
+          transform: translateY(1px);
+        }
+
+        .alertText {
+          font-size: 13px;
+          line-height: 1.35;
+          font-weight: 700;
+          padding-right: 26px;
+        }
+
+        .alertClose {
+          position: absolute;
+          right: 8px;
+          top: 6px;
+          background: transparent;
+          border: 0;
+          color: rgba(185, 28, 28, 0.9);
+          font-size: 20px;
+          line-height: 1;
+          cursor: pointer;
+        }
+
+        .form {
+          display: grid;
+          gap: 14px;
+        }
+
+        .field {
+          display: grid;
+          gap: 8px;
+        }
+
+        .label {
+          font-size: 12px;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
+          color: rgba(15, 23, 42, 0.65);
+          font-weight: 900;
+        }
+
+        .control {
+          position: relative;
+          display: flex;
+          align-items: center;
+        }
+
+        .input {
+          width: 100%;
+          height: 48px;
+          border-radius: 14px;
+          border: 1px solid rgba(15, 23, 42, 0.12);
+          background: rgba(255, 255, 255, 0.95);
+          padding: 0 14px;
+          font-size: 15px;
+          font-weight: 750;
+          color: rgba(15, 23, 42, 0.92);
+          outline: none;
+          transition: box-shadow 160ms ease, border-color 160ms ease;
+        }
+
+        .input:focus {
+          border-color: rgba(35, 170, 255, 0.55);
+          box-shadow: 0 0 0 4px rgba(35, 170, 255, 0.16);
+        }
+
+        .icon {
+          position: absolute;
+          right: 12px;
+          height: 28px;
+          min-width: 28px;
+          border-radius: 10px;
+          display: grid;
+          place-items: center;
+          background: rgba(15, 23, 42, 0.06);
+          border: 1px solid rgba(15, 23, 42, 0.08);
+          color: rgba(15, 23, 42, 0.55);
+          font-weight: 900;
+          pointer-events: none;
+        }
+
+        .ghost {
+          position: absolute;
+          right: 10px;
+          height: 34px;
+          padding: 0 10px;
+          border-radius: 10px;
+          border: 1px solid rgba(15, 23, 42, 0.12);
+          background: rgba(255, 255, 255, 0.7);
+          color: rgba(15, 23, 42, 0.75);
+          font-size: 12px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .caps {
+          font-size: 12px;
+          font-weight: 800;
+          color: rgba(234, 88, 12, 1);
+          margin-top: 6px;
+        }
+
+        .row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+
+        .check {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          font-size: 13px;
+          font-weight: 800;
+          color: rgba(15, 23, 42, 0.75);
+          user-select: none;
+        }
+
+        .check input {
+          width: 16px;
+          height: 16px;
+          accent-color: rgba(44, 217, 179, 1);
+        }
+
+        .link {
+          font-size: 13px;
+          font-weight: 900;
+          color: rgba(35, 170, 255, 1);
+          text-decoration: none;
+        }
+
+        .btn {
+          width: 100%;
+          height: 50px;
+          border-radius: 14px;
+          border: 0;
+          cursor: pointer;
+          font-weight: 950;
+          font-size: 15px;
+          letter-spacing: 0.02em;
+          color: white;
+          background: linear-gradient(90deg, rgba(35, 170, 255, 1), rgba(44, 217, 179, 1));
+          box-shadow: 0 18px 40px rgba(35, 170, 255, 0.22);
+          transition: transform 140ms ease, opacity 140ms ease;
+        }
+
+        .btn:hover {
+          transform: translateY(-1px);
+        }
+
+        .btn:disabled {
+          cursor: not-allowed;
+          opacity: 0.55;
+          transform: none;
+        }
+
+        .btnInner {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+        }
+
+        .spinner {
+          width: 14px;
+          height: 14px;
+          border-radius: 999px;
+          border: 2px solid rgba(255, 255, 255, 0.55);
+          border-top-color: rgba(255, 255, 255, 1);
+          animation: spin 900ms linear infinite;
+        }
+
+        @keyframes spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+
+        .micro {
+          margin-top: 10px;
+          text-align: center;
+          font-size: 12px;
+          color: rgba(15, 23, 42, 0.55);
+          font-weight: 700;
+          line-height: 1.35;
+        }
+
+        .mobileMini {
+          display: none;
+          margin-top: 12px;
+          gap: 8px;
+          justify-content: center;
+          flex-wrap: wrap;
+        }
+
+        .miniPill {
+          font-size: 11px;
+          font-weight: 900;
+          color: rgba(255, 255, 255, 0.88);
+          background: rgba(15, 23, 42, 0.45);
+          border: 1px solid rgba(255, 255, 255, 0.10);
+          padding: 6px 10px;
+          border-radius: 999px;
+        }
+
+        /* Tablet/mobile switch */
+        @media (max-width: 980px) {
+          .wrap {
+            padding: 18px;
+          }
+
+          .shell {
+            grid-template-columns: 1fr;
+            max-width: 560px;
+          }
+
+          .brandPanel {
+            display: none; /* su mobile: niente “pannello gigante” */
+          }
+
+          .formPanel {
+            padding: 18px;
+          }
+
+          .mobileBrand {
+            display: flex;
+          }
+
+          .card {
+            max-width: 560px;
+          }
+
+          .mobileMini {
+            display: flex;
+          }
+        }
+
+        @media (max-width: 520px) {
+          .wrap {
+            padding: 14px;
+          }
+
+          .card {
+            padding: 20px;
+            border-radius: 20px;
+          }
+
+          .input {
+            height: 50px;
+            font-size: 16px;
+          }
+
+          .btn {
+            height: 52px;
+            font-size: 16px;
+          }
+        }
+
+        /* iPhone notch / safe area */
+        @supports (padding: max(0px)) {
+          .wrap {
+            padding-left: max(14px, env(safe-area-inset-left));
+            padding-right: max(14px, env(safe-area-inset-right));
+            padding-top: max(14px, env(safe-area-inset-top));
+            padding-bottom: max(14px, env(safe-area-inset-bottom));
+          }
+        }
+      `}</style>
     </div>
   );
 }
