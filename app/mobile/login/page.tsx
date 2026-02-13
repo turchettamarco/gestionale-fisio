@@ -16,6 +16,12 @@ import { supabase } from "@/src/lib/supabaseClient";
 export default function LoginPage() {
   const router = useRouter();
 
+  // Su mobile usiamo /mobile come entrypoint; su desktop usiamo /
+  const postLoginPath = useMemo(() => {
+    if (typeof window === "undefined") return "/";
+    return window.location.pathname.startsWith("/mobile") ? "/mobile" : "/";
+  }, []);
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -31,14 +37,14 @@ export default function LoginPage() {
     supabase.auth.getSession().then(({ data }) => {
       if (!alive) return;
       if (data.session) {
-        router.replace("/");
+        router.replace(postLoginPath);
         router.refresh();
       }
     });
     return () => {
       alive = false;
     };
-  }, [router]);
+  }, [router, postLoginPath]);
 
   const canSubmit = useMemo(() => {
     return email.trim().length > 3 && password.length >= 6 && !loading;
@@ -66,8 +72,9 @@ export default function LoginPage() {
     }
 
     if (data.session) {
-      router.replace("/");
-      router.refresh();
+      router.replace(postLoginPath);
+      // refresh per riallineare eventuali guard server-side
+      setTimeout(() => router.refresh(), 50);
     } else {
       setErr("Login fallito: nessuna sessione ricevuta.");
     }
