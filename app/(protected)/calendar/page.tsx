@@ -1041,7 +1041,7 @@ diagnosis: patient?.diagnosis ?? null,
 
   const exportToGoogleCalendar = useCallback(async () => {
     const eventsToExport = filteredEvents.map(event => ({
-      summary: `${isDomicile ? `🏠 ${event.location === "domicile" ? `🏠 ${event.patient_name}` : event.patient_name}` : event.patient_name} - ${statusLabel(event.status)}`,
+      summary: `${event.location === "domicile" ? `🏠 ${event.patient_name}` : event.patient_name} - ${statusLabel(event.status)}`,
       location: event.location === 'studio' ? event.clinic_site : event.domicile_address,
       description: `Trattamento: ${event.treatment_type === 'seduta' ? 'Seduta' : 'Macchinario'}\nPrezzo: €${event.amount !== undefined && event.amount !== null ? event.amount : (event.treatment_type === 'seduta' ? (event.price_type === 'invoiced' ? 40 : 35) : (event.price_type === 'invoiced' ? 25 : 20))}\nNote: ${event.calendar_note || 'Nessuna nota'}`,
       start: {
