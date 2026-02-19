@@ -22,6 +22,18 @@ type Patient = {
   anamnesis: string | null;
   diagnosis: string | null;
   treatment: string | null;
+  // ===== V2 (visione futura) =====
+  patient_status: string | null;
+  acquisition_channel: string | null;
+  first_visit_date: string | null;
+  main_complaint: string | null;
+  body_region: string | null;
+  side: string | null;
+  pathology_type: string | null;
+  medical_diagnosis: string | null;
+  expected_frequency: number | null;
+  package_size: number | null;
+
 };
 
 type AppointmentRow = {
@@ -30,6 +42,7 @@ type AppointmentRow = {
   end_at: string;
   status: Status;
   is_paid: boolean;
+  calendar_note: string | null;
 };
 
 type DocType = "gdpr_informativa_privacy" | "consenso_trattamento" | "altro";
@@ -130,6 +143,10 @@ function same(v1: any, v2: any) {
   return (v1 ?? "") === (v2 ?? "");
 }
 
+function safeNumToStr(n: number | null | undefined) {
+  return typeof n === "number" && !Number.isNaN(n) ? String(n) : "";
+}
+
 export default function PatientDetailPage({
   params,
 }: {
@@ -157,6 +174,21 @@ export default function PatientDetailPage({
   const [birthDate, setBirthDate] = useState("");
   const [birthPlace, setBirthPlace] = useState("");
   const [taxCode, setTaxCode] = useState("");
+  // ===== V2 (visione futura) =====
+  const [showV2Clinical, setShowV2Clinical] = useState(true);
+  const [showV2Business, setShowV2Business] = useState(true);
+
+  const [patientStatus, setPatientStatus] = useState("active");
+  const [acquisitionChannel, setAcquisitionChannel] = useState("");
+  const [firstVisitDate, setFirstVisitDate] = useState("");
+  const [mainComplaint, setMainComplaint] = useState("");
+  const [bodyRegion, setBodyRegion] = useState("");
+  const [side, setSide] = useState("");
+  const [pathologyType, setPathologyType] = useState("");
+  const [medicalDiagnosis, setMedicalDiagnosis] = useState("");
+  const [expectedFrequency, setExpectedFrequency] = useState("");
+  const [packageSize, setPackageSize] = useState("");
+
 
   // ===== CLINICA =====
   const [anamnesis, setAnamnesis] = useState("");
@@ -169,23 +201,22 @@ export default function PatientDetailPage({
   const [loadingClinicalDocs, setLoadingClinicalDocs] = useState(false);
   const [savingClinicalDoc, setSavingClinicalDoc] = useState<string | null>(null);
 
-  const [clinicalFormData, setClinicalFormData] = useState<Record<ClinicalDocType, {
-    report_text: string;
-    file: File | null;
-    tempFileUrl?: string;
-  }>>({
-    prescrizione: { report_text: "", file: null },
-    rx: { report_text: "", file: null },
-    rm: { report_text: "", file: null },
-    tac: { report_text: "", file: null },
-    elettromiografia: { report_text: "", file: null },
-    ecografia: { report_text: "", file: null },
-  });
+  // ===== UPLOAD DOCUMENTI CLINICI (solo immagini/PDF, niente testo) =====
+  const [clinicalUploadType, setClinicalUploadType] = useState<ClinicalDocType>("prescrizione");
+  const [clinicalUploadTitle, setClinicalUploadTitle] = useState("");
+  const [clinicalUploadFile, setClinicalUploadFile] = useState<File | null>(null);
+
+
 
   // ===== TERAPIE + PAGAMENTO =====
   const [appointments, setAppointments] = useState<AppointmentRow[]>([]);
   const [loadingAppts, setLoadingAppts] = useState(false);
   const [rowBusy, setRowBusy] = useState<Record<string, boolean>>({});
+
+  // ===== Diario sedute (note per singola seduta) =====
+  const [showTreatmentDiary, setShowTreatmentDiary] = useState(true);
+  const [notesByApptId, setNotesByApptId] = useState<Record<string, string>>({});
+  const [noteBusyByApptId, setNoteBusyByApptId] = useState<Record<string, boolean>>({});
 
   // ===== DOCS =====
   const [docs, setDocs] = useState<PatientDoc[]>([]);
@@ -248,6 +279,18 @@ export default function PatientDetailPage({
     setAnamnesis(p.anamnesis ?? "");
     setDiagnosis(p.diagnosis ?? "");
     setTreatment(p.treatment ?? "");
+    // V2
+    setPatientStatus((p.patient_status ?? "active") as any);
+    setAcquisitionChannel(p.acquisition_channel ?? "");
+    setFirstVisitDate(p.first_visit_date ?? "");
+    setMainComplaint(p.main_complaint ?? "");
+    setBodyRegion(p.body_region ?? "");
+    setSide(p.side ?? "");
+    setPathologyType(p.pathology_type ?? "");
+    setMedicalDiagnosis(p.medical_diagnosis ?? "");
+    setExpectedFrequency(safeNumToStr(p.expected_frequency));
+    setPackageSize(safeNumToStr(p.package_size));
+
   }
 
   const demoDirty = useMemo(() => {
@@ -261,8 +304,19 @@ export default function PatientDetailPage({
       !same(birthDate.trim(), patient.birth_date) ||
       !same(birthPlace.trim(), patient.birth_place) ||
       !same(normalizeTaxCode(taxCode).trim(), patient.tax_code)
+      || !same((patientStatus ?? "").trim(), (patient.patient_status ?? "active"))
+      || !same((acquisitionChannel ?? "").trim(), (patient.acquisition_channel ?? ""))
+      || !same((firstVisitDate ?? "").trim(), (patient.first_visit_date ?? ""))
+      || !same((mainComplaint ?? "").trim(), (patient.main_complaint ?? ""))
+      || !same((bodyRegion ?? "").trim(), (patient.body_region ?? ""))
+      || !same((side ?? "").trim(), (patient.side ?? ""))
+      || !same((pathologyType ?? "").trim(), (patient.pathology_type ?? ""))
+      || !same((medicalDiagnosis ?? "").trim(), (patient.medical_diagnosis ?? ""))
+      || !same((expectedFrequency ?? "").trim(), safeNumToStr(patient.expected_frequency))
+      || !same((packageSize ?? "").trim(), safeNumToStr(patient.package_size))
+
     );
-  }, [patient, firstName, lastName, phone, resCity, preferredPlan, birthDate, birthPlace, taxCode]);
+  }, [patient, firstName, lastName, phone, resCity, preferredPlan, birthDate, birthPlace, taxCode, patientStatus, acquisitionChannel, firstVisitDate, mainComplaint, bodyRegion, side, pathologyType, medicalDiagnosis, expectedFrequency, packageSize]);
 
   const clinicalDirty = useMemo(() => {
     if (!patient) return false;
@@ -280,7 +334,7 @@ export default function PatientDetailPage({
     const res = await supabase
       .from("patients")
       .select(
-        "id, first_name, last_name, phone, birth_date, birth_place, tax_code, residence_city, preferred_plan, anamnesis, diagnosis, treatment"
+        "id, first_name, last_name, phone, birth_date, birth_place, tax_code, residence_city, preferred_plan, anamnesis, diagnosis, treatment, patient_status, acquisition_channel, first_visit_date, main_complaint, body_region, side, pathology_type, medical_diagnosis, expected_frequency, package_size"
       )
       .eq("id", patientId)
       .single();
@@ -326,7 +380,7 @@ export default function PatientDetailPage({
 
     const res = await supabase
       .from("appointments")
-      .select("id, start_at, end_at, status, is_paid")
+      .select("id, start_at, end_at, status, is_paid, calendar_note")
       .eq("patient_id", patientId)
       .order("start_at", { ascending: false });
 
@@ -338,6 +392,12 @@ export default function PatientDetailPage({
     }
 
     setAppointments((res.data ?? []) as AppointmentRow[]);
+    // Precarica le note (calendar_note) nel diario
+    const map: Record<string, string> = {};
+    (res.data ?? []).forEach((r: any) => {
+      map[r.id] = (r.calendar_note ?? "") as string;
+    });
+    setNotesByApptId(map);
     setLoadingAppts(false);
   }
 
@@ -396,13 +456,31 @@ export default function PatientDetailPage({
         birth_date: birthDate ? birthDate : null,
         birth_place: birthPlace.trim() ? birthPlace.trim() : null,
         tax_code: normalizeTaxCode(taxCode).trim() ? normalizeTaxCode(taxCode).trim() : null,
+        // V2
+        patient_status: patientStatus || null,
+        acquisition_channel: acquisitionChannel || null,
+        first_visit_date: firstVisitDate ? firstVisitDate : null,
+        main_complaint: mainComplaint.trim() ? mainComplaint.trim() : null,
+        body_region: bodyRegion || null,
+        side: side || null,
+        pathology_type: pathologyType || null,
+        medical_diagnosis: medicalDiagnosis.trim() ? medicalDiagnosis.trim() : null,
+        expected_frequency: expectedFrequency.trim() ? Number(expectedFrequency) : null,
+        package_size: packageSize.trim() ? Number(packageSize) : null,
+
       })
       .eq("id", patientId);
 
     setSavingDemo(false);
 
     if (res.error) {
-      setError(res.error.message);
+      // Messaggio più utile quando mancano le colonne V2
+      const msg = res.error.message || "Errore";
+      if (msg.toLowerCase().includes("column") && msg.toLowerCase().includes("does not exist")) {
+        setError(msg + " → Ti manca la migration SQL dei campi V2 (patient_status, acquisition_channel, ecc.).");
+      } else {
+        setError(msg);
+      }
       return;
     }
 
@@ -419,6 +497,18 @@ export default function PatientDetailPage({
     setBirthDate(patient.birth_date ?? "");
     setBirthPlace(patient.birth_place ?? "");
     setTaxCode(patient.tax_code ?? "");
+    // V2
+    setPatientStatus((patient.patient_status ?? "active") as any);
+    setAcquisitionChannel(patient.acquisition_channel ?? "");
+    setFirstVisitDate(patient.first_visit_date ?? "");
+    setMainComplaint(patient.main_complaint ?? "");
+    setBodyRegion(patient.body_region ?? "");
+    setSide(patient.side ?? "");
+    setPathologyType(patient.pathology_type ?? "");
+    setMedicalDiagnosis(patient.medical_diagnosis ?? "");
+    setExpectedFrequency(safeNumToStr(patient.expected_frequency));
+    setPackageSize(safeNumToStr(patient.package_size));
+
   }
 
   async function saveClinical() {
@@ -453,82 +543,53 @@ export default function PatientDetailPage({
     setTreatment(patient.treatment ?? "");
   }
 
-  async function saveClinicalDocument(docType: ClinicalDocType) {
+  async function uploadClinicalDocument() {
     if (!patient) return;
-    setSavingClinicalDoc(docType);
+
+    if (!clinicalUploadFile) {
+      setError("Seleziona un file (immagine o PDF).");
+      return;
+    }
+
+    setSavingClinicalDoc("upload");
     setError("");
 
-    const formData = clinicalFormData[docType];
-    const reportText = formData.report_text.trim();
-    const file = formData.file;
+    const file = clinicalUploadFile;
+    const safeOriginal = file.name.replace(/[^\w.\-() ]+/g, "_");
+    const path = `clinical_docs/${patientId}/${Date.now()}_${safeOriginal}`;
 
-    let file_name: string | null = null;
-    let storage_path: string | null = null;
-
-    try {
-      if (file) {
-        const safeName = file.name.replace(/[^\w.\-() ]+/g, "_");
-        const path = `clinical_docs/${patientId}/${Date.now()}_${safeName}`;
-
-        const uploadRes = await supabase.storage.from("patient_docs").upload(path, file, { upsert: false });
-
-        if (uploadRes.error) {
-          setError(`Upload fallito: ${uploadRes.error.message}`);
-          setSavingClinicalDoc(null);
-          return;
-        }
-
-        file_name = file.name;
-        storage_path = path;
-      }
-
-      const existingRes = await supabase
-        .from("clinical_documents")
-        .select("id")
-        .eq("patient_id", patientId)
-        .eq("doc_type", docType)
-        .maybeSingle();
-
-      let dbRes;
-      if (existingRes.data) {
-        dbRes = await supabase
-          .from("clinical_documents")
-          .update({
-            report_text: reportText || null,
-            file_name: file_name || null,
-            storage_path: storage_path || null,
-            uploaded_at: new Date().toISOString(),
-          })
-          .eq("id", existingRes.data.id);
-      } else {
-        dbRes = await supabase.from("clinical_documents").insert({
-          patient_id: patientId,
-          doc_type: docType,
-          report_text: reportText || null,
-          file_name: file_name || null,
-          storage_path: storage_path || null,
-          uploaded_at: new Date().toISOString(),
-        });
-      }
-
-      if (dbRes.error) {
-        setError(`Errore DB: ${dbRes.error.message}`);
-        setSavingClinicalDoc(null);
-        return;
-      }
-
-      setClinicalFormData(prev => ({
-        ...prev,
-        [docType]: { report_text: "", file: null }
-      }));
-
-      await loadClinicalDocs();
-
-    } catch (err: any) {
-      setError(`Errore: ${err.message}`);
-    } finally {
+    // Upload su bucket patient_docs (stesso bucket già usato per i GDPR)
+    const uploadRes = await supabase.storage.from("patient_docs").upload(path, file, { upsert: false });
+    if (uploadRes.error) {
+      setError(`Upload fallito: ${uploadRes.error.message}`);
       setSavingClinicalDoc(null);
+      return;
     }
+
+    const title = clinicalUploadTitle.trim();
+    const displayName = title ? title : file.name;
+
+    const ins = await supabase.from("clinical_documents").insert({
+      patient_id: patientId,
+      doc_type: clinicalUploadType,
+      report_text: null,
+      file_name: displayName,
+      storage_path: path,
+      uploaded_at: new Date().toISOString(),
+    });
+
+    if (ins.error) {
+      setError(`Errore DB: ${ins.error.message}`);
+      setSavingClinicalDoc(null);
+      return;
+    }
+
+    // reset form
+    setClinicalUploadTitle("");
+    setClinicalUploadFile(null);
+
+    await loadClinicalDocs();
+    setSavingClinicalDoc(null);
   }
 
   async function openClinicalDocument(doc: ClinicalDocument) {
@@ -571,22 +632,38 @@ export default function PatientDetailPage({
     await loadClinicalDocs();
   }
 
-  function handleClinicalReportChange(docType: ClinicalDocType, value: string) {
-    setClinicalFormData(prev => ({
-      ...prev,
-      [docType]: { ...prev[docType], report_text: value }
-    }));
+
+
+
+  async function saveAppointmentNote(apptId: string) {
+    setError("");
+    setNoteBusyByApptId((m) => ({ ...m, [apptId]: true }));
+
+    const note = (notesByApptId[apptId] ?? "").trim();
+
+    const res = await supabase
+      .from("appointments")
+      .update({ calendar_note: note ? note : null })
+      .eq("id", apptId);
+
+    setNoteBusyByApptId((m) => ({ ...m, [apptId]: false }));
+
+    if (res.error) {
+      setError(res.error.message);
+      return;
+    }
+
+    // Non ricarico tutto: aggiorno solo localmente + (opzionale) reload per sicurezza
+    // await loadAppointments();
   }
 
-  function handleClinicalFileChange(docType: ClinicalDocType, file: File | null) {
-    setClinicalFormData(prev => ({
-      ...prev,
-      [docType]: { 
-        ...prev[docType], 
-        file,
-        tempFileUrl: file ? URL.createObjectURL(file) : undefined
-      }
-    }));
+  function applyNoteTemplate(apptId: string) {
+    const tpl =
+      "🎯 Obiettivo: \n" +
+      "👐 Tecniche/Trattamento: \n" +
+      "🏋️ Esercizi: \n" +
+      "📌 Note / risposta del paziente: \n";
+    setNotesByApptId((m) => ({ ...m, [apptId]: (m[apptId] ?? "") || tpl }));
   }
 
   async function updateTherapyStatus(apptId: string, status: Status) {
@@ -760,9 +837,6 @@ export default function PatientDetailPage({
 
   const headerName = `${patient.last_name} ${patient.first_name}`.toUpperCase();
 
-  const getExistingClinicalDoc = (docType: ClinicalDocType) => {
-    return clinicalDocs.find(doc => doc.doc_type === docType);
-  };
 
   // =========== INIZIO RENDER CON SIDEBAR ===========
   return (
@@ -1089,6 +1163,177 @@ export default function PatientDetailPage({
                 </select>
               </label>
             </div>
+
+
+            {/* ===== V2 (visione futura) ===== */}
+            <div style={{ marginTop: 16, borderTop: `1px solid ${THEME.borderSoft}`, paddingTop: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 1000, color: THEME.primary }}>Visone futura (V2)</div>
+                  <div style={{ marginTop: 4, fontSize: 12, color: THEME.textMuted }}>
+                    Campi aggiuntivi che ti servono per segmentare, fare follow-up e fare previsioni. Se non hai fatto la migration SQL, questi campi non verranno salvati.
+                  </div>
+                </div>
+              </div>
+
+              {/* Clinica iniziale */}
+              <button
+                type="button"
+                onClick={() => setShowV2Clinical((s) => !s)}
+                style={{
+                  width: "100%",
+                  marginTop: 12,
+                  textAlign: "left",
+                  background: "transparent",
+                  border: `1px solid ${THEME.borderSoft}`,
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  fontWeight: 1000,
+                  color: THEME.text,
+                }}
+              >
+                <span>🧠 Dati clinici iniziali</span>
+                <span style={{ color: THEME.secondary }}>{showV2Clinical ? "–" : "+"}</span>
+              </button>
+
+              {showV2Clinical ? (
+                <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <label style={{ gridColumn: "1 / span 2", fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                    Motivo principale
+                    <textarea
+                      value={mainComplaint}
+                      onChange={(e) => setMainComplaint(e.target.value)}
+                      rows={4}
+                      style={textareaStyle}
+                      placeholder="Es. dolore lombare da 3 settimane..."
+                      disabled={!demoEditMode}
+                    />
+                  </label>
+
+                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                    Distretto
+                    <select value={bodyRegion} onChange={(e) => setBodyRegion(e.target.value)} style={inputStyle} disabled={!demoEditMode}>
+                      <option value="">Seleziona</option>
+                      <option value="cervicale">Cervicale</option>
+                      <option value="dorsale">Dorsale</option>
+                      <option value="lombare">Lombare</option>
+                      <option value="spalla">Spalla</option>
+                      <option value="gomito">Gomito</option>
+                      <option value="polso_mano">Polso/Mano</option>
+                      <option value="anca">Anca</option>
+                      <option value="ginocchio">Ginocchio</option>
+                      <option value="caviglia_piede">Caviglia/Piede</option>
+                      <option value="atm">ATM</option>
+                      <option value="neurologico">Neurologico</option>
+                      <option value="altro">Altro</option>
+                    </select>
+                  </label>
+
+                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                    Lato
+                    <select value={side} onChange={(e) => setSide(e.target.value)} style={inputStyle} disabled={!demoEditMode}>
+                      <option value="">Seleziona</option>
+                      <option value="dx">DX</option>
+                      <option value="sx">SX</option>
+                      <option value="bilaterale">Bilaterale</option>
+                    </select>
+                  </label>
+
+                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                    Tipo problema
+                    <select value={pathologyType} onChange={(e) => setPathologyType(e.target.value)} style={inputStyle} disabled={!demoEditMode}>
+                      <option value="">Seleziona</option>
+                      <option value="traumatico">Traumatico</option>
+                      <option value="degenerativo">Degenerativo</option>
+                      <option value="post_chirurgico">Post-chirurgico</option>
+                      <option value="neurologico">Neurologico</option>
+                      <option value="cronico">Cronico</option>
+                      <option value="funzionale">Funzionale</option>
+                    </select>
+                  </label>
+
+                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                    Diagnosi medica
+                    <input value={medicalDiagnosis} onChange={(e) => setMedicalDiagnosis(e.target.value)} style={inputStyle} disabled={!demoEditMode} placeholder="Es. discopatia L4-L5" />
+                  </label>
+                </div>
+              ) : null}
+
+              {/* Business */}
+              <button
+                type="button"
+                onClick={() => setShowV2Business((s) => !s)}
+                style={{
+                  width: "100%",
+                  marginTop: 12,
+                  textAlign: "left",
+                  background: "transparent",
+                  border: `1px solid ${THEME.borderSoft}`,
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  fontWeight: 1000,
+                  color: THEME.text,
+                }}
+              >
+                <span>💼 Stato & dati economici</span>
+                <span style={{ color: THEME.secondary }}>{showV2Business ? "–" : "+"}</span>
+              </button>
+
+              {showV2Business ? (
+                <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                    Stato paziente
+                    <select value={patientStatus} onChange={(e) => setPatientStatus(e.target.value)} style={inputStyle} disabled={!demoEditMode}>
+                      <option value="active">Attivo</option>
+                      <option value="lead">Lead</option>
+                      <option value="paused">In pausa</option>
+                      <option value="follow_up">Follow-up</option>
+                      <option value="discharged">Dimesso</option>
+                    </select>
+                  </label>
+
+                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                    Canale acquisizione
+                    <select value={acquisitionChannel} onChange={(e) => setAcquisitionChannel(e.target.value)} style={inputStyle} disabled={!demoEditMode}>
+                      <option value="">Seleziona</option>
+                      <option value="passaparola">Passaparola</option>
+                      <option value="medico">Medico</option>
+                      <option value="instagram">Instagram</option>
+                      <option value="google">Google</option>
+                      <option value="evento">Evento</option>
+                      <option value="altro">Altro</option>
+                    </select>
+                  </label>
+
+                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                    Data primo contatto
+                    <input type="date" value={firstVisitDate} onChange={(e) => setFirstVisitDate(e.target.value)} style={inputStyle} disabled={!demoEditMode} />
+                  </label>
+
+                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                    Frequenza prevista (sett.)
+                    <input value={expectedFrequency} onChange={(e) => setExpectedFrequency(e.target.value)} style={inputStyle} disabled={!demoEditMode} placeholder="Es. 2" />
+                  </label>
+
+                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                    Pacchetto sedute
+                    <input value={packageSize} onChange={(e) => setPackageSize(e.target.value)} style={inputStyle} disabled={!demoEditMode} placeholder="Es. 10" />
+                  </label>
+                </div>
+              ) : null}
+
+              <div style={{ marginTop: 10, fontSize: 12, color: THEME.textMuted }}>
+                Nota: questi campi si salvano con <b>Salva anagrafica</b>.
+              </div>
+            </div>
           </section>
 
           {/* CLINICA */}
@@ -1142,20 +1387,160 @@ export default function PatientDetailPage({
             </div>
 
             <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <label style={{ fontSize: 13, fontWeight: 1000, color: THEME.textSoft }}>
-                <span style={{ fontWeight: 1000 }}>Anamnesi</span>
-                <textarea value={anamnesis} onChange={(e) => setAnamnesis(e.target.value)} rows={8} style={textareaStyle} />
-              </label>
+              <div style={{ border: `1px solid ${THEME.borderSoft}`, borderRadius: 14, padding: 12, background: "rgba(241,245,249,0.55)" }}>
+                <div style={{ fontSize: 12, fontWeight: 1000, color: THEME.textMuted }}>🧩 Anamnesi</div>
+                <textarea
+                  value={anamnesis}
+                  onChange={(e) => setAnamnesis(e.target.value)}
+                  rows={8}
+                  style={{ ...textareaStyle, marginTop: 8, background: "#fff" }}
+                  placeholder="Storia del problema, red flags, farmaci, obiettivi del paziente…"
+                />
+              </div>
 
-              <label style={{ fontSize: 13, fontWeight: 1000, color: THEME.textSoft }}>
-                <span style={{ fontWeight: 1000 }}>Diagnosi</span>
-                <textarea value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} rows={8} style={textareaStyle} />
-              </label>
+              <div style={{ border: `1px solid ${THEME.borderSoft}`, borderRadius: 14, padding: 12, background: "rgba(241,245,249,0.55)" }}>
+                <div style={{ fontSize: 12, fontWeight: 1000, color: THEME.textMuted }}>🧠 Diagnosi / ipotesi clinica</div>
+                <textarea
+                  value={diagnosis}
+                  onChange={(e) => setDiagnosis(e.target.value)}
+                  rows={8}
+                  style={{ ...textareaStyle, marginTop: 8, background: "#fff" }}
+                  placeholder="Diagnosi medica e/o ragionamento clinico, test positivi/negativi…"
+                />
+              </div>
 
-              <label style={{ gridColumn: "1 / span 2", fontSize: 13, fontWeight: 1000, color: THEME.textSoft }}>
-                <span style={{ fontWeight: 1000 }}>Trattamento</span>
-                <textarea value={treatment} onChange={(e) => setTreatment(e.target.value)} rows={8} style={textareaStyle} />
-              </label>
+              <div style={{ gridColumn: "1 / span 2" }}>
+                <button
+                  type="button"
+                  onClick={() => setShowTreatmentDiary((s) => !s)}
+                  style={{
+                    width: "100%",
+                    textAlign: "left",
+                    background: "#ffffff",
+                    border: `1px solid ${THEME.borderSoft}`,
+                    padding: "12px 14px",
+                    borderRadius: 14,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    fontWeight: 1000,
+                    color: THEME.text,
+                  }}
+                >
+                  <span>🗂️ Trattamento & Diario sedute</span>
+                  <span style={{ color: THEME.secondary }}>{showTreatmentDiary ? "–" : "+"}</span>
+                </button>
+
+                {showTreatmentDiary ? (
+                  <div style={{ marginTop: 12, border: `1px solid ${THEME.borderSoft}`, borderRadius: 14, background: "#fff" }}>
+                    <div style={{ padding: 12, borderBottom: `1px solid ${THEME.borderSoft}`, background: "rgba(241,245,249,0.55)" }}>
+                      <div style={{ fontSize: 12, fontWeight: 1000, color: THEME.textMuted }}>
+                        Qui scrivi cosa fai ad ogni seduta. Le note si salvano in <code>appointments.calendar_note</code>.
+                      </div>
+                    </div>
+
+                    {appointments.length === 0 ? (
+                      <div style={{ padding: 12, color: THEME.textMuted, fontWeight: 900 }}>
+                        Nessuna seduta trovata: quando inizi a registrare appuntamenti, qui comparirà lo storico.
+                      </div>
+                    ) : (
+                      <div style={{ padding: 12, display: "grid", gap: 12 }}>
+                        {appointments.map((a) => {
+                          const busy = !!noteBusyByApptId[a.id];
+                          const c = statusColors(a.status);
+                          const val = notesByApptId[a.id] ?? "";
+
+                          return (
+                            <div key={a.id} style={{ border: `1px solid ${THEME.borderSoft}`, borderRadius: 14, padding: 12 }}>
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                                  <div style={{ fontWeight: 1000, color: THEME.text }}>
+                                    {formatDateTimeIT(a.start_at)}
+                                  </div>
+                                  <span
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      padding: "6px 10px",
+                                      borderRadius: 999,
+                                      background: c.bg,
+                                      border: `1px solid ${c.bd}`,
+                                      color: c.fg,
+                                      fontWeight: 1000,
+                                      fontSize: 12,
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {statusLabel(a.status)}
+                                  </span>
+                                </div>
+
+                                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => applyNoteTemplate(a.id)}
+                                    style={{
+                                      padding: "8px 10px",
+                                      borderRadius: 12,
+                                      border: `1px solid ${THEME.border}`,
+                                      background: "#fff",
+                                      color: THEME.secondary,
+                                      fontWeight: 1000,
+                                      cursor: "pointer",
+                                      fontSize: 12,
+                                    }}
+                                  >
+                                    Usa template
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => saveAppointmentNote(a.id)}
+                                    disabled={busy}
+                                    style={{
+                                      padding: "8px 12px",
+                                      borderRadius: 12,
+                                      border: `1px solid ${THEME.accent}`,
+                                      background: THEME.accent,
+                                      color: "#fff",
+                                      fontWeight: 1000,
+                                      cursor: busy ? "not-allowed" : "pointer",
+                                      fontSize: 12,
+                                      opacity: busy ? 0.65 : 1,
+                                    }}
+                                  >
+                                    {busy ? "Salvo…" : "Salva nota"}
+                                  </button>
+                                </div>
+                              </div>
+
+                              <textarea
+                                value={val}
+                                onChange={(e) => setNotesByApptId((m) => ({ ...m, [a.id]: e.target.value }))}
+                                rows={4}
+                                style={{ ...textareaStyle, marginTop: 10 }}
+                                placeholder="Cosa hai fatto oggi? Tecniche, esercizi, progressioni, risposta del paziente…"
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 1000, color: THEME.textMuted }}>📌 Piano trattamento (generale)</div>
+                  <textarea
+                    value={treatment}
+                    onChange={(e) => setTreatment(e.target.value)}
+                    rows={6}
+                    style={{ ...textareaStyle, marginTop: 8 }}
+                    placeholder="Il piano generale: frequenza, progressione, obiettivi a 2-4-6 settimane…"
+                  />
+                </div>
+              </div>
             </div>
           </section>
 
@@ -1165,7 +1550,7 @@ export default function PatientDetailPage({
               <div>
                 <h2 style={{ margin: 0, color: THEME.primary, fontWeight: 1000 }}>Documenti Clinici</h2>
                 <div style={{ marginTop: 6, fontSize: 12, color: THEME.textMuted }}>
-                  Prescrizioni, esami diagnostici, referti e file correlati
+                  Solo file (immagini/PDF). Niente testo: il “referto scritto” lo carichi come scansione.
                 </div>
               </div>
 
@@ -1187,596 +1572,140 @@ export default function PatientDetailPage({
               </button>
             </div>
 
-            {/* PRESCRIZIONE */}
-            <div style={{ marginTop: 16, border: `1px solid ${THEME.borderSoft}`, borderRadius: 12, padding: 16 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <h3 style={{ margin: 0, color: THEME.text, fontWeight: 1000 }}>Prescrizione</h3>
+            {/* Uploader */}
+            <div style={{ marginTop: 14, border: `1px solid ${THEME.borderSoft}`, borderRadius: 14, padding: 14, background: "rgba(241,245,249,0.55)" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                  Tipo documento
+                  <select value={clinicalUploadType} onChange={(e) => setClinicalUploadType(e.target.value as ClinicalDocType)} style={inputStyle}>
+                    <option value="prescrizione">Prescrizione</option>
+                    <option value="rx">Rx (Radiografia)</option>
+                    <option value="rm">RM (Risonanza Magnetica)</option>
+                    <option value="tac">TAC</option>
+                    <option value="elettromiografia">Elettromiografia</option>
+                    <option value="ecografia">Ecografia</option>
+                  </select>
+                </label>
+
+                <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                  Nome (opzionale)
+                  <input
+                    value={clinicalUploadTitle}
+                    onChange={(e) => setClinicalUploadTitle(e.target.value)}
+                    style={inputStyle}
+                    placeholder="Es. RM Lombare 12-02-2026"
+                  />
+                </label>
+
+                <label style={{ gridColumn: "1 / span 2", fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                  File (immagini o PDF)
+                  <input
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.heic,.webp"
+                    onChange={(e) => setClinicalUploadFile(e.target.files?.[0] || null)}
+                    style={inputStyle}
+                  />
+                  {clinicalUploadFile ? (
+                    <div style={{ marginTop: 6, fontSize: 12, color: THEME.success, fontWeight: 900 }}>
+                      Selezionato: {clinicalUploadFile.name}
+                    </div>
+                  ) : null}
+                </label>
+              </div>
+
+              <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end" }}>
                 <button
-                  onClick={() => saveClinicalDocument("prescrizione")}
-                  disabled={savingClinicalDoc === "prescrizione"}
+                  type="button"
+                  onClick={uploadClinicalDocument}
+                  disabled={savingClinicalDoc === "upload"}
                   style={{
-                    padding: "8px 16px",
-                    borderRadius: 10,
+                    padding: "10px 14px",
+                    borderRadius: 12,
                     border: `1px solid ${THEME.accent}`,
                     background: THEME.accent,
                     color: "#fff",
-                    cursor: savingClinicalDoc === "prescrizione" ? "not-allowed" : "pointer",
-                    fontWeight: 900,
-                    fontSize: 13,
-                    opacity: savingClinicalDoc === "prescrizione" ? 0.6 : 1,
+                    cursor: savingClinicalDoc === "upload" ? "not-allowed" : "pointer",
+                    fontWeight: 1000,
+                    minWidth: 170,
+                    opacity: savingClinicalDoc === "upload" ? 0.65 : 1,
                   }}
                 >
-                  {savingClinicalDoc === "prescrizione" ? "Salvataggio…" : "Salva"}
+                  {savingClinicalDoc === "upload" ? "Carico…" : "Carica documento"}
                 </button>
-              </div>
-              
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div>
-                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
-                    File (PDF/immagini)
-                    <input
-                      type="file"
-                      accept=".pdf,.jpg,.jpeg,.png,.heic"
-                      onChange={(e) => handleClinicalFileChange("prescrizione", e.target.files?.[0] || null)}
-                      style={inputStyle}
-                    />
-                  </label>
-                  {clinicalFormData.prescrizione.tempFileUrl && (
-                    <div style={{ marginTop: 8, fontSize: 12, color: THEME.success }}>
-                      File selezionato: {clinicalFormData.prescrizione.file?.name}
-                    </div>
-                  )}
-                </div>
-                
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 8 }}>
-                    Documento esistente
-                  </div>
-                  {getExistingClinicalDoc("prescrizione") ? (
-                    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                      <span style={{ color: THEME.text }}>{getExistingClinicalDoc("prescrizione")?.file_name || "Documento"}</span>
-                      <button
-                        onClick={() => openClinicalDocument(getExistingClinicalDoc("prescrizione")!)}
-                        style={{
-                          padding: "6px 12px",
-                          borderRadius: 8,
-                          border: `1px solid ${THEME.border}`,
-                          background: "#fff",
-                          color: THEME.secondary,
-                          fontWeight: 900,
-                          cursor: "pointer",
-                          fontSize: 12,
-                        }}
-                      >
-                        Apri
-                      </button>
-                      <button
-                        onClick={() => deleteClinicalDocument(getExistingClinicalDoc("prescrizione")!)}
-                        style={{
-                          padding: "6px 12px",
-                          borderRadius: 8,
-                          border: `1px solid ${THEME.danger}`,
-                          background: THEME.danger,
-                          color: "#fff",
-                          fontWeight: 900,
-                          cursor: "pointer",
-                          fontSize: 12,
-                        }}
-                      >
-                        Elimina
-                      </button>
-                    </div>
-                  ) : (
-                    <div style={{ color: THEME.textMuted, fontSize: 13 }}>Nessun documento caricato</div>
-                  )}
-                </div>
               </div>
             </div>
 
-            {/* RX */}
-            <div style={{ marginTop: 16, border: `1px solid ${THEME.borderSoft}`, borderRadius: 12, padding: 16 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <h3 style={{ margin: 0, color: THEME.text, fontWeight: 1000 }}>Rx (Radiografia)</h3>
-                <button
-                  onClick={() => saveClinicalDocument("rx")}
-                  disabled={savingClinicalDoc === "rx"}
-                  style={{
-                    padding: "8px 16px",
-                    borderRadius: 10,
-                    border: `1px solid ${THEME.accent}`,
-                    background: THEME.accent,
-                    color: "#fff",
-                    cursor: savingClinicalDoc === "rx" ? "not-allowed" : "pointer",
-                    fontWeight: 900,
-                    fontSize: 13,
-                    opacity: savingClinicalDoc === "rx" ? 0.6 : 1,
-                  }}
-                >
-                  {savingClinicalDoc === "rx" ? "Salvataggio…" : "Salva"}
-                </button>
-              </div>
-              
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div>
-                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
-                    Referto (testo)
-                    <textarea
-                      value={clinicalFormData.rx.report_text}
-                      onChange={(e) => handleClinicalReportChange("rx", e.target.value)}
-                      rows={4}
-                      style={textareaStyle}
-                      placeholder="Inserisci il referto della radiografia..."
-                    />
-                  </label>
-                </div>
-                
-                <div>
-                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
-                    File immagini
-                    <input
-                      type="file"
-                      accept=".jpg,.jpeg,.png,.heic"
-                      onChange={(e) => handleClinicalFileChange("rx", e.target.files?.[0] || null)}
-                      style={inputStyle}
-                    />
-                  </label>
-                  {clinicalFormData.rx.tempFileUrl && (
-                    <div style={{ marginTop: 8, fontSize: 12, color: THEME.success }}>
-                      File selezionato: {clinicalFormData.rx.file?.name}
-                    </div>
-                  )}
-                  
-                  <div style={{ marginTop: 12 }}>
-                    <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 8 }}>
-                      Documento esistente
-                    </div>
-                    {getExistingClinicalDoc("rx") ? (
-                      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ color: THEME.text, fontSize: 13 }}>
-                            {getExistingClinicalDoc("rx")?.file_name || "Documento"}
-                          </div>
-                          {getExistingClinicalDoc("rx")?.report_text && (
-                            <div style={{ marginTop: 4, color: THEME.textMuted, fontSize: 12 }}>
-                              Referto: {getExistingClinicalDoc("rx")?.report_text?.substring(0, 60)}...
-                            </div>
-                          )}
+            {/* Lista */}
+            <div style={{ marginTop: 14 }}>
+              {clinicalDocs.length === 0 ? (
+                <div style={{ fontSize: 13, color: THEME.textMuted, fontWeight: 900 }}>Nessun documento clinico caricato.</div>
+              ) : (
+                <div style={{ display: "grid", gap: 10 }}>
+                  {clinicalDocs.map((doc) => (
+                    <div
+                      key={doc.id}
+                      style={{
+                        border: `1px solid ${THEME.borderSoft}`,
+                        borderRadius: 14,
+                        padding: 12,
+                        background: "#fff",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <div style={{ minWidth: 260 }}>
+                        <div style={{ fontWeight: 1000, color: THEME.text }}>
+                          {clinicalDocTypeLabel(doc.doc_type)} · {doc.file_name || "Documento"}
                         </div>
-                        <div style={{ display: "flex", gap: 8 }}>
-                          <button
-                            onClick={() => openClinicalDocument(getExistingClinicalDoc("rx")!)}
-                            style={{
-                              padding: "6px 12px",
-                              borderRadius: 8,
-                              border: `1px solid ${THEME.border}`,
-                              background: "#fff",
-                              color: THEME.secondary,
-                              fontWeight: 900,
-                              cursor: "pointer",
-                              fontSize: 12,
-                            }}
-                          >
-                            Apri
-                          </button>
-                          <button
-                            onClick={() => deleteClinicalDocument(getExistingClinicalDoc("rx")!)}
-                            style={{
-                              padding: "6px 12px",
-                              borderRadius: 8,
-                              border: `1px solid ${THEME.danger}`,
-                              background: THEME.danger,
-                              color: "#fff",
-                              fontWeight: 900,
-                              cursor: "pointer",
-                              fontSize: 12,
-                            }}
-                          >
-                            Elimina
-                          </button>
+                        <div style={{ marginTop: 4, fontSize: 12, color: THEME.textMuted }}>
+                          Caricato: {new Date(doc.uploaded_at).toLocaleString("it-IT")}
                         </div>
                       </div>
-                    ) : (
-                      <div style={{ color: THEME.textMuted, fontSize: 13 }}>Nessun documento caricato</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
 
-            {/* RM */}
-            <div style={{ marginTop: 16, border: `1px solid ${THEME.borderSoft}`, borderRadius: 12, padding: 16 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <h3 style={{ margin: 0, color: THEME.text, fontWeight: 1000 }}>RM (Risonanza Magnetica)</h3>
-                <button
-                  onClick={() => saveClinicalDocument("rm")}
-                  disabled={savingClinicalDoc === "rm"}
-                  style={{
-                    padding: "8px 16px",
-                    borderRadius: 10,
-                    border: `1px solid ${THEME.accent}`,
-                    background: THEME.accent,
-                    color: "#fff",
-                    cursor: savingClinicalDoc === "rm" ? "not-allowed" : "pointer",
-                    fontWeight: 900,
-                    fontSize: 13,
-                    opacity: savingClinicalDoc === "rm" ? 0.6 : 1,
-                  }}
-                >
-                  {savingClinicalDoc === "rm" ? "Salvataggio…" : "Salva"}
-                </button>
-              </div>
-              
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div>
-                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
-                    Referto (testo)
-                    <textarea
-                      value={clinicalFormData.rm.report_text}
-                      onChange={(e) => handleClinicalReportChange("rm", e.target.value)}
-                      rows={4}
-                      style={textareaStyle}
-                      placeholder="Inserisci il referto della risonanza magnetica..."
-                    />
-                  </label>
-                </div>
-                
-                <div>
-                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
-                    File immagini
-                    <input
-                      type="file"
-                      accept=".jpg,.jpeg,.png,.heic"
-                      onChange={(e) => handleClinicalFileChange("rm", e.target.files?.[0] || null)}
-                      style={inputStyle}
-                    />
-                  </label>
-                  {clinicalFormData.rm.tempFileUrl && (
-                    <div style={{ marginTop: 8, fontSize: 12, color: THEME.success }}>
-                      File selezionato: {clinicalFormData.rm.file?.name}
-                    </div>
-                  )}
-                  
-                  <div style={{ marginTop: 12 }}>
-                    <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 8 }}>
-                      Documento esistente
-                    </div>
-                    {getExistingClinicalDoc("rm") ? (
-                      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ color: THEME.text, fontSize: 13 }}>
-                            {getExistingClinicalDoc("rm")?.file_name || "Documento"}
-                          </div>
-                          {getExistingClinicalDoc("rm")?.report_text && (
-                            <div style={{ marginTop: 4, color: THEME.textMuted, fontSize: 12 }}>
-                              Referto: {getExistingClinicalDoc("rm")?.report_text?.substring(0, 60)}...
-                            </div>
-                          )}
-                        </div>
-                        <div style={{ display: "flex", gap: 8 }}>
-                          <button
-                            onClick={() => openClinicalDocument(getExistingClinicalDoc("rm")!)}
-                            style={{
-                              padding: "6px 12px",
-                              borderRadius: 8,
-                              border: `1px solid ${THEME.border}`,
-                              background: "#fff",
-                              color: THEME.secondary,
-                              fontWeight: 900,
-                              cursor: "pointer",
-                              fontSize: 12,
-                            }}
-                          >
-                            Apri
-                          </button>
-                          <button
-                            onClick={() => deleteClinicalDocument(getExistingClinicalDoc("rm")!)}
-                            style={{
-                              padding: "6px 12px",
-                              borderRadius: 8,
-                              border: `1px solid ${THEME.danger}`,
-                              background: THEME.danger,
-                              color: "#fff",
-                              fontWeight: 900,
-                              cursor: "pointer",
-                              fontSize: 12,
-                            }}
-                          >
-                            Elimina
-                          </button>
-                        </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          onClick={() => openClinicalDocument(doc)}
+                          style={{
+                            padding: "8px 12px",
+                            borderRadius: 12,
+                            border: `1px solid ${THEME.border}`,
+                            background: "#fff",
+                            color: THEME.secondary,
+                            fontWeight: 1000,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Apri
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => deleteClinicalDocument(doc)}
+                          style={{
+                            padding: "8px 12px",
+                            borderRadius: 12,
+                            border: `1px solid ${THEME.danger}`,
+                            background: THEME.danger,
+                            color: "#fff",
+                            fontWeight: 1000,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Elimina
+                        </button>
                       </div>
-                    ) : (
-                      <div style={{ color: THEME.textMuted, fontSize: 13 }}>Nessun documento caricato</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* TAC */}
-            <div style={{ marginTop: 16, border: `1px solid ${THEME.borderSoft}`, borderRadius: 12, padding: 16 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <h3 style={{ margin: 0, color: THEME.text, fontWeight: 1000 }}>TAC (Tomografia Assiale Computerizzata)</h3>
-                <button
-                  onClick={() => saveClinicalDocument("tac")}
-                  disabled={savingClinicalDoc === "tac"}
-                  style={{
-                    padding: "8px 16px",
-                    borderRadius: 10,
-                    border: `1px solid ${THEME.accent}`,
-                    background: THEME.accent,
-                    color: "#fff",
-                    cursor: savingClinicalDoc === "tac" ? "not-allowed" : "pointer",
-                    fontWeight: 900,
-                    fontSize: 13,
-                    opacity: savingClinicalDoc === "tac" ? 0.6 : 1,
-                  }}
-                >
-                  {savingClinicalDoc === "tac" ? "Salvataggio…" : "Salva"}
-                </button>
-              </div>
-              
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div>
-                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
-                    Referto (testo)
-                    <textarea
-                      value={clinicalFormData.tac.report_text}
-                      onChange={(e) => handleClinicalReportChange("tac", e.target.value)}
-                      rows={4}
-                      style={textareaStyle}
-                      placeholder="Inserisci il referto della TAC..."
-                    />
-                  </label>
-                </div>
-                
-                <div>
-                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
-                    File immagini
-                    <input
-                      type="file"
-                      accept=".jpg,.jpeg,.png,.heic"
-                      onChange={(e) => handleClinicalFileChange("tac", e.target.files?.[0] || null)}
-                      style={inputStyle}
-                    />
-                  </label>
-                  {clinicalFormData.tac.tempFileUrl && (
-                    <div style={{ marginTop: 8, fontSize: 12, color: THEME.success }}>
-                      File selezionato: {clinicalFormData.tac.file?.name}
                     </div>
-                  )}
-                  
-                  <div style={{ marginTop: 12 }}>
-                    <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 8 }}>
-                      Documento esistente
-                    </div>
-                    {getExistingClinicalDoc("tac") ? (
-                      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ color: THEME.text, fontSize: 13 }}>
-                            {getExistingClinicalDoc("tac")?.file_name || "Documento"}
-                          </div>
-                          {getExistingClinicalDoc("tac")?.report_text && (
-                            <div style={{ marginTop: 4, color: THEME.textMuted, fontSize: 12 }}>
-                              Referto: {getExistingClinicalDoc("tac")?.report_text?.substring(0, 60)}...
-                            </div>
-                          )}
-                        </div>
-                        <div style={{ display: "flex", gap: 8 }}>
-                          <button
-                            onClick={() => openClinicalDocument(getExistingClinicalDoc("tac")!)}
-                            style={{
-                              padding: "6px 12px",
-                              borderRadius: 8,
-                              border: `1px solid ${THEME.border}`,
-                              background: "#fff",
-                              color: THEME.secondary,
-                              fontWeight: 900,
-                              cursor: "pointer",
-                              fontSize: 12,
-                            }}
-                          >
-                            Apri
-                          </button>
-                          <button
-                            onClick={() => deleteClinicalDocument(getExistingClinicalDoc("tac")!)}
-                            style={{
-                              padding: "6px 12px",
-                              borderRadius: 8,
-                              border: `1px solid ${THEME.danger}`,
-                              background: THEME.danger,
-                              color: "#fff",
-                              fontWeight: 900,
-                              cursor: "pointer",
-                              fontSize: 12,
-                            }}
-                          >
-                            Elimina
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div style={{ color: THEME.textMuted, fontSize: 13 }}>Nessun documento caricato</div>
-                    )}
-                  </div>
+                  ))}
                 </div>
-              </div>
-            </div>
-
-            {/* ELETTROMIOGRAFIA */}
-            <div style={{ marginTop: 16, border: `1px solid ${THEME.borderSoft}`, borderRadius: 12, padding: 16 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <h3 style={{ margin: 0, color: THEME.text, fontWeight: 1000 }}>Elettromiografia</h3>
-                <button
-                  onClick={() => saveClinicalDocument("elettromiografia")}
-                  disabled={savingClinicalDoc === "elettromiografia"}
-                  style={{
-                    padding: "8px 16px",
-                    borderRadius: 10,
-                    border: `1px solid ${THEME.accent}`,
-                    background: THEME.accent,
-                    color: "#fff",
-                    cursor: savingClinicalDoc === "elettromiografia" ? "not-allowed" : "pointer",
-                    fontWeight: 900,
-                    fontSize: 13,
-                    opacity: savingClinicalDoc === "elettromiografia" ? 0.6 : 1,
-                  }}
-                >
-                  {savingClinicalDoc === "elettromiografia" ? "Salvataggio…" : "Salva"}
-                </button>
-              </div>
-              
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div>
-                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
-                    File (PDF/immagini)
-                    <input
-                      type="file"
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      onChange={(e) => handleClinicalFileChange("elettromiografia", e.target.files?.[0] || null)}
-                      style={inputStyle}
-                    />
-                  </label>
-                  {clinicalFormData.elettromiografia.tempFileUrl && (
-                    <div style={{ marginTop: 8, fontSize: 12, color: THEME.success }}>
-                      File selezionato: {clinicalFormData.elettromiografia.file?.name}
-                    </div>
-                  )}
-                </div>
-                
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 8 }}>
-                    Documento esistente
-                  </div>
-                  {getExistingClinicalDoc("elettromiografia") ? (
-                    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                      <span style={{ color: THEME.text }}>{getExistingClinicalDoc("elettromiografia")?.file_name || "Documento"}</span>
-                      <button
-                        onClick={() => openClinicalDocument(getExistingClinicalDoc("elettromiografia")!)}
-                        style={{
-                          padding: "6px 12px",
-                          borderRadius: 8,
-                          border: `1px solid ${THEME.border}`,
-                          background: "#fff",
-                          color: THEME.secondary,
-                          fontWeight: 900,
-                          cursor: "pointer",
-                          fontSize: 12,
-                        }}
-                      >
-                        Apri
-                      </button>
-                      <button
-                        onClick={() => deleteClinicalDocument(getExistingClinicalDoc("elettromiografia")!)}
-                        style={{
-                          padding: "6px 12px",
-                          borderRadius: 8,
-                          border: `1px solid ${THEME.danger}`,
-                          background: THEME.danger,
-                          color: "#fff",
-                          fontWeight: 900,
-                          cursor: "pointer",
-                          fontSize: 12,
-                        }}
-                      >
-                        Elimina
-                      </button>
-                    </div>
-                  ) : (
-                    <div style={{ color: THEME.textMuted, fontSize: 13 }}>Nessun documento caricato</div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* ECOGRAFIA */}
-            <div style={{ marginTop: 16, border: `1px solid ${THEME.borderSoft}`, borderRadius: 12, padding: 16 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <h3 style={{ margin: 0, color: THEME.text, fontWeight: 1000 }}>Ecografia</h3>
-                <button
-                  onClick={() => saveClinicalDocument("ecografia")}
-                  disabled={savingClinicalDoc === "ecografia"}
-                  style={{
-                    padding: "8px 16px",
-                    borderRadius: 10,
-                    border: `1px solid ${THEME.accent}`,
-                    background: THEME.accent,
-                    color: "#fff",
-                    cursor: savingClinicalDoc === "ecografia" ? "not-allowed" : "pointer",
-                    fontWeight: 900,
-                    fontSize: 13,
-                    opacity: savingClinicalDoc === "ecografia" ? 0.6 : 1,
-                  }}
-                >
-                  {savingClinicalDoc === "ecografia" ? "Salvataggio…" : "Salva"}
-                </button>
-              </div>
-              
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div>
-                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
-                    File (immagini/video)
-                    <input
-                      type="file"
-                      accept=".jpg,.jpeg,.png,.mp4,.mov,.avi"
-                      onChange={(e) => handleClinicalFileChange("ecografia", e.target.files?.[0] || null)}
-                      style={inputStyle}
-                    />
-                  </label>
-                  {clinicalFormData.ecografia.tempFileUrl && (
-                    <div style={{ marginTop: 8, fontSize: 12, color: THEME.success }}>
-                      File selezionato: {clinicalFormData.ecografia.file?.name}
-                    </div>
-                  )}
-                </div>
-                
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 8 }}>
-                    Documento esistente
-                  </div>
-                  {getExistingClinicalDoc("ecografia") ? (
-                    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                      <span style={{ color: THEME.text }}>{getExistingClinicalDoc("ecografia")?.file_name || "Documento"}</span>
-                      <button
-                        onClick={() => openClinicalDocument(getExistingClinicalDoc("ecografia")!)}
-                        style={{
-                          padding: "6px 12px",
-                          borderRadius: 8,
-                          border: `1px solid ${THEME.border}`,
-                          background: "#fff",
-                          color: THEME.secondary,
-                          fontWeight: 900,
-                          cursor: "pointer",
-                          fontSize: 12,
-                        }}
-                      >
-                        Apri
-                      </button>
-                      <button
-                        onClick={() => deleteClinicalDocument(getExistingClinicalDoc("ecografia")!)}
-                        style={{
-                          padding: "6px 12px",
-                          borderRadius: 8,
-                          border: `1px solid ${THEME.danger}`,
-                          background: THEME.danger,
-                          color: "#fff",
-                          fontWeight: 900,
-                          cursor: "pointer",
-                          fontSize: 12,
-                        }}
-                      >
-                        Elimina
-                      </button>
-                    </div>
-                  ) : (
-                    <div style={{ color: THEME.textMuted, fontSize: 13 }}>Nessun documento caricato</div>
-                  )}
-                </div>
-              </div>
+              )}
             </div>
           </section>
 
-          {/* TERAPIE + PAGAMENTO */}
+{/* TERAPIE + PAGAMENTO */}
           <section style={{ marginTop: 14, ...cardStyle }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "end", gap: 12 }}>
               <div>

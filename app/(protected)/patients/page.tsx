@@ -61,6 +61,31 @@ export default function PatientsPage() {
   // Stati Form e UI
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+
+  const [phone, setPhone] = useState("");
+  const [birthDate, setBirthDate] = useState("");
+  const [taxCode, setTaxCode] = useState("");
+  const [residenceCity, setResidenceCity] = useState("");
+
+  // Dati clinici / strategici (V2)
+  const [patientStatus, setPatientStatus] = useState<"lead" | "active" | "paused" | "follow_up" | "discharged">("active");
+  const [acquisitionChannel, setAcquisitionChannel] = useState<"" | "passaparola" | "medico" | "instagram" | "google" | "evento" | "altro">("");
+  const [firstVisitDate, setFirstVisitDate] = useState("");
+
+  const [mainComplaint, setMainComplaint] = useState("");
+  const [bodyRegion, setBodyRegion] = useState<
+    "" | "cervicale" | "dorsale" | "lombare" | "spalla" | "gomito" | "polso_mano" | "anca" | "ginocchio" | "caviglia_piede" | "atm" | "neurologico" | "altro"
+  >("");
+  const [side, setSide] = useState<"" | "dx" | "sx" | "bilaterale">("");
+  const [pathologyType, setPathologyType] = useState<"" | "traumatico" | "degenerativo" | "post_chirurgico" | "neurologico" | "cronico" | "funzionale">("");
+  const [medicalDiagnosis, setMedicalDiagnosis] = useState("");
+
+  const [expectedFrequency, setExpectedFrequency] = useState("");
+  const [packageSize, setPackageSize] = useState("");
+
+  const [showClinicalFields, setShowClinicalFields] = useState(true);
+  const [showBusinessFields, setShowBusinessFields] = useState(true);
+
   const [saving, setSaving] = useState(false);
 
   const [showNewPatientForm, setShowNewPatientForm] = useState(false);
@@ -109,18 +134,51 @@ export default function PatientsPage() {
 
   async function createPatient(e: React.FormEvent) {
     e.preventDefault();
-    if (!firstName.trim() || !lastName.trim()) return;
+    if (!firstName.trim() || !lastName.trim() || !phone.trim() || !birthDate.trim()) {
+      setError("Compila almeno Nome, Cognome, Telefono e Data di nascita.");
+      return;
+    }
 
     setSaving(true);
     const { error } = await supabase.from("patients").insert({
       first_name: firstName.trim(),
       last_name: lastName.trim(),
+      phone: phone.trim(),
+      birth_date: birthDate.trim() || null,
+      tax_code: taxCode.trim() || null,
+      residence_city: residenceCity.trim() || null,
+
+      // V2 (richiede migration SQL)
+      patient_status: patientStatus,
+      acquisition_channel: acquisitionChannel || null,
+      first_visit_date: firstVisitDate.trim() || null,
+      main_complaint: mainComplaint.trim() || null,
+      body_region: bodyRegion || null,
+      side: side || null,
+      pathology_type: pathologyType || null,
+      medical_diagnosis: medicalDiagnosis.trim() || null,
+      expected_frequency: expectedFrequency.trim() ? Number(expectedFrequency) : null,
+      package_size: packageSize.trim() ? Number(packageSize) : null,
     });
     setSaving(false);
 
     if (!error) {
       setFirstName("");
       setLastName("");
+      setPhone("");
+      setBirthDate("");
+      setTaxCode("");
+      setResidenceCity("");
+      setPatientStatus("active");
+      setAcquisitionChannel("");
+      setFirstVisitDate("");
+      setMainComplaint("");
+      setBodyRegion("");
+      setSide("");
+      setPathologyType("");
+      setMedicalDiagnosis("");
+      setExpectedFrequency("");
+      setPackageSize("");
       setShowNewPatientForm(false);
       await loadPatients();
     } else {
@@ -483,8 +541,9 @@ export default function PatientsPage() {
                     gap: 12,
                   }}
                 >
+                  {/* Anagrafica (minimo serio) */}
                   <input
-                    placeholder="Nome"
+                    placeholder="Nome *"
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
                     style={{
@@ -497,7 +556,7 @@ export default function PatientsPage() {
                     required
                   />
                   <input
-                    placeholder="Cognome"
+                    placeholder="Cognome *"
                     value={lastName}
                     onChange={(e) => setLastName(e.target.value)}
                     style={{
@@ -509,6 +568,291 @@ export default function PatientsPage() {
                     }}
                     required
                   />
+
+                  <input
+                    placeholder="Telefono *"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    style={{
+                      padding: "12px",
+                      borderRadius: 12,
+                      border: `1px solid ${THEME.border}`,
+                      fontWeight: 800,
+                      outline: "none",
+                    }}
+                    required
+                  />
+                  <input
+                    type="date"
+                    value={birthDate}
+                    onChange={(e) => setBirthDate(e.target.value)}
+                    style={{
+                      padding: "12px",
+                      borderRadius: 12,
+                      border: `1px solid ${THEME.border}`,
+                      fontWeight: 800,
+                      outline: "none",
+                    }}
+                    required
+                    title="Data di nascita"
+                  />
+
+                  <input
+                    placeholder="Codice Fiscale (opzionale)"
+                    value={taxCode}
+                    onChange={(e) => setTaxCode(e.target.value)}
+                    style={{
+                      padding: "12px",
+                      borderRadius: 12,
+                      border: `1px solid ${THEME.border}`,
+                      fontWeight: 800,
+                      outline: "none",
+                    }}
+                  />
+                  <input
+                    placeholder="Città (opzionale)"
+                    value={residenceCity}
+                    onChange={(e) => setResidenceCity(e.target.value)}
+                    style={{
+                      padding: "12px",
+                      borderRadius: 12,
+                      border: `1px solid ${THEME.border}`,
+                      fontWeight: 800,
+                      outline: "none",
+                    }}
+                  />
+
+                  {/* Sezione Clinica (espandibile) */}
+                  <div
+                    style={{
+                      gridColumn: isMobile ? "auto" : "1 / span 2",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "10px 12px",
+                      borderRadius: 12,
+                      border: `1px dashed ${THEME.border}`,
+                      background: "rgba(37,99,235,0.04)",
+                      cursor: "pointer",
+                      userSelect: "none",
+                      fontWeight: 1000,
+                      color: THEME.blueDark,
+                    }}
+                    onClick={() => setShowClinicalFields((v) => !v)}
+                  >
+                    <span>🩺 Dati clinici iniziali</span>
+                    <span>{showClinicalFields ? "−" : "+"}</span>
+                  </div>
+
+                  {showClinicalFields && (
+                    <>
+                      <textarea
+                        placeholder="Motivo principale (opzionale)"
+                        value={mainComplaint}
+                        onChange={(e) => setMainComplaint(e.target.value)}
+                        style={{
+                          gridColumn: isMobile ? "auto" : "1 / span 2",
+                          padding: "12px",
+                          borderRadius: 12,
+                          border: `1px solid ${THEME.border}`,
+                          fontWeight: 800,
+                          outline: "none",
+                          minHeight: 70,
+                          resize: "vertical",
+                        }}
+                      />
+
+                      <select
+                        value={bodyRegion}
+                        onChange={(e) => setBodyRegion(e.target.value as any)}
+                        style={{
+                          padding: "12px",
+                          borderRadius: 12,
+                          border: `1px solid ${THEME.border}`,
+                          fontWeight: 900,
+                          outline: "none",
+                          background: "#fff",
+                        }}
+                      >
+                        <option value="">Distretto</option>
+                        <option value="cervicale">Cervicale</option>
+                        <option value="dorsale">Dorsale</option>
+                        <option value="lombare">Lombare</option>
+                        <option value="spalla">Spalla</option>
+                        <option value="gomito">Gomito</option>
+                        <option value="polso_mano">Polso / Mano</option>
+                        <option value="anca">Anca</option>
+                        <option value="ginocchio">Ginocchio</option>
+                        <option value="caviglia_piede">Caviglia / Piede</option>
+                        <option value="atm">ATM</option>
+                        <option value="neurologico">Neurologico</option>
+                        <option value="altro">Altro</option>
+                      </select>
+
+                      <select
+                        value={side}
+                        onChange={(e) => setSide(e.target.value as any)}
+                        style={{
+                          padding: "12px",
+                          borderRadius: 12,
+                          border: `1px solid ${THEME.border}`,
+                          fontWeight: 900,
+                          outline: "none",
+                          background: "#fff",
+                        }}
+                      >
+                        <option value="">Lato</option>
+                        <option value="dx">DX</option>
+                        <option value="sx">SX</option>
+                        <option value="bilaterale">Bilaterale</option>
+                      </select>
+
+                      <select
+                        value={pathologyType}
+                        onChange={(e) => setPathologyType(e.target.value as any)}
+                        style={{
+                          padding: "12px",
+                          borderRadius: 12,
+                          border: `1px solid ${THEME.border}`,
+                          fontWeight: 900,
+                          outline: "none",
+                          background: "#fff",
+                        }}
+                      >
+                        <option value="">Tipo problema</option>
+                        <option value="traumatico">Traumatico</option>
+                        <option value="degenerativo">Degenerativo</option>
+                        <option value="post_chirurgico">Post-chirurgico</option>
+                        <option value="neurologico">Neurologico</option>
+                        <option value="cronico">Cronico</option>
+                        <option value="funzionale">Funzionale</option>
+                      </select>
+
+                      <textarea
+                        placeholder="Diagnosi medica (opzionale)"
+                        value={medicalDiagnosis}
+                        onChange={(e) => setMedicalDiagnosis(e.target.value)}
+                        style={{
+                          padding: "12px",
+                          borderRadius: 12,
+                          border: `1px solid ${THEME.border}`,
+                          fontWeight: 800,
+                          outline: "none",
+                          minHeight: 70,
+                          resize: "vertical",
+                        }}
+                      />
+                    </>
+                  )}
+
+                  {/* Sezione Economica/Strategica (espandibile) */}
+                  <div
+                    style={{
+                      gridColumn: isMobile ? "auto" : "1 / span 2",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "10px 12px",
+                      borderRadius: 12,
+                      border: `1px dashed ${THEME.border}`,
+                      background: "rgba(22,163,74,0.05)",
+                      cursor: "pointer",
+                      userSelect: "none",
+                      fontWeight: 1000,
+                      color: THEME.greenDark,
+                    }}
+                    onClick={() => setShowBusinessFields((v) => !v)}
+                  >
+                    <span>💼 Stato & dati economici</span>
+                    <span>{showBusinessFields ? "−" : "+"}</span>
+                  </div>
+
+                  {showBusinessFields && (
+                    <>
+                      <select
+                        value={patientStatus}
+                        onChange={(e) => setPatientStatus(e.target.value as any)}
+                        style={{
+                          padding: "12px",
+                          borderRadius: 12,
+                          border: `1px solid ${THEME.border}`,
+                          fontWeight: 900,
+                          outline: "none",
+                          background: "#fff",
+                        }}
+                      >
+                        <option value="active">Attivo</option>
+                        <option value="lead">Lead</option>
+                        <option value="follow_up">Follow-up</option>
+                        <option value="paused">In pausa</option>
+                        <option value="discharged">Dimesso</option>
+                      </select>
+
+                      <select
+                        value={acquisitionChannel}
+                        onChange={(e) => setAcquisitionChannel(e.target.value as any)}
+                        style={{
+                          padding: "12px",
+                          borderRadius: 12,
+                          border: `1px solid ${THEME.border}`,
+                          fontWeight: 900,
+                          outline: "none",
+                          background: "#fff",
+                        }}
+                      >
+                        <option value="">Canale acquisizione</option>
+                        <option value="passaparola">Passaparola</option>
+                        <option value="medico">Medico</option>
+                        <option value="instagram">Instagram</option>
+                        <option value="google">Google</option>
+                        <option value="evento">Evento</option>
+                        <option value="altro">Altro</option>
+                      </select>
+
+                      <input
+                        type="date"
+                        value={firstVisitDate}
+                        onChange={(e) => setFirstVisitDate(e.target.value)}
+                        style={{
+                          padding: "12px",
+                          borderRadius: 12,
+                          border: `1px solid ${THEME.border}`,
+                          fontWeight: 800,
+                          outline: "none",
+                        }}
+                        title="Data primo contatto (opzionale)"
+                      />
+
+                      <input
+                        placeholder="Frequenza prevista (es. 2)"
+                        inputMode="numeric"
+                        value={expectedFrequency}
+                        onChange={(e) => setExpectedFrequency(e.target.value)}
+                        style={{
+                          padding: "12px",
+                          borderRadius: 12,
+                          border: `1px solid ${THEME.border}`,
+                          fontWeight: 800,
+                          outline: "none",
+                        }}
+                      />
+
+                      <input
+                        placeholder="Pacchetto sedute (es. 10)"
+                        inputMode="numeric"
+                        value={packageSize}
+                        onChange={(e) => setPackageSize(e.target.value)}
+                        style={{
+                          padding: "12px",
+                          borderRadius: 12,
+                          border: `1px solid ${THEME.border}`,
+                          fontWeight: 800,
+                          outline: "none",
+                        }}
+                      />
+                    </>
+                  )}
+
                   <button
                     type="submit"
                     disabled={saving}

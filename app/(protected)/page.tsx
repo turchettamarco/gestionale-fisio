@@ -644,6 +644,58 @@ export default function Page() {
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const { sentMap, setSent } = useWASentTracker();
 
+  // --- USER MENU (Logout) ---
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+
+  const userInitials = useMemo(() => {
+    const base = (userEmail || "").trim();
+    if (!base) return "U";
+    // Se è un'email, prendo le prime 2 lettere prima della @
+    const left = base.split("@")[0] || base;
+    const letters = left.replace(/[^a-zA-Z]/g, "").toUpperCase();
+    return (letters.slice(0, 2) || "U").padEnd(2, "U");
+  }, [userEmail]);
+
+  const handleLogout = useCallback(async () => {
+    try {
+      setUserMenuOpen(false);
+      await supabase.auth.signOut();
+    } finally {
+      router.push("/login");
+      router.refresh();
+    }
+  }, [router]);
+
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getUser();
+        if (!alive) return;
+        setUserEmail(data.user?.email ?? null);
+      } catch {
+        if (!alive) return;
+        setUserEmail(null);
+      }
+    })();
+
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      // Chiudo se clicco fuori dal menu (uso data-user-menu)
+      const inside = target.closest?.('[data-user-menu="wrap"]');
+      if (!inside) setUserMenuOpen(false);
+    };
+
+    document.addEventListener("mousedown", onDown);
+    return () => {
+      alive = false;
+      document.removeEventListener("mousedown", onDown);
+    };
+  }, []);
+
   const [inactiveThreshold, setInactiveThreshold] = useState<30 | 45 | 60>(45);
   const [inactivePatients, setInactivePatients] = useState<InactivePatientRow[]>([]);
   const [inactiveLoading, setInactiveLoading] = useState(false);
@@ -1087,6 +1139,117 @@ export default function Page() {
             <Link href="/calendar" style={headerIconButton}>📅</Link>
             <Link href="/patients" style={headerIconButton}>👥</Link>
             <button onClick={() => router.refresh()} style={headerIconButton} title="Aggiorna">↻</button>
+
+            {/* User menu (Account / Logout) */}
+            <div data-user-menu="wrap" style={{ position: "relative" }}>
+              <button
+                type="button"
+                onClick={() => setUserMenuOpen((v) => !v)}
+                title="Account"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "8px 12px",
+                  background: "white",
+                  borderRadius: "999px",
+                  border: "1px solid rgba(0,0,0,0.06)",
+                  boxShadow: "0 2px 6px rgba(0,0,0,0.04)",
+                  cursor: "pointer",
+                  userSelect: "none",
+                }}
+              >
+                <span
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 999,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: 800,
+                    fontSize: 12,
+                    letterSpacing: "0.06em",
+                    color: "white",
+                    background: `linear-gradient(135deg, ${theme.primary}, ${theme.secondary})`,
+                  }}
+                >
+                  {userInitials}
+                </span>
+                <span style={{ fontSize: "0.9rem", fontWeight: 700, color: theme.gray[800] }}>
+                  {userEmail ? (userEmail.split("@")[0] || "Account") : "Account"}
+                </span>
+                <span style={{ color: theme.gray[400], fontSize: 12, marginLeft: 2 }}>▾</span>
+              </button>
+
+              {userMenuOpen && (
+                <div
+                  style={{
+                    position: "absolute",
+                    right: 0,
+                    top: "calc(100% + 10px)",
+                    minWidth: 220,
+                    background: "white",
+                    border: "1px solid rgba(0,0,0,0.08)",
+                    borderRadius: 16,
+                    boxShadow: "0 16px 40px rgba(0,0,0,0.10)",
+                    overflow: "hidden",
+                    zIndex: 50,
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "10px 12px",
+                      fontSize: 12,
+                      color: theme.gray[500],
+                      borderBottom: "1px solid rgba(0,0,0,0.06)",
+                      background: theme.gray[50],
+                    }}
+                  >
+                    {userEmail || "Sessione attiva"}
+                  </div>
+
+                  <Link
+                    href="/settings"
+                    onClick={() => setUserMenuOpen(false)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "12px 12px",
+                      textDecoration: "none",
+                      color: theme.gray[800],
+                      fontWeight: 600,
+                      fontSize: 14,
+                    }}
+                  >
+                    ⚙️ Impostazioni
+                  </Link>
+
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "12px 12px",
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      color: theme.danger,
+                      fontWeight: 800,
+                      fontSize: 14,
+                      textAlign: "left",
+                    }}
+                  >
+                    ⏻ Logout
+                  </button>
+                </div>
+              )}
+            </div>
+
           </div>
         </header>
 
