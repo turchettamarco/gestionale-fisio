@@ -6,55 +6,7 @@ import { supabase } from "@/src/lib/supabaseClient";
 
 import { useSearchParams } from "next/navigation";
 
-import CalendarGrid from "./CalendarGrid";
-import CreateAppointmentModal from "./CreateAppointmentModal";
-import EventDrawer from "./EventDrawer";
 
-
-// --- Local helpers (markup-split support; keep behavior identical) ---
-
-function pickNumber(obj: any, keys: string[]): number | null {
-  for (const k of keys) {
-    const v = obj?.[k];
-    if (typeof v === "number" && Number.isFinite(v)) return v;
-    if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v))) return Number(v);
-  }
-  return null;
-}
-
-// Pricing: tries several key shapes to stay compatible with older/newer schemas.
-function getDefaultAmountFromSettings(
-  tType: "seduta" | "macchinario",
-  pType: "invoiced" | "cash",
-  practiceSettings: any
-): number {
-  const s: any = practiceSettings || {};
-  // Common patterns we try (first match wins)
-  const candidates: string[] = [
-    // flat columns
-    `${tType}_${pType}_price`,
-    `${tType}_${pType}`,
-    `price_${tType}_${pType}`,
-    `default_${tType}_${pType}`,
-    // with invoice/cash naming variations
-    `${tType}_${pType === "invoiced" ? "invoice" : "cash"}`,
-    `price_${tType}_${pType === "invoiced" ? "invoice" : "cash"}`,
-    // nested maps
-  ];
-
-  const flat = pickNumber(s, candidates);
-  if (flat !== null) return flat;
-
-  // nested objects support (e.g., prices.seduta.invoiced)
-  const nested =
-    pickNumber(s?.prices?.[tType] ?? null, [pType]) ??
-    pickNumber(s?.pricing?.[tType] ?? null, [pType]) ??
-    pickNumber(s?.default_prices?.[tType] ?? null, [pType]);
-
-  return nested ?? 0;
-}
-
-// --- End local helpers ---
 type Status = "booked" | "confirmed" | "done" | "cancelled" | "not_paid";
 
 type LocationType = "studio" | "domicile";
@@ -143,9 +95,7 @@ function statusColor(status: Status) {
 }
 
 
-function statusLabel(status: Status | string) {
-  // Nota: in alcuni flussi (es. export) lo status può arrivare tipizzato come string.
-  // Manteniamo lo stesso comportamento: se non riconosciuto → "Prenotato".
+function statusLabel(status: Status) {
   switch (status) {
     case "confirmed":
       return "Confermato";
@@ -155,27 +105,21 @@ function statusLabel(status: Status | string) {
       return "Non pagata";
     case "cancelled":
       return "Annullato";
-    case "booked":
     default:
       return "Prenotato";
   }
-}
 
-function normalizeStatus(s: any): Status {
-  const v = String(s || "");
-  if (v === "booked" || v === "confirmed" || v === "done" || v === "cancelled" || v === "not_paid") return v as Status;
-  // default safe
-  return "booked";
-}
 
-function normalizeTreatmentType(v: any): "seduta" | "macchinario" {
-  return v === "macchinario" ? "macchinario" : "seduta";
+// Riduce automaticamente la dimensione del nome per farlo stare in massimo 2 righe nel blocco evento,
+// senza spostare l'orario o creare sovrapposizioni.
+function autoNameFontSize(fullName: string) {
+  const n = (fullName || "").trim().length;
+  if (n <= 18) return 12;
+  if (n <= 26) return 11;
+  if (n <= 34) return 10.5;
+  return 10;
 }
-
-function normalizePriceType(v: any): "invoiced" | "cash" {
-  return v === "cash" ? "cash" : "invoiced";
 }
-
 
 
 function fmtTime(iso: string) {
@@ -300,102 +244,17 @@ export default function CalendarPage() {
 function CalendarPageInner() {
 
   const params = useSearchParams();
-
-  // Appointments (logic stays here; CalendarGrid is markup-only)
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const loadAppointments = useCallback(async (start: Date, end: Date) => {
-    setLoading(true);
-    setError("");
-    try {
-      const { data, error } = await supabase
-        .from("appointments")
-        .select(
-          "id, patient_id, start_at, end_at, status, location, clinic_site, domicile_address, plan, expected_price, amount, price_type, treatment_type, calendar_note, is_paid, reminder_sent_at, reminder_status, whatsapp_sent, whatsapp_sent_at, patients(first_name,last_name,phone,diagnosis,treatment)"
-        )
-        .gte("start_at", start.toISOString())
-        .lt("start_at", end.toISOString())
-        .order("start_at", { ascending: true });
-
-      if (error) throw error;
-
-      const rows: any[] = data ?? [];
-      const mapped = rows.map((r) => {
-        const p = Array.isArray(r.patients) ? r.patients[0] : r.patients;
-        const first = p?.first_name ?? "";
-        const last = p?.last_name ?? "";
-        const patient_name = `${last} ${first}`.trim() || "Paziente";
-        return {
-          id: r.id,
-          patient_id: r.patient_id,
-          patient_first_name: first,
-          patient_name,
-          patient_phone: p?.phone ?? null,
-          diagnosis: p?.diagnosis ?? null,
-          treatment: p?.treatment ?? null,
-          location: r.location,
-          clinic_site: r.clinic_site ?? null,
-          domicile_address: r.domicile_address ?? null,
-          status: r.status,
-          amount: r.amount ?? null,
-          expected_price: r.expected_price ?? null,
-          price_type: r.price_type ?? null,
-          treatment_type: r.treatment_type ?? null,
-          calendar_note: r.calendar_note ?? null,
-          is_paid: !!r.is_paid,
-          whatsapp_sent: !!r.whatsapp_sent,
-          whatsapp_sent_at: r.whatsapp_sent_at ? new Date(r.whatsapp_sent_at) : null,
-          start: new Date(r.start_at),
-          end: new Date(r.end_at),
-        };
-      });
-
-      setEvents(mapped);
-    } catch (e: any) {
-      setError(e?.message ?? "Errore caricamento appuntamenti");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 // User menu (Logout + Settings)
 const [userEmail, setUserEmail] = useState<string | null>(null);
-const [userId, setUserId] = useState<string | null>(null);  // Prezzi standard letti dai Settings (practice_settings)
+const [userId, setUserId] = useState<string | null>(null);
+
+  // Prezzi standard letti dai Settings (practice_settings)
   const [practiceSettings, setPracticeSettings] = useState<PracticeSettings | null>(null);
   const [practiceSettingsLoaded, setPracticeSettingsLoaded] = useState(false);
-
-  const loadPracticeSettings = useCallback(async () => {
-    if (!userId) {
-      setPracticeSettings(null);
-      setPracticeSettingsLoaded(true);
-      return;
-    }
-    setPracticeSettingsLoaded(false);
-    const { data, error } = await supabase
-      .from("practice_settings")
-      .select("*")
-      .eq("owner_id", userId)
-      .maybeSingle();
-
-    if (error) {
-      // non-fatal: il calendario può funzionare comunque (importi manuali)
-      setPracticeSettings(null);
-      setPracticeSettingsLoaded(true);
-      return;
-    }
-
-    setPracticeSettings((data as any) ?? null);
-    setPracticeSettingsLoaded(true);
-  }, [userId]);
-
-  useEffect(() => {
-    void loadPracticeSettings();
-  }, [loadPracticeSettings]);
-
-  const reloadPracticeSettings = useCallback(async () => {
-    await loadPracticeSettings();
-  }, [loadPracticeSettings]);
 const [userMenuOpen, setUserMenuOpen] = useState(false);
 const userMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -435,8 +294,56 @@ const handleLogout = useCallback(async () => {
     window.location.href = "/login";
   }
 }, []);
+
+
+  const loadPracticeSettings = useCallback(async () => {
+    if (!userId) return;
+    try {
+      setPracticeSettingsLoaded(false);
+      const { data, error } = await supabase
+        .from("practice_settings")
+        .select("standard_invoice, standard_cash, machine_invoice, machine_cash, auto_apply_prices")
+        .eq("owner_id", userId)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      setPracticeSettings({
+        standard_invoice: (data?.standard_invoice ?? null) as any,
+        standard_cash: (data?.standard_cash ?? null) as any,
+        machine_invoice: (data?.machine_invoice ?? null) as any,
+        machine_cash: (data?.machine_cash ?? null) as any,
+        auto_apply_prices: (data?.auto_apply_prices ?? null) as any,
+      });
+    } catch (e: any) {
+      // Non blocchiamo il calendario se manca la tabella o la riga: fallback su default hardcoded
+      console.warn("Impossibile caricare practice_settings:", e?.message ?? e);
+      setPracticeSettings(null);
+    } finally {
+      setPracticeSettingsLoaded(true);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    loadPracticeSettings();
+  }, [userId, loadPracticeSettings]);
+
   const getDefaultAmount = useCallback((tType: "seduta" | "macchinario", pType: "invoiced" | "cash") => {
-    return getDefaultAmountFromSettings(tType, pType, practiceSettings as any);
+    // fallback sicuri (i tuoi vecchi default)
+    const fallback = tType === "seduta"
+      ? (pType === "invoiced" ? 40 : 35)
+      : (pType === "invoiced" ? 25 : 20);
+
+    if (!practiceSettings) return fallback;
+
+    if (tType === "seduta") {
+      const v = pType === "invoiced" ? practiceSettings.standard_invoice : practiceSettings.standard_cash;
+      return (typeof v === "number" && !Number.isNaN(v)) ? v : fallback;
+    } else {
+      const v = pType === "invoiced" ? practiceSettings.machine_invoice : practiceSettings.machine_cash;
+      return (typeof v === "number" && !Number.isNaN(v)) ? v : fallback;
+    }
   }, [practiceSettings]);
 
 const userLabel = useMemo(() => {
@@ -966,6 +873,101 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
     return result;
   }, [events, statusFilter, filters]);
 
+  const loadAppointments = useCallback(async (startDate: Date, endDate: Date) => {
+    setLoading(true);
+    setError("");
+
+    const startISO = startDate.toISOString();
+    const endISO = endDate.toISOString();
+
+    const { data, error } = await supabase
+      .from("appointments")
+        .select(`
+        id, patient_id, start_at, end_at, status, calendar_note, location, clinic_site, domicile_address, treatment_type, price_type, amount,
+        expected_price, is_paid,
+        reminder_sent_at, reminder_status,
+        whatsapp_sent_at,
+        patients:patient_id ( first_name, last_name, treatment, diagnosis, phone )
+      `)
+      .gte("start_at", startISO)
+      .lt("start_at", endISO)
+      .order("start_at", { ascending: true });
+
+    if (error) {
+      setError(error.message);
+      setLoading(false);
+      return;
+    }
+
+const mapped = (data ?? []).map(
+  (
+    a: {
+      id: string;
+      patient_id: string;
+      start_at: string;
+      end_at: string;
+      status: string;
+      calendar_note?: string | null;
+      location?: string | null;
+      clinic_site?: string | null;
+      domicile_address?: string | null;
+      treatment_type?: string | null;
+      price_type?: string | null;
+      amount?: number | null;
+      expected_price?: number | null;
+      is_paid?: boolean | null;
+      reminder_sent_at?: string | null;
+      reminder_status?: string | null;
+      whatsapp_sent_at?: string | null;
+      patients?: Array<{
+        first_name?: string;
+        last_name?: string;
+        treatment?: string;
+        diagnosis?: string;
+        phone?: string;
+      }>;
+    }
+  ) => {
+    const patient = Array.isArray(a.patients) ? a.patients[0] : a.patients;
+const name = patient ? `${patient.last_name ?? ""} ${patient.first_name ?? ""}`.trim() : "Paziente";
+
+
+    return {
+      id: a.id,
+      patient_id: a.patient_id,
+      title: name,
+      start: new Date(a.start_at),
+      end: new Date(a.end_at),
+      status: a.status,
+      calendar_note: a.calendar_note ?? null,
+      location: a.location ?? null,
+      clinic_site: a.clinic_site ?? null,
+      domicile_address: a.domicile_address ?? null,
+      treatment_type: a.treatment_type ?? null,
+      price_type: a.price_type ?? null,
+      amount: a.amount ?? null,
+      expected_price: a.expected_price ?? null,
+      is_paid: a.is_paid ?? false,
+      reminder_sent_at: a.reminder_sent_at ? new Date(a.reminder_sent_at) : null,
+      reminder_status: a.reminder_status ?? null,
+      whatsapp_sent_at: a.whatsapp_sent_at ? new Date(a.whatsapp_sent_at) : null,
+
+      // dati paziente (prima riga della relazione)
+      patient_name: name,
+      patient_first_name: patient?.first_name ?? null,
+      patient_last_name: patient?.last_name ?? null,
+      patient_phone: patient?.phone ?? null,
+treatment: patient?.treatment ?? null,
+diagnosis: patient?.diagnosis ?? null,
+
+    };
+  }
+);
+
+    setEvents(mapped);
+    setLoading(false);
+  }, []);
+
   useEffect(() => {
     if (viewType === "week") {
       const startOfWeek = startOfISOWeekMonday(currentDate);
@@ -1039,7 +1041,7 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
 
   const exportToGoogleCalendar = useCallback(async () => {
     const eventsToExport = filteredEvents.map(event => ({
-      summary: `${event.location === "domicile" ? `🏠 ${event.patient_name}` : event.patient_name} - ${statusLabel(event.status)}`,
+      summary: `${isDomicile ? `🏠 ${event.location === "domicile" ? `🏠 ${event.patient_name}` : event.patient_name}` : event.patient_name} - ${statusLabel(event.status)}`,
       location: event.location === 'studio' ? event.clinic_site : event.domicile_address,
       description: `Trattamento: ${event.treatment_type === 'seduta' ? 'Seduta' : 'Macchinario'}\nPrezzo: €${event.amount !== undefined && event.amount !== null ? event.amount : (event.treatment_type === 'seduta' ? (event.price_type === 'invoiced' ? 40 : 35) : (event.price_type === 'invoiced' ? 25 : 20))}\nNote: ${event.calendar_note || 'Nessuna nota'}`,
       start: {
@@ -1773,15 +1775,8 @@ window.open(whatsappUrl, '_blank');
       const event = events.find(e => e.id === selectedEvent.id);
       if (event) {
         setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
-
-        const tt: "seduta" | "macchinario" =
-          event.treatment_type === "macchinario" ? "macchinario" : "seduta";
-        setEditTreatmentType(tt);
-
-        const pt: "invoiced" | "cash" =
-          event.price_type === "cash" ? "cash" : "invoiced";
-        setEditPriceType(pt);
-
+        setEditTreatmentType(event.treatment_type || "seduta");
+        setEditPriceType(event.price_type || "invoiced");
         
         // Imposta i valori per la modifica di orario e giorno
         setEditDate(toDateInputValue(event.start));
@@ -1935,12 +1930,3406 @@ return (
         .sidebar-scroll.show-scrollbar::-webkit-scrollbar-track { background: rgba(15,23,42,0.06); border-radius: 10px; }
       `}</style>
 
-      <CalendarGrid {...{THEME, statusColor, statusLabel, normalizeStatus, normalizeTreatmentType, normalizePriceType, toggleDoneQuick, weeklyExpectedRevenue, startOfISOWeekMonday, addDays, formatDMY, getAvailabilityForecast, fmtTime, pad2, dayLabels, draggingOver, event, exportAppointments, exportToGoogleCalendar, exportToPDF, printCalendar, filteredEvents, getEventPosition, getAvailableSlots, getEventColor, autoNameFontSize, filters, filtersExpanded, error, loading, setFiltersExpanded, setFilters, goToNextWeek, gotoWeekStart, goToPreviousWeek, goToToday, handleDragEnd, handleDragStart, handleContextMenu, handleDragLeave, handleDragOver, handleDrop, handleLogout, sendReminder, handleSlotClick, loadPatientFromEvent, printMenuOpen, printMenuRef, currentDate, setCurrentDate, currentTime, setQuickActionsMenu, setSelectedEvent, setEditStatus, setEditNote, setEditAmount, setEditTreatmentType, setEditPriceType, setViewType, setShowAllUpcoming, setPrintMenuOpen, showAllUpcoming, showAvailableOnly, setShowAvailableOnly, sidebarRef, stats, statusFilter, setStatusFilter, timeSlots, todaysAppointments, top, userInitials, userMenuOpen, userMenuRef, setUserMenuOpen, viewType, weekDays, weekOptions}} />
+      <aside
+        ref={sidebarRef}
+        className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`}
+        style={{
+          width: 300,
+          background: THEME.panelBg,
+          borderRight: `1px solid ${THEME.border}`,
+          padding: 16,
+          flexShrink: 0,
+          position: "sticky",
+          top: 0,
+          height: "100vh",
+          overflowY: "auto",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+  <div style={{ fontSize: 18, fontWeight: 900, color: THEME.blueDark, letterSpacing: -0.2 }}>FisioHub</div>
+
+  <div ref={userMenuRef} style={{ position: "relative" }}>
+    <button
+      type="button"
+      onClick={() => setUserMenuOpen((v) => !v)}
+      title="Account"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "6px 10px",
+        background: "white",
+        borderRadius: 14,
+        border: `1px solid ${THEME.border}`,
+        cursor: "pointer",
+      }}
+    >
+      <span
+        style={{
+          width: 30,
+          height: 30,
+          borderRadius: 10,
+          background: "linear-gradient(135deg, #0d9488, #2563eb)",
+          color: "white",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontWeight: 900,
+          fontSize: 11,
+        }}
+      >
+        {userInitials}
+      </span>
+      <span style={{ fontSize: 12, fontWeight: 900, color: THEME.textSoft }}>Marco</span>
+      <span style={{ color: THEME.gray, fontSize: 12 }}>{userMenuOpen ? "▴" : "▾"}</span>
+    </button>
+
+    {userMenuOpen && (
+      <div
+        style={{
+          position: "absolute",
+          right: 0,
+          top: "calc(100% + 10px)",
+          width: 220,
+          background: "white",
+          border: `1px solid ${THEME.border}`,
+          borderRadius: 14,
+          boxShadow: "0 18px 40px rgba(0,0,0,0.12)",
+          overflow: "hidden",
+          zIndex: 60,
+        }}
+      >
+        <Link
+          href="/settings"
+          onClick={() => setUserMenuOpen(false)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "12px 14px",
+            color: THEME.text,
+            textDecoration: "none",
+            fontWeight: 800,
+            fontSize: 13,
+            borderBottom: `1px solid ${THEME.border}`,
+          }}
+        >
+          <span>⚙️</span> Impostazioni
+        </Link>
+
+        <button
+          type="button"
+          onClick={handleLogout}
+          style={{
+            width: "100%",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "12px 14px",
+            background: "white",
+            border: "none",
+            cursor: "pointer",
+            color: THEME.red,
+            fontWeight: 900,
+            fontSize: 13,
+          }}
+        >
+          <span>⏻</span> Logout
+        </button>
+      </div>
+    )}
+  </div>
+</div>
+
+        <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+          <Link href="/" style={{ 
+            color: THEME.blueDark, 
+            fontWeight: 800, 
+            textDecoration: "none", 
+            display: "flex", 
+            alignItems: "center", 
+            gap: 8,
+          }}>
+             🏠 Home
+          </Link>
+          <Link href="/calendar" style={{ 
+            color: THEME.blue, 
+            fontWeight: 800, 
+            textDecoration: "none",
+            display: "flex", 
+            alignItems: "center", 
+            gap: 8,
+          }}>
+            📅 Calendario
+          </Link>
+          <Link href="/reports" style={{ 
+            color: THEME.blueDark, 
+            fontWeight: 800, 
+            textDecoration: "none",
+            display: "flex", 
+            alignItems: "center", 
+            gap: 8,
+          }}>
+            📊 Report
+          </Link>
+          <Link href="/patients" style={{ 
+            color: THEME.blueDark, 
+            fontWeight: 800, 
+            textDecoration: "none",
+            display: "flex", 
+            alignItems: "center", 
+            gap: 8,
+          }}>
+            👤 Pazienti
+          </Link>
+        </div>
 
 
-      <CreateAppointmentModal {...{THEME, createClinicSite, createDomicileAddress, createLocation, createOpen, createQuickPatient, createStartISO, createEndISO, creating, creatingQuickPatient, customAmount,  dayLabels, duplicateMode, isRecurring, patientResults, priceType, q, quickPatientFirstName, quickPatientLastName, quickPatientOpen, quickPatientPhone, recurringUntil, recurringDays, searching, selectedDuration, selectedPatient, setCreateOpen, setCreateLocation, setCreateClinicSite, setCreateDomicileAddress, setCreateStartISO, setCreateEndISO, setQ, setPatientResults, setSelectedPatient, setSelectedDuration, setTreatmentType, setPriceType, setIsRecurring, setRecurringUntil, setQuickPatientOpen, setQuickPatientFirstName, setQuickPatientLastName, setQuickPatientPhone, setShowWhatsAppConfirm, setCustomAmount, setDuplicateDate, setDuplicateTime, duplicateDate, duplicateTime, selectedStartTime, setSelectedStartTime, setUseCustomPrice, showAllUpcoming, timeSelectSlots, fmtTime, toDateInputValue, parseDateInput, toggleRecurringDay, getDefaultAmount, computedDefaultAmount, treatmentType, updateDuplicateDateTime, useCustomPrice}} />
 
-      <EventDrawer {...{THEME, statusColor, statusLabel, events, getEventColor, deleteAppointment, editAmount, editDate, editDuration, editNote, editPriceType, editStartTime, editStatus, editTreatmentType, setSelectedEvent, setEditDate, setEditStartTime, setEditDuration, setEditTreatmentType, setEditPriceType, setEditAmount, setEditStatus, setEditNote, eventColors, openCreateModal, saveAppointment, selectedEvent, sendReminder, setEventColors, showAllUpcoming, timeSelectSlots}} />
+        <div style={{ marginTop: 26, fontSize: 12, color: THEME.muted }}>
+          Gestione agenda appuntamenti
+        </div>
+
+        {/* Sezione Appuntamenti Imminenti */}
+        <div style={{ marginTop: 30, borderTop: `1px solid ${THEME.border}`, paddingTop: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+              🕐 Appuntamenti imminenti
+            </div>
+            <div style={{
+              fontSize: 11,
+              fontWeight: 900,
+              color: "#fff",
+              background: THEME.blue,
+              padding: "4px 8px",
+              borderRadius: 12
+            }}>
+              {(() => {
+                const now = currentTime || new Date();
+                const upcoming = todaysAppointments.filter(a => a.end > now);
+                return upcoming.length;
+              })()}
+            </div>
+          </div>
+
+          {(() => {
+            const now = currentTime || new Date();
+            const upcomingAll = todaysAppointments
+              .filter(a => a.end > now) // sparisce quando finisce
+              .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+            const nextFuture = upcomingAll.find(a => a.start > now) || null;
+            const list = showAllUpcoming ? upcomingAll : upcomingAll.slice(0, 5);
+            const remaining = Math.max(0, upcomingAll.length - 5);
+
+            const timeStyle = (status: "past" | "current" | "next") => ({
+              fontSize: 12,
+              fontWeight: 800,
+              padding: "3px 6px",
+              borderRadius: 6,
+              minWidth: 52,
+              textAlign: "center" as const,
+              border:
+                status === "current"
+                  ? "2px solid #16a34a"
+                  : status === "next"
+                  ? "2px solid #2563eb"
+                  : "1px solid #cbd5e1",
+              color:
+                status === "current"
+                  ? "#16a34a"
+                  : status === "next"
+                  ? "#2563eb"
+                  : "#334155",
+              background:
+                status === "current"
+                  ? "rgba(22,163,74,0.08)"
+                  : status === "next"
+                  ? "rgba(37,99,235,0.08)"
+                  : "#f8fafc",
+            });
+
+            if (upcomingAll.length === 0) {
+              return (
+                <div style={{
+                  textAlign: "center",
+                  padding: "20px 12px",
+                  background: THEME.panelSoft,
+                  borderRadius: 8,
+                  border: `1px solid ${THEME.border}`
+                }}>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>
+                    Nessun appuntamento imminente
+                  </div>
+                  <div style={{ fontSize: 11, color: THEME.muted }}>
+                    Oggi non ci sono altri appuntamenti in arrivo
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: showAllUpcoming ? "520px" : "none", overflowY: showAllUpcoming ? "auto" : "hidden" }}>
+                  {list.map((appointment) => {
+                    const isNow = appointment.start <= now && appointment.end >= now;
+                    const isNext = !isNow && nextFuture && nextFuture.id === appointment.id;
+
+                    return (
+                      <div
+                        key={appointment.id}
+                        style={{
+                          background: isNow ? "rgba(37, 99, 235, 0.1)" : "#fff",
+                          border: `1px solid ${isNow ? THEME.blue : THEME.border}`,
+                          borderRadius: 8,
+                          padding: 10,
+                          cursor: "pointer",
+                          transition: "all 0.2s",
+                          position: "relative",
+                          overflow: "visible",
+                        }}
+                        onClick={() => {
+                          setQuickActionsMenu(null);
+                          setSelectedEvent({
+                            id: appointment.id,
+                            title: appointment.patient_name,
+                            patient_id: appointment.patient_id,
+                            location: appointment.location,
+                            clinic_site: appointment.clinic_site,
+                            domicile_address: appointment.domicile_address,
+                            treatment: appointment.treatment,
+                            diagnosis: appointment.diagnosis,
+                            amount: appointment.amount,
+                            treatment_type: appointment.treatment_type,
+                            price_type: appointment.price_type,
+                            start: appointment.start,
+                            end: appointment.end,
+                          });
+                          setEditStatus(appointment.status);
+                          setEditNote(appointment.calendar_note || "");
+                          setEditAmount(appointment.amount !== undefined && appointment.amount !== null ? appointment.amount.toString() : "");
+                          setEditTreatmentType(appointment.treatment_type || "seduta");
+                          setEditPriceType(appointment.price_type || "invoiced");
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.transform = "translateY(-2px)";
+                          e.currentTarget.style.boxShadow = "0 4px 12px rgba(15,23,42,0.1)";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.boxShadow = "none";
+                        }}
+                      >
+                        <div style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          width: 4,
+                          height: "100%",
+                          background: statusColor(appointment.status)
+                        }} />
+
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginLeft: 4 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 6,
+                              marginBottom: 4
+                            }}>
+                              <div style={timeStyle(isNow ? "current" : isNext ? "next" : "past")}>
+                                {fmtTime(appointment.start.toISOString())}
+                              </div>
+
+                              {isNow && (
+                                <div style={{
+                                  fontSize: 10,
+                                  fontWeight: 900,
+                                  color: "#fff",
+                                  background: "#16a34a",
+                                  padding: "2px 6px",
+                                  borderRadius: 4
+                                }}>
+                                  IN CORSO
+                                </div>
+                              )}
+
+                              {isNext && (
+                                <div style={{
+                                  fontSize: 10,
+                                  fontWeight: 900,
+                                  color: "#fff",
+                                  background: "#2563eb",
+                                  padding: "2px 6px",
+                                  borderRadius: 4
+                                }}>
+                                  PROSSIMO
+                                </div>
+                              )}
+                            </div>
+
+                            <div style={{
+                              fontSize: 13,
+                              fontWeight: 900,
+                              color: THEME.text,
+                              lineHeight: 1.35,
+                              marginBottom: 4
+                            }}>
+                              {appointment.patient_name}
+                            </div>
+
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <div style={{
+                                fontSize: 10,
+                                fontWeight: 900,
+                                color: THEME.muted,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 2
+                              }}>
+                                <div style={{
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: "50%",
+                                  background: statusColor(appointment.status)
+                                }} />
+                                {statusLabel(appointment.status)}
+                              </div>
+
+                              {appointment.location === "domicile" && (
+                                <div style={{
+                                  fontSize: 10,
+                                  fontWeight: 900,
+                                  color: THEME.amber,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 2
+                                }}>
+                                  🏠 Domicilio
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleDoneQuick(appointment.id, appointment.status);
+                            }}
+                            style={{
+                              width: 20,
+                              height: 20,
+                              borderRadius: 4,
+                              border: `2px solid ${appointment.status === "done" ? THEME.greenDark : THEME.border}`,
+                              background: appointment.status === "done" ? THEME.greenDark : "transparent",
+                              cursor: "pointer",
+                              flex: "0 0 auto",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: 10,
+                              color: "#fff",
+                            }}
+                            title={appointment.status === "done" ? "Segna come non eseguito" : "Segna come eseguito"}
+                          >
+                            {appointment.status === "done" && "✓"}
+                          </button>
+                        </div>
+
+                        {appointment.calendar_note && (
+                          <div style={{
+                            marginTop: 8,
+                            fontSize: 11,
+                            color: THEME.muted,
+                            fontStyle: "italic",
+                            paddingLeft: 4,
+                            borderLeft: `2px solid ${THEME.borderSoft}`
+                          }}>
+                            {appointment.calendar_note}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {remaining > 0 && !showAllUpcoming && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllUpcoming(true)}
+                    style={{
+                      marginTop: 12,
+                      width: "100%",
+                      border: `1px solid ${THEME.border}`,
+                      background: "#fff",
+                      borderRadius: 10,
+                      padding: "8px 10px",
+                      cursor: "pointer",
+                      fontSize: 12,
+                      fontWeight: 900,
+                      color: THEME.blue,
+                      textAlign: "center",
+                    }}
+                    title="Mostra tutti gli appuntamenti imminenti di oggi"
+                  >
+                    +{remaining} altri oggi
+                  </button>
+                )}
+
+                {showAllUpcoming && upcomingAll.length > 5 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllUpcoming(false)}
+                    style={{
+                      marginTop: 12,
+                      width: "100%",
+                      border: `1px solid ${THEME.border}`,
+                      background: THEME.panelSoft,
+                      borderRadius: 10,
+                      padding: "8px 10px",
+                      cursor: "pointer",
+                      fontSize: 12,
+                      fontWeight: 900,
+                      color: THEME.muted,
+                      textAlign: "center",
+                    }}
+                    title="Mostra solo i primi 5"
+                  >
+                    Mostra meno
+                  </button>
+                )}
+
+                <div style={{ marginTop: 16, fontSize: 11, color: THEME.muted, textAlign: "center" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span>Completati: {todaysAppointments.filter(a => a.status === "done").length}</span>
+                    <span>Prenotati: € {Math.round(weeklyExpectedRevenue).toLocaleString("it-IT")}</span>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      </aside>
+
+      <main className="print-wrap" style={{ flex: 1, display: "flex", flexDirection: "column", padding: 24, minWidth: 0 }}>
+        <div style={{ width: "100%" }}>
+          <div className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`} style={{ 
+            display: "flex", 
+            alignItems: "center", 
+            justifyContent: "space-between", 
+            gap: 20, 
+            flexWrap: "wrap", 
+            marginBottom: 24,
+            padding: "0 4px"
+          }}>
+            <div style={{ flex: 1, minWidth: 300 }}>
+              <h1 style={{ margin: 0, color: THEME.blueDark, fontWeight: 900, fontSize: 32, letterSpacing: -0.2 }}>
+                Agenda
+              </h1>
+              <div style={{ marginTop: 6, fontSize: 12, color: THEME.muted, fontWeight: 800 }}>
+                Dr. Turchetta Marco
+              </div>
+            </div>
+
+            <div style={{ 
+              display: "flex", 
+              gap: 16, 
+              flexWrap: "nowrap", 
+              alignItems: "center",
+              justifyContent: "flex-end",
+              flex: 1,
+              minWidth: 500,
+              marginTop: 8
+            }}>
+              <div style={{ 
+                display: "flex", 
+                flexDirection: "column", 
+                gap: 6,
+                flex: "0 0 auto",
+                width: 340
+              }}>
+                <div style={{ fontSize: 11, color: THEME.muted, fontWeight: 900 }}>SETTIMANA</div>
+                <select
+                  value={startOfISOWeekMonday(currentDate).toISOString()}
+                  onChange={(e) => gotoWeekStart(e.target.value)}
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: 8,
+                    border: `1px solid ${THEME.borderSoft}`,
+                    background: THEME.panelBg,
+                    color: THEME.text,
+                    fontWeight: 800,
+                    outline: "none",
+                    width: "100%",
+                    fontSize: 13,
+                    height: 46,
+                  }}
+                >
+                  {weekOptions.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div ref={printMenuRef} style={{ position: "relative", flexShrink: 0 }}>
+                <button
+                  onClick={() => setPrintMenuOpen(!printMenuOpen)}
+                  style={{
+                    padding: "12px 16px",
+                    borderRadius: 8,
+                    border: `1px solid ${THEME.greenDark}`,
+                    background: THEME.green,
+                    color: "#fff",
+                    cursor: "pointer",
+                    fontWeight: 900,
+                    height: 46,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 13,
+                    whiteSpace: "nowrap",
+                    width: 340,
+                    justifyContent: "center"
+                  }}
+                >
+                  🖨️ Stampa
+                  <span style={{ fontSize: 10, marginLeft: 4 }}>▼</span>
+                </button>
+
+                {printMenuOpen && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "100%",
+                      right: 0,
+                      marginTop: 4,
+                      background: THEME.panelBg,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      borderRadius: 8,
+                      boxShadow: "0 10px 30px rgba(15,23,42,0.10)",
+                      zIndex: 1000,
+                      minWidth: 160,
+                      overflow: "visible",
+                    }}
+                  >
+                    <button
+                      onClick={() => {
+                        setViewType("day");
+                        printCalendar();
+                      }}
+                      style={{
+                        width: "100%",
+                        padding: "12px 16px",
+                        border: "none",
+                        background: "transparent",
+                        color: THEME.text,
+                        cursor: "pointer",
+                        fontWeight: 900,
+                        textAlign: "left",
+                        borderBottom: `1px solid ${THEME.border}`,
+                        fontSize: 13,
+                      }}
+                    >
+                      Stampa giorno
+                    </button>
+                    <button
+                      onClick={() => {
+                        setViewType("week");
+                        printCalendar();
+                      }}
+                      style={{
+                        width: "100%",
+                        padding: "12px 16px",
+                        border: "none",
+                        background: "transparent",
+                        color: THEME.text,
+                        cursor: "pointer",
+                        fontWeight: 900,
+                        textAlign: "left",
+                        fontSize: 13,
+                      }}
+                    >
+                      Stampa settimana
+                    </button>
+                    <button
+                      onClick={exportToPDF}
+                      style={{
+                        width: "100%",
+                        padding: "12px 16px",
+                        border: "none",
+                        background: "transparent",
+                        color: THEME.text,
+                        cursor: "pointer",
+                        fontWeight: 900,
+                        textAlign: "left",
+                        borderBottom: `1px solid ${THEME.border}`,
+                        fontSize: 13,
+                      }}
+                    >
+                      📄 Esporta PDF
+                    </button>
+                    <button
+                      onClick={exportToGoogleCalendar}
+                      style={{
+                        width: "100%",
+                        padding: "12px 16px",
+                        border: "none",
+                        background: "transparent",
+                        color: THEME.text,
+                        cursor: "pointer",
+                        fontWeight: 900,
+                        textAlign: "left",
+                        fontSize: 13,
+                      }}
+                    >
+                      🗓️ Esporta Google Calendar
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {error && (
+            <div
+              className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`}
+              style={{
+                marginTop: 12,
+                marginBottom: 16,
+                background: "rgba(220,38,38,0.08)",
+                border: "1px solid rgba(220,38,38,0.22)",
+                color: THEME.red,
+                padding: 10,
+                borderRadius: 8,
+                fontWeight: 900,
+                fontSize: 12,
+              }}
+            >
+              {error}
+            </div>
+          )}
+
+          {loading && (
+            <div style={{ 
+              padding: 40, 
+              textAlign: "center", 
+              color: THEME.muted, 
+              fontWeight: 900, 
+              fontSize: 14,
+              background: THEME.panelBg,
+              borderRadius: 8,
+              border: `1px solid ${THEME.border}`
+            }}>
+              Caricamento appuntamenti...
+            </div>
+          )}
+
+          <div className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`} style={{ 
+  marginBottom: 12,
+  padding: "16px",
+  background: THEME.panelBg,
+  borderRadius: 8,
+  border: `1px solid ${THEME.border}`
+}}>
+  <div 
+    onClick={() => setFiltersExpanded(!filtersExpanded)}
+    style={{ 
+      fontSize: 14, 
+      fontWeight: 900, 
+      color: THEME.textSoft, 
+      marginBottom: filtersExpanded ? 12 : 0,
+      cursor: "pointer",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between"
+    }}
+  >
+    <span>🎛️ Filtri Avanzati</span>
+    <span style={{ fontSize: 12 }}>{filtersExpanded ? "▲" : "▼"}</span>
+  </div>
+  
+  {filtersExpanded && (
+    <>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>Luogo📍 </div>
+          <select
+            value={filters.location}
+            onChange={(e) => setFilters(prev => ({ ...prev, location: e.target.value as any }))}
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              borderRadius: 6,
+              border: `1px solid ${THEME.borderSoft}`,
+              background: "#fff",
+              fontSize: 12,
+              fontWeight: 900,
+              color: THEME.text,
+            }}
+          >
+            <option value="all">Tutti i luoghi</option>
+            <option value="studio">Studio</option>
+            <option value="domicile">Domicilio</option>
+          </select>
+        </div>
+        
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>Trattamento</div>
+          <select
+            value={filters.treatmentType}
+            onChange={(e) => setFilters(prev => ({ ...prev, treatmentType: e.target.value as any }))}
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              borderRadius: 6,
+              border: `1px solid ${THEME.borderSoft}`,
+              background: "#fff",
+              fontSize: 12,
+              fontWeight: 900,
+              color: THEME.text,
+            }}
+          >
+            <option value="all">Tutti i trattamenti</option>
+            <option value="seduta">Seduta</option>
+            <option value="macchinario">Macchinario</option>
+          </select>
+        </div>
+        
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>Importo Min</div>
+          <input
+            type="number"
+            value={filters.minAmount}
+            onChange={(e) => setFilters(prev => ({ ...prev, minAmount: e.target.value }))}
+            placeholder="€ Min"
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              borderRadius: 6,
+              border: `1px solid ${THEME.borderSoft}`,
+              background: "#fff",
+              fontSize: 12,
+              fontWeight: 900,
+            }}
+          />
+        </div>
+        
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>Importo Max</div>
+          <input
+            type="number"
+            value={filters.maxAmount}
+            onChange={(e) => setFilters(prev => ({ ...prev, maxAmount: e.target.value }))}
+            placeholder="€ Max"
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              borderRadius: 6,
+              border: `1px solid ${THEME.borderSoft}`,
+              background: "#fff",
+              fontSize: 12,
+              fontWeight: 900,
+            }}
+          />
+        </div>
+      </div>
+      
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12, alignItems: "center" }}>
+        <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted }}>
+          {filteredEvents.length} eventi trovati
+        </div>
+        <button
+          onClick={() => setFilters({
+            location: "all",
+            treatmentType: "all",
+            priceType: "all",
+            minAmount: "",
+            maxAmount: "",
+          })}
+          style={{
+            padding: "6px 12px",
+            borderRadius: 6,
+            border: `1px solid ${THEME.borderSoft}`,
+            background: THEME.panelSoft,
+            color: THEME.text,
+            fontSize: 12,
+            fontWeight: 900,
+            cursor: "pointer",
+          }}
+        >
+          Reset Filtri
+        </button>
+      </div>
+    </>
+  )}
+</div>
+
+          <div className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`} style={{ 
+            display: "flex", 
+            justifyContent: "space-between", 
+            alignItems: "center", 
+            marginBottom: 16,
+            padding: "12px 16px",
+            background: THEME.panelBg,
+            borderRadius: 8,
+            border: `1px solid ${THEME.border}`,
+            top: 0,
+            zIndex: 9,
+          }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              {viewType === "week" ? (
+                <>
+                  <button
+                    onClick={goToPreviousWeek}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: THEME.panelSoft,
+                      color: THEME.text,
+                      cursor: "pointer",
+                      fontWeight: 900,
+                      fontSize: 13,
+                      minWidth: 44,
+                    }}
+                  >
+                    ◀
+                  </button>
+                  <button
+                    onClick={goToToday}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.blueDark}`,
+                      background: THEME.blue,
+                      color: "#fff",
+                      cursor: "pointer",
+                      fontWeight: 900,
+                      fontSize: 13,
+                    }}
+                  >
+                    Oggi
+                  </button>
+                  <button
+                    onClick={goToNextWeek}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: THEME.panelSoft,
+                      color: THEME.text,
+                      cursor: "pointer",
+                      fontWeight: 900,
+                      fontSize: 13,
+                      minWidth: 44,
+                    }}
+                  >
+                    ▶
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setCurrentDate(prev => addDays(prev, -1))}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: THEME.panelSoft,
+                      color: THEME.text,
+                      cursor: "pointer",
+                      fontWeight: 900,
+                      fontSize: 13,
+                      minWidth: 44,
+                    }}
+                  >
+                    ◀
+                  </button>
+                  <button
+                    onClick={() => setCurrentDate(new Date())}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.blueDark}`,
+                      background: THEME.blue,
+                      color: "#fff",
+                      cursor: "pointer",
+                      fontWeight: 900,
+                      fontSize: 13,
+                    }}
+                  >
+                    Oggi
+                  </button>
+                  <button
+                    onClick={() => setCurrentDate(prev => addDays(prev, 1))}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: THEME.panelSoft,
+                      color: THEME.text,
+                      cursor: "pointer",
+                      fontWeight: 900,
+                      fontSize: 13,
+                      minWidth: 44,
+                    }}
+                  >
+                    ▶
+                  </button>
+                </>
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", marginRight: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 900, color: THEME.green, background: "rgba(22, 163, 74, 0.1)", padding: "4px 8px", borderRadius: 6 }}>
+                  ✓ {stats.done}/{stats.total}
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 900, color: THEME.blue, background: "rgba(37, 99, 235, 0.1)", padding: "4px 8px", borderRadius: 6 }}>
+                  💰 €{stats.revenue}
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 900, color: THEME.amber, background: "rgba(249, 115, 22, 0.1)", padding: "4px 8px", borderRadius: 6 }}>
+                  📊 € {Math.round(weeklyExpectedRevenue).toLocaleString("it-IT")}
+                </div>
+              </div>
+              
+              <button
+                onClick={exportAppointments}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 8,
+                  border: `1px solid ${THEME.gray}`,
+                  background: THEME.panelSoft,
+                  color: THEME.text,
+                  cursor: "pointer",
+                  fontWeight: 900,
+                  fontSize: 13,
+                  minWidth: 100,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                📁 Esporta CSV
+              </button>
+            </div>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => {
+                  setViewType("day");
+                  if (viewType !== "day") {
+                    setCurrentDate(new Date());
+                  }
+                }}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 8,
+                  border: `1px solid ${viewType === "day" ? THEME.blueDark : THEME.borderSoft}`,
+                  background: viewType === "day" ? THEME.blue : THEME.panelSoft,
+                  color: viewType === "day" ? "#fff" : THEME.text,
+                  cursor: "pointer",
+                  fontWeight: 900,
+                  fontSize: 13,
+                  minWidth: 80,
+                }}
+              >
+                Giorno
+              </button>
+              <button
+                onClick={() => {
+                  setViewType("week");
+                  if (viewType !== "week") {
+                    setCurrentDate(new Date());
+                  }
+                }}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 8,
+                  border: `1px solid ${viewType === "week" ? THEME.blueDark : THEME.borderSoft}`,
+                  background: viewType === "week" ? THEME.blue : THEME.panelSoft,
+                  color: viewType === "week" ? "#fff" : THEME.text,
+                  cursor: "pointer",
+                  fontWeight: 900,
+                  fontSize: 13,
+                  minWidth: 80,
+                }}
+              >
+                Settimana
+              </button>
+            </div>
+
+            <div style={{ fontSize: 13, fontWeight: 900, color: THEME.blueDark }}>
+              {viewType === "week" 
+                ? `${formatDMY(weekDays[0])} - ${formatDMY(weekDays[5])}`
+                : `${formatDMY(currentDate)}`
+              }
+            </div>
+          </div>
+
+          <div className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`} style={{ 
+            display: "flex", 
+            justifyContent: "space-between", 
+            alignItems: "center",
+            marginBottom: 12,
+            padding: "12px 16px",
+            background: THEME.panelSoft,
+            borderRadius: 8,
+            border: `1px solid ${THEME.border}`,
+                      }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginRight: 8 }}>
+                FILTRI STATO:
+              </div>
+              {["all", "booked", "confirmed", "done", "not_paid", "cancelled"]
+.map((status) => (
+                <button
+                  key={status}
+                  onClick={() => setStatusFilter(status as any)}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: 6,
+                    border: `1px solid ${statusFilter === status ? statusColor(status as Status) : THEME.borderSoft}`,
+                    background: statusFilter === status ? statusColor(status as Status) : "#fff",
+                    color: statusFilter === status ? "#fff" : THEME.text,
+                    cursor: "pointer",
+                    fontWeight: 900,
+                    fontSize: 11,
+                    transition: "all 0.2s",
+                  }}
+                >
+                  {status === "all" ? "Tutti" : statusLabel(status as Status)}
+                </button>
+              ))}
+            </div>
+            
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, fontWeight: 900, color: THEME.text }}>
+                <input
+                  type="checkbox"
+                  checked={showAvailableOnly}
+                  onChange={(e) => setShowAvailableOnly(e.target.checked)}
+                  style={{ width: 16, height: 16 }}
+                />
+                Solo slot liberi
+              </label>
+            </div>
+          </div>
+
+          {viewType === "week" ? (
+            <div
+              style={{
+                background: THEME.panelBg,
+                border: `1px solid ${THEME.border}`,
+                borderRadius: 12,
+                minHeight: 600,
+                overflow: "visible",
+                boxShadow: "0 10px 30px rgba(15,23,42,0.10)",
+                position: "relative",
+              }}
+            >
+              <div style={{ 
+  display: "grid", 
+  gridTemplateColumns: "80px repeat(6, minmax(0, 1fr))",
+  borderBottom: `1px solid ${THEME.border}`,
+  background: THEME.panelSoft,
+  position: "sticky",
+  top: 0,
+  zIndex: 8,
+}}>
+  <div style={{ 
+    padding: "12px 8px", 
+    borderRight: `1px solid ${THEME.border}`,
+    fontSize: 12,
+    fontWeight: 900,
+    color: THEME.muted,
+    textAlign: "center",
+    boxSizing: "border-box",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    height: "100%",
+  }}>
+    ORA
+  </div>
+  {weekDays.map((day, index) => {
+    const forecast = getAvailabilityForecast(day);
+    return (
+      <div 
+        key={index}
+        style={{ 
+          padding: "8px 4px", 
+          borderRight: index < 5 ? `1px solid ${THEME.border}` : "none",
+          textAlign: "center",
+          fontSize: 12,
+          fontWeight: 900,
+          color: THEME.blueDark,
+          boxSizing: "border-box",
+          width: "100%",
+          overflow: "visible",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          minHeight: "60px", // Altezza minima aumentata
+        }}
+      >
+        <div style={{ marginBottom: 2 }}>
+          {dayLabels[index].label}
+        </div>
+        <div style={{ fontSize: 11, marginBottom: 4 }}>
+          {formatDMY(day)}
+        </div>
+        <div style={{
+          fontSize: 9,
+          fontWeight: 900,
+          color: forecast.occupancyRate > 80 ? THEME.red : 
+                 forecast.occupancyRate > 60 ? THEME.amber : THEME.green,
+          opacity: 0.9,
+          lineHeight: 1.2,
+          padding: "2px 4px",
+          background: forecast.occupancyRate > 80 ? "rgba(220,38,38,0.1)" : 
+                     forecast.occupancyRate > 60 ? "rgba(249,115,22,0.1)" : "rgba(22,163,74,0.1)",
+          borderRadius: 4,
+          margin: "0 2px",
+        }}>
+          {forecast.totalEvents} appt • {forecast.recommendation}
+        </div>
+      </div>
+    );
+  })}
+</div>
+
+              <div style={{ position: "relative", height: "calc(15 * 60px)", overflowY: "auto" }}>
+                <div style={{ position: "relative", minHeight: "100%" }}>
+                  {timeSlots.map((time, timeIndex) => (
+                    <div 
+                      key={timeIndex}
+                      style={{ 
+                        height: "60px",
+                        borderBottom: `1px solid ${THEME.border}`,
+                        position: "relative",
+                        display: "flex",
+                      }}
+                    >
+                      <div style={{ 
+                        width: "80px",
+                        height: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        paddingLeft: 8,
+                        borderRight: `1px solid ${THEME.border}`,
+                        fontSize: 12,
+                        fontWeight: 900,
+                        color: THEME.muted,
+                        background: THEME.panelSoft,
+                        zIndex: 1,
+                        flexShrink: 0,
+                        boxSizing: "border-box",
+                        position: "sticky",
+                        left: 0,
+                      }}>
+                        {time}
+                      </div>
+
+                      {weekDays.map((day, dayIndex) => {
+                        const hour = parseInt(time.split(':')[0]);
+                        
+                        return (
+                          <div
+                            key={`${timeIndex}-${dayIndex}`}
+                            style={{
+                              flex: 1,
+                              minWidth: 0,
+                              height: "100%",
+                              borderRight: dayIndex < 5 ? `1px solid ${THEME.border}` : "none",
+                              boxSizing: "border-box",
+                              position: "relative",
+                            }}
+                          >
+                            {/* Slot 00-30 minuti */}
+                            <div
+                              style={{
+                                height: "30px",
+                                borderBottom: `1px solid ${THEME.border}`,
+                                cursor: "pointer",
+                                boxSizing: "border-box",
+                                position: "relative",
+                              }}
+                              onClick={() => {
+                                handleSlotClick(day, hour, 0);
+                              }}
+                              onContextMenu={(e) => handleContextMenu(e)}
+                              onDragOver={(e) => handleDragOver(e, dayIndex, hour, 0)}
+                              onDragLeave={handleDragLeave}
+                              onDrop={(e) => {
+                                handleDrop(e, day, hour, 0);
+                              }}
+                              title={`Clicca per creare appuntamento alle ${pad2(hour)}:00`}
+                            >
+                              {draggingOver && draggingOver.dayIndex === dayIndex && 
+                               draggingOver.hour === hour && draggingOver.minute === 0 && (
+                                <div
+                                  style={{
+                                    position: "absolute",
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    border: `2px dashed ${THEME.blue}`,
+                                    background: "rgba(37, 99, 235, 0.1)",
+                                    zIndex: 1,
+                                    pointerEvents: "none",
+                                  }}
+                                />
+                              )}
+                            </div>
+                            
+                            {/* Slot 30-60 minuti */}
+                            <div
+                              style={{
+                                height: "30px",
+                                cursor: "pointer",
+                                boxSizing: "border-box",
+                                position: "relative",
+                              }}
+                              onClick={() => {
+                                handleSlotClick(day, hour, 30);
+                              }}
+                              onContextMenu={(e) => handleContextMenu(e)}
+                              onDragOver={(e) => handleDragOver(e, dayIndex, hour, 30)}
+                              onDragLeave={handleDragLeave}
+                              onDrop={(e) => {
+                                handleDrop(e, day, hour, 30);
+                              }}
+                              title={`Clicca per creare appuntamento alle ${pad2(hour)}:30`}
+                            >
+                              {draggingOver && draggingOver.dayIndex === dayIndex && 
+                               draggingOver.hour === hour && draggingOver.minute === 30 && (
+                                <div
+                                  style={{
+                                    position: "absolute",
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    border: `2px dashed ${THEME.blue}`,
+                                    background: "rgba(37, 99, 235, 0.1)",
+                                    zIndex: 1,
+                                    pointerEvents: "none",
+                                  }}
+                                />
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+
+                  {filteredEvents.map((event) => {
+                    const dayIndex = weekDays.findIndex(day => 
+                      event.start.getDate() === day.getDate() &&
+                      event.start.getMonth() === day.getMonth() &&
+                      event.start.getFullYear() === day.getFullYear()
+                    );
+
+                    if (dayIndex === -1) return null;
+
+                    const { top, height } = getEventPosition(event.start, event.end);
+                    const col = getEventColor(event);
+                    const isDone = event.status === "done";
+                    const isDomicile = event.location === "domicile";
+                    const isPaid = !!event.is_paid;
+                    const waSent = !!event.whatsapp_sent_at;
+
+                    return (
+                      <div
+                        key={event.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, event.id, event.start, event.end)}
+                        onDragEnd={handleDragEnd}
+                        onContextMenu={(e) => handleContextMenu(e, event)}
+                        style={{
+                          position: "absolute",
+                          left: `calc(80px + ${dayIndex} * calc((100% - 80px) / 6))`,
+                          top: `${top}px`,
+                          width: `calc((100% - 80px) / 6 - 4px)`,
+                          height: `${Math.max(height, 30)}px`,
+                          background: col,
+                          color: "#fff",
+                          borderRadius: 8,
+                          padding: "8px",
+                          boxSizing: "border-box",
+                          border: `2px solid ${col}`,
+                          cursor: "move",
+                          zIndex: 2,
+                          overflow: "visible",
+                          transition: "opacity 0.2s",
+                          display: "flex",
+                          flexDirection: "column",
+                        }}
+                        onClick={() => {
+                          setSelectedEvent({
+                            id: event.id,
+                            title: event.patient_name,
+                            patient_id: event.patient_id,
+                            location: event.location,
+                            clinic_site: event.clinic_site,
+                            domicile_address: event.domicile_address,
+                            treatment: event.treatment,
+                            diagnosis: event.diagnosis,
+                            amount: event.amount,
+                            treatment_type: event.treatment_type,
+                            price_type: event.price_type,
+                            start: event.start,
+                            end: event.end,
+                          });
+                          setEditStatus(event.status);
+                          setEditNote(event.calendar_note || "");
+                          setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
+                          setEditTreatmentType(event.treatment_type || "seduta");
+                          setEditPriceType(event.price_type || "invoiced");
+                          
+                          if (event.patient_id) {
+                            loadPatientFromEvent(event.patient_id);
+                          }
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                          <button
+                            title={isDone ? "Segna come NON eseguita" : "Segna come ESEGUITA"}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              toggleDoneQuick(event.id, event.status);
+                            }}
+                            style={{
+                              width: 16,
+                              height: 16,
+                              borderRadius: 4,
+                              border: "2px solid rgba(255,255,255,0.9)",
+                              background: isDone ? THEME.greenDark : "rgba(255,255,255,0.3)",
+                              cursor: "pointer",
+                              flex: "0 0 auto",
+                              marginTop: 2,
+                            }}
+                          />
+
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div
+                            title={event.location === "domicile" ? `🏠 ${event.patient_name}` : event.patient_name}
+                            style={{
+                              fontWeight: 900,
+                              lineHeight: 1.12,
+                              fontSize: autoNameFontSize(event.patient_name),
+                              overflow: "hidden",
+                              // massimo 2 righe senza spostare il layout
+                              display: "-webkit-box",
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: "vertical" as any,
+                              maxHeight: 26,
+                              wordBreak: "break-word",
+                            }}
+                          >
+                            {event.location === "domicile" ? `🏠 ${event.patient_name}` : event.patient_name}
+                          </div>
+</div>
+                          
+                          {isPaid ? (
+                            <div
+                              title="Pagato"
+                              style={{
+                                width: 20,
+                                height: 20,
+                                borderRadius: 6,
+                                border: "1px solid rgba(255,255,255,0.9)",
+                                background: "rgba(255,255,255,0.25)",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: 12,
+                                color: "#fff",
+                                flex: "0 0 auto",
+                              }}
+                            >
+                              💰
+                            </div>
+                          ) : waSent ? (
+                            <div
+                              title="WhatsApp inviato"
+                              style={{
+                                width: 20,
+                                height: 20,
+                                borderRadius: 6,
+                                border: "1px solid rgba(255,255,255,0.6)",
+                                background: "rgba(255,255,255,0.18)",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flex: "0 0 auto",
+                              }}
+                            >
+                              <div style={{ width: 8, height: 8, borderRadius: 999, background: "rgba(255,255,255,0.95)" }} />
+                            </div>
+                          ) : event.status !== "done" && event.status !== "cancelled" && event.patient_phone ? (
+                            <button
+                              title="Invia promemoria WhatsApp"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                sendReminder(event.id, event.patient_phone, event.patient_first_name ?? undefined);
+                              }}
+                              style={{
+                                width: 20,
+                                height: 20,
+                                borderRadius: 6,
+                                border: "1px solid rgba(255,255,255,0.9)",
+                                background: "rgba(37, 211, 102, 0.8)",
+                                cursor: "pointer",
+                                flex: "0 0 auto",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: 10,
+                                color: "#fff",
+                              }}
+                            >
+                              📱
+                            </button>
+                          ) : null}
+                        </div>
+
+                        <div style={{ 
+                          fontSize: 11, 
+                          fontWeight: 900, 
+                          opacity: 0.9,
+                          marginTop: "auto",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-end"
+                        }}>
+                          <span>{fmtTime(event.start.toISOString())}</span>
+                          <span>{statusLabel(event.status)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  
+                  {showAvailableOnly && weekDays.map((day, dayIndex) => {
+                    const availableSlots = getAvailableSlots(day);
+                    
+                    return availableSlots.map((slot, slotIndex) => {
+                      const { top, height } = getEventPosition(slot.start, slot.end);
+                      
+                      return (
+                        <div
+                          key={`slot-${dayIndex}-${slotIndex}`}
+                          style={{
+                            position: "absolute",
+                            left: `calc(80px + ${dayIndex} * calc((100% - 80px) / 6))`,
+                            top: `${top}px`,
+                            width: `calc((100% - 80px) / 6 - 4px)`,
+                            height: `${height}px`,
+                            background: "rgba(34, 197, 94, 0.1)",
+                            border: "2px dashed rgba(34, 197, 94, 0.5)",
+                            borderRadius: 8,
+                            cursor: "pointer",
+                            zIndex: 0,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            transition: "all 0.2s",
+                          }}
+                          onClick={() => {
+                            const hour = slot.start.getHours();
+                            const minute = slot.start.getMinutes();
+                            handleSlotClick(day, hour, minute);
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = "rgba(34, 197, 94, 0.2)";
+                            e.currentTarget.style.border = "2px solid rgba(34, 197, 94, 0.7)";
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = "rgba(34, 197, 94, 0.1)";
+                            e.currentTarget.style.border = "2px dashed rgba(34, 197, 94, 0.5)";
+                          }}
+                        >
+                          <div style={{ 
+                            fontSize: 11, 
+                            fontWeight: 900, 
+                            color: THEME.green,
+                            textAlign: "center",
+                            opacity: 0.8
+                          }}>
+                            {slot.time}
+                          </div>
+                        </div>
+                      );
+                    });
+                  })}
+
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      top: 0,
+                      right: 0,
+                      bottom: 0,
+                      pointerEvents: "none",
+                      zIndex: 3,
+                    }}
+                  >
+                    {(() => {
+                      const now = currentTime;
+                      const currentDayIndex = weekDays.findIndex(day => 
+                        now.getDate() === day.getDate() &&
+                        now.getMonth() === day.getMonth() &&
+                        now.getFullYear() === day.getFullYear()
+                      );
+                      
+                      if (currentDayIndex === -1) return null;
+                      
+                      const currentHour = now.getHours();
+                      const currentMinute = now.getMinutes();
+                      const topPosition = ((currentHour - 7) * 60 + currentMinute);
+                      
+                      const dayWidth = `calc((100% - 80px) / 6)`;
+                      const leftPosition = `calc(80px + ${currentDayIndex} * (${dayWidth}))`;
+                      
+                      return (
+                        <div
+                          style={{
+                            position: "absolute",
+                            left: leftPosition,
+                            top: `${topPosition}px`,
+                            width: `calc(${dayWidth} - 2px)`,
+                            height: "2px",
+                            background: THEME.red,
+                            zIndex: 4,
+                          }}
+                        >
+                          <div
+                            style={{
+                              position: "absolute",
+                              left: "50%",
+                              top: "-4px",
+                              transform: "translateX(-50%)",
+                              width: "8px",
+                              height: "8px",
+                              borderRadius: "50%",
+                              background: THEME.red,
+                            }}
+                          />
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div
+              style={{
+                background: THEME.panelBg,
+                border: `1px solid ${THEME.border}`,
+                borderRadius: 12,
+                minHeight: 600,
+                overflow: "visible",
+                boxShadow: "0 10px 30px rgba(15,23,42,0.10)",
+                position: "relative",
+              }}
+            >
+              <div style={{ 
+                display: "grid", 
+                gridTemplateColumns: "80px 1fr",
+                borderBottom: `1px solid ${THEME.border}`,
+                background: THEME.panelSoft,
+              }}>
+                <div style={{ 
+                  padding: "16px 8px", 
+                  borderRight: `1px solid ${THEME.border}`,
+                  fontSize: 12,
+                  fontWeight: 900,
+                  color: THEME.muted,
+                  textAlign: "center",
+                  boxSizing: "border-box",
+                }}>
+                  ORA
+                </div>
+                <div style={{ 
+                  padding: "16px 8px", 
+                  textAlign: "center",
+                  fontSize: 13,
+                  fontWeight: 900,
+                  color: THEME.blueDark,
+                  boxSizing: "border-box",
+                }}>
+                  {dayLabels[currentDate.getDay() === 0 ? 0 : currentDate.getDay() - 1].label} • {formatDMY(currentDate)}
+                </div>
+              </div>
+
+              <div style={{ position: "relative", height: "calc(15 * 60px)" }}>
+                {timeSlots.map((time, timeIndex) => {
+                  const hour = parseInt(time.split(':')[0]);
+                  
+                  return (
+                    <div 
+                      key={timeIndex}
+                      style={{ 
+                        height: "60px",
+                        borderBottom: `1px solid ${THEME.border}`,
+                        position: "relative",
+                        display: "flex",
+                      }}
+                    >
+                      <div style={{ 
+                        width: "80px",
+                        height: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        paddingLeft: 8,
+                        borderRight: `1px solid ${THEME.border}`,
+                        fontSize: 12,
+                        fontWeight: 900,
+                        color: THEME.muted,
+                        background: THEME.panelSoft,
+                        zIndex: 1,
+                        flexShrink: 0,
+                        boxSizing: "border-box",
+                      }}>
+                        {time}
+                      </div>
+
+                      <div style={{
+                        flex: 1,
+                        minWidth: 0,
+                        height: "100%",
+                        boxSizing: "border-box",
+                        position: "relative",
+                      }}>
+                        {/* Slot 00-30 minuti */}
+                        <div
+                          style={{
+                            height: "30px",
+                            borderBottom: `1px solid ${THEME.border}`,
+                            cursor: "pointer",
+                            boxSizing: "border-box",
+                            position: "relative",
+                          }}
+                          onClick={() => {
+                            handleSlotClick(currentDate, hour, 0);
+                          }}
+                          onContextMenu={(e) => handleContextMenu(e)}
+                          onDragOver={(e) => handleDragOver(e, 0, hour, 0)}
+                          onDragLeave={handleDragLeave}
+                          onDrop={(e) => {
+                            handleDrop(e, currentDate, hour, 0);
+                          }}
+                          title={`Clicca per creare appuntamento alle ${pad2(hour)}:00`}
+                        >
+                          {draggingOver && draggingOver.dayIndex === 0 && 
+                           draggingOver.hour === hour && draggingOver.minute === 0 && (
+                            <div
+                              style={{
+                                position: "absolute",
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                border: `2px dashed ${THEME.blue}`,
+                                background: "rgba(37, 99, 235, 0.1)",
+                                zIndex: 1,
+                                pointerEvents: "none",
+                              }}
+                            />
+                          )}
+                        </div>
+                        
+                        {/* Slot 30-60 minuti */}
+                        <div
+                          style={{
+                            height: "30px",
+                            cursor: "pointer",
+                            boxSizing: "border-box",
+                            position: "relative",
+                          }}
+                          onClick={() => {
+                            handleSlotClick(currentDate, hour, 30);
+                          }}
+                          onContextMenu={(e) => handleContextMenu(e)}
+                          onDragOver={(e) => handleDragOver(e, 0, hour, 30)}
+                          onDragLeave={handleDragLeave}
+                          onDrop={(e) => {
+                            handleDrop(e, currentDate, hour, 30);
+                          }}
+                          title={`Clicca per creare appuntamento alle ${pad2(hour)}:30`}
+                        >
+                          {draggingOver && draggingOver.dayIndex === 0 && 
+                           draggingOver.hour === hour && draggingOver.minute === 30 && (
+                            <div
+                              style={{
+                                position: "absolute",
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                border: `2px dashed ${THEME.blue}`,
+                                background: "rgba(37, 99, 235, 0.1)",
+                                zIndex: 1,
+                                pointerEvents: "none",
+                              }}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {showAvailableOnly && (() => {
+                  const availableSlots = getAvailableSlots(currentDate);
+                  
+                  return availableSlots.map((slot, index) => {
+                    const { top, height } = getEventPosition(slot.start, slot.end);
+                    
+                    return (
+                      <div
+                        key={`slot-${index}`}
+                        style={{
+                          position: "absolute",
+                          left: "80px",
+                          top: `${top}px`,
+                          width: "calc(100% - 84px)",
+                          height: `${height}px`,
+                          background: "rgba(34, 197, 94, 0.1)",
+                          border: "2px dashed rgba(34, 197, 94, 0.5)",
+                          borderRadius: 8,
+                          cursor: "pointer",
+                          zIndex: 0,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          transition: "all 0.2s",
+                        }}
+                        onClick={() => {
+                          const hour = slot.start.getHours();
+                          const minute = slot.start.getMinutes();
+                          handleSlotClick(currentDate, hour, minute);
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = "rgba(34, 197, 94, 0.2)";
+                          e.currentTarget.style.border = "2px solid rgba(34, 197, 94, 0.7)";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = "rgba(34, 197, 94, 0.1)";
+                          e.currentTarget.style.border = "2px dashed rgba(34, 197, 94, 0.5)";
+                        }}
+                      >
+                        <div style={{ 
+                          fontSize: 12, 
+                          fontWeight: 900, 
+                          color: THEME.green,
+                          textAlign: "center"
+                        }}>
+                          <div>🕒 {slot.time}</div>
+                          <div style={{ fontSize: 10, opacity: 0.8 }}>SLOT LIBERO</div>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+
+                {filteredEvents
+                  .filter(event => 
+                    event.start.getDate() === currentDate.getDate() &&
+                    event.start.getMonth() === currentDate.getMonth() &&
+                    event.start.getFullYear() === currentDate.getFullYear()
+                  )
+                  .map((event) => {
+                    const { top, height } = getEventPosition(event.start, event.end);
+                    const col = getEventColor(event);
+                    const isDone = event.status === "done";
+                    const isDomicile = event.location === "domicile";
+
+                    return (
+                      <div
+                        key={event.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, event.id, event.start, event.end)}
+                        onDragEnd={handleDragEnd}
+                        onContextMenu={(e) => handleContextMenu(e, event)}
+                        style={{
+                          position: "absolute",
+                          left: "80px",
+                          top: `${top}px`,
+                          width: "calc(100% - 84px)",
+                          height: `${Math.max(height, 30)}px`,
+                          background: col,
+                          color: "#fff",
+                          borderRadius: 8,
+                          padding: "8px",
+                          boxSizing: "border-box",
+                          border: `2px solid ${col}`,
+                          cursor: "move",
+                          zIndex: 2,
+                          overflow: "visible",
+                          transition: "opacity 0.2s",
+                          display: "flex",
+                          flexDirection: "column",
+                        }}
+                        onClick={() => {
+                          setSelectedEvent({
+                            id: event.id,
+                            title: event.patient_name,
+                            patient_id: event.patient_id,
+                            location: event.location,
+                            clinic_site: event.clinic_site,
+                            domicile_address: event.domicile_address,
+                            treatment: event.treatment,
+                            diagnosis: event.diagnosis,
+                            amount: event.amount,
+                            treatment_type: event.treatment_type,
+                            price_type: event.price_type,
+                            start: event.start,
+                            end: event.end,
+                          });
+                          setEditStatus(event.status);
+                          setEditNote(event.calendar_note || "");
+                          setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
+                          setEditTreatmentType(event.treatment_type || "seduta");
+                          setEditPriceType(event.price_type || "invoiced");
+                          
+                          if (event.patient_id) {
+                            loadPatientFromEvent(event.patient_id);
+                          }
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                          <button
+                            title={isDone ? "Segna come NON eseguita" : "Segna come ESEGUITA"}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              toggleDoneQuick(event.id, event.status);
+                            }}
+                            style={{
+                              width: 16,
+                              height: 16,
+                              borderRadius: 4,
+                              border: "2px solid rgba(255,255,255,0.9)",
+                              background: isDone ? THEME.greenDark : "rgba(255,255,255,0.3)",
+                              cursor: "pointer",
+                              flex: "0 0 auto",
+                              marginTop: 2,
+                            }}
+                          />
+
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ 
+                              fontWeight: 900, 
+                              lineHeight: 1.2, 
+                              fontSize: 12, 
+                              overflow: "visible",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}>
+                              {event.location === "domicile" ? `🏠 ${event.patient_name}` : event.patient_name}
+                            </div>
+                            <div style={{ 
+                              fontSize: 11, 
+                              fontWeight: 900, 
+                              opacity: 0.9,
+                              marginTop: 2,
+                            }}>
+                              {fmtTime(event.start.toISOString())} - {fmtTime(event.end.toISOString())}
+                            </div>
+                            {isDomicile && (
+                              <div style={{ 
+                                fontSize: 10, 
+                                fontWeight: 900, 
+                                color: "rgba(255,255,255,0.9)",
+                                marginTop: 2,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 4
+                              }}>
+                                <span>🏠</span>
+                                <span>DOMICILIO</span>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {event.status !== "done" && event.status !== "cancelled" && event.patient_phone && (
+                            <button
+                              title="Invia promemoria WhatsApp"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                sendReminder(event.id, event.patient_phone, event.patient_first_name ?? undefined);
+                              }}
+                              style={{
+                                width: 20,
+                                height: 20,
+                                borderRadius: 4,
+                                border: "1px solid rgba(255,255,255,0.9)",
+                                background: "rgba(37, 211, 102, 0.8)",
+                                cursor: "pointer",
+                                flex: "0 0 auto",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: 10,
+                                color: "#fff",
+                              }}
+                            >
+                              📱
+                            </button>
+                          )}
+                        </div>
+
+                        <div style={{ 
+                          fontSize: 11, 
+                          fontWeight: 900, 
+                          opacity: 0.9,
+                          marginTop: "auto",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-end"
+                        }}>
+                          <span>{event.location === "studio" ? event.clinic_site : "Domicilio"}</span>
+                          <span>{statusLabel(event.status)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      top: 0,
+                      right: 0,
+                      bottom: 0,
+                      pointerEvents: "none",
+                      zIndex: 3,
+                    }}
+                  >
+                    {(() => {
+                      const now = currentTime;
+                      const isToday = 
+                        now.getDate() === currentDate.getDate() &&
+                        now.getMonth() === currentDate.getMonth() &&
+                        now.getFullYear() === currentDate.getFullYear();
+                      
+                      if (!isToday) return null;
+                      
+                      const currentHour = now.getHours();
+                      const currentMinute = now.getMinutes();
+                      const topPosition = ((currentHour - 7) * 60 + currentMinute);
+                      
+                      return (
+                        <div
+                          style={{
+                            position: "absolute",
+                            left: "80px",
+                            top: `${topPosition}px`,
+                            width: "calc(100% - 84px)",
+                            height: "2px",
+                            background: THEME.red,
+                            zIndex: 4,
+                          }}
+                        >
+                          <div
+                            style={{
+                              position: "absolute",
+                              left: "50%",
+                              top: "-4px",
+                              transform: "translateX(-50%)",
+                              width: "8px",
+                              height: "8px",
+                              borderRadius: "50%",
+                              background: THEME.red,
+                            }}
+                          />
+                        </div>
+                      );
+                    })()}
+                  </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </main>
+
+      {createOpen && (
+        <div
+          className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`}
+          onClick={() => setCreateOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15,23,42,0.35)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 800,
+              maxWidth: "100%",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              background: THEME.panelBg,
+              color: THEME.text,
+              borderRadius: 12,
+              border: `1px solid ${THEME.borderSoft}`,
+              boxShadow: "0 18px 60px rgba(15,23,42,0.25)",
+              padding: 24,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 12, marginBottom: 20 }}>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: THEME.blueDark, letterSpacing: -0.2 }}>
+                  {duplicateMode ? "Duplica appuntamento" : "Nuovo appuntamento"}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 13, color: THEME.muted, fontWeight: 900 }}>
+                  {createStartISO ? `${fmtTime(createStartISO)} → ${fmtTime(createEndISO)} • ${selectedDuration} ora${selectedDuration === "1" ? "" : "e"}` : "Seleziona orario"}
+                </div>
+              </div>
+
+              <button
+                onClick={() => setCreateOpen(false)}
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 8,
+                  border: `1px solid ${THEME.borderSoft}`,
+                  background: THEME.panelSoft,
+                  color: THEME.text,
+                  cursor: "pointer",
+                  fontWeight: 900,
+                  fontSize: 14,
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 20 }}>
+              <div>
+                <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                  Luogo
+                  <select
+                    value={createLocation}
+                    onChange={(e) => setCreateLocation(e.target.value as LocationType)}
+                    style={{
+                      width: "100%",
+                      marginTop: 8,
+                      padding: 10,
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: THEME.panelBg,
+                      color: THEME.text,
+                      outline: "none",
+                      fontWeight: 800,
+                      fontSize: 13,
+                    }}
+                  >
+                    <option value="studio">Studio</option>
+                    <option value="domicile">Domicilio</option>
+                  </select>
+                </label>
+              </div>
+
+              <div>
+                {createLocation === "studio" ? (
+                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                    Sede
+                    <input
+                      value={createClinicSite}
+                      onChange={(e) => setCreateClinicSite(e.target.value)}
+                      placeholder="Es. Studio Pontecorvo"
+                      style={{
+                        width: "100%",
+                        marginTop: 8,
+                        padding: 10,
+                        borderRadius: 8,
+                        border: `1px solid ${THEME.borderSoft}`,
+                        background: THEME.panelBg,
+                        color: THEME.text,
+                        outline: "none",
+                        fontWeight: 800,
+                        fontSize: 13,
+                      }}
+                    />
+                  </label>
+                ) : (
+                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                    Indirizzo domicilio
+                    <input
+                      value={createDomicileAddress}
+                      onChange={(e) => setCreateDomicileAddress(e.target.value)}
+                      placeholder="Via..., n..., città..."
+                      style={{
+                        width: "100%",
+                        marginTop: 8,
+                        padding: 10,
+                        borderRadius: 8,
+                        border: `1px solid ${THEME.borderSoft}`,
+                        background: THEME.panelBg,
+                        color: THEME.text,
+                        outline: "none",
+                        fontWeight: 800,
+                        fontSize: 13,
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+
+              <div>
+                <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                  {duplicateMode ? "Nuovo giorno" : "Giorno"}
+                  <input
+                    type="date"
+                    value={duplicateMode ? duplicateDate : toDateInputValue(new Date(createStartISO))}
+                    onChange={(e) => {
+                      if (duplicateMode) {
+                        setDuplicateDate(e.target.value);
+                        updateDuplicateDateTime(e.target.value, duplicateTime);
+                      } else {
+                        const date = parseDateInput(e.target.value);
+                        const [hours, minutes] = selectedStartTime.split(':').map(Number);
+                        date.setHours(hours, minutes, 0, 0);
+                        const durationHours = parseFloat(selectedDuration);
+                        const endDate = new Date(date.getTime() + durationHours * 60 * 60000);
+                        setCreateStartISO(date.toISOString());
+                        setCreateEndISO(endDate.toISOString());
+                      }
+                    }}
+                    style={{
+                      width: "100%",
+                      marginTop: 8,
+                      padding: 10,
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: THEME.panelBg,
+                      color: THEME.text,
+                      outline: "none",
+                      fontWeight: 800,
+                      fontSize: 13,
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 20 }}>
+              <div>
+                <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                  {duplicateMode ? "Nuovo orario" : "Orario"}
+                  <select
+                    value={duplicateMode ? duplicateTime : selectedStartTime}
+                    onChange={(e) => {
+                      if (duplicateMode) {
+                        setDuplicateTime(e.target.value);
+                        updateDuplicateDateTime(duplicateDate, e.target.value);
+                      } else {
+                        setSelectedStartTime(e.target.value);
+                      }
+                    }}
+                    style={{
+                      width: "100%",
+                      marginTop: 8,
+                      padding: 10,
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: THEME.panelBg,
+                      color: THEME.text,
+                      outline: "none",
+                      fontWeight: 800,
+                      fontSize: 13,
+                    }}
+                  >
+                    {timeSelectSlots.map((time) => (
+                      <option key={time} value={time}>
+                        {time}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <div>
+                <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                  Durata
+                  <select
+                    value={selectedDuration}
+                    onChange={(e) => {
+                      const newDuration = e.target.value as "1" | "1.5" | "2";
+                      setSelectedDuration(newDuration);
+                      if (duplicateMode && duplicateDate && duplicateTime) {
+                        updateDuplicateDateTime(duplicateDate, duplicateTime);
+                      }
+                    }}
+                    style={{
+                      width: "100%",
+                      marginTop: 8,
+                      padding: 10,
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: THEME.panelBg,
+                      color: THEME.text,
+                      outline: "none",
+                      fontWeight: 800,
+                      fontSize: 13,
+                    }}
+                  >
+                    <option value="1">1 ora</option>
+                    <option value="1.5">1.5 ore</option>
+                    <option value="2">2 ore</option>
+                  </select>
+                </label>
+              </div>
+
+              <div></div>
+            </div>
+
+            <div style={{ marginBottom: 20, border: `1px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
+              <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 12 }}>
+                Tipologia e Prezzo
+              </div>
+              
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 8 }}>
+                    Trattamento
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={() => setTreatmentType("seduta")}
+                      style={{
+                        flex: 1,
+                        padding: "12px",
+                        borderRadius: 8,
+                        border: `1px solid ${treatmentType === "seduta" ? THEME.blueDark : THEME.borderSoft}`,
+                        background: treatmentType === "seduta" ? THEME.blue : "#fff",
+                        color: treatmentType === "seduta" ? "#fff" : THEME.text,
+                        cursor: "pointer",
+                        fontWeight: 900,
+                        fontSize: 13,
+                      }}
+                    >
+                      Seduta
+                    </button>
+                    <button
+                      onClick={() => setTreatmentType("macchinario")}
+                      style={{
+                        flex: 1,
+                        padding: "12px",
+                        borderRadius: 8,
+                        border: `1px solid ${treatmentType === "macchinario" ? THEME.blueDark : THEME.borderSoft}`,
+                        background: treatmentType === "macchinario" ? THEME.blue : "#fff",
+                        color: treatmentType === "macchinario" ? "#fff" : THEME.text,
+                        cursor: "pointer",
+                        fontWeight: 900,
+                        fontSize: 13,
+                      }}
+                    >
+                      Solo Macchinario
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 8 }}>
+                    Prezzo
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={() => setPriceType("invoiced")}
+                      style={{
+                        flex: 1,
+                        padding: "12px",
+                        borderRadius: 8,
+                        border: `1px solid ${priceType === "invoiced" ? THEME.greenDark : THEME.borderSoft}`,
+                        background: priceType === "invoiced" ? THEME.green : "#fff",
+                        color: priceType === "invoiced" ? "#fff" : THEME.text,
+                        cursor: "pointer",
+                        fontWeight: 900,
+                        fontSize: 13,
+                      }}
+                    >
+                      {`€ ${Number(getDefaultAmount(treatmentType, "invoiced") ?? 0).toFixed(2)} fatturato`}
+                    </button>
+                    <button
+                      onClick={() => setPriceType("cash")}
+                      style={{
+                        flex: 1,
+                        padding: "12px",
+                        borderRadius: 8,
+                        border: `1px solid ${priceType === "cash" ? THEME.amber : THEME.borderSoft}`,
+                        background: priceType === "cash" ? "rgba(249,115,22,0.1)" : "#fff",
+                        color: priceType === "cash" ? THEME.amber : THEME.text,
+                        cursor: "pointer",
+                        fontWeight: 900,
+                        fontSize: 13,
+                      }}
+                    >
+                      {`€ ${Number(getDefaultAmount(treatmentType, "cash") ?? 0).toFixed(2)} contanti`}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ borderTop: `1px solid ${THEME.border}`, paddingTop: 16 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 12, fontWeight: 900, color: THEME.text, fontSize: 14, marginBottom: 12 }}>
+                  <input
+                    type="checkbox"
+                    checked={useCustomPrice}
+                    onChange={(e) => {
+                      setUseCustomPrice(e.target.checked);
+                      if (!e.target.checked) {
+                        setCustomAmount("");
+                      }
+                    }}
+                    style={{ width: 18, height: 18 }}
+                  />
+                  Imposta prezzo personalizzato
+                
+
+                </label>
+
+                {useCustomPrice && (
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <div style={{ fontSize: 13, fontWeight: 900, color: THEME.text }}>€</div>
+                    <input
+  value={customAmount}
+  onChange={(e) => {
+    const value = e.target.value;
+    setCustomAmount(value);
+  }}
+  placeholder="Importo personalizzato (0 per gratis)"
+  style={{
+    flex: 1,
+    padding: "8px 10px",
+    borderRadius: 8,
+    border: `1px solid ${THEME.blue}`,
+    background: "#fff",
+    color: THEME.text,
+    outline: "none",
+    fontWeight: 800,
+    fontSize: 13,
+  }}
+/>
+                    <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 900 }}>
+                      Inserisci l'importo in euro (0 per terapia gratuita)
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ marginTop: 12, fontSize: 13, color: THEME.muted, fontWeight: 900, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>Totale:</span>
+                <strong style={{ color: THEME.text, fontSize: 16 }}>
+                  {useCustomPrice && customAmount !== "" ? 
+                    `€ ${parseFloat(customAmount.replace(',', '.')).toFixed(2)}` :
+                    `€ ${Number(computedDefaultAmount ?? 0).toFixed(2)}`
+                  }
+                </strong>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 20, border: `1px solid ${THEME.border}`, background: THEME.panelSoft, padding: 16, borderRadius: 8 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 12, fontWeight: 900, color: THEME.text, fontSize: 14 }}>
+                <input
+                  type="checkbox"
+                  checked={isRecurring}
+                  onChange={(e) => setIsRecurring(e.target.checked)}
+                  style={{ width: 18, height: 18 }}
+                />
+                Appuntamento ricorrente
+              </label>
+
+              {isRecurring && (
+                <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 16 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 900, color: THEME.muted }}>Giorni</div>
+                    <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {dayLabels.map((d) => {
+                        const active = recurringDays.includes(d.dow);
+                        return (
+                          <button
+                            key={d.dow}
+                            onClick={() => toggleRecurringDay(d.dow)}
+                            style={{
+                              padding: "8px 10px",
+                              borderRadius: 8,
+                              border: `1px solid ${active ? THEME.blueDark : THEME.borderSoft}`,
+                              background: active ? THEME.blue : "#fff",
+                              color: active ? "#fff" : THEME.text,
+                              cursor: "pointer",
+                              fontWeight: 900,
+                              fontSize: 12,
+                            }}
+                            title="Seleziona/deseleziona"
+                          >
+                            {d.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div style={{ marginTop: 12, fontSize: 12, color: THEME.muted, fontWeight: 900 }}>
+                      Creerò un appuntamento per ogni giorno selezionato fino alla data finale.
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 13, fontWeight: 900, color: THEME.muted }}>
+                      Ripeti fino a
+                      <input
+                        type="date"
+                        value={recurringUntil}
+                        onChange={(e) => setRecurringUntil(e.target.value)}
+                        style={{
+                          width: "100%",
+                          marginTop: 8,
+                          padding: 10,
+                          borderRadius: 8,
+                          border: `1px solid ${THEME.borderSoft}`,
+                          background: "#fff",
+                          color: THEME.text,
+                          outline: "none",
+                          fontWeight: 800,
+                          fontSize: 13,
+                        }}
+                      />
+                    </label>
+
+                    <div style={{ marginTop: 12, fontSize: 12, color: THEME.muted, fontWeight: 900 }}>
+                      Limite sicurezza: max 200 appuntamenti per inserimento.
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                  Seleziona paziente
+                </div>
+                <button
+                  onClick={() => setQuickPatientOpen(true)}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: 8,
+                    border: `1px solid ${THEME.greenDark}`,
+                    background: THEME.green,
+                    color: "#fff",
+                    cursor: "pointer",
+                    fontWeight: 900,
+                    fontSize: 12,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  <span style={{ fontSize: 14 }}>➕</span>
+                  Nuovo Paziente Rapido
+                </button>
+              </div>
+
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Cerca per nome o cognome (min 2 lettere)..."
+                style={{
+                  width: "100%",
+                  padding: 10,
+                  borderRadius: 8,
+                  border: `1px solid ${THEME.borderSoft}`,
+                  background: "#fff",
+                  color: THEME.text,
+                  outline: "none",
+                  fontWeight: 800,
+                  fontSize: 13,
+                }}
+              />
+            </div>
+
+            {quickPatientOpen && (
+              <div style={{ 
+                border: `1px solid ${THEME.blue}`, 
+                background: "rgba(37, 99, 235, 0.03)", 
+                padding: 16, 
+                borderRadius: 8,
+                marginBottom: 16 
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 900, color: THEME.blueDark, marginBottom: 12 }}>
+                  Inserisci dati paziente rapido
+                </div>
+                
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+                  <input
+                    value={quickPatientFirstName}
+                    onChange={(e) => setQuickPatientFirstName(e.target.value)}
+                    placeholder="Nome *"
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: "#fff",
+                      color: THEME.text,
+                      outline: "none",
+                      fontWeight: 800,
+                      fontSize: 13,
+                    }}
+                  />
+                  <input
+                    value={quickPatientLastName}
+                    onChange={(e) => setQuickPatientLastName(e.target.value)}
+                    placeholder="Cognome *"
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: "#fff",
+                      color: THEME.text,
+                      outline: "none",
+                      fontWeight: 800,
+                      fontSize: 13,
+                    }}
+                  />
+                  <input
+                    value={quickPatientPhone}
+                    onChange={(e) => setQuickPatientPhone(e.target.value)}
+                    placeholder="Telefono (opzionale)"
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: "#fff",
+                      color: THEME.text,
+                      outline: "none",
+                      fontWeight: 800,
+                      fontSize: 13,
+                    }}
+                  />
+                </div>
+                
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 900 }}>
+                    Stato: <strong style={{ color: THEME.amber }}>DA COMPLETARE</strong>
+                  </div>
+                  
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={() => setQuickPatientOpen(false)}
+                      style={{
+                        padding: "8px 16px",
+                        borderRadius: 8,
+                        border: `1px solid ${THEME.borderSoft}`,
+                        background: THEME.panelSoft,
+                        color: THEME.text,
+                        cursor: "pointer",
+                        fontWeight: 900,
+                        fontSize: 12,
+                      }}
+                    >
+                      Annulla
+                    </button>
+                    <button
+                      onClick={createQuickPatient}
+                      disabled={creatingQuickPatient || !quickPatientFirstName.trim() || !quickPatientLastName.trim()}
+                      style={{
+                        padding: "8px 16px",
+                        borderRadius: 8,
+                        border: `1px solid ${THEME.greenDark}`,
+                        background: THEME.green,
+                        color: "#fff",
+                        cursor: creatingQuickPatient ? "not-allowed" : "pointer",
+                        fontWeight: 900,
+                        fontSize: 12,
+                        opacity: creatingQuickPatient || !quickPatientFirstName.trim() || !quickPatientLastName.trim() ? 0.6 : 1,
+                      }}
+                    >
+                      {creatingQuickPatient ? "Creazione..." : "Crea Paziente"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div style={{ border: `1px solid ${THEME.border}`, background: "#fff", borderRadius: 8, overflow: "hidden" }}>
+              <div style={{ padding: 10, fontSize: 13, color: THEME.muted, fontWeight: 900, background: THEME.panelSoft }}>
+                {searching ? "Ricerca in corso..." : `Risultati: ${patientResults.length}`}
+              </div>
+
+              <div style={{ maxHeight: 240, overflowY: "auto" }}>
+                {patientResults.length === 0 && !quickPatientOpen && (
+                  <div style={{ padding: 20, fontSize: 13, color: THEME.muted, fontWeight: 900, textAlign: "center" }}>
+                    {q.trim().length < 2 ? "Scrivi almeno 2 lettere per iniziare la ricerca" : "Nessun risultato trovato"}
+                  </div>
+                )}
+
+                {patientResults.map((p) => {
+                  const active = selectedPatient?.id === p.id;
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => setSelectedPatient(p)}
+                      style={{
+                        width: "100%",
+                        textAlign: "left",
+                        padding: 16,
+                        border: "none",
+                        borderTop: `1px solid ${THEME.border}`,
+                        background: active ? "rgba(37, 99, 235, 0.08)" : "#fff",
+                        cursor: "pointer",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        fontWeight: 900,
+                        color: THEME.text,
+                        fontSize: 13,
+                      }}
+                    >
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+                        <span style={{ fontSize: 14 }}>
+                          {p.last_name} {p.first_name}
+                        </span>
+                        {p.treatment && (
+                          <span style={{ fontSize: 12, color: THEME.muted, marginTop: 4, fontWeight: 900 }}>
+                            Trattamento: {p.treatment}
+                          </span>
+                        )}
+                      </div>
+                      <span style={{ fontSize: 12, color: THEME.muted, fontWeight: 900 }}>{p.phone ?? ""}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{ marginTop: 16, fontSize: 13, color: THEME.muted, fontWeight: 900 }}>
+              Selezionato:{" "}
+              <strong style={{ color: THEME.text }}>
+                {selectedPatient ? `${selectedPatient.last_name} ${selectedPatient.first_name}` : "-"}
+              </strong>
+              {selectedPatient && selectedPatient.treatment && (
+                <span style={{ marginLeft: 16 }}>
+                  • Trattamento: <strong style={{ color: THEME.text }}>{selectedPatient.treatment}</strong>
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginTop: 24 }}>
+              <button
+                onClick={() => setCreateOpen(false)}
+                style={{
+                  padding: "12px 20px",
+                  borderRadius: 8,
+                  border: `1px solid ${THEME.borderSoft}`,
+                  background: THEME.panelSoft,
+                  color: THEME.text,
+                  cursor: "pointer",
+                  fontWeight: 900,
+                  minWidth: 120,
+                  fontSize: 13,
+                }}
+              >
+                Annulla
+              </button>
+
+              <button
+                onClick={() => setShowWhatsAppConfirm(true)}
+                disabled={creating || !selectedPatient}
+                style={{
+                  padding: "12px 20px",
+                  borderRadius: 8,
+                  border: `1px solid ${THEME.greenDark}`,
+                  background: THEME.green,
+                  color: "#fff",
+                  cursor: creating || !selectedPatient ? "not-allowed" : "pointer",
+                  fontWeight: 900,
+                  minWidth: 200,
+                  opacity: creating || !selectedPatient ? 0.6 : 1,
+                  fontSize: 13,
+                }}
+              >
+                {creating ? "Creazione..." : isRecurring ? "Crea ricorrenza" : "Crea appuntamento"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+        {showWhatsAppConfirm && (
+        <>
+          <div
+            className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`}
+            onClick={() => setShowWhatsAppConfirm(false)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(15,23,42,0.35)",
+              zIndex: 10000,
+            }}
+          />
+          
+          <div
+            style={{
+              position: "fixed",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              width: 500,
+              maxWidth: "90%",
+              background: THEME.panelBg,
+              color: THEME.text,
+              borderRadius: 12,
+              border: `1px solid ${THEME.borderSoft}`,
+              boxShadow: "0 18px 60px rgba(15,23,42,0.25)",
+              padding: 24,
+              zIndex: 10001,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+              <div style={{ fontSize: 24 }}>📱</div>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 900, color: THEME.blueDark }}>
+                  {selectedPatient?.phone ? "Invia conferma WhatsApp?" : "Nessun numero di telefono"}
+                </div>
+                <div style={{ marginTop: 4, fontSize: 13, color: THEME.muted, fontWeight: 900 }}>
+                  {selectedPatient?.phone 
+                    ? "Vuoi inviare il messaggio di conferma al paziente?"
+                    : "Il paziente non ha un numero di telefono registrato. Vuoi comunque creare l'appuntamento?"}
+                </div>
+              </div>
+            </div>
+
+            {selectedPatient?.phone && (
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 13, fontWeight: 900, color: THEME.text, marginBottom: 8 }}>
+                  Messaggio che verrà inviato:
+                </div>
+                <div style={{
+                  background: THEME.panelSoft,
+                  padding: 16,
+                  borderRadius: 8,
+                  border: `1px solid ${THEME.border}`,
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                  whiteSpace: "pre-wrap",
+                  maxHeight: 150,
+                  overflowY: "auto",
+                }}>
+                  Grazie per averci scelto.
+                  Ricordiamo il prossimo appuntamento fissato per {formatDateRelative(new Date(createStartISO))} alle {fmtTime(createStartISO)}.
+
+                  A presto,
+                  Dr. Marco Turchetta
+                  Fisioterapia e Osteopatia
+                </div>
+                <div style={{ marginTop: 8, fontSize: 12, color: THEME.muted, fontWeight: 900 }}>
+                  Destinatario: {selectedPatient?.phone}
+                </div>
+              </div>
+            )}
+
+            {!selectedPatient?.phone && (
+              <div style={{ marginBottom: 24 }}>
+                <div style={{
+                  background: "rgba(249, 115, 22, 0.1)",
+                  border: `1px solid ${THEME.amber}`,
+                  padding: 16,
+                  borderRadius: 8,
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                  color: THEME.amber,
+                  fontWeight: 900,
+                }}>
+                  ⚠️ Attenzione: Il paziente {selectedPatient?.last_name} {selectedPatient?.first_name} non ha un numero di telefono registrato.
+                  <br /><br />
+                  Puoi comunque creare l'appuntamento e successivamente aggiungere il numero di telefono nella scheda paziente.
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
+              <button
+                onClick={async () => {
+                  setShowWhatsAppConfirm(false);
+                  await createAppointment(false);
+                }}
+                style={{
+                  padding: "12px 20px",
+                  borderRadius: 8,
+                  border: `1px solid ${THEME.borderSoft}`,
+                  background: THEME.panelSoft,
+                  color: THEME.text,
+                  cursor: "pointer",
+                  fontWeight: 900,
+                  minWidth: 120,
+                  fontSize: 13,
+                }}
+              >
+                {selectedPatient?.phone ? "Salta" : "Crea senza WhatsApp"}
+              </button>
+              
+              {selectedPatient?.phone && (
+                <button
+                  onClick={async () => {
+                    setShowWhatsAppConfirm(false);
+                    await createAppointment(true);
+                  }}
+                  style={{
+                    padding: "12px 20px",
+                    borderRadius: 8,
+                    border: `1px solid ${THEME.greenDark}`,
+                    background: "#25d366",
+                    color: "#fff",
+                    cursor: "pointer",
+                    fontWeight: 900,
+                    minWidth: 200,
+                    fontSize: 13,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <span>📱</span>
+                  Crea e invia WhatsApp
+                </button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {selectedEvent && (
+        <div
+          className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`}
+          onClick={() => setSelectedEvent(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15,23,42,0.35)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 700,
+              maxWidth: "100%",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              background: THEME.panelBg,
+              color: THEME.text,
+              borderRadius: 12,
+              border: `1px solid ${THEME.borderSoft}`,
+              boxShadow: "0 18px 60px rgba(15,23,42,0.25)",
+              padding: 24,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 12, marginBottom: 20 }}>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: THEME.blueDark, letterSpacing: -0.2 }}>{selectedEvent.title}</div>
+                <div style={{ marginTop: 6, fontSize: 13, color: THEME.muted, fontWeight: 900 }}>
+                  Stato: <strong style={{ color: statusColor(editStatus) }}>{statusLabel(editStatus)}</strong>
+                  {selectedEvent.location === "domicile" && (
+                    <span style={{ marginLeft: 12, color: THEME.amber, fontWeight: 900 }}>🏠 DOMICILIO</span>
+                  )}
+                </div>
+              </div>
+
+              <button
+                onClick={() => setSelectedEvent(null)}
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 8,
+                  border: `1px solid ${THEME.borderSoft}`,
+                  background: THEME.panelSoft,
+                  color: THEME.text,
+                  cursor: "pointer",
+                  fontWeight: 900,
+                  fontSize: 14,
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+              <button
+                onClick={() => {
+                  const event = events.find(e => e.id === selectedEvent.id);
+                  if (event) {
+                    openCreateModal(event.start, event.start.getHours(), event.start.getMinutes(), event);
+                    setSelectedEvent(null);
+                  }
+                }}
+                style={{
+                  padding: "10px 16px",
+                  borderRadius: 8,
+                  border: `1px solid ${THEME.blueDark}`,
+                  background: THEME.blue,
+                  color: "#fff",
+                  cursor: "pointer",
+                  fontWeight: 900,
+                  fontSize: 13,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <span>📋</span>
+                Duplica
+              </button>
+            </div>
+
+            <div style={{ marginBottom: 20, border: `1px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
+              <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 12 }}>
+                Modifica Data e Orario
+              </div>
+              
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 8 }}>
+                    Data
+                  </label>
+                  <input
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: "#fff",
+                      color: THEME.text,
+                      outline: "none",
+                      fontWeight: 800,
+                      fontSize: 13,
+                    }}
+                  />
+                </div>
+                
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 8 }}>
+                    Orario Inizio
+                  </label>
+                  <select
+                    value={editStartTime}
+                    onChange={(e) => setEditStartTime(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: "#fff",
+                      color: THEME.text,
+                      outline: "none",
+                      fontWeight: 800,
+                      fontSize: 13,
+                    }}
+                  >
+                    {timeSelectSlots.map((time) => (
+                      <option key={time} value={time}>
+                        {time}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 8 }}>
+                    Durata
+                  </label>
+                  <select
+                    value={editDuration}
+                    onChange={(e) => setEditDuration(e.target.value as "1" | "1.5" | "2")}
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: "#fff",
+                      color: THEME.text,
+                      outline: "none",
+                      fontWeight: 800,
+                      fontSize: 13,
+                    }}
+                  >
+                    <option value="1">1 ora</option>
+                    <option value="1.5">1.5 ore</option>
+                    <option value="2">2 ore</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 900, marginTop: 8 }}>
+                Nuovo orario: {editDate && editStartTime ? 
+                  `${editDate.split('-').reverse().join('/')} alle ${editStartTime}` : 
+                  "Seleziona data e orario"}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 20, border: `1px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
+              <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 12 }}>
+                Trattamento e Prezzo
+              </div>
+              
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 8 }}>
+                    Trattamento
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={() => setEditTreatmentType("seduta")}
+                      style={{
+                        flex: 1,
+                        padding: "8px 10px",
+                        borderRadius: 8,
+                        border: `1px solid ${editTreatmentType === "seduta" ? THEME.blueDark : THEME.borderSoft}`,
+                        background: editTreatmentType === "seduta" ? THEME.blue : "#fff",
+                        color: editTreatmentType === "seduta" ? "#fff" : THEME.text,
+                        cursor: "pointer",
+                        fontWeight: 900,
+                        fontSize: 12,
+                      }}
+                    >
+                      Seduta
+                    </button>
+                    <button
+                      onClick={() => setEditTreatmentType("macchinario")}
+                      style={{
+                        flex: 1,
+                        padding: "8px 10px",
+                        borderRadius: 8,
+                        border: `1px solid ${editTreatmentType === "macchinario" ? THEME.blueDark : THEME.borderSoft}`,
+                        background: editTreatmentType === "macchinario" ? THEME.blue : "#fff",
+                        color: editTreatmentType === "macchinario" ? "#fff" : THEME.text,
+                        cursor: "pointer",
+                        fontWeight: 900,
+                        fontSize: 12,
+                      }}
+                    >
+                      Solo Macchinario
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 8 }}>
+                    Fatturazione
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={() => setEditPriceType("invoiced")}
+                      style={{
+                        flex: 1,
+                        padding: "8px 10px",
+                        borderRadius: 8,
+                        border: `1px solid ${editPriceType === "invoiced" ? THEME.greenDark : THEME.borderSoft}`,
+                        background: editPriceType === "invoiced" ? THEME.green : "#fff",
+                        color: editPriceType === "invoiced" ? "#fff" : THEME.text,
+                        cursor: "pointer",
+                        fontWeight: 900,
+                        fontSize: 12,
+                      }}
+                    >
+                      Fatturato
+                    </button>
+                    <button
+                      onClick={() => setEditPriceType("cash")}
+                      style={{
+                        flex: 1,
+                        padding: "8px 10px",
+                        borderRadius: 8,
+                        border: `1px solid ${editPriceType === "cash" ? THEME.amber : THEME.borderSoft}`,
+                        background: editPriceType === "cash" ? "rgba(249,115,22,0.1)" : "#fff",
+                        color: editPriceType === "cash" ? THEME.amber : THEME.text,
+                        cursor: "pointer",
+                        fontWeight: 900,
+                        fontSize: 12,
+                      }}
+                    >
+                      Contanti
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 8 }}>
+                  Importo (€)
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <input
+                    value={editAmount}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/[^0-9.,]/g, '');
+                      setEditAmount(value);
+                    }}
+                    placeholder="Importo personalizzato(lasciare vuoto per prezzo standard)"
+                    style={{
+                      flex: 1,
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.blue}`,
+                      background: "#fff",
+                      color: THEME.text,
+                      outline: "none",
+                      fontWeight: 800,
+                      fontSize: 13,
+                    }}
+                  />
+                  <button
+                    onClick={() => {
+                      const standardPrice = editTreatmentType === "seduta" 
+                        ? (editPriceType === "invoiced" ? "40" : "35")
+                        : (editPriceType === "invoiced" ? "25" : "20");
+                      setEditAmount(standardPrice);
+                    }}
+                    style={{
+                      padding: "10px 16px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: THEME.panelSoft,
+                      color: THEME.text,
+                      cursor: "pointer",
+                      fontWeight: 900,
+                      fontSize: 12,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    Usa standard
+                  </button>
+                </div>
+                <div style={{ marginTop: 8, fontSize: 11, color: THEME.muted, fontWeight: 900 }}>
+                  {editAmount ? `Totale: € ${parseFloat(editAmount.replace(',', '.')).toFixed(2)}` : 
+                   `Prezzo standard: € ${editTreatmentType === "seduta" 
+                     ? (editPriceType === "invoiced" ? "40.00" : "35.00")
+                     : (editPriceType === "invoiced" ? "25.00" : "20.00")}`}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted }}>Colore personalizzato:</div>
+                <input
+                  type="color"
+                  value={eventColors[selectedEvent?.patient_id || ""] || getEventColor(events.find(e => e.id === selectedEvent?.id) || { status: "booked" })}
+                  onChange={(e) => {
+                    if (selectedEvent?.patient_id) {
+                      setEventColors(prev => ({
+                        ...prev,
+                        [selectedEvent.patient_id!]: e.target.value
+                      }));
+                    }
+                  }}
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 6,
+                    border: `1px solid ${THEME.border}`,
+                    cursor: "pointer",
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    if (selectedEvent?.patient_id) {
+                      setEventColors(prev => {
+                        const newColors = { ...prev };
+                        delete newColors[selectedEvent.patient_id!];
+                        return newColors;
+                      });
+                    }
+                  }}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    border: `1px solid ${THEME.borderSoft}`,
+                    background: THEME.panelSoft,
+                    color: THEME.text,
+                    fontSize: 11,
+                    fontWeight: 900,
+                    cursor: "pointer",
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 8 }}>
+                  Stato
+                  <select
+                    value={editStatus}
+                    onChange={(e) => setEditStatus(e.target.value as Status)}
+                    style={{
+                      width: "100%",
+                      marginTop: 8,
+                      padding: 10,
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: "#fff",
+                      color: THEME.text,
+                      outline: "none",
+                      fontWeight: 800,
+                      fontSize: 13,
+                    }}
+                  >
+                    <option value="booked">Prenotato</option>
+                    <option value="confirmed">Confermato</option>
+                    <option value="done">Eseguito</option>
+                    <option value="not_paid">Non pagata</option>
+                    <option value="cancelled">Annullato</option>
+                  </select>
+                </label>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 8 }}>
+                  Promemoria
+                </div>
+                <button
+                  onClick={() => {
+                    const event = events.find(e => e.id === selectedEvent.id);
+                    if (event) {
+                      sendReminder(event.id, event.patient_phone, event.patient_first_name ?? undefined);
+                    }
+                  }}
+                  disabled={!events.find(e => e.id === selectedEvent.id)?.patient_phone}
+                  style={{
+                    width: "100%",
+                    padding: "12px",
+                    borderRadius: 8,
+                    border: `1px solid ${THEME.greenDark}`,
+                    background: "#25d366",
+                    color: "#fff",
+                    cursor: events.find(e => e.id === selectedEvent.id)?.patient_phone ? "pointer" : "not-allowed",
+                    fontWeight: 900,
+                    fontSize: 13,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    opacity: events.find(e => e.id === selectedEvent.id)?.patient_phone ? 1 : 0.6,
+                  }}
+                >
+                  <span>📱</span>
+                  Invia promemoria WhatsApp
+                </button>
+              </div>
+            </div>
+
+            <label style={{ display: "block", fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 20 }}>
+              Nota
+              <textarea
+                value={editNote}
+                onChange={(e) => setEditNote(e.target.value)}
+                rows={4}
+                style={{
+                  width: "100%",
+                  marginTop: 8,
+                  padding: 10,
+                  borderRadius: 8,
+                  border: `1px solid ${THEME.borderSoft}`,
+                  background: "#fff",
+                  color: THEME.text,
+                  outline: "none",
+                  resize: "vertical",
+                  fontWeight: 800,
+                  fontSize: 13,
+                }}
+              />
+            </label>
+
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 24, flexWrap: "wrap" }}>
+              <button
+                onClick={deleteAppointment}
+                style={{
+                  padding: "12px 20px",
+                  borderRadius: 8,
+                  border: `1px solid rgba(220,38,38,0.40)`,
+                  background: "rgba(220,38,38,0.08)",
+                  color: THEME.red,
+                  cursor: "pointer",
+                  fontWeight: 900,
+                  minWidth: 120,
+                  fontSize: 13,
+                }}
+              >
+                Elimina
+              </button>
+
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                <Link
+                  href={selectedEvent.patient_id ? `/patients/${selectedEvent.patient_id}` : "#"}
+                  style={{
+                    padding: "12px 20px",
+                    borderRadius: 8,
+                    border: `1px solid ${THEME.borderSoft}`,
+                    background: THEME.panelSoft,
+                    color: THEME.text,
+                    fontWeight: 900,
+                    textDecoration: "none",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    minWidth: 170,
+                    justifyContent: "center",
+                    opacity: selectedEvent.patient_id ? 1 : 0.5,
+                    pointerEvents: selectedEvent.patient_id ? "auto" : "none",
+                    fontSize: 13,
+                  }}
+                >
+                  Scheda paziente
+                </Link>
+
+                <button
+                  onClick={saveAppointment}
+                  style={{
+                    padding: "12px 20px",
+                    borderRadius: 8,
+                    border: `1px solid ${THEME.greenDark}`,
+                    background: THEME.green,
+                    color: "#fff",
+                    cursor: "pointer",
+                    fontWeight: 900,
+                    minWidth: 140,
+                    fontSize: 13,
+                  }}
+                >
+                  Salva modifiche
+                </button>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 16, fontSize: 12, color: THEME.muted, fontWeight: 900 }}>
+              Nota: "Annullato" mantiene lo storico · "Elimina" rimuove dal DB.
+            </div>
+          </div>
+        </div>
+      )}
+
       {quickActionsMenu && (
         <div
           style={{
@@ -1962,7 +5351,7 @@ return (
                 onClick={() => {
                   const event = events.find(e => e.id === quickActionsMenu?.eventId);
                   if (event) {
-                    toggleDoneQuick(event.id, normalizeStatus(event.status));
+                    toggleDoneQuick(event.id, event.status);
                     setQuickActionsMenu(null);
                   }
                 }}
@@ -1988,7 +5377,7 @@ return (
                 onClick={() => {
                   const event = events.find(e => e.id === quickActionsMenu?.eventId);
                   if (event) {
-                    sendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined);
+                    sendReminder(event.id, event.patient_phone, event.patient_first_name ?? undefined);
                     setQuickActionsMenu(null);
                   }
                 }}
@@ -2065,32 +5454,3 @@ return (
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
