@@ -286,6 +286,16 @@ useEffect(() => {
   return () => document.removeEventListener("mousedown", onDown);
 }, [userMenuOpen]);
 
+
+  // Chiudi sidebar con ESC
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSidebarOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
 const handleLogout = useCallback(async () => {
   try {
     await supabase.auth.signOut();
@@ -524,8 +534,30 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [todaysAppointments, setTodaysAppointments] = useState<any[]>([]);
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Timer per linea del tempo corrente
+  
+  // Sidebar behavior: overlay on mobile, "push content" on desktop
+  const SIDEBAR_W = 300;
+  const [isDesktop, setIsDesktop] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mql = window.matchMedia("(min-width: 1024px)");
+    const update = () => setIsDesktop(mql.matches);
+    update();
+    // Safari < 14 fallback: addListener/removeListener
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyMql: any = mql;
+    if (mql.addEventListener) mql.addEventListener("change", update);
+    else if (anyMql.addListener) anyMql.addListener(update);
+
+    return () => {
+      if (mql.removeEventListener) mql.removeEventListener("change", update);
+      else if (anyMql.removeListener) anyMql.removeListener(update);
+    };
+  }, []);
+// Timer per linea del tempo corrente
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
@@ -1913,7 +1945,7 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
   window.history.replaceState({}, "", url.toString());
 }, []);
 return (
-    <div style={{ display: "flex", minHeight: "100vh", background: THEME.appBg }}>
+    <div style={{ minHeight: "100vh", background: THEME.appBg }}>
       <style jsx global>{`
         .sidebar-scroll {
           overflow-y: auto;
@@ -1930,23 +1962,61 @@ return (
         .sidebar-scroll.show-scrollbar::-webkit-scrollbar-track { background: rgba(15,23,42,0.06); border-radius: 10px; }
       `}</style>
 
+      
+      {sidebarOpen && !isDesktop && (
+        <div
+          className="no-print"
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.35)",
+            zIndex: 40,
+          }}
+        />
+      )}
+
       <aside
         ref={sidebarRef}
         className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`}
         style={{
-          width: 300,
+          width: SIDEBAR_W,
+          maxWidth: "85vw",
           background: THEME.panelBg,
           borderRight: `1px solid ${THEME.border}`,
           padding: 16,
-          flexShrink: 0,
-          position: "sticky",
+          position: "fixed",
+          left: 0,
           top: 0,
           height: "100vh",
           overflowY: "auto",
-        }}
+          zIndex: 50,
+          transform: sidebarOpen ? "translateX(0)" : "translateX(-110%)",
+          transition: "transform 180ms ease",
+          pointerEvents: sidebarOpen ? "auto" : "none",
+}}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-  <div style={{ fontSize: 18, fontWeight: 900, color: THEME.blueDark, letterSpacing: -0.2 }}>FisioHub</div>
+  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+    <div style={{ fontSize: 18, fontWeight: 900, color: THEME.blueDark, letterSpacing: -0.2 }}>FisioHub</div>
+    <button
+      type="button"
+      onClick={() => setSidebarOpen(false)}
+      title="Nascondi sidebar"
+      style={{
+        border: `1px solid ${THEME.border}`,
+        background: "white",
+        borderRadius: 12,
+        padding: "6px 10px",
+        cursor: "pointer",
+        fontWeight: 900,
+        color: THEME.text,
+        lineHeight: 1,
+      }}
+    >
+      ✕
+    </button>
+  </div>
 
   <div ref={userMenuRef} style={{ position: "relative" }}>
     <button
@@ -2411,7 +2481,33 @@ return (
         </div>
       </aside>
 
-      <main className="print-wrap" style={{ flex: 1, display: "flex", flexDirection: "column", padding: 24, minWidth: 0 }}>
+      <main className="print-wrap" style={{flex: 1, display: "flex", flexDirection: "column", padding: 24, minWidth: 0,
+        marginLeft: isDesktop && sidebarOpen ? SIDEBAR_W : 0,
+        width: isDesktop && sidebarOpen ? `calc(100% - ${SIDEBAR_W}px)` : "100%",
+        boxSizing: "border-box",
+        transition: "margin-left 180ms ease, width 180ms ease",
+        overflowX: "hidden",
+}}>
+        {/* Top bar */}
+        <div className="no-print" style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+          <button
+            type="button"
+            onClick={() => setSidebarOpen((v) => !v)}
+            title="Menu"
+            style={{
+              border: `1px solid ${THEME.border}`,
+              background: "white",
+              borderRadius: 14,
+              padding: "10px 12px",
+              cursor: "pointer",
+              fontWeight: 900,
+              color: THEME.text,
+            }}
+          >
+            {sidebarOpen ? "✕ Chiudi" : "☰ Menu"}
+          </button>
+        </div>
+
         <div style={{ width: "100%" }}>
           <div className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`} style={{ 
             display: "flex", 
