@@ -41,16 +41,32 @@ type PracticeSettings = {
   auto_apply_prices: boolean | null;
 };
 
-// Auto-fit font size for patient full name inside event blocks without breaking layout
-const autoNameFontSize = (fullName?: string | null) => {
-  const len = (fullName ?? "").trim().length;
-  if (len <= 14) return 13;
-  if (len <= 20) return 12;
-  if (len <= 28) return 11;
-  if (len <= 36) return 10;
-  return 9;
+type CalendarEvent = {
+  id: string;
+  patient_id: string;
+  title: string;
+  start: Date;
+  end: Date;
+  status: Status;
+  calendar_note: string | null;
+  location: LocationType | null;
+  clinic_site: string | null;
+  domicile_address: string | null;
+  treatment_type: string | null;
+  price_type: string | null;
+  amount: number | null;
+  expected_price: number | null;
+  is_paid: boolean;
+  reminder_sent_at: Date | null;
+  reminder_status: string | null;
+  whatsapp_sent_at: Date | null;
+  patient_name: string;
+  patient_first_name: string | null;
+  patient_last_name: string | null;
+  patient_phone: string | null;
+  treatment: string | null;
+  diagnosis: string | null;
 };
-
 
 const THEME = {
   appBg: "#f1f5f9",
@@ -85,12 +101,28 @@ function statusColor(status: Status) {
     case "confirmed":
       return THEME.blue;
     case "not_paid":
-      return THEME.amber; // oppure THEME.red se vuoi più “urgente”
+      return THEME.amber;
     case "cancelled":
       return THEME.gray;
     case "booked":
     default:
       return THEME.red;
+  }
+}
+
+function statusBg(status: Status) {
+  switch (status) {
+    case "done":
+      return "rgba(22,163,74,0.18)";
+    case "confirmed":
+      return "rgba(37,99,235,0.14)";
+    case "not_paid":
+      return "rgba(249,115,22,0.14)";
+    case "cancelled":
+      return "rgba(148,163,184,0.12)";
+    case "booked":
+    default:
+      return "rgba(220,38,38,0.14)";
   }
 }
 
@@ -108,17 +140,24 @@ function statusLabel(status: Status) {
     default:
       return "Prenotato";
   }
-
-
-// Riduce automaticamente la dimensione del nome per farlo stare in massimo 2 righe nel blocco evento,
-// senza spostare l'orario o creare sovrapposizioni.
-function autoNameFontSize(fullName: string) {
-  const n = (fullName || "").trim().length;
-  if (n <= 18) return 12;
-  if (n <= 26) return 11;
-  if (n <= 34) return 10.5;
-  return 10;
 }
+
+// Auto-fit font size for patient full name inside event blocks without breaking layout
+function autoNameFontSize(fullName?: string | null) {
+  const n = ((fullName ?? "") as string).trim().length;
+  if (n <= 14) return 13;
+  if (n <= 20) return 12;
+  if (n <= 28) return 11;
+  if (n <= 36) return 10;
+  return 9;
+}
+
+function asTreatmentType(v: string | null | undefined): "seduta" | "macchinario" {
+  return v === "macchinario" ? "macchinario" : "seduta";
+}
+
+function asPriceType(v: string | null | undefined): "invoiced" | "cash" {
+  return v === "cash" ? "cash" : "invoiced";
 }
 
 
@@ -173,8 +212,9 @@ function generateRecurringStarts(params: {
   firstStart: Date;
   untilDate: Date;
   weekDays: number[];
+  frequency?: number; // every N weeks (default 1)
 }) {
-  const { firstStart, untilDate, weekDays } = params;
+  const { firstStart, untilDate, weekDays, frequency = 1 } = params;
   const hh = firstStart.getHours();
   const mm = firstStart.getMinutes();
   const ss = firstStart.getSeconds();
@@ -185,11 +225,21 @@ function generateRecurringStarts(params: {
   endDay.setHours(23, 59, 59, 999);
 
   const results: Date[] = [];
+  
+  // Calculate which week we're in relative to the start
+  const weekStart = startOfISOWeekMonday(startDay);
 
   for (let d = new Date(startDay); d <= endDay; d = addDays(d, 1)) {
     const dow = d.getDay();
     if (dow === 0) continue;
     if (!weekDays.includes(dow)) continue;
+
+    // Check if this day is in a valid week based on frequency
+    if (frequency > 1) {
+      const thisWeekStart = startOfISOWeekMonday(d);
+      const weeksDiff = Math.round((thisWeekStart.getTime() - weekStart.getTime()) / (7 * 24 * 60 * 60 * 1000));
+      if (weeksDiff % frequency !== 0) continue;
+    }
 
     const occ = new Date(d);
     occ.setHours(hh, mm, ss, ms);
@@ -234,7 +284,7 @@ const CLINIC_ADDRESSES: Record<string, string> = {
 
 export default function CalendarPage() {
   return (
-    <Suspense fallback={<div style={{ padding: 24 }}>Caricamento calendario…</div>}>
+    <Suspense fallback={<div style={{ padding: 40, textAlign: "center", color: "#7b8fa3", fontFamily: "Inter, -apple-system, sans-serif", fontSize: 15 }}>Caricamento calendario…</div>}>
       <CalendarPageInner />
     </Suspense>
   );
@@ -244,7 +294,7 @@ export default function CalendarPage() {
 function CalendarPageInner() {
 
   const params = useSearchParams();
-  const [events, setEvents] = useState<any[]>([]);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -319,15 +369,15 @@ const handleLogout = useCallback(async () => {
       if (error) throw error;
 
       setPracticeSettings({
-        standard_invoice: (data?.standard_invoice ?? null) as any,
-        standard_cash: (data?.standard_cash ?? null) as any,
-        machine_invoice: (data?.machine_invoice ?? null) as any,
-        machine_cash: (data?.machine_cash ?? null) as any,
-        auto_apply_prices: (data?.auto_apply_prices ?? null) as any,
+        standard_invoice: data?.standard_invoice ?? null,
+        standard_cash: data?.standard_cash ?? null,
+        machine_invoice: data?.machine_invoice ?? null,
+        machine_cash: data?.machine_cash ?? null,
+        auto_apply_prices: data?.auto_apply_prices ?? null,
       });
-    } catch (e: any) {
-      // Non blocchiamo il calendario se manca la tabella o la riga: fallback su default hardcoded
-      console.warn("Impossibile caricare practice_settings:", e?.message ?? e);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn("Impossibile caricare practice_settings:", msg);
       setPracticeSettings(null);
     } finally {
       setPracticeSettingsLoaded(true);
@@ -377,14 +427,14 @@ const userInitials = useMemo(() => {
     id: string;
     title: string;
     patient_id?: string;
-    location?: LocationType;
+    location?: LocationType | null;
     clinic_site?: string | null;
     domicile_address?: string | null;
     treatment?: string | null;
     diagnosis?: string | null;
     amount?: number | null;
-    treatment_type?: string;
-    price_type?: string;
+    treatment_type?: string | null;
+    price_type?: string | null;
     start?: Date;
     end?: Date;
   } | null>(null);
@@ -429,7 +479,7 @@ const userInitials = useMemo(() => {
 
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurringDays, setRecurringDays] = useState<number[]>([1, 2, 3, 4, 5, 6]);
-  const [recurringUntil, setRecurringUntil] = useState<string>(() => toDateInputValue(addWeeks(new Date(), 4)));
+  const [recurringUntil, setRecurringUntil] = useState<string>("");
 
   const [quickPatientOpen, setQuickPatientOpen] = useState(false);
   const [quickPatientFirstName, setQuickPatientFirstName] = useState("");
@@ -437,38 +487,61 @@ const userInitials = useMemo(() => {
   const [quickPatientPhone, setQuickPatientPhone] = useState("");
   const [creatingQuickPatient, setCreatingQuickPatient] = useState(false);
 
-  const [currentDate, setCurrentDate] = useState<Date>(new Date());
+  const [currentDate, setCurrentDate] = useState<Date>(new Date(2026, 0, 1)); // placeholder, overwritten in useEffect
+
+  // Hydration-safe: set real date on client only
+  useEffect(() => {
+    setCurrentDate(new Date());
+  }, []);
 
   const [weeklyExpectedRevenue, setWeeklyExpectedRevenue] = useState<number>(0);
 
+  const [viewType, setViewType] = useState<"day" | "week" | "month">("week");
+
+  // Mounted flag to prevent state updates before hydration
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
   useEffect(() => {
+    if (!mounted) return;
     let cancelled = false;
 
-    const loadWeeklyStats = async () => {
+    const loadPeriodStats = async () => {
       try {
-        const today = new Date(currentDate);
-        const day = today.getDay(); // 0 domenica
-        const diffToMonday = (day === 0 ? -6 : 1) - day;
+        let periodStart: Date;
+        let periodEnd: Date;
 
-        const weekStart = new Date(today);
-        weekStart.setDate(today.getDate() + diffToMonday);
-        weekStart.setHours(0, 0, 0, 0);
+        if (viewType === "month") {
+          // Intero mese
+          periodStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+          periodStart.setHours(0, 0, 0, 0);
+          periodEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+          periodEnd.setHours(0, 0, 0, 0);
+        } else {
+          // Settimana corrente
+          const today = new Date(currentDate);
+          const day = today.getDay();
+          const diffToMonday = (day === 0 ? -6 : 1) - day;
+          periodStart = new Date(today);
+          periodStart.setDate(today.getDate() + diffToMonday);
+          periodStart.setHours(0, 0, 0, 0);
+          periodEnd = new Date(periodStart);
+          periodEnd.setDate(periodStart.getDate() + 7);
+          periodEnd.setHours(0, 0, 0, 0);
+        }
 
-        const weekEnd = new Date(weekStart);
-        weekEnd.setDate(weekStart.getDate() + 7);
-        weekEnd.setHours(0, 0, 0, 0);
 const { data, error } = await supabase
           .from("appointments")
           .select("amount, expected_price, status, start_at")
-          .gte("start_at", weekStart.toISOString())
-          .lt("start_at", weekEnd.toISOString());
+          .gte("start_at", periodStart.toISOString())
+          .lt("start_at", periodEnd.toISOString());
 
         if (error) throw error;
 
         const rows = data ?? [];
-        const validRows = rows.filter((r: any) => r.status !== "cancelled");
+        const validRows = rows.filter((r) => r.status !== "cancelled");
 
-        const revenue = validRows.reduce((sum: number, r: any) => {
+        const revenue = validRows.reduce((sum: number, r) => {
           const v = r.amount ?? r.expected_price ?? 0;
           return sum + Number(v);
         }, 0);
@@ -479,13 +552,11 @@ const { data, error } = await supabase
       }
     };
 
-    loadWeeklyStats();
+    loadPeriodStats();
     return () => {
       cancelled = true;
     };
-  }, [currentDate]);
-
-  const [viewType, setViewType] = useState<"day" | "week">("week");
+  }, [currentDate, viewType, mounted]);
 
   const [draggingEvent, setDraggingEvent] = useState<{
     id: string;
@@ -493,12 +564,40 @@ const { data, error } = await supabase
     originalEnd: Date;
   } | null>(null);
   const [draggingOver, setDraggingOver] = useState<{dayIndex: number, hour: number, minute: number} | null>(null);
+  const [dragGhostPos, setDragGhostPos] = useState<{x: number, y: number} | null>(null);
+
+  // Overlap warning
+  const [overlapWarning, setOverlapWarning] = useState<string | null>(null);
+
+  // Recurring frequency (every N weeks)
+  const [recurringFrequency, setRecurringFrequency] = useState<1 | 2 | 3 | 4>(1);
+
+  // Treatment type colors
+  const TREATMENT_COLORS: Record<string, string> = {
+    seduta: "#2563eb",       // blu ardesia smorzato
+    macchinario: "#7c3aed",  // viola smorzato
+  };
 
   const [printMenuOpen, setPrintMenuOpen] = useState(false);
 const [filtersExpanded, setFiltersExpanded] = useState(false);
   const printMenuRef = useRef<HTMLDivElement>(null);
 
-  const [currentTime, setCurrentTime] = useState(new Date());
+  // Feature: Ricerca rapida nel calendario
+  const [calendarSearch, setCalendarSearch] = useState("");
+  const [calendarSearchOpen, setCalendarSearchOpen] = useState(false);
+
+  // Feature: Hover tooltip per mini-scheda paziente
+  const [hoverTooltip, setHoverTooltip] = useState<{
+    event: CalendarEvent;
+    x: number;
+    y: number;
+  } | null>(null);
+  const hoverTimer = useRef<any>(null);
+
+  // Feature: Riepilogo giornaliero
+  const [dailySummaryOpen, setDailySummaryOpen] = useState(false);
+
+  const [currentTime, setCurrentTime] = useState(new Date(2026, 0, 1));
   const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
   const [showAvailableOnly, setShowAvailableOnly] = useState(false);
 
@@ -511,7 +610,7 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
   } | null>(null);
 
   const [duplicateMode, setDuplicateMode] = useState(false);
-  const [eventToDuplicate, setEventToDuplicate] = useState<any>(null);
+  const [eventToDuplicate, setEventToDuplicate] = useState<CalendarEvent | null>(null);
   const [duplicateDate, setDuplicateDate] = useState<string>("");
   const [duplicateTime, setDuplicateTime] = useState<string>("09:00");
 
@@ -531,9 +630,10 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
     eventId?: string;
   } | null>(null);
 
-  const [todaysAppointments, setTodaysAppointments] = useState<any[]>([]);
+  const [todaysAppointments, setTodaysAppointments] = useState<CalendarEvent[]>([]);
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const monthClickTimer = useRef<any>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   
@@ -559,6 +659,7 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
   }, []);
 // Timer per linea del tempo corrente
   useEffect(() => {
+    setCurrentTime(new Date());
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 60000);
@@ -617,7 +718,7 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
     setCurrentDate(new Date(iso));
   }, []);
 
-  const openCreateModal = useCallback((date: Date, hour: number = 9, minute: number = 0, duplicateEvent?: any) => {
+  const openCreateModal = useCallback((date: Date, hour: number = 9, minute: number = 0, duplicateEvent?: CalendarEvent) => {
     const timeStr = `${pad2(hour)}:${pad2(minute)}`;
     
     const defaultTime = duplicateEvent ? 
@@ -646,11 +747,11 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
     if (duplicateEvent) {
       setDuplicateMode(true);
       setEventToDuplicate(duplicateEvent);
-      setCreateLocation(duplicateEvent.location);
+      setCreateLocation(duplicateEvent.location ?? "studio");
       setCreateClinicSite(duplicateEvent.clinic_site || DEFAULT_CLINIC_SITE);
       setCreateDomicileAddress(duplicateEvent.domicile_address || "");
-      setTreatmentType(duplicateEvent.treatment_type || "seduta");
-      setPriceType(duplicateEvent.price_type || "invoiced");
+      setTreatmentType((duplicateEvent.treatment_type as "seduta" | "macchinario") || "seduta");
+      setPriceType((duplicateEvent.price_type as "invoiced" | "cash") || "invoiced");
       setCustomAmount(duplicateEvent.amount ? duplicateEvent.amount.toString() : "");
       setUseCustomPrice(!!duplicateEvent.amount);
       
@@ -663,8 +764,8 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
         `${p.last_name} ${p.first_name}` === duplicateEvent.patient_name
       ) || {
         id: duplicateEvent.patient_id,
-        first_name: duplicateEvent.patient_name.split(' ')[0],
-        last_name: duplicateEvent.patient_name.split(' ')[1] || '',
+        first_name: duplicateEvent.patient_first_name || '',
+        last_name: duplicateEvent.patient_last_name || '',
       };
       
       setSelectedPatient(patientFromEvent);
@@ -714,16 +815,18 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
         if (quickActionsMenu) setQuickActionsMenu(null);
       }
       
-      // Freccia sinistra/destra: Naviga tra settimane/giorni
+      // Freccia sinistra/destra: Naviga tra settimane/giorni/mesi
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
         if (viewType === 'week') goToPreviousWeek();
+        else if (viewType === 'month') goToPreviousMonth();
         else setCurrentDate(prev => addDays(prev, -1));
       }
       
       if (e.key === 'ArrowRight') {
         e.preventDefault();
         if (viewType === 'week') goToNextWeek();
+        else if (viewType === 'month') goToNextMonth();
         else setCurrentDate(prev => addDays(prev, 1));
       }
     };
@@ -770,8 +873,8 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
     return { top, height };
   }, []);
 
-  const getEventColor = useCallback((event: any) => {
-    if (eventColors[event.patient_id]) {
+  const getEventColor = useCallback((event: CalendarEvent | { status: Status; patient_id?: string }) => {
+    if (event.patient_id && eventColors[event.patient_id]) {
       return eventColors[event.patient_id];
     }
     return statusColor(event.status);
@@ -814,7 +917,7 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
   }, [events]);
 
   const weekOptions = useMemo(() => {
-    const base = startOfISOWeekMonday(new Date());
+    const base = startOfISOWeekMonday(currentDate);
     const opts: { value: string; label: string }[] = [];
     for (let w = -12; w <= 24; w++) {
       const start = addDays(base, w * 7);
@@ -825,7 +928,7 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
       });
     }
     return opts;
-  }, []);
+  }, [currentDate]);
 
   const getAvailabilityForecast = useCallback((date: Date) => {
     const dayStart = new Date(date);
@@ -886,7 +989,10 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
       const min = parseFloat(filters.minAmount);
       if (!isNaN(min)) {
         result = result.filter(event => {
-          const price = (event.amount ?? getDefaultAmount(event.treatment_type as any, event.price_type as any));
+          const price = (event.amount ?? getDefaultAmount(
+            (event.treatment_type as "seduta" | "macchinario") || "seduta",
+            (event.price_type as "invoiced" | "cash") || "invoiced"
+          ));
           return price >= min;
         });
       }
@@ -896,7 +1002,10 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
       const max = parseFloat(filters.maxAmount);
       if (!isNaN(max)) {
         result = result.filter(event => {
-          const price = (event.amount ?? getDefaultAmount(event.treatment_type as any, event.price_type as any));
+          const price = (event.amount ?? getDefaultAmount(
+            (event.treatment_type as "seduta" | "macchinario") || "seduta",
+            (event.price_type as "invoiced" | "cash") || "invoiced"
+          ));
           return price <= max;
         });
       }
@@ -904,6 +1013,78 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
     
     return result;
   }, [events, statusFilter, filters]);
+
+  // Feature: Search match highlighting
+  const searchMatchIds = useMemo(() => {
+    if (!calendarSearch.trim() || calendarSearch.trim().length < 2) return new Set<string>();
+    const q = calendarSearch.trim().toLowerCase();
+    return new Set(
+      events
+        .filter(e => e.patient_name.toLowerCase().includes(q) || 
+                     (e.calendar_note && e.calendar_note.toLowerCase().includes(q)) ||
+                     (e.treatment && e.treatment.toLowerCase().includes(q)))
+        .map(e => e.id)
+    );
+  }, [events, calendarSearch]);
+
+  const isSearchActive = calendarSearch.trim().length >= 2 && searchMatchIds.size > 0;
+
+  // Feature: Riepilogo giornaliero (today's summary)
+  const dailySummary = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayEvents = events.filter(e => {
+      const d = new Date(e.start);
+      d.setHours(0, 0, 0, 0);
+      return d.getTime() === today.getTime() && e.status !== "cancelled";
+    });
+
+    const done = todayEvents.filter(e => e.status === "done");
+    const notDone = todayEvents.filter(e => e.status !== "done");
+    const paid = todayEvents.filter(e => e.is_paid);
+    const unpaid = todayEvents.filter(e => !e.is_paid && e.status !== "cancelled");
+
+    let invoicedTotal = 0;
+    let cashTotal = 0;
+    paid.forEach(e => {
+      const amt = e.amount ?? getDefaultAmount(
+        (e.treatment_type as "seduta" | "macchinario") || "seduta",
+        (e.price_type as "invoiced" | "cash") || "invoiced"
+      );
+      if (e.price_type === "cash") cashTotal += amt;
+      else invoicedTotal += amt;
+    });
+
+    return {
+      total: todayEvents.length,
+      done: done.length,
+      notDone: notDone.length,
+      paid: paid.length,
+      unpaid: unpaid.length,
+      invoicedTotal,
+      cashTotal,
+      grandTotal: invoicedTotal + cashTotal,
+      events: todayEvents.sort((a, b) => a.start.getTime() - b.start.getTime()),
+    };
+  }, [events, getDefaultAmount]);
+
+  // Feature: Hover tooltip handlers
+  const handleEventHover = useCallback((e: React.MouseEvent, event: CalendarEvent) => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    hoverTimer.current = setTimeout(() => {
+      setHoverTooltip({
+        event,
+        x: rect.right + 8,
+        y: rect.top,
+      });
+    }, 400);
+  }, []);
+
+  const handleEventHoverEnd = useCallback(() => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    setHoverTooltip(null);
+  }, []);
 
   const loadAppointments = useCallback(async (startDate: Date, endDate: Date) => {
     setLoading(true);
@@ -970,9 +1151,9 @@ const name = patient ? `${patient.last_name ?? ""} ${patient.first_name ?? ""}`.
       title: name,
       start: new Date(a.start_at),
       end: new Date(a.end_at),
-      status: a.status,
+      status: a.status as Status,
       calendar_note: a.calendar_note ?? null,
-      location: a.location ?? null,
+      location: (a.location as LocationType) ?? null,
       clinic_site: a.clinic_site ?? null,
       domicile_address: a.domicile_address ?? null,
       treatment_type: a.treatment_type ?? null,
@@ -1005,6 +1186,14 @@ diagnosis: patient?.diagnosis ?? null,
       const startOfWeek = startOfISOWeekMonday(currentDate);
       const endOfWeek = addDays(startOfWeek, 7);
       loadAppointments(startOfWeek, endOfWeek);
+    } else if (viewType === "month") {
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth();
+      const firstDay = new Date(year, month, 1);
+      const startOffset = (firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1);
+      const calStart = addDays(firstDay, -startOffset);
+      const calEnd = addDays(calStart, 42);
+      loadAppointments(calStart, calEnd);
     } else {
       const startOfDay = new Date(currentDate);
       startOfDay.setHours(0, 0, 0, 0);
@@ -1015,7 +1204,7 @@ diagnosis: patient?.diagnosis ?? null,
   }, [currentDate, viewType, loadAppointments]);
 
   const stats = useMemo(() => {
-    const filteredEvents = viewType === "week" 
+    const filteredEvents = viewType === "week" || viewType === "month"
       ? events 
       : events.filter(e => 
           e.start.getDate() === currentDate.getDate() &&
@@ -1029,17 +1218,16 @@ diagnosis: patient?.diagnosis ?? null,
       confirmed: filteredEvents.filter(e => e.status === "confirmed").length,
       booked: filteredEvents.filter(e => e.status === "booked").length,
       revenue: filteredEvents.reduce((sum, e) => {
+        if (e.status !== "done") return sum;
         if (e.amount !== undefined && e.amount !== null) {
-          return e.status === "done" ? sum + e.amount : sum;
-        } else {
-          const price = e.treatment_type === "seduta" 
-            ? (e.price_type === "invoiced" ? 40 : 35)
-            : (e.price_type === "invoiced" ? 25 : 20);
-          return e.status === "done" ? sum + price : sum;
+          return sum + e.amount;
         }
+        const tType = (e.treatment_type === "macchinario" ? "macchinario" : "seduta") as "seduta" | "macchinario";
+        const pType = (e.price_type === "cash" ? "cash" : "invoiced") as "invoiced" | "cash";
+        return sum + getDefaultAmount(tType, pType);
       }, 0),
     };
-  }, [events, viewType, currentDate]);
+  }, [events, viewType, currentDate, getDefaultAmount]);
 
   const exportAppointments = useCallback(() => {
     const csvContent = [
@@ -1051,7 +1239,7 @@ diagnosis: patient?.diagnosis ?? null,
         e.patient_name,
         statusLabel(e.status),
         e.treatment_type === "seduta" ? "Seduta" : "Macchinario",
-        e.amount !== undefined && e.amount !== null ? `€${e.amount}` : `€${getDefaultAmount(e.treatment_type as any, e.price_type as any)}`,
+        e.amount !== undefined && e.amount !== null ? `€${e.amount}` : `€${getDefaultAmount(asTreatmentType(e.treatment_type), asPriceType(e.price_type))}`,
         e.location === "domicile" ? "DOMICILIO" : e.clinic_site,
         e.price_type === "invoiced" ? "Sì" : "No"
       ])
@@ -1258,6 +1446,102 @@ Fisioterapia e Osteopatia`;
     }
   }, []);
 
+  // Feature: Copia ultimo setting del paziente
+  const loadLastPatientSettings = useCallback(async (patientId: string) => {
+    const { data } = await supabase
+      .from("appointments")
+      .select("treatment_type, price_type, location, clinic_site, domicile_address, amount")
+      .eq("patient_id", patientId)
+      .order("start_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (data) {
+      if (data.treatment_type) setTreatmentType(data.treatment_type as "seduta" | "macchinario");
+      if (data.price_type) setPriceType(data.price_type as "invoiced" | "cash");
+      if (data.location) setCreateLocation(data.location as LocationType);
+      if (data.clinic_site) setCreateClinicSite(data.clinic_site);
+      if (data.domicile_address) setCreateDomicileAddress(data.domicile_address);
+      if (data.amount !== null && data.amount !== undefined) {
+        setCustomAmount(data.amount.toString());
+        setUseCustomPrice(true);
+      }
+    }
+  }, []);
+
+  // Feature: Avviso sovrapposizione orari
+  const checkOverlap = useCallback((startISO: string, endISO: string, excludeId?: string): string | null => {
+    const newStart = new Date(startISO);
+    const newEnd = new Date(endISO);
+
+    const overlapping = events.filter(e => {
+      if (excludeId && e.id === excludeId) return false;
+      if (e.status === "cancelled") return false;
+      return (newStart < e.end && newEnd > e.start);
+    });
+
+    if (overlapping.length > 0) {
+      const names = overlapping.map(e => `${e.patient_name} (${fmtTime(e.start.toISOString())}-${fmtTime(e.end.toISOString())})`).join(", ");
+      return `⚠️ Sovrapposizione con: ${names}`;
+    }
+    return null;
+  }, [events]);
+
+  // Check overlap when create times change
+  useEffect(() => {
+    if (!createOpen || !createStartISO || !createEndISO) {
+      setOverlapWarning(null);
+      return;
+    }
+    setOverlapWarning(checkOverlap(createStartISO, createEndISO));
+  }, [createStartISO, createEndISO, createOpen, checkOverlap]);
+
+  // Feature: Month view helpers
+  const monthDays = useMemo(() => {
+    if (viewType !== "month") return [];
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    
+    // Start from Monday before or on the 1st
+    const startOffset = (firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1);
+    const calStart = addDays(firstDay, -startOffset);
+    
+    const days: Date[] = [];
+    for (let i = 0; i < 42; i++) {
+      days.push(addDays(calStart, i));
+    }
+    return days;
+  }, [viewType, currentDate]);
+
+  const monthEvents = useMemo(() => {
+    if (viewType !== "month" || monthDays.length === 0) return new Map<string, CalendarEvent[]>();
+    const map = new Map<string, CalendarEvent[]>();
+    events.forEach(e => {
+      const key = `${e.start.getFullYear()}-${e.start.getMonth()}-${e.start.getDate()}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(e);
+    });
+    return map;
+  }, [viewType, events, monthDays]);
+
+  const goToPreviousMonth = useCallback(() => {
+    setCurrentDate(prev => {
+      const d = new Date(prev);
+      d.setMonth(d.getMonth() - 1);
+      return d;
+    });
+  }, []);
+
+  const goToNextMonth = useCallback(() => {
+    setCurrentDate(prev => {
+      const d = new Date(prev);
+      d.setMonth(d.getMonth() + 1);
+      return d;
+    });
+  }, []);
+
   const searchPatients = useCallback(async (query: string) => {
     const cleaned = query.trim();
     if (cleaned.length < 2) {
@@ -1342,6 +1626,18 @@ Fisioterapia e Osteopatia`;
     await loadAppointments(startOfWeek, endOfWeek);
   }, [currentDate, loadAppointments]);
 
+  const togglePaidQuick = useCallback(async (apptId: string, currentlyPaid: boolean) => {
+    setError("");
+    const { error } = await supabase.from("appointments").update({ is_paid: !currentlyPaid }).eq("id", apptId);
+    if (error) {
+      setError(`Errore aggiornamento pagamento: ${error.message}`);
+      return;
+    }
+    const startOfWeek = startOfISOWeekMonday(currentDate);
+    const endOfWeek = addDays(startOfWeek, 7);
+    await loadAppointments(startOfWeek, endOfWeek);
+  }, [currentDate, loadAppointments]);
+
   const createQuickPatient = useCallback(async () => {
     if (!quickPatientFirstName.trim() || !quickPatientLastName.trim()) {
       setError("Inserisci nome e cognome per il nuovo paziente.");
@@ -1383,8 +1679,9 @@ Fisioterapia e Osteopatia`;
         
         setError("Paziente creato con successo! Ora puoi creare l'appuntamento.");
       }
-    } catch (err: any) {
-      setError(`Errore creazione paziente: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Errore creazione paziente: ${msg}`);
     } finally {
       setCreatingQuickPatient(false);
     }
@@ -1420,6 +1717,15 @@ Fisioterapia e Osteopatia`;
   if (durationMs <= 0) {
     setError("Durata appuntamento non valida.");
     return;
+  }
+
+  // Feature: Check overlap before creating
+  if (!isRecurring) {
+    const overlap = checkOverlap(createStartISO, createEndISO);
+    if (overlap) {
+      const proceed = window.confirm(`${overlap}\n\nVuoi procedere comunque?`);
+      if (!proceed) return;
+    }
   }
 
   if (isRecurring) {
@@ -1530,6 +1836,7 @@ window.open(whatsappUrl, '_blank');
         firstStart,
         untilDate: until,
         weekDays: recurringDays,
+        frequency: recurringFrequency,
       });
 
       if (starts.length > 200) {
@@ -1557,8 +1864,9 @@ window.open(whatsappUrl, '_blank');
     const endOfWeek = addDays(startOfWeek, 7);
     await loadAppointments(startOfWeek, endOfWeek);
     
-  } catch (e: any) {
-    setError(`Errore creazione appuntamento: ${e?.message ?? "Errore sconosciuto"}`);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "Errore sconosciuto";
+    setError(`Errore creazione appuntamento: ${msg}`);
   } finally {
     setCreating(false);
   }
@@ -1572,6 +1880,7 @@ window.open(whatsappUrl, '_blank');
   isRecurring,
   recurringDays,
   recurringUntil,
+  recurringFrequency,
   treatmentType,
   priceType,
   useCustomPrice,
@@ -1580,6 +1889,7 @@ window.open(whatsappUrl, '_blank');
   getDefaultAmount,
   currentDate,
   loadAppointments,
+  checkOverlap,
 ]);
 
   const saveAppointment = useCallback(async () => {
@@ -1616,7 +1926,7 @@ window.open(whatsappUrl, '_blank');
   const ALLOWED = new Set(["booked","confirmed","done","cancelled","not_paid"]);
 
   const normalizedStatus =
-    editStatus === ("no_show" as any) ? "not_paid" : editStatus;
+    (editStatus as string) === "no_show" ? "not_paid" as Status : editStatus;
 
   if (!ALLOWED.has(normalizedStatus)) {
     setError(`STATUS ILLEGALE: ${String(normalizedStatus)}`);
@@ -1656,8 +1966,9 @@ window.open(whatsappUrl, '_blank');
     const startOfWeek = startOfISOWeekMonday(currentDate);
     const endOfWeek = addDays(startOfWeek, 7);
     await loadAppointments(startOfWeek, endOfWeek);
-  } catch (err: any) {
-    setError(`Errore salvataggio: ${err.message}`);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    setError(`Errore salvataggio: ${msg}`);
   }
 }, [selectedEvent, editStatus, editNote, editAmount, editTreatmentType, editPriceType, editDate, editStartTime, editDuration, currentDate, loadAppointments]);
 
@@ -1722,7 +2033,8 @@ window.open(whatsappUrl, '_blank');
     event.dataTransfer.effectAllowed = "move";
     
     if (event.currentTarget instanceof HTMLElement) {
-      event.currentTarget.style.opacity = "0.4";
+      event.currentTarget.style.opacity = "0.35";
+      event.currentTarget.style.transform = "scale(0.96)";
     }
   }, []);
 
@@ -1734,8 +2046,12 @@ window.open(whatsappUrl, '_blank');
       setDraggingOver({ dayIndex, hour, minute });
     }
     
+    // Track ghost position for visual feedback
+    setDragGhostPos({ x: event.clientX, y: event.clientY });
+    
     if (event.currentTarget instanceof HTMLElement) {
-      event.currentTarget.style.backgroundColor = "rgba(37, 99, 235, 0.05)";
+      event.currentTarget.style.backgroundColor = "rgba(37,99,235,0.08)";
+      event.currentTarget.style.transition = "background-color 0.15s ease";
     }
   }, []);
 
@@ -1789,11 +2105,14 @@ window.open(whatsappUrl, '_blank');
   const handleDragEnd = useCallback((event: React.DragEvent) => {
     if (event.currentTarget instanceof HTMLElement) {
       event.currentTarget.style.opacity = "1";
+      event.currentTarget.style.transform = "scale(1)";
     }
     setDraggingEvent(null);
+    setDragGhostPos(null);
+    setDraggingOver(null);
   }, []);
 
-  const handleContextMenu = useCallback((e: React.MouseEvent, event?: any) => {
+  const handleContextMenu = useCallback((e: React.MouseEvent, event?: CalendarEvent) => {
     e.preventDefault();
     setQuickActionsMenu({
       x: e.clientX,
@@ -1807,8 +2126,8 @@ window.open(whatsappUrl, '_blank');
       const event = events.find(e => e.id === selectedEvent.id);
       if (event) {
         setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
-        setEditTreatmentType(event.treatment_type || "seduta");
-        setEditPriceType(event.price_type || "invoiced");
+        setEditTreatmentType((event.treatment_type as "seduta" | "macchinario") || "seduta");
+        setEditPriceType((event.price_type as "invoiced" | "cash") || "invoiced");
         
         // Imposta i valori per la modifica di orario e giorno
         setEditDate(toDateInputValue(event.start));
@@ -1823,81 +2142,6 @@ window.open(whatsappUrl, '_blank');
   }, [selectedEvent, events]);
 
   // Nuova funzione per il drag and drop su slot di 30 minuti
-  const renderTimeGrid = useCallback((day: Date, dayIndex: number) => {
-    const slots = [];
-    
-    for (let hour = 7; hour < 22; hour++) {
-      for (let minute of [0, 30]) {
-        const slotStart = new Date(day);
-        slotStart.setHours(hour, minute, 0, 0);
-        
-        const slotEnd = new Date(slotStart.getTime() + 30 * 60000);
-        
-        const isOccupied = events.some(event => 
-          event.start.getDate() === day.getDate() &&
-          event.start.getMonth() === day.getMonth() &&
-          event.start.getFullYear() === day.getFullYear() &&
-          (
-            (event.start >= slotStart && event.start < slotEnd) ||
-            (event.end > slotStart && event.end <= slotEnd) ||
-            (event.start <= slotStart && event.end >= slotEnd)
-          )
-        );
-
-        slots.push({
-          hour,
-          minute,
-          start: slotStart,
-          end: slotEnd,
-          isOccupied
-        });
-      }
-    }
-    
-    return slots.map((slot, slotIndex) => (
-      <div
-        key={`${dayIndex}-${slot.hour}-${slot.minute}`}
-        style={{
-          height: "30px",
-          borderBottom: `1px solid ${THEME.border}`,
-          cursor: "pointer",
-          background: showAvailableOnly ? 
-            (slot.isOccupied ? "transparent" : "rgba(34, 197, 94, 0.05)") 
-            : "transparent",
-          boxSizing: "border-box",
-          position: "relative",
-        }}
-        onClick={() => {
-          handleSlotClick(day, slot.hour, slot.minute);
-        }}
-        onContextMenu={(e) => handleContextMenu(e)}
-        onDragOver={(e) => handleDragOver(e, dayIndex, slot.hour, slot.minute)}
-        onDragLeave={handleDragLeave}
-        onDrop={(e) => {
-          handleDrop(e, day, slot.hour, slot.minute);
-        }}
-        title={`Clicca per creare appuntamento alle ${pad2(slot.hour)}:${pad2(slot.minute)}`}
-      >
-        {draggingOver && draggingOver.dayIndex === dayIndex && 
-         draggingOver.hour === slot.hour && draggingOver.minute === slot.minute && (
-          <div
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              border: `2px dashed ${THEME.blue}`,
-              background: "rgba(37, 99, 235, 0.1)",
-              zIndex: 1,
-              pointerEvents: "none",
-            }}
-          />
-        )}
-      </div>
-    ));
-  }, [events, showAvailableOnly, handleSlotClick, handleContextMenu, handleDragOver, handleDragLeave, handleDrop]);
-
 useEffect(() => {
   if (typeof window === "undefined") return;
 
@@ -1911,7 +2155,7 @@ useEffect(() => {
   const view = params.get("view");
 
   // forza vista giorno
-  setViewType(view === "week" ? "week" : "day");
+  setViewType(view === "week" ? "week" : view === "month" ? "month" : "day");
 
   // imposta data
   let d = new Date();
@@ -1945,234 +2189,342 @@ openCreateModal(chosen, chosen.getHours(), chosen.getMinutes());
   window.history.replaceState({}, "", url.toString());
 }, []);
 return (
-    <div style={{ minHeight: "100vh", background: THEME.appBg }}>
+    <div style={{ minHeight: "100vh", background: THEME.appBg, fontFamily: "'Outfit', 'Segoe UI', system-ui, sans-serif" }}>
       <style jsx global>{`
-        .sidebar-scroll {
-          overflow-y: auto;
-          scrollbar-width: none; /* Firefox: hide */
-          -ms-overflow-style: none; /* IE/Edge legacy */
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+        * { -webkit-font-smoothing: antialiased; box-sizing: border-box; }
+        body { font-family: 'Outfit', 'Segoe UI', system-ui, sans-serif; margin: 0; background: ${THEME.appBg}; }
+        select, input, textarea, button { font-family: inherit; }
+        input:focus, select:focus, textarea:focus {
+          border-color: ${THEME.blue} !important;
+          box-shadow: 0 0 0 3px rgba(37,99,235,0.12) !important;
+          outline: none !important;
         }
-        .sidebar-scroll::-webkit-scrollbar { width: 0px; height: 0px; } /* Chrome/Safari: hide */
-
-        .sidebar-scroll.show-scrollbar {
-          scrollbar-width: auto; /* Firefox: show */
+        .calendar-grid-scroll { overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+        .calendar-grid-scroll::-webkit-scrollbar { display: none; }
+        @keyframes searchPulse {
+          0%, 100% { box-shadow: 0 0 8px rgba(245,158,11,0.5); }
+          50% { box-shadow: 0 0 20px rgba(245,158,11,0.8), 0 0 40px rgba(245,158,11,0.3); }
         }
-        .sidebar-scroll.show-scrollbar::-webkit-scrollbar { width: 10px; height: 10px; }
-        .sidebar-scroll.show-scrollbar::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.25); border-radius: 10px; }
-        .sidebar-scroll.show-scrollbar::-webkit-scrollbar-track { background: rgba(15,23,42,0.06); border-radius: 10px; }
+        .search-highlight { animation: searchPulse 1.5s ease-in-out infinite; }
+        .search-dimmed { opacity: 0.25 !important; filter: grayscale(0.6); transition: opacity 0.3s, filter 0.3s; }
+        .sidebar-scroll { overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(37,99,235,0.12) transparent; }
+        .sidebar-scroll::-webkit-scrollbar { width: 5px; }
+        .sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(37,99,235,0.12); border-radius: 99px; }
+        .sidebar-scroll.show-scrollbar::-webkit-scrollbar { width: 6px; }
+        .sidebar-scroll.show-scrollbar::-webkit-scrollbar-thumb { background: rgba(91,130,168,0.18); border-radius: 99px; }
+        @media (max-width: 768px) { .mob-hide { display: none !important; } .mob-col { flex-direction: column !important; } }
+        @media print { .no-print { display: none !important; } .print-wrap { margin: 0 !important; padding: 4px !important; } }
       `}</style>
 
-      
+      {/* ━━━ TOP NAVIGATION BAR ━━━ */}
+      <header className="no-print" style={{
+        position: "sticky", top: 0, zIndex: 30,
+        background: "linear-gradient(135deg, #0d9488, #2563eb)", borderBottom: "none",
+        padding: "0 20px", height: 58,
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        boxShadow: "0 2px 12px rgba(13,148,136,0.18)",
+        gap: 8,
+      }}>
+        {/* Left: Logo + Nav */}
+        <div style={{ display: "flex", alignItems: "center", gap: 20, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{
+              width: 30, height: 30, borderRadius: 8,
+              background: "rgba(255,255,255,0.2)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              color: "#fff", fontWeight: 800, fontSize: 14, letterSpacing: -0.5,
+              border: "1.5px solid rgba(255,255,255,0.3)",
+            }}>F</div>
+            <span className="mob-hide" style={{ fontWeight: 700, fontSize: 15, color: "#fff", letterSpacing: 0.5, textTransform: "uppercase" }}>Fisio<span style={{ color: "#fff", fontWeight: 800 }}>Hub</span></span>
+          </div>
+          <nav className="mob-hide" style={{ display: "flex", gap: 2 }}>
+            {[
+              { href: "/", label: "Home", icon: "⌂" },
+              { href: "/calendar", label: "Calendario", icon: "▦", active: true },
+              { href: "/reports", label: "Report", icon: "◈" },
+              { href: "/patients", label: "Pazienti", icon: "◉" },
+            ].map(item => (
+              <Link key={item.href} href={item.href} style={{
+                padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+                textDecoration: "none", transition: "all 0.2s",
+                background: item.active ? "rgba(255,255,255,0.2)" : "transparent",
+                color: item.active ? "#fff" : "rgba(255,255,255,0.8)",
+                letterSpacing: 0.3,
+              }}>
+                {item.icon} {item.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
+
+        {/* Center: Date title + Week selector + Print */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, justifyContent: "center", minWidth: 0 }}>
+          {/* Date title */}
+          <div style={{
+            fontWeight: 800, fontSize: 16, color: "#fff", letterSpacing: -0.3,
+            whiteSpace: "nowrap", flexShrink: 0,
+            textShadow: "0 1px 3px rgba(0,0,0,0.15)",
+          }}>
+            {viewType === "week"
+              ? `${formatDMY(weekDays[0])} – ${formatDMY(weekDays[5])}`
+              : viewType === "month"
+              ? (() => {
+                  const mesi = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"];
+                  return `${mesi[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
+                })()
+              : formatDMY(currentDate)}
+          </div>
+
+          {/* Week selector */}
+          <select
+            value={startOfISOWeekMonday(currentDate).toISOString()}
+            onChange={(e) => gotoWeekStart(e.target.value)}
+            className="mob-hide"
+            style={{
+              padding: "6px 28px 6px 10px",
+              borderRadius: 8,
+              border: "1.5px solid rgba(255,255,255,0.35)",
+              background: "rgba(255,255,255,0.18)",
+              color: "#fff",
+              fontWeight: 700,
+              outline: "none",
+              fontSize: 11,
+              height: 34,
+              maxWidth: 280,
+              appearance: "none" as const,
+              WebkitAppearance: "none" as const,
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' stroke='%23ffffff' stroke-width='1.5' fill='none'/%3E%3C/svg%3E")`,
+              backgroundRepeat: "no-repeat",
+              backgroundPosition: "right 8px center",
+              cursor: "pointer",
+              textShadow: "0 1px 2px rgba(0,0,0,0.1)",
+            }}
+          >
+            {weekOptions.map((o) => (
+              <option key={o.value} value={o.value} style={{ color: "#0f172a", background: "#fff" }}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+
+          {/* Print button */}
+          <div ref={printMenuRef} style={{ position: "relative", flexShrink: 0, zIndex: 40 }}>
+            <button
+              onClick={() => setPrintMenuOpen(!printMenuOpen)}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 8,
+                border: "1.5px solid rgba(255,255,255,0.35)",
+                background: "rgba(255,255,255,0.18)",
+                color: "#fff",
+                cursor: "pointer",
+                fontWeight: 700,
+                height: 34,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 12,
+                whiteSpace: "nowrap",
+              }}
+            >
+              🖨️ Stampa
+              <span style={{ fontSize: 9 }}>▼</span>
+            </button>
+
+            {printMenuOpen && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 6px)",
+                  right: 0,
+                  background: THEME.panelBg,
+                  border: `2px solid ${THEME.border}`,
+                  borderRadius: 12,
+                  boxShadow: "0 12px 40px rgba(30,64,175,0.18)",
+                  zIndex: 9999,
+                  minWidth: 220,
+                  overflow: "hidden",
+                }}
+              >
+                <button
+                  onClick={() => {
+                    setViewType("day");
+                    printCalendar();
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "13px 18px",
+                    border: "none",
+                    background: "transparent",
+                    color: THEME.text,
+                    cursor: "pointer",
+                    fontWeight: 600,
+                    textAlign: "left",
+                    borderBottom: `1px solid ${THEME.borderSoft}`,
+                    fontSize: 13,
+                    letterSpacing: 0.2,
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = THEME.panelSoft)}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  ◈ Stampa giorno
+                </button>
+                <button
+                  onClick={() => {
+                    setViewType("week");
+                    printCalendar();
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "13px 18px",
+                    border: "none",
+                    background: "transparent",
+                    color: THEME.text,
+                    cursor: "pointer",
+                    fontWeight: 600,
+                    textAlign: "left",
+                    borderBottom: `1px solid ${THEME.borderSoft}`,
+                    fontSize: 13,
+                    letterSpacing: 0.2,
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = THEME.panelSoft)}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  ◫ Stampa settimana
+                </button>
+                <button
+                  onClick={exportToPDF}
+                  style={{
+                    width: "100%",
+                    padding: "13px 18px",
+                    border: "none",
+                    background: "transparent",
+                    color: THEME.text,
+                    cursor: "pointer",
+                    fontWeight: 600,
+                    textAlign: "left",
+                    borderBottom: `1px solid ${THEME.borderSoft}`,
+                    fontSize: 13,
+                    letterSpacing: 0.2,
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = THEME.panelSoft)}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  ▤ Esporta PDF
+                </button>
+                <button
+                  onClick={exportToGoogleCalendar}
+                  style={{
+                    width: "100%",
+                    padding: "13px 18px",
+                    border: "none",
+                    background: "transparent",
+                    color: THEME.text,
+                    cursor: "pointer",
+                    fontWeight: 600,
+                    textAlign: "left",
+                    fontSize: 13,
+                    letterSpacing: 0.2,
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = THEME.panelSoft)}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  ▦ Esporta Google Calendar
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right: Stats + Panel toggle + User */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          <div className="mob-hide" style={{ display: "flex", gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,0.2)", padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)" }}>
+              ✓ {stats.done}/{stats.total}
+            </span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,0.2)", padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)" }}>
+              € {stats.revenue}
+            </span>
+          </div>
+          <button onClick={() => setSidebarOpen(v => !v)} style={{
+            padding: "5px 12px", borderRadius: 8, border: "1.5px solid rgba(255,255,255,0.3)",
+            background: sidebarOpen ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.12)",
+            color: "#fff",
+            cursor: "pointer", fontSize: 11, fontWeight: 700,
+          }}>
+            {sidebarOpen ? "✕" : "☰"} Oggi
+          </button>
+          <div ref={userMenuRef} style={{ position: "relative" }}>
+            <button type="button" onClick={() => setUserMenuOpen(v => !v)} style={{
+              width: 32, height: 32, borderRadius: 8, border: "2px solid rgba(255,255,255,0.35)", cursor: "pointer",
+              background: "rgba(255,255,255,0.2)",
+              color: "#fff", fontWeight: 700, fontSize: 12,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>{userInitials}</button>
+            {userMenuOpen && (
+              <div style={{
+                position: "absolute", right: 0, top: "calc(100% + 8px)", width: 200,
+                background: THEME.panelBg, border: `1.5px solid ${THEME.border}`, borderRadius: 12,
+                boxShadow: "0 12px 32px rgba(30,64,175,0.15)", overflow: "hidden", zIndex: 60,
+              }}>
+                <Link href="/settings" onClick={() => setUserMenuOpen(false)} style={{
+                  display: "flex", alignItems: "center", gap: 8, padding: "12px 16px",
+                  color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
+                  borderBottom: `1.5px solid ${THEME.border}`,
+                }}>⚙️ Impostazioni</Link>
+                <button type="button" onClick={handleLogout} style={{
+                  width: "100%", display: "flex", alignItems: "center", gap: 8,
+                  padding: "12px 16px", background: "transparent", border: "none", cursor: "pointer",
+                  color: THEME.red, fontWeight: 600, fontSize: 13,
+                }}>⏻ Logout</button>
+              </div>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* ━━━ RIGHT PANEL: Today's appointments (replaces left sidebar) ━━━ */}
       {sidebarOpen && !isDesktop && (
-        <div
-          className="no-print"
-          onClick={() => setSidebarOpen(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.35)",
-            zIndex: 40,
-          }}
-        />
+        <div className="no-print" onClick={() => setSidebarOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(30,64,175,0.4)", zIndex: 40, backdropFilter: "blur(2px)" }} />
       )}
 
       <aside
         ref={sidebarRef}
         className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`}
         style={{
-          width: SIDEBAR_W,
-          maxWidth: "85vw",
-          background: THEME.panelBg,
-          borderRight: `1px solid ${THEME.border}`,
-          padding: 16,
-          position: "fixed",
-          left: 0,
-          top: 0,
-          height: "100vh",
-          overflowY: "auto",
-          zIndex: 50,
-          transform: sidebarOpen ? "translateX(0)" : "translateX(-110%)",
-          transition: "transform 180ms ease",
+          width: SIDEBAR_W, maxWidth: "85vw",
+          background: THEME.panelBg, borderLeft: `2px solid ${THEME.border}`,
+          padding: "24px 18px",
+          position: "fixed", right: 0, top: 58, height: "calc(100vh - 58px)",
+          overflowY: "auto", zIndex: 50,
+          transform: sidebarOpen ? "translateX(0)" : "translateX(110%)",
+          transition: "transform 280ms cubic-bezier(.4,0,.2,1)",
           pointerEvents: sidebarOpen ? "auto" : "none",
+          boxShadow: sidebarOpen ? "-8px 0 32px rgba(30,64,175,0.1)" : "none",
 }}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-    <div style={{ fontSize: 18, fontWeight: 900, color: THEME.blueDark, letterSpacing: -0.2 }}>FisioHub</div>
-    <button
-      type="button"
-      onClick={() => setSidebarOpen(false)}
-      title="Nascondi sidebar"
-      style={{
-        border: `1px solid ${THEME.border}`,
-        background: "white",
-        borderRadius: 12,
-        padding: "6px 10px",
-        cursor: "pointer",
-        fontWeight: 900,
-        color: THEME.text,
-        lineHeight: 1,
-      }}
-    >
-      ✕
-    </button>
-  </div>
-
-  <div ref={userMenuRef} style={{ position: "relative" }}>
-    <button
-      type="button"
-      onClick={() => setUserMenuOpen((v) => !v)}
-      title="Account"
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "6px 10px",
-        background: "white",
-        borderRadius: 14,
-        border: `1px solid ${THEME.border}`,
-        cursor: "pointer",
-      }}
-    >
-      <span
-        style={{
-          width: 30,
-          height: 30,
-          borderRadius: 10,
-          background: "linear-gradient(135deg, #0d9488, #2563eb)",
-          color: "white",
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontWeight: 900,
-          fontSize: 11,
-        }}
-      >
-        {userInitials}
-      </span>
-      <span style={{ fontSize: 12, fontWeight: 900, color: THEME.textSoft }}>Marco</span>
-      <span style={{ color: THEME.gray, fontSize: 12 }}>{userMenuOpen ? "▴" : "▾"}</span>
-    </button>
-
-    {userMenuOpen && (
-      <div
-        style={{
-          position: "absolute",
-          right: 0,
-          top: "calc(100% + 10px)",
-          width: 220,
-          background: "white",
-          border: `1px solid ${THEME.border}`,
-          borderRadius: 14,
-          boxShadow: "0 18px 40px rgba(0,0,0,0.12)",
-          overflow: "hidden",
-          zIndex: 60,
-        }}
-      >
-        <Link
-          href="/settings"
-          onClick={() => setUserMenuOpen(false)}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            padding: "12px 14px",
-            color: THEME.text,
-            textDecoration: "none",
-            fontWeight: 800,
-            fontSize: 13,
-            borderBottom: `1px solid ${THEME.border}`,
-          }}
-        >
-          <span>⚙️</span> Impostazioni
-        </Link>
-
-        <button
-          type="button"
-          onClick={handleLogout}
-          style={{
-            width: "100%",
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            padding: "12px 14px",
-            background: "white",
-            border: "none",
-            cursor: "pointer",
-            color: THEME.red,
-            fontWeight: 900,
-            fontSize: 13,
-          }}
-        >
-          <span>⏻</span> Logout
-        </button>
-      </div>
-    )}
-  </div>
-</div>
-
-        <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
-          <Link href="/" style={{ 
-            color: THEME.blueDark, 
-            fontWeight: 800, 
-            textDecoration: "none", 
-            display: "flex", 
-            alignItems: "center", 
-            gap: 8,
-          }}>
-             🏠 Home
-          </Link>
-          <Link href="/calendar" style={{ 
-            color: THEME.blue, 
-            fontWeight: 800, 
-            textDecoration: "none",
-            display: "flex", 
-            alignItems: "center", 
-            gap: 8,
-          }}>
-            📅 Calendario
-          </Link>
-          <Link href="/reports" style={{ 
-            color: THEME.blueDark, 
-            fontWeight: 800, 
-            textDecoration: "none",
-            display: "flex", 
-            alignItems: "center", 
-            gap: 8,
-          }}>
-            📊 Report
-          </Link>
-          <Link href="/patients" style={{ 
-            color: THEME.blueDark, 
-            fontWeight: 800, 
-            textDecoration: "none",
-            display: "flex", 
-            alignItems: "center", 
-            gap: 8,
-          }}>
-            👤 Pazienti
-          </Link>
-        </div>
-
-
-
-        <div style={{ marginTop: 26, fontSize: 12, color: THEME.muted }}>
-          Gestione agenda appuntamenti
+        {/* Panel header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: THEME.blue, letterSpacing: 0.5, textTransform: "uppercase" }}>Oggi</div>
+          <button type="button" onClick={() => setSidebarOpen(false)}
+            style={{ border: "none", background: THEME.panelSoft, cursor: "pointer", color: THEME.text, fontSize: 16, padding: "4px 8px", borderRadius: 6, fontWeight: 700 }}>×</button>
         </div>
 
         {/* Sezione Appuntamenti Imminenti */}
-        <div style={{ marginTop: 30, borderTop: `1px solid ${THEME.border}`, paddingTop: 20 }}>
+        <div style={{ marginTop: 24, borderTop: `2px solid ${THEME.blue}`, paddingTop: 20 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
-              🕐 Appuntamenti imminenti
+            <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft, letterSpacing: 0.5, textTransform: "uppercase" }}>
+              Prossimi
             </div>
             <div style={{
               fontSize: 11,
-              fontWeight: 900,
+              fontWeight: 700,
               color: "#fff",
-              background: THEME.blue,
-              padding: "4px 8px",
-              borderRadius: 12
+              background: "linear-gradient(135deg, #0d9488, #2563eb)",
+              padding: "4px 10px",
+              borderRadius: 6
             }}>
               {(() => {
                 const now = currentTime || new Date();
@@ -2194,29 +2546,29 @@ return (
 
             const timeStyle = (status: "past" | "current" | "next") => ({
               fontSize: 12,
-              fontWeight: 800,
+              fontWeight: 600,
               padding: "3px 6px",
               borderRadius: 6,
               minWidth: 52,
               textAlign: "center" as const,
               border:
                 status === "current"
-                  ? "2px solid #16a34a"
+                  ? `2px solid ${THEME.green}`
                   : status === "next"
-                  ? "2px solid #2563eb"
-                  : "1px solid #cbd5e1",
+                  ? `2px solid ${THEME.blue}`
+                  : `1px solid ${THEME.border}`,
               color:
                 status === "current"
-                  ? "#16a34a"
+                  ? THEME.green
                   : status === "next"
-                  ? "#2563eb"
-                  : "#334155",
+                  ? THEME.blue
+                  : THEME.muted,
               background:
                 status === "current"
-                  ? "rgba(22,163,74,0.08)"
+                  ? "rgba(22,163,74,0.06)"
                   : status === "next"
-                  ? "rgba(37,99,235,0.08)"
-                  : "#f8fafc",
+                  ? "rgba(37,99,235,0.06)"
+                  : THEME.panelSoft,
             });
 
             if (upcomingAll.length === 0) {
@@ -2226,9 +2578,9 @@ return (
                   padding: "20px 12px",
                   background: THEME.panelSoft,
                   borderRadius: 8,
-                  border: `1px solid ${THEME.border}`
+                  border: `1.5px solid ${THEME.border}`
                 }}>
-                  <div style={{ fontSize: 13, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: THEME.muted, marginBottom: 4 }}>
                     Nessun appuntamento imminente
                   </div>
                   <div style={{ fontSize: 11, color: THEME.muted }}>
@@ -2249,8 +2601,8 @@ return (
                       <div
                         key={appointment.id}
                         style={{
-                          background: isNow ? "rgba(37, 99, 235, 0.1)" : "#fff",
-                          border: `1px solid ${isNow ? THEME.blue : THEME.border}`,
+                          background: isNow ? "rgba(43, 108, 176, 0.08)" : statusBg(appointment.status),
+                          border: `2px solid ${isNow ? THEME.blue : statusColor(appointment.status)}50`,
                           borderRadius: 8,
                           padding: 10,
                           cursor: "pointer",
@@ -2278,12 +2630,12 @@ return (
                           setEditStatus(appointment.status);
                           setEditNote(appointment.calendar_note || "");
                           setEditAmount(appointment.amount !== undefined && appointment.amount !== null ? appointment.amount.toString() : "");
-                          setEditTreatmentType(appointment.treatment_type || "seduta");
-                          setEditPriceType(appointment.price_type || "invoiced");
+                          setEditTreatmentType((appointment.treatment_type as "seduta" | "macchinario") || "seduta");
+                          setEditPriceType((appointment.price_type as "invoiced" | "cash") || "invoiced");
                         }}
                         onMouseEnter={(e) => {
                           e.currentTarget.style.transform = "translateY(-2px)";
-                          e.currentTarget.style.boxShadow = "0 4px 12px rgba(15,23,42,0.1)";
+                          e.currentTarget.style.boxShadow = "0 4px 12px rgba(37,99,235,0.12)";
                         }}
                         onMouseLeave={(e) => {
                           e.currentTarget.style.transform = "translateY(0)";
@@ -2294,8 +2646,9 @@ return (
                           position: "absolute",
                           top: 0,
                           left: 0,
-                          width: 4,
+                          width: 6,
                           height: "100%",
+                          borderRadius: "8px 0 0 8px",
                           background: statusColor(appointment.status)
                         }} />
 
@@ -2314,9 +2667,9 @@ return (
                               {isNow && (
                                 <div style={{
                                   fontSize: 10,
-                                  fontWeight: 900,
+                                  fontWeight: 600,
                                   color: "#fff",
-                                  background: "#16a34a",
+                                  background: THEME.green,
                                   padding: "2px 6px",
                                   borderRadius: 4
                                 }}>
@@ -2327,9 +2680,9 @@ return (
                               {isNext && (
                                 <div style={{
                                   fontSize: 10,
-                                  fontWeight: 900,
+                                  fontWeight: 600,
                                   color: "#fff",
-                                  background: "#2563eb",
+                                  background: THEME.blue,
                                   padding: "2px 6px",
                                   borderRadius: 4
                                 }}>
@@ -2340,7 +2693,7 @@ return (
 
                             <div style={{
                               fontSize: 13,
-                              fontWeight: 900,
+                              fontWeight: 600,
                               color: THEME.text,
                               lineHeight: 1.35,
                               marginBottom: 4
@@ -2351,8 +2704,8 @@ return (
                             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                               <div style={{
                                 fontSize: 10,
-                                fontWeight: 900,
-                                color: THEME.muted,
+                                fontWeight: 700,
+                                color: statusColor(appointment.status),
                                 display: "flex",
                                 alignItems: "center",
                                 gap: 2
@@ -2369,13 +2722,13 @@ return (
                               {appointment.location === "domicile" && (
                                 <div style={{
                                   fontSize: 10,
-                                  fontWeight: 900,
+                                  fontWeight: 600,
                                   color: THEME.amber,
                                   display: "flex",
                                   alignItems: "center",
                                   gap: 2
                                 }}>
-                                  🏠 Domicilio
+                                  ⌂ Domicilio
                                 </div>
                               )}
                             </div>
@@ -2430,13 +2783,13 @@ return (
                     style={{
                       marginTop: 12,
                       width: "100%",
-                      border: `1px solid ${THEME.border}`,
-                      background: "#fff",
-                      borderRadius: 10,
+                      border: `1.5px solid ${THEME.border}`,
+                      background: THEME.panelBg,
+                      borderRadius: 8,
                       padding: "8px 10px",
                       cursor: "pointer",
                       fontSize: 12,
-                      fontWeight: 900,
+                      fontWeight: 600,
                       color: THEME.blue,
                       textAlign: "center",
                     }}
@@ -2453,13 +2806,13 @@ return (
                     style={{
                       marginTop: 12,
                       width: "100%",
-                      border: `1px solid ${THEME.border}`,
+                      border: `1.5px solid ${THEME.border}`,
                       background: THEME.panelSoft,
-                      borderRadius: 10,
+                      borderRadius: 8,
                       padding: "8px 10px",
                       cursor: "pointer",
                       fontSize: 12,
-                      fontWeight: 900,
+                      fontWeight: 600,
                       color: THEME.muted,
                       textAlign: "center",
                     }}
@@ -2481,226 +2834,31 @@ return (
         </div>
       </aside>
 
-      <main className="print-wrap" style={{flex: 1, display: "flex", flexDirection: "column", padding: 24, minWidth: 0,
-        marginLeft: isDesktop && sidebarOpen ? SIDEBAR_W : 0,
+      <main className="print-wrap" style={{
+        flex: 1, display: "flex", flexDirection: "column",
+        padding: "12px 28px", minWidth: 0,
+        marginRight: isDesktop && sidebarOpen ? SIDEBAR_W : 0,
         width: isDesktop && sidebarOpen ? `calc(100% - ${SIDEBAR_W}px)` : "100%",
         boxSizing: "border-box",
-        transition: "margin-left 180ms ease, width 180ms ease",
+        transition: "margin-right 280ms cubic-bezier(.4,0,.2,1), width 280ms cubic-bezier(.4,0,.2,1)",
         overflowX: "hidden",
+        maxWidth: 1440, marginTop: 0, marginBottom: 0, marginLeft: "auto",
 }}>
-        {/* Top bar */}
-        <div className="no-print" style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-          <button
-            type="button"
-            onClick={() => setSidebarOpen((v) => !v)}
-            title="Menu"
-            style={{
-              border: `1px solid ${THEME.border}`,
-              background: "white",
-              borderRadius: 14,
-              padding: "10px 12px",
-              cursor: "pointer",
-              fontWeight: 900,
-              color: THEME.text,
-            }}
-          >
-            {sidebarOpen ? "✕ Chiudi" : "☰ Menu"}
-          </button>
-        </div>
-
         <div style={{ width: "100%" }}>
-          <div className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`} style={{ 
-            display: "flex", 
-            alignItems: "center", 
-            justifyContent: "space-between", 
-            gap: 20, 
-            flexWrap: "wrap", 
-            marginBottom: 24,
-            padding: "0 4px"
-          }}>
-            <div style={{ flex: 1, minWidth: 300 }}>
-              <h1 style={{ margin: 0, color: THEME.blueDark, fontWeight: 900, fontSize: 32, letterSpacing: -0.2 }}>
-                Agenda
-              </h1>
-              <div style={{ marginTop: 6, fontSize: 12, color: THEME.muted, fontWeight: 800 }}>
-                Dr. Turchetta Marco
-              </div>
-            </div>
-
-            <div style={{ 
-              display: "flex", 
-              gap: 16, 
-              flexWrap: "nowrap", 
-              alignItems: "center",
-              justifyContent: "flex-end",
-              flex: 1,
-              minWidth: 500,
-              marginTop: 8
-            }}>
-              <div style={{ 
-                display: "flex", 
-                flexDirection: "column", 
-                gap: 6,
-                flex: "0 0 auto",
-                width: 340
-              }}>
-                <div style={{ fontSize: 11, color: THEME.muted, fontWeight: 900 }}>SETTIMANA</div>
-                <select
-                  value={startOfISOWeekMonday(currentDate).toISOString()}
-                  onChange={(e) => gotoWeekStart(e.target.value)}
-                  style={{
-                    padding: "12px 14px",
-                    borderRadius: 8,
-                    border: `1px solid ${THEME.borderSoft}`,
-                    background: THEME.panelBg,
-                    color: THEME.text,
-                    fontWeight: 800,
-                    outline: "none",
-                    width: "100%",
-                    fontSize: 13,
-                    height: 46,
-                  }}
-                >
-                  {weekOptions.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div ref={printMenuRef} style={{ position: "relative", flexShrink: 0 }}>
-                <button
-                  onClick={() => setPrintMenuOpen(!printMenuOpen)}
-                  style={{
-                    padding: "12px 16px",
-                    borderRadius: 8,
-                    border: `1px solid ${THEME.greenDark}`,
-                    background: THEME.green,
-                    color: "#fff",
-                    cursor: "pointer",
-                    fontWeight: 900,
-                    height: 46,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    fontSize: 13,
-                    whiteSpace: "nowrap",
-                    width: 340,
-                    justifyContent: "center"
-                  }}
-                >
-                  🖨️ Stampa
-                  <span style={{ fontSize: 10, marginLeft: 4 }}>▼</span>
-                </button>
-
-                {printMenuOpen && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: "100%",
-                      right: 0,
-                      marginTop: 4,
-                      background: THEME.panelBg,
-                      border: `1px solid ${THEME.borderSoft}`,
-                      borderRadius: 8,
-                      boxShadow: "0 10px 30px rgba(15,23,42,0.10)",
-                      zIndex: 1000,
-                      minWidth: 160,
-                      overflow: "visible",
-                    }}
-                  >
-                    <button
-                      onClick={() => {
-                        setViewType("day");
-                        printCalendar();
-                      }}
-                      style={{
-                        width: "100%",
-                        padding: "12px 16px",
-                        border: "none",
-                        background: "transparent",
-                        color: THEME.text,
-                        cursor: "pointer",
-                        fontWeight: 900,
-                        textAlign: "left",
-                        borderBottom: `1px solid ${THEME.border}`,
-                        fontSize: 13,
-                      }}
-                    >
-                      Stampa giorno
-                    </button>
-                    <button
-                      onClick={() => {
-                        setViewType("week");
-                        printCalendar();
-                      }}
-                      style={{
-                        width: "100%",
-                        padding: "12px 16px",
-                        border: "none",
-                        background: "transparent",
-                        color: THEME.text,
-                        cursor: "pointer",
-                        fontWeight: 900,
-                        textAlign: "left",
-                        fontSize: 13,
-                      }}
-                    >
-                      Stampa settimana
-                    </button>
-                    <button
-                      onClick={exportToPDF}
-                      style={{
-                        width: "100%",
-                        padding: "12px 16px",
-                        border: "none",
-                        background: "transparent",
-                        color: THEME.text,
-                        cursor: "pointer",
-                        fontWeight: 900,
-                        textAlign: "left",
-                        borderBottom: `1px solid ${THEME.border}`,
-                        fontSize: 13,
-                      }}
-                    >
-                      📄 Esporta PDF
-                    </button>
-                    <button
-                      onClick={exportToGoogleCalendar}
-                      style={{
-                        width: "100%",
-                        padding: "12px 16px",
-                        border: "none",
-                        background: "transparent",
-                        color: THEME.text,
-                        cursor: "pointer",
-                        fontWeight: 900,
-                        textAlign: "left",
-                        fontSize: 13,
-                      }}
-                    >
-                      🗓️ Esporta Google Calendar
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
 
           {error && (
             <div
               className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`}
               style={{
-                marginTop: 12,
+                marginTop: 8,
                 marginBottom: 16,
-                background: "rgba(220,38,38,0.08)",
-                border: "1px solid rgba(220,38,38,0.22)",
+                background: "rgba(220,38,38,0.06)",
+                border: "1px solid rgba(220,38,38,0.15)",
                 color: THEME.red,
-                padding: 10,
-                borderRadius: 8,
-                fontWeight: 900,
-                fontSize: 12,
+                padding: "12px 16px",
+                borderRadius: 10,
+                fontWeight: 600,
+                fontSize: 13,
               }}
             >
               {error}
@@ -2712,11 +2870,12 @@ return (
               padding: 40, 
               textAlign: "center", 
               color: THEME.muted, 
-              fontWeight: 900, 
+              fontWeight: 600, 
               fontSize: 14,
               background: THEME.panelBg,
-              borderRadius: 8,
-              border: `1px solid ${THEME.border}`
+              borderRadius: 10,
+              border: `1.5px solid ${THEME.border}`,
+              boxShadow: "0 2px 8px rgba(30,64,175,0.05)",
             }}>
               Caricamento appuntamenti...
             </div>
@@ -2724,44 +2883,46 @@ return (
 
           <div className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`} style={{ 
   marginBottom: 12,
-  padding: "16px",
+  padding: "16px 18px",
   background: THEME.panelBg,
-  borderRadius: 8,
-  border: `1px solid ${THEME.border}`
+  borderRadius: 10,
+  border: `2px solid ${THEME.border}`
 }}>
   <div 
     onClick={() => setFiltersExpanded(!filtersExpanded)}
     style={{ 
-      fontSize: 14, 
-      fontWeight: 900, 
-      color: THEME.textSoft, 
-      marginBottom: filtersExpanded ? 12 : 0,
+      fontSize: 13, 
+      fontWeight: 700, 
+      color: THEME.blue, 
+      marginBottom: filtersExpanded ? 14 : 0,
       cursor: "pointer",
       display: "flex",
       alignItems: "center",
-      justifyContent: "space-between"
+      justifyContent: "space-between",
+      letterSpacing: 0.5,
+      textTransform: "uppercase",
     }}
   >
-    <span>🎛️ Filtri Avanzati</span>
-    <span style={{ fontSize: 12 }}>{filtersExpanded ? "▲" : "▼"}</span>
+    <span>◇ Filtri Avanzati</span>
+    <span style={{ fontSize: 12 }}>{filtersExpanded ? "△" : "▽"}</span>
   </div>
   
   {filtersExpanded && (
     <>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
         <div>
-          <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>Luogo📍 </div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 4 }}>Luogo📍 </div>
           <select
             value={filters.location}
-            onChange={(e) => setFilters(prev => ({ ...prev, location: e.target.value as any }))}
+            onChange={(e) => setFilters(prev => ({ ...prev, location: e.target.value as "all" | "studio" | "domicile" }))}
             style={{
               width: "100%",
               padding: "8px 12px",
               borderRadius: 6,
               border: `1px solid ${THEME.borderSoft}`,
-              background: "#fff",
+              background: THEME.panelBg,
               fontSize: 12,
-              fontWeight: 900,
+              fontWeight: 600,
               color: THEME.text,
             }}
           >
@@ -2772,18 +2933,18 @@ return (
         </div>
         
         <div>
-          <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>Trattamento</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 4 }}>Trattamento</div>
           <select
             value={filters.treatmentType}
-            onChange={(e) => setFilters(prev => ({ ...prev, treatmentType: e.target.value as any }))}
+            onChange={(e) => setFilters(prev => ({ ...prev, treatmentType: e.target.value as "all" | "seduta" | "macchinario" }))}
             style={{
               width: "100%",
               padding: "8px 12px",
               borderRadius: 6,
               border: `1px solid ${THEME.borderSoft}`,
-              background: "#fff",
+              background: THEME.panelBg,
               fontSize: 12,
-              fontWeight: 900,
+              fontWeight: 600,
               color: THEME.text,
             }}
           >
@@ -2794,7 +2955,7 @@ return (
         </div>
         
         <div>
-          <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>Importo Min</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 4 }}>Importo Min</div>
           <input
             type="number"
             value={filters.minAmount}
@@ -2805,15 +2966,15 @@ return (
               padding: "8px 12px",
               borderRadius: 6,
               border: `1px solid ${THEME.borderSoft}`,
-              background: "#fff",
+              background: THEME.panelBg,
               fontSize: 12,
-              fontWeight: 900,
+              fontWeight: 600,
             }}
           />
         </div>
         
         <div>
-          <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 4 }}>Importo Max</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 4 }}>Importo Max</div>
           <input
             type="number"
             value={filters.maxAmount}
@@ -2824,16 +2985,16 @@ return (
               padding: "8px 12px",
               borderRadius: 6,
               border: `1px solid ${THEME.borderSoft}`,
-              background: "#fff",
+              background: THEME.panelBg,
               fontSize: 12,
-              fontWeight: 900,
+              fontWeight: 600,
             }}
           />
         </div>
       </div>
       
       <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12, alignItems: "center" }}>
-        <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted }}>
           {filteredEvents.length} eventi trovati
         </div>
         <button
@@ -2851,7 +3012,7 @@ return (
             background: THEME.panelSoft,
             color: THEME.text,
             fontSize: 12,
-            fontWeight: 900,
+            fontWeight: 600,
             cursor: "pointer",
           }}
         >
@@ -2870,7 +3031,7 @@ return (
             padding: "12px 16px",
             background: THEME.panelBg,
             borderRadius: 8,
-            border: `1px solid ${THEME.border}`,
+            border: `1.5px solid ${THEME.border}`,
             top: 0,
             zIndex: 9,
           }}>
@@ -2886,7 +3047,7 @@ return (
                       background: THEME.panelSoft,
                       color: THEME.text,
                       cursor: "pointer",
-                      fontWeight: 900,
+                      fontWeight: 600,
                       fontSize: 13,
                       minWidth: 44,
                     }}
@@ -2902,7 +3063,7 @@ return (
                       background: THEME.blue,
                       color: "#fff",
                       cursor: "pointer",
-                      fontWeight: 900,
+                      fontWeight: 600,
                       fontSize: 13,
                     }}
                   >
@@ -2917,7 +3078,57 @@ return (
                       background: THEME.panelSoft,
                       color: THEME.text,
                       cursor: "pointer",
-                      fontWeight: 900,
+                      fontWeight: 600,
+                      fontSize: 13,
+                      minWidth: 44,
+                    }}
+                  >
+                    ▶
+                  </button>
+                </>
+              ) : viewType === "month" ? (
+                <>
+                  <button
+                    onClick={goToPreviousMonth}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: THEME.panelSoft,
+                      color: THEME.text,
+                      cursor: "pointer",
+                      fontWeight: 600,
+                      fontSize: 13,
+                      minWidth: 44,
+                    }}
+                  >
+                    ◀
+                  </button>
+                  <button
+                    onClick={goToToday}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.blueDark}`,
+                      background: THEME.blue,
+                      color: "#fff",
+                      cursor: "pointer",
+                      fontWeight: 600,
+                      fontSize: 13,
+                    }}
+                  >
+                    Oggi
+                  </button>
+                  <button
+                    onClick={goToNextMonth}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: THEME.panelSoft,
+                      color: THEME.text,
+                      cursor: "pointer",
+                      fontWeight: 600,
                       fontSize: 13,
                       minWidth: 44,
                     }}
@@ -2936,7 +3147,7 @@ return (
                       background: THEME.panelSoft,
                       color: THEME.text,
                       cursor: "pointer",
-                      fontWeight: 900,
+                      fontWeight: 600,
                       fontSize: 13,
                       minWidth: 44,
                     }}
@@ -2952,7 +3163,7 @@ return (
                       background: THEME.blue,
                       color: "#fff",
                       cursor: "pointer",
-                      fontWeight: 900,
+                      fontWeight: 600,
                       fontSize: 13,
                     }}
                   >
@@ -2967,7 +3178,7 @@ return (
                       background: THEME.panelSoft,
                       color: THEME.text,
                       cursor: "pointer",
-                      fontWeight: 900,
+                      fontWeight: 600,
                       fontSize: 13,
                       minWidth: 44,
                     }}
@@ -2979,14 +3190,14 @@ return (
             </div>
 
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <div style={{ display: "flex", gap: 12, alignItems: "center", marginRight: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 900, color: THEME.green, background: "rgba(22, 163, 74, 0.1)", padding: "4px 8px", borderRadius: 6 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginRight: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: THEME.green, background: "rgba(22, 163, 74, 0.1)", padding: "4px 8px", borderRadius: 6 }}>
                   ✓ {stats.done}/{stats.total}
                 </div>
-                <div style={{ fontSize: 12, fontWeight: 900, color: THEME.blue, background: "rgba(37, 99, 235, 0.1)", padding: "4px 8px", borderRadius: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: THEME.blue, background: "rgba(91,130,168,0.1)", padding: "4px 8px", borderRadius: 6 }}>
                   💰 €{stats.revenue}
                 </div>
-                <div style={{ fontSize: 12, fontWeight: 900, color: THEME.amber, background: "rgba(249, 115, 22, 0.1)", padding: "4px 8px", borderRadius: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: THEME.amber, background: "rgba(245, 158, 11, 0.1)", padding: "4px 8px", borderRadius: 6 }}>
                   📊 € {Math.round(weeklyExpectedRevenue).toLocaleString("it-IT")}
                 </div>
               </div>
@@ -3000,7 +3211,7 @@ return (
                   background: THEME.panelSoft,
                   color: THEME.text,
                   cursor: "pointer",
-                  fontWeight: 900,
+                  fontWeight: 600,
                   fontSize: 13,
                   minWidth: 100,
                   display: "flex",
@@ -3008,11 +3219,79 @@ return (
                   gap: 6,
                 }}
               >
-                📁 Esporta CSV
+                ▤ Esporta CSV
+              </button>
+
+              {/* Feature: Ricerca rapida */}
+              <div style={{ position: "relative" }}>
+                <input
+                  value={calendarSearch}
+                  onChange={(e) => setCalendarSearch(e.target.value)}
+                  placeholder="🔍 Cerca paziente..."
+                  style={{
+                    padding: "7px 70px 7px 12px",
+                    borderRadius: 8,
+                    border: isSearchActive ? `2px solid #f59e0b` : `1px solid ${THEME.borderSoft}`,
+                    background: isSearchActive ? "rgba(245,158,11,0.06)" : THEME.panelBg,
+                    color: THEME.text,
+                    fontWeight: 600,
+                    fontSize: 12,
+                    width: 200,
+                    outline: "none",
+                    boxShadow: isSearchActive ? "0 0 8px rgba(245,158,11,0.2)" : "none",
+                  }}
+                />
+                {calendarSearch.trim().length >= 2 && (
+                  <div style={{
+                    position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
+                    display: "flex", alignItems: "center", gap: 6,
+                  }}>
+                    <span style={{
+                      fontSize: 10, fontWeight: 800,
+                      color: searchMatchIds.size > 0 ? "#92400e" : THEME.red,
+                      background: searchMatchIds.size > 0 ? "rgba(245,158,11,0.25)" : "rgba(220,38,38,0.1)",
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                    }}>
+                      {searchMatchIds.size}
+                    </span>
+                    <button
+                      onClick={() => setCalendarSearch("")}
+                      style={{
+                        width: 18, height: 18, borderRadius: 4,
+                        border: "none", background: "rgba(107,114,128,0.15)",
+                        color: THEME.muted, cursor: "pointer", fontWeight: 800, fontSize: 11,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        padding: 0,
+                      }}
+                    >✕</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Feature: Riepilogo giornaliero */}
+              <button
+                onClick={() => setDailySummaryOpen(true)}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  border: `1px solid ${THEME.greenDark}`,
+                  background: "rgba(22,163,74,0.08)",
+                  color: THEME.green,
+                  cursor: "pointer",
+                  fontWeight: 700,
+                  fontSize: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                📋 Riepilogo
               </button>
             </div>
 
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: 4 }}>
               <button
                 onClick={() => {
                   setViewType("day");
@@ -3021,15 +3300,16 @@ return (
                   }
                 }}
                 style={{
-                  padding: "8px 16px",
-                  borderRadius: 8,
-                  border: `1px solid ${viewType === "day" ? THEME.blueDark : THEME.borderSoft}`,
-                  background: viewType === "day" ? THEME.blue : THEME.panelSoft,
-                  color: viewType === "day" ? "#fff" : THEME.text,
+                  padding: "8px 18px",
+                  borderRadius: "8px 0 0 8px",
+                  border: `2px solid ${viewType === "day" ? THEME.blue : THEME.border}`,
+                  background: viewType === "day" ? "linear-gradient(135deg, #0d9488, #2563eb)" : THEME.panelBg,
+                  color: viewType === "day" ? "#93c5fd" : THEME.text,
                   cursor: "pointer",
-                  fontWeight: 900,
+                  fontWeight: 700,
                   fontSize: 13,
                   minWidth: 80,
+                  letterSpacing: 0.3,
                 }}
               >
                 Giorno
@@ -3042,26 +3322,42 @@ return (
                   }
                 }}
                 style={{
-                  padding: "8px 16px",
-                  borderRadius: 8,
-                  border: `1px solid ${viewType === "week" ? THEME.blueDark : THEME.borderSoft}`,
-                  background: viewType === "week" ? THEME.blue : THEME.panelSoft,
-                  color: viewType === "week" ? "#fff" : THEME.text,
+                  padding: "8px 18px",
+                  borderRadius: 0,
+                  border: `2px solid ${viewType === "week" ? THEME.blue : THEME.border}`,
+                  background: viewType === "week" ? "linear-gradient(135deg, #0d9488, #2563eb)" : THEME.panelBg,
+                  color: viewType === "week" ? "#93c5fd" : THEME.text,
                   cursor: "pointer",
-                  fontWeight: 900,
+                  fontWeight: 700,
                   fontSize: 13,
                   minWidth: 80,
+                  letterSpacing: 0.3,
                 }}
               >
                 Settimana
               </button>
-            </div>
-
-            <div style={{ fontSize: 13, fontWeight: 900, color: THEME.blueDark }}>
-              {viewType === "week" 
-                ? `${formatDMY(weekDays[0])} - ${formatDMY(weekDays[5])}`
-                : `${formatDMY(currentDate)}`
-              }
+              <button
+                onClick={() => {
+                  setViewType("month");
+                  if (viewType !== "month") {
+                    setCurrentDate(new Date());
+                  }
+                }}
+                style={{
+                  padding: "8px 18px",
+                  borderRadius: "0 8px 8px 0",
+                  border: `2px solid ${viewType === "month" ? THEME.blue : THEME.border}`,
+                  background: viewType === "month" ? "linear-gradient(135deg, #0d9488, #2563eb)" : THEME.panelBg,
+                  color: viewType === "month" ? "#93c5fd" : THEME.text,
+                  cursor: "pointer",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  minWidth: 80,
+                  letterSpacing: 0.3,
+                }}
+              >
+                Mese
+              </button>
             </div>
           </div>
 
@@ -3073,25 +3369,25 @@ return (
             padding: "12px 16px",
             background: THEME.panelSoft,
             borderRadius: 8,
-            border: `1px solid ${THEME.border}`,
+            border: `1.5px solid ${THEME.border}`,
                       }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginRight: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginRight: 8 }}>
                 FILTRI STATO:
               </div>
               {["all", "booked", "confirmed", "done", "not_paid", "cancelled"]
 .map((status) => (
                 <button
                   key={status}
-                  onClick={() => setStatusFilter(status as any)}
+                  onClick={() => setStatusFilter(status as Status | "all")}
                   style={{
                     padding: "6px 12px",
                     borderRadius: 6,
                     border: `1px solid ${statusFilter === status ? statusColor(status as Status) : THEME.borderSoft}`,
-                    background: statusFilter === status ? statusColor(status as Status) : "#fff",
+                    background: statusFilter === status ? statusColor(status as Status) : THEME.panelBg,
                     color: statusFilter === status ? "#fff" : THEME.text,
                     cursor: "pointer",
-                    fontWeight: 900,
+                    fontWeight: 600,
                     fontSize: 11,
                     transition: "all 0.2s",
                   }}
@@ -3102,7 +3398,7 @@ return (
             </div>
             
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, fontWeight: 900, color: THEME.text }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, color: THEME.text }}>
                 <input
                   type="checkbox"
                   checked={showAvailableOnly}
@@ -3118,35 +3414,38 @@ return (
             <div
               style={{
                 background: THEME.panelBg,
-                border: `1px solid ${THEME.border}`,
+                border: `2px solid ${THEME.border}`,
                 borderRadius: 12,
                 minHeight: 600,
                 overflow: "visible",
-                boxShadow: "0 10px 30px rgba(15,23,42,0.10)",
+                boxShadow: "0 2px 12px rgba(30,64,175,0.06)",
                 position: "relative",
               }}
             >
               <div style={{ 
   display: "grid", 
   gridTemplateColumns: "80px repeat(6, minmax(0, 1fr))",
-  borderBottom: `1px solid ${THEME.border}`,
-  background: THEME.panelSoft,
+  borderBottom: `2px solid ${THEME.border}`,
+  background: "linear-gradient(135deg, #0d9488, #2563eb)",
   position: "sticky",
   top: 0,
   zIndex: 8,
+  borderRadius: "10px 10px 0 0",
 }}>
   <div style={{ 
     padding: "12px 8px", 
-    borderRight: `1px solid ${THEME.border}`,
-    fontSize: 12,
-    fontWeight: 900,
-    color: THEME.muted,
+    borderRight: "1px solid rgba(255,255,255,0.08)",
+    fontSize: 11,
+    fontWeight: 700,
+    color: "rgba(255,255,255,0.7)",
     textAlign: "center",
     boxSizing: "border-box",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     height: "100%",
+    letterSpacing: 1,
+    textTransform: "uppercase",
   }}>
     ORA
   </div>
@@ -3157,54 +3456,52 @@ return (
         key={index}
         style={{ 
           padding: "8px 4px", 
-          borderRight: index < 5 ? `1px solid ${THEME.border}` : "none",
+          borderRight: index < 5 ? "1px solid rgba(255,255,255,0.12)" : "none",
           textAlign: "center",
-          fontSize: 12,
-          fontWeight: 900,
-          color: THEME.blueDark,
+          fontSize: 13,
+          fontWeight: 800,
+          color: "#ffffff",
           boxSizing: "border-box",
           width: "100%",
           overflow: "visible",
           display: "flex",
           flexDirection: "column",
           justifyContent: "center",
-          minHeight: "60px", // Altezza minima aumentata
+          minHeight: "60px",
         }}
       >
-        <div style={{ marginBottom: 2 }}>
+        <div style={{ marginBottom: 2, letterSpacing: 1 }}>
           {dayLabels[index].label}
         </div>
-        <div style={{ fontSize: 11, marginBottom: 4 }}>
+        <div style={{ fontSize: 11, marginBottom: 4, color: "rgba(255,255,255,0.7)", fontWeight: 600 }}>
           {formatDMY(day)}
         </div>
         <div style={{
-          fontSize: 9,
-          fontWeight: 900,
-          color: forecast.occupancyRate > 80 ? THEME.red : 
-                 forecast.occupancyRate > 60 ? THEME.amber : THEME.green,
-          opacity: 0.9,
+          fontSize: 10,
+          fontWeight: 700,
+          color: forecast.occupancyRate > 40 ? "#fecaca" : forecast.occupancyRate > 20 ? "#fef3c7" : "#bbf7d0",
           lineHeight: 1.2,
-          padding: "2px 4px",
-          background: forecast.occupancyRate > 80 ? "rgba(220,38,38,0.1)" : 
-                     forecast.occupancyRate > 60 ? "rgba(249,115,22,0.1)" : "rgba(22,163,74,0.1)",
+          padding: "3px 8px",
+          background: "rgba(255,255,255,0.12)",
           borderRadius: 4,
-          margin: "0 2px",
+          margin: "0 4px",
+          letterSpacing: 0.3,
         }}>
-          {forecast.totalEvents} appt • {forecast.recommendation}
+          {forecast.totalEvents} appt • {forecast.occupancyRate > 40 ? "ALTA" : forecast.occupancyRate > 20 ? "MEDIA" : "BASSA"}
         </div>
       </div>
     );
   })}
 </div>
 
-              <div style={{ position: "relative", height: "calc(15 * 60px)", overflowY: "auto" }}>
-                <div style={{ position: "relative", minHeight: "100%" }}>
+              <div className="calendar-grid-scroll" style={{ position: "relative", height: "calc(100vh - 180px)", minHeight: 500 }}>
+                <div style={{ position: "relative", minHeight: "calc(15 * 60px)" }}>
                   {timeSlots.map((time, timeIndex) => (
                     <div 
                       key={timeIndex}
                       style={{ 
                         height: "60px",
-                        borderBottom: `1px solid ${THEME.border}`,
+                        borderBottom: `1.5px solid ${THEME.border}`,
                         position: "relative",
                         display: "flex",
                       }}
@@ -3217,7 +3514,7 @@ return (
                         paddingLeft: 8,
                         borderRight: `1px solid ${THEME.border}`,
                         fontSize: 12,
-                        fontWeight: 900,
+                        fontWeight: 600,
                         color: THEME.muted,
                         background: THEME.panelSoft,
                         zIndex: 1,
@@ -3248,7 +3545,7 @@ return (
                             <div
                               style={{
                                 height: "30px",
-                                borderBottom: `1px solid ${THEME.border}`,
+                                borderBottom: `1.5px solid ${THEME.border}`,
                                 cursor: "pointer",
                                 boxSizing: "border-box",
                                 position: "relative",
@@ -3274,7 +3571,7 @@ return (
                                     right: 0,
                                     bottom: 0,
                                     border: `2px dashed ${THEME.blue}`,
-                                    background: "rgba(37, 99, 235, 0.1)",
+                                    background: "rgba(91,130,168,0.1)",
                                     zIndex: 1,
                                     pointerEvents: "none",
                                   }}
@@ -3311,7 +3608,7 @@ return (
                                     right: 0,
                                     bottom: 0,
                                     border: `2px dashed ${THEME.blue}`,
-                                    background: "rgba(37, 99, 235, 0.1)",
+                                    background: "rgba(91,130,168,0.1)",
                                     zIndex: 1,
                                     pointerEvents: "none",
                                   }}
@@ -3323,6 +3620,33 @@ return (
                       })}
                     </div>
                   ))}
+
+                  {/* Drag ghost preview */}
+                  {draggingEvent && draggingOver && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        left: `calc(80px + ${draggingOver.dayIndex} * calc((100% - 80px) / 6) + 2px)`,
+                        top: `${(draggingOver.hour - 7) * 60 + draggingOver.minute}px`,
+                        width: `calc((100% - 80px) / 6 - 8px)`,
+                        height: `${Math.max((draggingEvent.originalEnd.getTime() - draggingEvent.originalStart.getTime()) / 60000, 28)}px`,
+                        background: "rgba(37,99,235,0.12)",
+                        border: `2px dashed ${THEME.blue}`,
+                        borderRadius: 8,
+                        zIndex: 5,
+                        pointerEvents: "none",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: THEME.blue,
+                        transition: "top 0.1s ease, left 0.1s ease",
+                      }}
+                    >
+                      {`${pad2(draggingOver.hour)}:${pad2(draggingOver.minute)}`}
+                    </div>
+                  )}
 
                   {filteredEvents.map((event) => {
                     const dayIndex = weekDays.findIndex(day => 
@@ -3340,6 +3664,9 @@ return (
                     const isPaid = !!event.is_paid;
                     const waSent = !!event.whatsapp_sent_at;
 
+                    const isMatch = searchMatchIds.has(event.id);
+                    const isDimmed = isSearchActive && !isMatch;
+
                     return (
                       <div
                         key={event.id}
@@ -3347,24 +3674,45 @@ return (
                         onDragStart={(e) => handleDragStart(e, event.id, event.start, event.end)}
                         onDragEnd={handleDragEnd}
                         onContextMenu={(e) => handleContextMenu(e, event)}
+                        className={isMatch ? "search-highlight" : isDimmed ? "search-dimmed" : ""}
                         style={{
                           position: "absolute",
-                          left: `calc(80px + ${dayIndex} * calc((100% - 80px) / 6))`,
-                          top: `${top}px`,
-                          width: `calc((100% - 80px) / 6 - 4px)`,
-                          height: `${Math.max(height, 30)}px`,
-                          background: col,
-                          color: "#fff",
+                          left: `calc(80px + ${dayIndex} * calc((100% - 80px) / 6) + 2px)`,
+                          top: `${top + 1}px`,
+                          width: `calc((100% - 80px) / 6 - 8px)`,
+                          height: `${Math.max(height - 2, 28)}px`,
+                          background: isMatch ? "rgba(245,158,11,0.25)" : statusBg(event.status),
+                          color: THEME.text,
                           borderRadius: 8,
-                          padding: "8px",
+                          padding: "4px 8px 4px 10px",
                           boxSizing: "border-box",
-                          border: `2px solid ${col}`,
+                          borderTop: isMatch ? `3px solid #f59e0b` : `2px solid ${col}50`,
+                          borderRight: isMatch ? `3px solid #f59e0b` : `2px solid ${col}50`,
+                          borderBottom: isMatch ? `3px solid #f59e0b` : `2px solid ${col}50`,
+                          borderLeft: isMatch ? `6px solid #f59e0b` : `6px solid ${col}`,
                           cursor: "move",
-                          zIndex: 2,
-                          overflow: "visible",
-                          transition: "opacity 0.2s",
+                          zIndex: isMatch ? 10 : 2,
+                          overflow: "hidden",
+                          transition: "box-shadow 0.2s, transform 0.15s, opacity 0.3s",
                           display: "flex",
                           flexDirection: "column",
+                          boxShadow: isMatch ? "0 0 20px rgba(245,158,11,0.6)" : "0 2px 6px rgba(30,64,175,0.08)",
+                          fontSize: 11,
+                          transform: isMatch ? "scale(1.04)" : "scale(1)",
+                        }}
+                        onMouseEnter={(e) => { 
+                          if (!isDimmed) {
+                            e.currentTarget.style.boxShadow = "0 4px 16px rgba(37,99,235,0.15)"; 
+                            e.currentTarget.style.transform = isMatch ? "scale(1.06)" : "scale(1.01)";
+                          }
+                          handleEventHover(e, event);
+                        }}
+                        onMouseLeave={(e) => { 
+                          if (!isDimmed) {
+                            e.currentTarget.style.boxShadow = isMatch ? "0 0 20px rgba(245,158,11,0.6)" : "0 2px 6px rgba(30,64,175,0.08)"; 
+                            e.currentTarget.style.transform = isMatch ? "scale(1.04)" : "scale(1)";
+                          }
+                          handleEventHoverEnd();
                         }}
                         onClick={() => {
                           setSelectedEvent({
@@ -3385,8 +3733,8 @@ return (
                           setEditStatus(event.status);
                           setEditNote(event.calendar_note || "");
                           setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
-                          setEditTreatmentType(event.treatment_type || "seduta");
-                          setEditPriceType(event.price_type || "invoiced");
+                          setEditTreatmentType((event.treatment_type as "seduta" | "macchinario") || "seduta");
+                          setEditPriceType((event.price_type as "invoiced" | "cash") || "invoiced");
                           
                           if (event.patient_id) {
                             loadPatientFromEvent(event.patient_id);
@@ -3405,8 +3753,8 @@ return (
                               width: 16,
                               height: 16,
                               borderRadius: 4,
-                              border: "2px solid rgba(255,255,255,0.9)",
-                              background: isDone ? THEME.greenDark : "rgba(255,255,255,0.3)",
+                              border: `2px solid ${THEME.border}`,
+                              background: isDone ? THEME.green : "transparent",
                               cursor: "pointer",
                               flex: "0 0 auto",
                               marginTop: 2,
@@ -3417,7 +3765,7 @@ return (
                             <div
                             title={event.location === "domicile" ? `🏠 ${event.patient_name}` : event.patient_name}
                             style={{
-                              fontWeight: 900,
+                              fontWeight: 600,
                               lineHeight: 1.12,
                               fontSize: autoNameFontSize(event.patient_name),
                               overflow: "hidden",
@@ -3429,45 +3777,94 @@ return (
                               wordBreak: "break-word",
                             }}
                           >
+                            <span
+                              title={event.treatment_type === "macchinario" ? "Macchinario" : "Seduta"}
+                              style={{
+                                display: "inline-block",
+                                width: 7,
+                                height: 7,
+                                borderRadius: "50%",
+                                background: TREATMENT_COLORS[event.treatment_type || "seduta"] || TREATMENT_COLORS.seduta,
+                                marginRight: 4,
+                                verticalAlign: "middle",
+                                flexShrink: 0,
+                              }}
+                            />
                             {event.location === "domicile" ? `🏠 ${event.patient_name}` : event.patient_name}
                           </div>
 </div>
                           
                           {isPaid ? (
-                            <div
-                              title="Pagato"
+                            <button
+                              title="Pagato — clicca per annullare"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                togglePaidQuick(event.id, true);
+                              }}
                               style={{
-                                width: 20,
-                                height: 20,
+                                width: 22,
+                                height: 22,
                                 borderRadius: 6,
-                                border: "1px solid rgba(255,255,255,0.9)",
-                                background: "rgba(255,255,255,0.25)",
+                                border: "none",
+                                background: "#16a34a",
                                 display: "flex",
                                 alignItems: "center",
                                 justifyContent: "center",
-                                fontSize: 12,
+                                fontSize: 11,
                                 color: "#fff",
                                 flex: "0 0 auto",
+                                cursor: "pointer",
+                                fontWeight: 800,
+                                boxShadow: "0 1px 3px rgba(22,163,74,0.3)",
                               }}
                             >
                               💰
-                            </div>
-                          ) : waSent ? (
+                            </button>
+                          ) : event.status !== "cancelled" ? (
+                            <button
+                              title="Segna come pagato"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                togglePaidQuick(event.id, false);
+                              }}
+                              style={{
+                                width: 22,
+                                height: 22,
+                                borderRadius: 6,
+                                border: `2px dashed #dc2626`,
+                                background: "rgba(220,38,38,0.06)",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: 11,
+                                color: "#dc2626",
+                                flex: "0 0 auto",
+                                cursor: "pointer",
+                                fontWeight: 800,
+                              }}
+                            >
+                              💰
+                            </button>
+                          ) : null}
+
+                          {waSent ? (
                             <div
                               title="WhatsApp inviato"
                               style={{
                                 width: 20,
                                 height: 20,
                                 borderRadius: 6,
-                                border: "1px solid rgba(255,255,255,0.6)",
-                                background: "rgba(255,255,255,0.18)",
+                                border: `1.5px solid ${THEME.border}`,
+                                background: THEME.panelSoft,
                                 display: "flex",
                                 alignItems: "center",
                                 justifyContent: "center",
                                 flex: "0 0 auto",
                               }}
                             >
-                              <div style={{ width: 8, height: 8, borderRadius: 999, background: "rgba(255,255,255,0.95)" }} />
+                              <div style={{ width: 8, height: 8, borderRadius: 999, background: THEME.panelBg }} />
                             </div>
                           ) : event.status !== "done" && event.status !== "cancelled" && event.patient_phone ? (
                             <button
@@ -3475,14 +3872,14 @@ return (
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                sendReminder(event.id, event.patient_phone, event.patient_first_name ?? undefined);
+                                sendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined);
                               }}
                               style={{
                                 width: 20,
                                 height: 20,
                                 borderRadius: 6,
-                                border: "1px solid rgba(255,255,255,0.9)",
-                                background: "rgba(37, 211, 102, 0.8)",
+                                border: `1.5px solid ${THEME.border}`,
+                                background: "rgba(34, 197, 94, 0.8)",
                                 cursor: "pointer",
                                 flex: "0 0 auto",
                                 display: "flex",
@@ -3499,15 +3896,15 @@ return (
 
                         <div style={{ 
                           fontSize: 11, 
-                          fontWeight: 900, 
-                          opacity: 0.9,
+                          fontWeight: 700, 
+                          color: THEME.muted,
                           marginTop: "auto",
                           display: "flex",
                           justifyContent: "space-between",
                           alignItems: "flex-end"
                         }}>
                           <span>{fmtTime(event.start.toISOString())}</span>
-                          <span>{statusLabel(event.status)}</span>
+                          <span style={{ color: statusColor(event.status), fontWeight: 700 }}>{statusLabel(event.status)}</span>
                         </div>
                       </div>
                     );
@@ -3528,8 +3925,8 @@ return (
                             top: `${top}px`,
                             width: `calc((100% - 80px) / 6 - 4px)`,
                             height: `${height}px`,
-                            background: "rgba(34, 197, 94, 0.1)",
-                            border: "2px dashed rgba(34, 197, 94, 0.5)",
+                            background: "rgba(22, 163, 74, 0.1)",
+                            border: "2px dashed rgba(22, 163, 74, 0.5)",
                             borderRadius: 8,
                             cursor: "pointer",
                             zIndex: 0,
@@ -3544,17 +3941,17 @@ return (
                             handleSlotClick(day, hour, minute);
                           }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.background = "rgba(34, 197, 94, 0.2)";
-                            e.currentTarget.style.border = "2px solid rgba(34, 197, 94, 0.7)";
+                            e.currentTarget.style.background = "rgba(22, 163, 74, 0.2)";
+                            e.currentTarget.style.border = "2px solid rgba(22, 163, 74, 0.7)";
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.background = "rgba(34, 197, 94, 0.1)";
-                            e.currentTarget.style.border = "2px dashed rgba(34, 197, 94, 0.5)";
+                            e.currentTarget.style.background = "rgba(22, 163, 74, 0.1)";
+                            e.currentTarget.style.border = "2px dashed rgba(22, 163, 74, 0.5)";
                           }}
                         >
                           <div style={{ 
                             fontSize: 11, 
-                            fontWeight: 900, 
+                            fontWeight: 600, 
                             color: THEME.green,
                             textAlign: "center",
                             opacity: 0.8
@@ -3625,32 +4022,191 @@ return (
                 </div>
               </div>
             </div>
+          ) : viewType === "month" ? (
+            /* ━━━ MONTH VIEW — COMPACT ━━━ */
+            <div
+              style={{
+                background: THEME.panelBg,
+                border: `2px solid ${THEME.border}`,
+                borderRadius: 12,
+                overflow: "hidden",
+                boxShadow: "0 2px 12px rgba(30,64,175,0.06)",
+              }}
+            >
+              {/* Month header */}
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(7, 1fr)",
+                background: "linear-gradient(135deg, #0d9488, #2563eb)",
+                borderRadius: "10px 10px 0 0",
+              }}>
+                {["LUN", "MAR", "MER", "GIO", "VEN", "SAB", "DOM"].map(d => (
+                  <div key={d} style={{
+                    padding: "8px 4px",
+                    textAlign: "center",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: "rgba(255,255,255,0.8)",
+                    letterSpacing: 1,
+                  }}>{d}</div>
+                ))}
+              </div>
+
+              {/* Month grid */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
+                {monthDays.map((day, idx) => {
+                  const isCurrentMonth = day.getMonth() === currentDate.getMonth();
+                  const isToday = day.getDate() === new Date().getDate() && day.getMonth() === new Date().getMonth() && day.getFullYear() === new Date().getFullYear();
+                  const dayKey = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`;
+                  const dayEvents = monthEvents.get(dayKey) || [];
+                  const isSunday = day.getDay() === 0;
+
+                  return (
+                    <div
+                      key={idx}
+                      onClick={() => {
+                        // Single click = crea appuntamento (con delay per distinguere dal doppio click)
+                        if (monthClickTimer.current) clearTimeout(monthClickTimer.current);
+                        monthClickTimer.current = setTimeout(() => {
+                          monthClickTimer.current = null;
+                          openCreateModal(day);
+                        }, 280);
+                      }}
+                      onDoubleClick={() => {
+                        // Doppio click = vai a vista giorno
+                        if (monthClickTimer.current) {
+                          clearTimeout(monthClickTimer.current);
+                          monthClickTimer.current = null;
+                        }
+                        setCurrentDate(day);
+                        setViewType("day");
+                      }}
+                      data-month-cell="true"
+                      style={{
+                        minHeight: 130,
+                        padding: "3px 4px",
+                        borderRight: `1px solid ${THEME.borderSoft}`,
+                        borderBottom: `1px solid ${THEME.borderSoft}`,
+                        background: isToday ? "rgba(37,99,235,0.06)" : isSunday ? "rgba(107,114,128,0.04)" : "transparent",
+                        cursor: "pointer",
+                        opacity: isCurrentMonth ? 1 : 0.35,
+                        transition: "background 0.15s",
+                      }}
+                      onMouseEnter={(e) => { if (!isToday) e.currentTarget.style.background = "rgba(37,99,235,0.04)"; }}
+                      onMouseLeave={(e) => { if (!isToday) e.currentTarget.style.background = isSunday ? "rgba(107,114,128,0.04)" : "transparent"; }}
+                    >
+                      {/* Day number row — compact */}
+                      <div style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        marginBottom: 2,
+                        lineHeight: 1,
+                      }}>
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: isToday ? 800 : 600,
+                          color: isToday ? "#fff" : isSunday ? THEME.muted : THEME.text,
+                          ...(isToday ? {
+                            background: THEME.blue,
+                            borderRadius: "50%",
+                            width: 20,
+                            height: 20,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          } : {}),
+                        }}>
+                          {day.getDate()}
+                        </span>
+                        {dayEvents.length > 0 && (
+                          <span style={{ fontSize: 9, fontWeight: 700, color: THEME.muted }}>
+                            {dayEvents.length}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Events list — ultra compact */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                        {dayEvents.slice(0, 10).map((ev, i) => {
+                          const isMatch = searchMatchIds.has(ev.id);
+                          const isDimmed = isSearchActive && !isMatch;
+                          return (
+                          <div key={i}
+                            className={isMatch ? "search-highlight" : isDimmed ? "search-dimmed" : ""}
+                            title={`${ev.patient_name} · ${fmtTime(ev.start.toISOString())} – ${fmtTime(ev.end.toISOString())} · ${statusLabel(ev.status)}`}
+                            style={{
+                              fontSize: isMatch ? 9.5 : 8.5,
+                              fontWeight: isMatch ? 800 : 600,
+                              color: isMatch ? "#92400e" : statusColor(ev.status),
+                              overflow: "hidden",
+                              whiteSpace: "nowrap",
+                              textOverflow: "ellipsis",
+                              padding: isMatch ? "2px 4px" : "1px 3px",
+                              borderRadius: isMatch ? 4 : 2,
+                              background: isMatch ? "rgba(245,158,11,0.35)" : statusBg(ev.status),
+                              lineHeight: 1.25,
+                              borderLeft: isMatch ? `3px solid #f59e0b` : `2px solid ${statusColor(ev.status)}`,
+                              position: "relative",
+                              zIndex: isMatch ? 5 : 0,
+                            }}>
+                              {fmtTime(ev.start.toISOString())} {ev.patient_name}
+                          </div>
+                          );
+                        })}
+                        {dayEvents.length > 10 && (
+                          <span style={{ fontSize: 8, fontWeight: 700, color: THEME.muted, paddingLeft: 3 }}>+{dayEvents.length - 10}</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Hint */}
+              <div style={{
+                padding: "8px 12px",
+                fontSize: 11,
+                fontWeight: 600,
+                color: THEME.muted,
+                borderTop: `1px solid ${THEME.borderSoft}`,
+                display: "flex",
+                justifyContent: "center",
+                gap: 16,
+              }}>
+                <span>Click = nuovo appuntamento</span>
+                <span>•</span>
+                <span>Doppio click = vista giorno</span>
+              </div>
+            </div>
           ) : (
             <div
               style={{
                 background: THEME.panelBg,
-                border: `1px solid ${THEME.border}`,
+                border: `2px solid ${THEME.border}`,
                 borderRadius: 12,
                 minHeight: 600,
                 overflow: "visible",
-                boxShadow: "0 10px 30px rgba(15,23,42,0.10)",
+                boxShadow: "0 2px 12px rgba(30,64,175,0.06)",
                 position: "relative",
               }}
             >
               <div style={{ 
                 display: "grid", 
                 gridTemplateColumns: "80px 1fr",
-                borderBottom: `1px solid ${THEME.border}`,
-                background: THEME.panelSoft,
+                borderBottom: `2px solid ${THEME.border}`,
+                background: "linear-gradient(135deg, #0d9488, #2563eb)",
+                borderRadius: "10px 10px 0 0",
               }}>
                 <div style={{ 
                   padding: "16px 8px", 
-                  borderRight: `1px solid ${THEME.border}`,
-                  fontSize: 12,
-                  fontWeight: 900,
-                  color: THEME.muted,
+                  borderRight: "1px solid rgba(255,255,255,0.08)",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "rgba(255,255,255,0.5)",
                   textAlign: "center",
                   boxSizing: "border-box",
+                  letterSpacing: 1,
+                  textTransform: "uppercase",
                 }}>
                   ORA
                 </div>
@@ -3658,15 +4214,16 @@ return (
                   padding: "16px 8px", 
                   textAlign: "center",
                   fontSize: 13,
-                  fontWeight: 900,
-                  color: THEME.blueDark,
+                  fontWeight: 700,
+                  color: "#93c5fd",
                   boxSizing: "border-box",
+                  letterSpacing: 0.5,
                 }}>
                   {dayLabels[currentDate.getDay() === 0 ? 0 : currentDate.getDay() - 1].label} • {formatDMY(currentDate)}
                 </div>
               </div>
 
-              <div style={{ position: "relative", height: "calc(15 * 60px)" }}>
+              <div className="calendar-grid-scroll" style={{ position: "relative", height: "calc(100vh - 180px)", minHeight: 500 }}>
                 {timeSlots.map((time, timeIndex) => {
                   const hour = parseInt(time.split(':')[0]);
                   
@@ -3675,7 +4232,7 @@ return (
                       key={timeIndex}
                       style={{ 
                         height: "60px",
-                        borderBottom: `1px solid ${THEME.border}`,
+                        borderBottom: `1.5px solid ${THEME.border}`,
                         position: "relative",
                         display: "flex",
                       }}
@@ -3688,7 +4245,7 @@ return (
                         paddingLeft: 8,
                         borderRight: `1px solid ${THEME.border}`,
                         fontSize: 12,
-                        fontWeight: 900,
+                        fontWeight: 600,
                         color: THEME.muted,
                         background: THEME.panelSoft,
                         zIndex: 1,
@@ -3709,7 +4266,7 @@ return (
                         <div
                           style={{
                             height: "30px",
-                            borderBottom: `1px solid ${THEME.border}`,
+                            borderBottom: `1.5px solid ${THEME.border}`,
                             cursor: "pointer",
                             boxSizing: "border-box",
                             position: "relative",
@@ -3735,7 +4292,7 @@ return (
                                 right: 0,
                                 bottom: 0,
                                 border: `2px dashed ${THEME.blue}`,
-                                background: "rgba(37, 99, 235, 0.1)",
+                                background: "rgba(91,130,168,0.1)",
                                 zIndex: 1,
                                 pointerEvents: "none",
                               }}
@@ -3772,7 +4329,7 @@ return (
                                 right: 0,
                                 bottom: 0,
                                 border: `2px dashed ${THEME.blue}`,
-                                background: "rgba(37, 99, 235, 0.1)",
+                                background: "rgba(91,130,168,0.1)",
                                 zIndex: 1,
                                 pointerEvents: "none",
                               }}
@@ -3799,8 +4356,8 @@ return (
                           top: `${top}px`,
                           width: "calc(100% - 84px)",
                           height: `${height}px`,
-                          background: "rgba(34, 197, 94, 0.1)",
-                          border: "2px dashed rgba(34, 197, 94, 0.5)",
+                          background: "rgba(22, 163, 74, 0.1)",
+                          border: "2px dashed rgba(22, 163, 74, 0.5)",
                           borderRadius: 8,
                           cursor: "pointer",
                           zIndex: 0,
@@ -3815,17 +4372,17 @@ return (
                           handleSlotClick(currentDate, hour, minute);
                         }}
                         onMouseEnter={(e) => {
-                          e.currentTarget.style.background = "rgba(34, 197, 94, 0.2)";
-                          e.currentTarget.style.border = "2px solid rgba(34, 197, 94, 0.7)";
+                          e.currentTarget.style.background = "rgba(22, 163, 74, 0.2)";
+                          e.currentTarget.style.border = "2px solid rgba(22, 163, 74, 0.7)";
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.background = "rgba(34, 197, 94, 0.1)";
-                          e.currentTarget.style.border = "2px dashed rgba(34, 197, 94, 0.5)";
+                          e.currentTarget.style.background = "rgba(22, 163, 74, 0.1)";
+                          e.currentTarget.style.border = "2px dashed rgba(22, 163, 74, 0.5)";
                         }}
                       >
                         <div style={{ 
                           fontSize: 12, 
-                          fontWeight: 900, 
+                          fontWeight: 600, 
                           color: THEME.green,
                           textAlign: "center"
                         }}>
@@ -3858,23 +4415,29 @@ return (
                         onContextMenu={(e) => handleContextMenu(e, event)}
                         style={{
                           position: "absolute",
-                          left: "80px",
-                          top: `${top}px`,
-                          width: "calc(100% - 84px)",
-                          height: `${Math.max(height, 30)}px`,
-                          background: col,
-                          color: "#fff",
+                          left: "82px",
+                          top: `${top + 1}px`,
+                          width: "calc(100% - 88px)",
+                          height: `${Math.max(height - 2, 28)}px`,
+                          background: statusBg(event.status),
+                          color: THEME.text,
                           borderRadius: 8,
-                          padding: "8px",
+                          padding: "6px 10px 6px 12px",
                           boxSizing: "border-box",
-                          border: `2px solid ${col}`,
+                          borderTop: `2px solid ${col}50`,
+                          borderRight: `2px solid ${col}50`,
+                          borderBottom: `2px solid ${col}50`,
+                          borderLeft: `6px solid ${col}`,
                           cursor: "move",
                           zIndex: 2,
-                          overflow: "visible",
-                          transition: "opacity 0.2s",
+                          overflow: "hidden",
+                          transition: "box-shadow 0.2s, transform 0.15s",
                           display: "flex",
                           flexDirection: "column",
+                          boxShadow: "0 2px 6px rgba(30,64,175,0.08)",
                         }}
+                        onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 4px 16px rgba(37,99,235,0.15)"; e.currentTarget.style.transform = "scale(1.005)"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "0 2px 6px rgba(30,64,175,0.08)"; e.currentTarget.style.transform = "scale(1)"; }}
                         onClick={() => {
                           setSelectedEvent({
                             id: event.id,
@@ -3894,8 +4457,8 @@ return (
                           setEditStatus(event.status);
                           setEditNote(event.calendar_note || "");
                           setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
-                          setEditTreatmentType(event.treatment_type || "seduta");
-                          setEditPriceType(event.price_type || "invoiced");
+                          setEditTreatmentType((event.treatment_type as "seduta" | "macchinario") || "seduta");
+                          setEditPriceType((event.price_type as "invoiced" | "cash") || "invoiced");
                           
                           if (event.patient_id) {
                             loadPatientFromEvent(event.patient_id);
@@ -3914,8 +4477,8 @@ return (
                               width: 16,
                               height: 16,
                               borderRadius: 4,
-                              border: "2px solid rgba(255,255,255,0.9)",
-                              background: isDone ? THEME.greenDark : "rgba(255,255,255,0.3)",
+                              border: `2px solid ${THEME.border}`,
+                              background: isDone ? THEME.green : "transparent",
                               cursor: "pointer",
                               flex: "0 0 auto",
                               marginTop: 2,
@@ -3924,19 +4487,31 @@ return (
 
                           <div style={{ minWidth: 0, flex: 1 }}>
                             <div style={{ 
-                              fontWeight: 900, 
+                              fontWeight: 600, 
                               lineHeight: 1.2, 
                               fontSize: 12, 
                               overflow: "visible",
                               textOverflow: "ellipsis",
                               whiteSpace: "nowrap",
                             }}>
+                              <span
+                                title={event.treatment_type === "macchinario" ? "Macchinario" : "Seduta"}
+                                style={{
+                                  display: "inline-block",
+                                  width: 7,
+                                  height: 7,
+                                  borderRadius: "50%",
+                                  background: TREATMENT_COLORS[event.treatment_type || "seduta"] || TREATMENT_COLORS.seduta,
+                                  marginRight: 4,
+                                  verticalAlign: "middle",
+                                }}
+                              />
                               {event.location === "domicile" ? `🏠 ${event.patient_name}` : event.patient_name}
                             </div>
                             <div style={{ 
                               fontSize: 11, 
-                              fontWeight: 900, 
-                              opacity: 0.9,
+                              fontWeight: 600, 
+                              color: THEME.muted,
                               marginTop: 2,
                             }}>
                               {fmtTime(event.start.toISOString())} - {fmtTime(event.end.toISOString())}
@@ -3944,8 +4519,8 @@ return (
                             {isDomicile && (
                               <div style={{ 
                                 fontSize: 10, 
-                                fontWeight: 900, 
-                                color: "rgba(255,255,255,0.9)",
+                                fontWeight: 600, 
+                                color: THEME.muted,
                                 marginTop: 2,
                                 display: "flex",
                                 alignItems: "center",
@@ -3963,14 +4538,14 @@ return (
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                sendReminder(event.id, event.patient_phone, event.patient_first_name ?? undefined);
+                                sendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined);
                               }}
                               style={{
                                 width: 20,
                                 height: 20,
                                 borderRadius: 4,
-                                border: "1px solid rgba(255,255,255,0.9)",
-                                background: "rgba(37, 211, 102, 0.8)",
+                                border: `1.5px solid ${THEME.border}`,
+                                background: "rgba(34, 197, 94, 0.8)",
                                 cursor: "pointer",
                                 flex: "0 0 auto",
                                 display: "flex",
@@ -3983,19 +4558,74 @@ return (
                               📱
                             </button>
                           )}
+
+                          {event.is_paid ? (
+                            <button
+                              title="Pagato — clicca per annullare"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                togglePaidQuick(event.id, true);
+                              }}
+                              style={{
+                                width: 22,
+                                height: 22,
+                                borderRadius: 6,
+                                border: "none",
+                                background: "#16a34a",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: 11,
+                                color: "#fff",
+                                flex: "0 0 auto",
+                                cursor: "pointer",
+                                fontWeight: 800,
+                                boxShadow: "0 1px 3px rgba(22,163,74,0.3)",
+                              }}
+                            >
+                              💰
+                            </button>
+                          ) : event.status !== "cancelled" ? (
+                            <button
+                              title="Segna come pagato"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                togglePaidQuick(event.id, false);
+                              }}
+                              style={{
+                                width: 22,
+                                height: 22,
+                                borderRadius: 6,
+                                border: `2px dashed #dc2626`,
+                                background: "rgba(220,38,38,0.06)",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: 11,
+                                color: "#dc2626",
+                                flex: "0 0 auto",
+                                cursor: "pointer",
+                                fontWeight: 800,
+                              }}
+                            >
+                              💰
+                            </button>
+                          ) : null}
                         </div>
 
                         <div style={{ 
                           fontSize: 11, 
-                          fontWeight: 900, 
-                          opacity: 0.9,
+                          fontWeight: 700, 
+                          color: THEME.muted,
                           marginTop: "auto",
                           display: "flex",
                           justifyContent: "space-between",
                           alignItems: "flex-end"
                         }}>
                           <span>{event.location === "studio" ? event.clinic_site : "Domicilio"}</span>
-                          <span>{statusLabel(event.status)}</span>
+                          <span style={{ color: statusColor(event.status), fontWeight: 700 }}>{statusLabel(event.status)}</span>
                         </div>
                       </div>
                     );
@@ -4065,7 +4695,7 @@ return (
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(15,23,42,0.35)",
+            background: "rgba(30,64,175,0.35)",
             zIndex: 9999,
             display: "flex",
             alignItems: "center",
@@ -4076,26 +4706,40 @@ return (
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              width: 800,
+              width: 780,
               maxWidth: "100%",
               maxHeight: "90vh",
               overflowY: "auto",
               background: THEME.panelBg,
               color: THEME.text,
-              borderRadius: 12,
-              border: `1px solid ${THEME.borderSoft}`,
-              boxShadow: "0 18px 60px rgba(15,23,42,0.25)",
-              padding: 24,
+              borderRadius: 16,
+              border: `2px solid ${THEME.border}`,
+              boxShadow: "0 24px 64px rgba(30,64,175,0.2)",
+              padding: "32px 28px",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 12, marginBottom: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 12, marginBottom: 24 }}>
               <div>
-                <div style={{ fontSize: 20, fontWeight: 900, color: THEME.blueDark, letterSpacing: -0.2 }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: THEME.blue, letterSpacing: -0.3 }}>
                   {duplicateMode ? "Duplica appuntamento" : "Nuovo appuntamento"}
                 </div>
-                <div style={{ marginTop: 6, fontSize: 13, color: THEME.muted, fontWeight: 900 }}>
+                <div style={{ marginTop: 6, fontSize: 13, color: THEME.muted, fontWeight: 600, letterSpacing: 0.3 }}>
                   {createStartISO ? `${fmtTime(createStartISO)} → ${fmtTime(createEndISO)} • ${selectedDuration} ora${selectedDuration === "1" ? "" : "e"}` : "Seleziona orario"}
                 </div>
+                {overlapWarning && (
+                  <div style={{
+                    marginTop: 8,
+                    padding: "8px 12px",
+                    borderRadius: 8,
+                    background: "rgba(220,38,38,0.08)",
+                    border: `1px solid rgba(220,38,38,0.25)`,
+                    color: THEME.red,
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}>
+                    {overlapWarning}
+                  </div>
+                )}
               </div>
 
               <button
@@ -4103,12 +4747,12 @@ return (
                 style={{
                   width: 42,
                   height: 42,
-                  borderRadius: 8,
-                  border: `1px solid ${THEME.borderSoft}`,
+                  borderRadius: 10,
+                  border: `2px solid ${THEME.border}`,
                   background: THEME.panelSoft,
-                  color: THEME.text,
+                  color: THEME.blue,
                   cursor: "pointer",
-                  fontWeight: 900,
+                  fontWeight: 800,
                   fontSize: 14,
                 }}
               >
@@ -4118,7 +4762,7 @@ return (
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 20 }}>
               <div>
-                <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                <label style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft }}>
                   Luogo
                   <select
                     value={createLocation}
@@ -4132,7 +4776,7 @@ return (
                       background: THEME.panelBg,
                       color: THEME.text,
                       outline: "none",
-                      fontWeight: 800,
+                      fontWeight: 600,
                       fontSize: 13,
                     }}
                   >
@@ -4144,7 +4788,7 @@ return (
 
               <div>
                 {createLocation === "studio" ? (
-                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft }}>
                     Sede
                     <input
                       value={createClinicSite}
@@ -4159,13 +4803,13 @@ return (
                         background: THEME.panelBg,
                         color: THEME.text,
                         outline: "none",
-                        fontWeight: 800,
+                        fontWeight: 600,
                         fontSize: 13,
                       }}
                     />
                   </label>
                 ) : (
-                  <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft }}>
                     Indirizzo domicilio
                     <input
                       value={createDomicileAddress}
@@ -4180,7 +4824,7 @@ return (
                         background: THEME.panelBg,
                         color: THEME.text,
                         outline: "none",
-                        fontWeight: 800,
+                        fontWeight: 600,
                         fontSize: 13,
                       }}
                     />
@@ -4189,7 +4833,7 @@ return (
               </div>
 
               <div>
-                <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                <label style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft }}>
                   {duplicateMode ? "Nuovo giorno" : "Giorno"}
                   <input
                     type="date"
@@ -4217,7 +4861,7 @@ return (
                       background: THEME.panelBg,
                       color: THEME.text,
                       outline: "none",
-                      fontWeight: 800,
+                      fontWeight: 600,
                       fontSize: 13,
                     }}
                   />
@@ -4227,7 +4871,7 @@ return (
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 20 }}>
               <div>
-                <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                <label style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft }}>
                   {duplicateMode ? "Nuovo orario" : "Orario"}
                   <select
                     value={duplicateMode ? duplicateTime : selectedStartTime}
@@ -4248,7 +4892,7 @@ return (
                       background: THEME.panelBg,
                       color: THEME.text,
                       outline: "none",
-                      fontWeight: 800,
+                      fontWeight: 600,
                       fontSize: 13,
                     }}
                   >
@@ -4262,7 +4906,7 @@ return (
               </div>
 
               <div>
-                <label style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                <label style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft }}>
                   Durata
                   <select
                     value={selectedDuration}
@@ -4282,7 +4926,7 @@ return (
                       background: THEME.panelBg,
                       color: THEME.text,
                       outline: "none",
-                      fontWeight: 800,
+                      fontWeight: 600,
                       fontSize: 13,
                     }}
                   >
@@ -4296,14 +4940,14 @@ return (
               <div></div>
             </div>
 
-            <div style={{ marginBottom: 20, border: `1px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
-              <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 12 }}>
+            <div style={{ marginBottom: 20, border: `1.5px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft, marginBottom: 12 }}>
                 Tipologia e Prezzo
               </div>
               
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 8 }}>
                     Trattamento
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
@@ -4317,7 +4961,7 @@ return (
                         background: treatmentType === "seduta" ? THEME.blue : "#fff",
                         color: treatmentType === "seduta" ? "#fff" : THEME.text,
                         cursor: "pointer",
-                        fontWeight: 900,
+                        fontWeight: 600,
                         fontSize: 13,
                       }}
                     >
@@ -4333,7 +4977,7 @@ return (
                         background: treatmentType === "macchinario" ? THEME.blue : "#fff",
                         color: treatmentType === "macchinario" ? "#fff" : THEME.text,
                         cursor: "pointer",
-                        fontWeight: 900,
+                        fontWeight: 600,
                         fontSize: 13,
                       }}
                     >
@@ -4343,7 +4987,7 @@ return (
                 </div>
 
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 8 }}>
                     Prezzo
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
@@ -4357,7 +5001,7 @@ return (
                         background: priceType === "invoiced" ? THEME.green : "#fff",
                         color: priceType === "invoiced" ? "#fff" : THEME.text,
                         cursor: "pointer",
-                        fontWeight: 900,
+                        fontWeight: 600,
                         fontSize: 13,
                       }}
                     >
@@ -4370,10 +5014,10 @@ return (
                         padding: "12px",
                         borderRadius: 8,
                         border: `1px solid ${priceType === "cash" ? THEME.amber : THEME.borderSoft}`,
-                        background: priceType === "cash" ? "rgba(249,115,22,0.1)" : "#fff",
+                        background: priceType === "cash" ? "rgba(245,158,11,0.1)" : "#fff",
                         color: priceType === "cash" ? THEME.amber : THEME.text,
                         cursor: "pointer",
-                        fontWeight: 900,
+                        fontWeight: 600,
                         fontSize: 13,
                       }}
                     >
@@ -4384,7 +5028,7 @@ return (
               </div>
 
               <div style={{ borderTop: `1px solid ${THEME.border}`, paddingTop: 16 }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 12, fontWeight: 900, color: THEME.text, fontSize: 14, marginBottom: 12 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 12, fontWeight: 600, color: THEME.text, fontSize: 14, marginBottom: 12 }}>
                   <input
                     type="checkbox"
                     checked={useCustomPrice}
@@ -4403,7 +5047,7 @@ return (
 
                 {useCustomPrice && (
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <div style={{ fontSize: 13, fontWeight: 900, color: THEME.text }}>€</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: THEME.text }}>€</div>
                     <input
   value={customAmount}
   onChange={(e) => {
@@ -4416,21 +5060,21 @@ return (
     padding: "8px 10px",
     borderRadius: 8,
     border: `1px solid ${THEME.blue}`,
-    background: "#fff",
+    background: THEME.panelBg,
     color: THEME.text,
     outline: "none",
-    fontWeight: 800,
+    fontWeight: 600,
     fontSize: 13,
   }}
 />
-                    <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 900 }}>
+                    <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 600 }}>
                       Inserisci l'importo in euro (0 per terapia gratuita)
                     </div>
                   </div>
                 )}
               </div>
 
-              <div style={{ marginTop: 12, fontSize: 13, color: THEME.muted, fontWeight: 900, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ marginTop: 12, fontSize: 13, color: THEME.muted, fontWeight: 600, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span>Totale:</span>
                 <strong style={{ color: THEME.text, fontSize: 16 }}>
                   {useCustomPrice && customAmount !== "" ? 
@@ -4441,8 +5085,8 @@ return (
               </div>
             </div>
 
-            <div style={{ marginBottom: 20, border: `1px solid ${THEME.border}`, background: THEME.panelSoft, padding: 16, borderRadius: 8 }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 12, fontWeight: 900, color: THEME.text, fontSize: 14 }}>
+            <div style={{ marginBottom: 20, border: `1.5px solid ${THEME.border}`, background: THEME.panelSoft, padding: 16, borderRadius: 8 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 12, fontWeight: 600, color: THEME.text, fontSize: 14 }}>
                 <input
                   type="checkbox"
                   checked={isRecurring}
@@ -4455,7 +5099,7 @@ return (
               {isRecurring && (
                 <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 16 }}>
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 900, color: THEME.muted }}>Giorni</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: THEME.muted }}>Giorni</div>
                     <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
                       {dayLabels.map((d) => {
                         const active = recurringDays.includes(d.dow);
@@ -4470,7 +5114,7 @@ return (
                               background: active ? THEME.blue : "#fff",
                               color: active ? "#fff" : THEME.text,
                               cursor: "pointer",
-                              fontWeight: 900,
+                              fontWeight: 600,
                               fontSize: 12,
                             }}
                             title="Seleziona/deseleziona"
@@ -4480,13 +5124,54 @@ return (
                         );
                       })}
                     </div>
-                    <div style={{ marginTop: 12, fontSize: 12, color: THEME.muted, fontWeight: 900 }}>
-                      Creerò un appuntamento per ogni giorno selezionato fino alla data finale.
+
+                    {/* Frequency selector */}
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 6 }}>Frequenza</div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        {([1, 2, 3, 4] as const).map(freq => (
+                          <button
+                            key={freq}
+                            onClick={() => setRecurringFrequency(freq)}
+                            style={{
+                              padding: "6px 12px",
+                              borderRadius: 6,
+                              border: `1px solid ${recurringFrequency === freq ? THEME.blueDark : THEME.borderSoft}`,
+                              background: recurringFrequency === freq ? THEME.blue : "#fff",
+                              color: recurringFrequency === freq ? "#fff" : THEME.text,
+                              cursor: "pointer",
+                              fontWeight: 600,
+                              fontSize: 11,
+                            }}
+                          >
+                            {freq === 1 ? "Ogni sett." : `Ogni ${freq} sett.`}
+                          </button>
+                        ))}
+                      </div>
                     </div>
+
+                    {/* Preview count */}
+                    {(() => {
+                      try {
+                        const previewStarts = generateRecurringStarts({
+                          firstStart: new Date(createStartISO),
+                          untilDate: parseDateInput(recurringUntil),
+                          weekDays: recurringDays,
+                          frequency: recurringFrequency,
+                        });
+                        return (
+                          <div style={{ marginTop: 10, fontSize: 12, color: THEME.blue, fontWeight: 700, background: "rgba(37,99,235,0.06)", padding: "6px 10px", borderRadius: 6 }}>
+                            📅 Verranno creati {previewStarts.length} appuntamenti
+                          </div>
+                        );
+                      } catch {
+                        return null;
+                      }
+                    })()}
                   </div>
 
                   <div>
-                    <label style={{ fontSize: 13, fontWeight: 900, color: THEME.muted }}>
+                    <label style={{ fontSize: 13, fontWeight: 600, color: THEME.muted }}>
                       Ripeti fino a
                       <input
                         type="date"
@@ -4498,16 +5183,16 @@ return (
                           padding: 10,
                           borderRadius: 8,
                           border: `1px solid ${THEME.borderSoft}`,
-                          background: "#fff",
+                          background: THEME.panelBg,
                           color: THEME.text,
                           outline: "none",
-                          fontWeight: 800,
+                          fontWeight: 600,
                           fontSize: 13,
                         }}
                       />
                     </label>
 
-                    <div style={{ marginTop: 12, fontSize: 12, color: THEME.muted, fontWeight: 900 }}>
+                    <div style={{ marginTop: 12, fontSize: 12, color: THEME.muted, fontWeight: 600 }}>
                       Limite sicurezza: max 200 appuntamenti per inserimento.
                     </div>
                   </div>
@@ -4517,7 +5202,7 @@ return (
 
             <div style={{ marginBottom: 20 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft }}>
                   Seleziona paziente
                 </div>
                 <button
@@ -4529,7 +5214,7 @@ return (
                     background: THEME.green,
                     color: "#fff",
                     cursor: "pointer",
-                    fontWeight: 900,
+                    fontWeight: 600,
                     fontSize: 12,
                     display: "flex",
                     alignItems: "center",
@@ -4550,10 +5235,10 @@ return (
                   padding: 10,
                   borderRadius: 8,
                   border: `1px solid ${THEME.borderSoft}`,
-                  background: "#fff",
+                  background: THEME.panelBg,
                   color: THEME.text,
                   outline: "none",
-                  fontWeight: 800,
+                  fontWeight: 600,
                   fontSize: 13,
                 }}
               />
@@ -4562,12 +5247,12 @@ return (
             {quickPatientOpen && (
               <div style={{ 
                 border: `1px solid ${THEME.blue}`, 
-                background: "rgba(37, 99, 235, 0.03)", 
+                background: "rgba(91,130,168,0.03)", 
                 padding: 16, 
                 borderRadius: 8,
                 marginBottom: 16 
               }}>
-                <div style={{ fontSize: 13, fontWeight: 900, color: THEME.blueDark, marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: THEME.blueDark, marginBottom: 12 }}>
                   Inserisci dati paziente rapido
                 </div>
                 
@@ -4580,10 +5265,10 @@ return (
                       padding: "8px 10px",
                       borderRadius: 8,
                       border: `1px solid ${THEME.borderSoft}`,
-                      background: "#fff",
+                      background: THEME.panelBg,
                       color: THEME.text,
                       outline: "none",
-                      fontWeight: 800,
+                      fontWeight: 600,
                       fontSize: 13,
                     }}
                   />
@@ -4595,10 +5280,10 @@ return (
                       padding: "8px 10px",
                       borderRadius: 8,
                       border: `1px solid ${THEME.borderSoft}`,
-                      background: "#fff",
+                      background: THEME.panelBg,
                       color: THEME.text,
                       outline: "none",
-                      fontWeight: 800,
+                      fontWeight: 600,
                       fontSize: 13,
                     }}
                   />
@@ -4610,17 +5295,17 @@ return (
                       padding: "8px 10px",
                       borderRadius: 8,
                       border: `1px solid ${THEME.borderSoft}`,
-                      background: "#fff",
+                      background: THEME.panelBg,
                       color: THEME.text,
                       outline: "none",
-                      fontWeight: 800,
+                      fontWeight: 600,
                       fontSize: 13,
                     }}
                   />
                 </div>
                 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 900 }}>
+                  <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 600 }}>
                     Stato: <strong style={{ color: THEME.amber }}>DA COMPLETARE</strong>
                   </div>
                   
@@ -4634,7 +5319,7 @@ return (
                         background: THEME.panelSoft,
                         color: THEME.text,
                         cursor: "pointer",
-                        fontWeight: 900,
+                        fontWeight: 600,
                         fontSize: 12,
                       }}
                     >
@@ -4650,7 +5335,7 @@ return (
                         background: THEME.green,
                         color: "#fff",
                         cursor: creatingQuickPatient ? "not-allowed" : "pointer",
-                        fontWeight: 900,
+                        fontWeight: 600,
                         fontSize: 12,
                         opacity: creatingQuickPatient || !quickPatientFirstName.trim() || !quickPatientLastName.trim() ? 0.6 : 1,
                       }}
@@ -4662,14 +5347,14 @@ return (
               </div>
             )}
 
-            <div style={{ border: `1px solid ${THEME.border}`, background: "#fff", borderRadius: 8, overflow: "hidden" }}>
-              <div style={{ padding: 10, fontSize: 13, color: THEME.muted, fontWeight: 900, background: THEME.panelSoft }}>
+            <div style={{ border: `1.5px solid ${THEME.border}`, background: THEME.panelBg, borderRadius: 8, overflow: "hidden" }}>
+              <div style={{ padding: 10, fontSize: 13, color: THEME.muted, fontWeight: 600, background: THEME.panelSoft }}>
                 {searching ? "Ricerca in corso..." : `Risultati: ${patientResults.length}`}
               </div>
 
               <div style={{ maxHeight: 240, overflowY: "auto" }}>
                 {patientResults.length === 0 && !quickPatientOpen && (
-                  <div style={{ padding: 20, fontSize: 13, color: THEME.muted, fontWeight: 900, textAlign: "center" }}>
+                  <div style={{ padding: 20, fontSize: 13, color: THEME.muted, fontWeight: 600, textAlign: "center" }}>
                     {q.trim().length < 2 ? "Scrivi almeno 2 lettere per iniziare la ricerca" : "Nessun risultato trovato"}
                   </div>
                 )}
@@ -4679,19 +5364,24 @@ return (
                   return (
                     <button
                       key={p.id}
-                      onClick={() => setSelectedPatient(p)}
+                      onClick={() => {
+                        setSelectedPatient(p);
+                        if (!duplicateMode) {
+                          loadLastPatientSettings(p.id);
+                        }
+                      }}
                       style={{
                         width: "100%",
                         textAlign: "left",
                         padding: 16,
                         border: "none",
                         borderTop: `1px solid ${THEME.border}`,
-                        background: active ? "rgba(37, 99, 235, 0.08)" : "#fff",
+                        background: active ? "rgba(37,99,235,0.08)" : "#fff",
                         cursor: "pointer",
                         display: "flex",
                         justifyContent: "space-between",
                         gap: 12,
-                        fontWeight: 900,
+                        fontWeight: 600,
                         color: THEME.text,
                         fontSize: 13,
                       }}
@@ -4701,19 +5391,19 @@ return (
                           {p.last_name} {p.first_name}
                         </span>
                         {p.treatment && (
-                          <span style={{ fontSize: 12, color: THEME.muted, marginTop: 4, fontWeight: 900 }}>
+                          <span style={{ fontSize: 12, color: THEME.muted, marginTop: 4, fontWeight: 600 }}>
                             Trattamento: {p.treatment}
                           </span>
                         )}
                       </div>
-                      <span style={{ fontSize: 12, color: THEME.muted, fontWeight: 900 }}>{p.phone ?? ""}</span>
+                      <span style={{ fontSize: 12, color: THEME.muted, fontWeight: 600 }}>{p.phone ?? ""}</span>
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            <div style={{ marginTop: 16, fontSize: 13, color: THEME.muted, fontWeight: 900 }}>
+            <div style={{ marginTop: 16, fontSize: 13, color: THEME.muted, fontWeight: 600 }}>
               Selezionato:{" "}
               <strong style={{ color: THEME.text }}>
                 {selectedPatient ? `${selectedPatient.last_name} ${selectedPatient.first_name}` : "-"}
@@ -4723,21 +5413,27 @@ return (
                   • Trattamento: <strong style={{ color: THEME.text }}>{selectedPatient.treatment}</strong>
                 </span>
               )}
+              {selectedPatient && !duplicateMode && (
+                <span style={{ marginLeft: 8, fontSize: 11, color: THEME.green }}>
+                  ✓ Impostazioni ultimo appuntamento applicate
+                </span>
+              )}
             </div>
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginTop: 24 }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginTop: 28 }}>
               <button
                 onClick={() => setCreateOpen(false)}
                 style={{
-                  padding: "12px 20px",
-                  borderRadius: 8,
-                  border: `1px solid ${THEME.borderSoft}`,
+                  padding: "12px 22px",
+                  borderRadius: 10,
+                  border: `2px solid ${THEME.border}`,
                   background: THEME.panelSoft,
                   color: THEME.text,
                   cursor: "pointer",
-                  fontWeight: 900,
+                  fontWeight: 700,
                   minWidth: 120,
                   fontSize: 13,
+                  letterSpacing: 0.3,
                 }}
               >
                 Annulla
@@ -4747,16 +5443,18 @@ return (
                 onClick={() => setShowWhatsAppConfirm(true)}
                 disabled={creating || !selectedPatient}
                 style={{
-                  padding: "12px 20px",
-                  borderRadius: 8,
-                  border: `1px solid ${THEME.greenDark}`,
-                  background: THEME.green,
+                  padding: "12px 22px",
+                  borderRadius: 10,
+                  border: "none",
+                  background: creating || !selectedPatient ? THEME.gray : "linear-gradient(135deg, #0d9488, #2563eb)",
                   color: "#fff",
                   cursor: creating || !selectedPatient ? "not-allowed" : "pointer",
-                  fontWeight: 900,
+                  fontWeight: 700,
                   minWidth: 200,
                   opacity: creating || !selectedPatient ? 0.6 : 1,
                   fontSize: 13,
+                  letterSpacing: 0.3,
+                  boxShadow: creating || !selectedPatient ? "none" : "0 4px 16px rgba(37,99,235,0.3)",
                 }}
               >
                 {creating ? "Creazione..." : isRecurring ? "Crea ricorrenza" : "Crea appuntamento"}
@@ -4775,7 +5473,7 @@ return (
             style={{
               position: "fixed",
               inset: 0,
-              background: "rgba(15,23,42,0.35)",
+              background: "rgba(30,64,175,0.35)",
               zIndex: 10000,
             }}
           />
@@ -4786,24 +5484,24 @@ return (
               top: "50%",
               left: "50%",
               transform: "translate(-50%, -50%)",
-              width: 500,
+              width: 480,
               maxWidth: "90%",
               background: THEME.panelBg,
               color: THEME.text,
-              borderRadius: 12,
-              border: `1px solid ${THEME.borderSoft}`,
-              boxShadow: "0 18px 60px rgba(15,23,42,0.25)",
-              padding: 24,
+              borderRadius: 16,
+              border: `2px solid ${THEME.border}`,
+              boxShadow: "0 24px 64px rgba(30,64,175,0.2)",
+              padding: "32px 28px",
               zIndex: 10001,
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-              <div style={{ fontSize: 24 }}>📱</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 24 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: "linear-gradient(135deg, #0d9488, #2563eb)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, color: "#fff" }}>◈</div>
               <div>
-                <div style={{ fontSize: 18, fontWeight: 900, color: THEME.blueDark }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: THEME.blue }}>
                   {selectedPatient?.phone ? "Invia conferma WhatsApp?" : "Nessun numero di telefono"}
                 </div>
-                <div style={{ marginTop: 4, fontSize: 13, color: THEME.muted, fontWeight: 900 }}>
+                <div style={{ marginTop: 4, fontSize: 13, color: THEME.muted, fontWeight: 600 }}>
                   {selectedPatient?.phone 
                     ? "Vuoi inviare il messaggio di conferma al paziente?"
                     : "Il paziente non ha un numero di telefono registrato. Vuoi comunque creare l'appuntamento?"}
@@ -4813,14 +5511,14 @@ return (
 
             {selectedPatient?.phone && (
               <div style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 13, fontWeight: 900, color: THEME.text, marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: THEME.text, marginBottom: 8 }}>
                   Messaggio che verrà inviato:
                 </div>
                 <div style={{
                   background: THEME.panelSoft,
                   padding: 16,
                   borderRadius: 8,
-                  border: `1px solid ${THEME.border}`,
+                  border: `1.5px solid ${THEME.border}`,
                   fontSize: 12,
                   lineHeight: 1.5,
                   whiteSpace: "pre-wrap",
@@ -4834,7 +5532,7 @@ return (
                   Dr. Marco Turchetta
                   Fisioterapia e Osteopatia
                 </div>
-                <div style={{ marginTop: 8, fontSize: 12, color: THEME.muted, fontWeight: 900 }}>
+                <div style={{ marginTop: 8, fontSize: 12, color: THEME.muted, fontWeight: 600 }}>
                   Destinatario: {selectedPatient?.phone}
                 </div>
               </div>
@@ -4843,14 +5541,14 @@ return (
             {!selectedPatient?.phone && (
               <div style={{ marginBottom: 24 }}>
                 <div style={{
-                  background: "rgba(249, 115, 22, 0.1)",
+                  background: "rgba(245, 158, 11, 0.1)",
                   border: `1px solid ${THEME.amber}`,
                   padding: 16,
                   borderRadius: 8,
                   fontSize: 12,
                   lineHeight: 1.5,
                   color: THEME.amber,
-                  fontWeight: 900,
+                  fontWeight: 600,
                 }}>
                   ⚠️ Attenzione: Il paziente {selectedPatient?.last_name} {selectedPatient?.first_name} non ha un numero di telefono registrato.
                   <br /><br />
@@ -4872,7 +5570,7 @@ return (
                   background: THEME.panelSoft,
                   color: THEME.text,
                   cursor: "pointer",
-                  fontWeight: 900,
+                  fontWeight: 600,
                   minWidth: 120,
                   fontSize: 13,
                 }}
@@ -4893,7 +5591,7 @@ return (
                     background: "#25d366",
                     color: "#fff",
                     cursor: "pointer",
-                    fontWeight: 900,
+                    fontWeight: 600,
                     minWidth: 200,
                     fontSize: 13,
                     display: "flex",
@@ -4917,7 +5615,7 @@ return (
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(15,23,42,0.35)",
+            background: "rgba(30,64,175,0.35)",
             zIndex: 9999,
             display: "flex",
             alignItems: "center",
@@ -4928,25 +5626,25 @@ return (
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              width: 700,
+              width: 680,
               maxWidth: "100%",
               maxHeight: "90vh",
               overflowY: "auto",
               background: THEME.panelBg,
               color: THEME.text,
-              borderRadius: 12,
-              border: `1px solid ${THEME.borderSoft}`,
-              boxShadow: "0 18px 60px rgba(15,23,42,0.25)",
-              padding: 24,
+              borderRadius: 16,
+              border: `2px solid ${THEME.border}`,
+              boxShadow: "0 24px 64px rgba(30,64,175,0.2)",
+              padding: "32px 28px",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 12, marginBottom: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 12, marginBottom: 24 }}>
               <div>
-                <div style={{ fontSize: 20, fontWeight: 900, color: THEME.blueDark, letterSpacing: -0.2 }}>{selectedEvent.title}</div>
-                <div style={{ marginTop: 6, fontSize: 13, color: THEME.muted, fontWeight: 900 }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: THEME.blue, letterSpacing: -0.3 }}>{selectedEvent.title}</div>
+                <div style={{ marginTop: 6, fontSize: 13, color: THEME.muted, fontWeight: 600, letterSpacing: 0.3 }}>
                   Stato: <strong style={{ color: statusColor(editStatus) }}>{statusLabel(editStatus)}</strong>
                   {selectedEvent.location === "domicile" && (
-                    <span style={{ marginLeft: 12, color: THEME.amber, fontWeight: 900 }}>🏠 DOMICILIO</span>
+                    <span style={{ marginLeft: 12, color: THEME.amber, fontWeight: 700 }}>⌂ DOMICILIO</span>
                   )}
                 </div>
               </div>
@@ -4956,12 +5654,12 @@ return (
                 style={{
                   width: 42,
                   height: 42,
-                  borderRadius: 8,
-                  border: `1px solid ${THEME.borderSoft}`,
+                  borderRadius: 10,
+                  border: `2px solid ${THEME.border}`,
                   background: THEME.panelSoft,
-                  color: THEME.text,
+                  color: THEME.blue,
                   cursor: "pointer",
-                  fontWeight: 900,
+                  fontWeight: 800,
                   fontSize: 14,
                 }}
               >
@@ -4979,32 +5677,34 @@ return (
                   }
                 }}
                 style={{
-                  padding: "10px 16px",
+                  padding: "10px 18px",
                   borderRadius: 8,
-                  border: `1px solid ${THEME.blueDark}`,
-                  background: THEME.blue,
+                  border: "none",
+                  background: "linear-gradient(135deg, #0d9488, #2563eb)",
                   color: "#fff",
                   cursor: "pointer",
-                  fontWeight: 900,
+                  fontWeight: 700,
                   fontSize: 13,
                   display: "flex",
                   alignItems: "center",
                   gap: 6,
+                  boxShadow: "0 2px 8px rgba(91,130,168,0.25)",
+                  letterSpacing: 0.3,
                 }}
               >
-                <span>📋</span>
+                <span>◫</span>
                 Duplica
               </button>
             </div>
 
-            <div style={{ marginBottom: 20, border: `1px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
-              <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 12 }}>
+            <div style={{ marginBottom: 20, border: `1.5px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft, marginBottom: 12 }}>
                 Modifica Data e Orario
               </div>
               
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 8 }}>
                     Data
                   </label>
                   <input
@@ -5016,17 +5716,17 @@ return (
                       padding: "8px 10px",
                       borderRadius: 8,
                       border: `1px solid ${THEME.borderSoft}`,
-                      background: "#fff",
+                      background: THEME.panelBg,
                       color: THEME.text,
                       outline: "none",
-                      fontWeight: 800,
+                      fontWeight: 600,
                       fontSize: 13,
                     }}
                   />
                 </div>
                 
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 8 }}>
                     Orario Inizio
                   </label>
                   <select
@@ -5037,10 +5737,10 @@ return (
                       padding: "8px 10px",
                       borderRadius: 8,
                       border: `1px solid ${THEME.borderSoft}`,
-                      background: "#fff",
+                      background: THEME.panelBg,
                       color: THEME.text,
                       outline: "none",
-                      fontWeight: 800,
+                      fontWeight: 600,
                       fontSize: 13,
                     }}
                   >
@@ -5053,7 +5753,7 @@ return (
                 </div>
                 
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 8 }}>
                     Durata
                   </label>
                   <select
@@ -5064,10 +5764,10 @@ return (
                       padding: "8px 10px",
                       borderRadius: 8,
                       border: `1px solid ${THEME.borderSoft}`,
-                      background: "#fff",
+                      background: THEME.panelBg,
                       color: THEME.text,
                       outline: "none",
-                      fontWeight: 800,
+                      fontWeight: 600,
                       fontSize: 13,
                     }}
                   >
@@ -5078,21 +5778,21 @@ return (
                 </div>
               </div>
               
-              <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 900, marginTop: 8 }}>
+              <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 600, marginTop: 8 }}>
                 Nuovo orario: {editDate && editStartTime ? 
                   `${editDate.split('-').reverse().join('/')} alle ${editStartTime}` : 
                   "Seleziona data e orario"}
               </div>
             </div>
 
-            <div style={{ marginBottom: 20, border: `1px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
-              <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 12 }}>
+            <div style={{ marginBottom: 20, border: `1.5px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft, marginBottom: 12 }}>
                 Trattamento e Prezzo
               </div>
               
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 8 }}>
                     Trattamento
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
@@ -5106,7 +5806,7 @@ return (
                         background: editTreatmentType === "seduta" ? THEME.blue : "#fff",
                         color: editTreatmentType === "seduta" ? "#fff" : THEME.text,
                         cursor: "pointer",
-                        fontWeight: 900,
+                        fontWeight: 600,
                         fontSize: 12,
                       }}
                     >
@@ -5122,7 +5822,7 @@ return (
                         background: editTreatmentType === "macchinario" ? THEME.blue : "#fff",
                         color: editTreatmentType === "macchinario" ? "#fff" : THEME.text,
                         cursor: "pointer",
-                        fontWeight: 900,
+                        fontWeight: 600,
                         fontSize: 12,
                       }}
                     >
@@ -5132,7 +5832,7 @@ return (
                 </div>
 
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 8 }}>
                     Fatturazione
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
@@ -5146,7 +5846,7 @@ return (
                         background: editPriceType === "invoiced" ? THEME.green : "#fff",
                         color: editPriceType === "invoiced" ? "#fff" : THEME.text,
                         cursor: "pointer",
-                        fontWeight: 900,
+                        fontWeight: 600,
                         fontSize: 12,
                       }}
                     >
@@ -5159,10 +5859,10 @@ return (
                         padding: "8px 10px",
                         borderRadius: 8,
                         border: `1px solid ${editPriceType === "cash" ? THEME.amber : THEME.borderSoft}`,
-                        background: editPriceType === "cash" ? "rgba(249,115,22,0.1)" : "#fff",
+                        background: editPriceType === "cash" ? "rgba(245,158,11,0.1)" : "#fff",
                         color: editPriceType === "cash" ? THEME.amber : THEME.text,
                         cursor: "pointer",
-                        fontWeight: 900,
+                        fontWeight: 600,
                         fontSize: 12,
                       }}
                     >
@@ -5173,7 +5873,7 @@ return (
               </div>
 
               <div>
-                <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted, marginBottom: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 8 }}>
                   Importo (€)
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -5189,19 +5889,18 @@ return (
                       padding: "8px 10px",
                       borderRadius: 8,
                       border: `1px solid ${THEME.blue}`,
-                      background: "#fff",
+                      background: THEME.panelBg,
                       color: THEME.text,
                       outline: "none",
-                      fontWeight: 800,
+                      fontWeight: 600,
                       fontSize: 13,
                     }}
                   />
                   <button
                     onClick={() => {
-                      const standardPrice = editTreatmentType === "seduta" 
-                        ? (editPriceType === "invoiced" ? "40" : "35")
-                        : (editPriceType === "invoiced" ? "25" : "20");
-                      setEditAmount(standardPrice);
+                      const tType = editTreatmentType as "seduta" | "macchinario";
+                      const pType = editPriceType as "invoiced" | "cash";
+                      setEditAmount(getDefaultAmount(tType, pType).toString());
                     }}
                     style={{
                       padding: "10px 16px",
@@ -5210,7 +5909,7 @@ return (
                       background: THEME.panelSoft,
                       color: THEME.text,
                       cursor: "pointer",
-                      fontWeight: 900,
+                      fontWeight: 600,
                       fontSize: 12,
                       whiteSpace: "nowrap",
                     }}
@@ -5218,16 +5917,14 @@ return (
                     Usa standard
                   </button>
                 </div>
-                <div style={{ marginTop: 8, fontSize: 11, color: THEME.muted, fontWeight: 900 }}>
+                <div style={{ marginTop: 8, fontSize: 11, color: THEME.muted, fontWeight: 600 }}>
                   {editAmount ? `Totale: € ${parseFloat(editAmount.replace(',', '.')).toFixed(2)}` : 
-                   `Prezzo standard: € ${editTreatmentType === "seduta" 
-                     ? (editPriceType === "invoiced" ? "40.00" : "35.00")
-                     : (editPriceType === "invoiced" ? "25.00" : "20.00")}`}
+                   `Prezzo standard: € ${getDefaultAmount(editTreatmentType as "seduta" | "macchinario", editPriceType as "invoiced" | "cash").toFixed(2)}`}
                 </div>
               </div>
 
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 900, color: THEME.muted }}>Colore personalizzato:</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted }}>Colore personalizzato:</div>
                 <input
                   type="color"
                   value={eventColors[selectedEvent?.patient_id || ""] || getEventColor(events.find(e => e.id === selectedEvent?.id) || { status: "booked" })}
@@ -5243,7 +5940,7 @@ return (
                     width: 30,
                     height: 30,
                     borderRadius: 6,
-                    border: `1px solid ${THEME.border}`,
+                    border: `1.5px solid ${THEME.border}`,
                     cursor: "pointer",
                   }}
                 />
@@ -5264,7 +5961,7 @@ return (
                     background: THEME.panelSoft,
                     color: THEME.text,
                     fontSize: 11,
-                    fontWeight: 900,
+                    fontWeight: 600,
                     cursor: "pointer",
                   }}
                 >
@@ -5275,7 +5972,7 @@ return (
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
               <div>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 8 }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: THEME.textSoft, marginBottom: 8 }}>
                   Stato
                   <select
                     value={editStatus}
@@ -5286,10 +5983,10 @@ return (
                       padding: 10,
                       borderRadius: 8,
                       border: `1px solid ${THEME.borderSoft}`,
-                      background: "#fff",
+                      background: THEME.panelBg,
                       color: THEME.text,
                       outline: "none",
-                      fontWeight: 800,
+                      fontWeight: 600,
                       fontSize: 13,
                     }}
                   >
@@ -5303,14 +6000,14 @@ return (
               </div>
 
               <div>
-                <div style={{ fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft, marginBottom: 8 }}>
                   Promemoria
                 </div>
                 <button
                   onClick={() => {
                     const event = events.find(e => e.id === selectedEvent.id);
                     if (event) {
-                      sendReminder(event.id, event.patient_phone, event.patient_first_name ?? undefined);
+                      sendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined);
                     }
                   }}
                   disabled={!events.find(e => e.id === selectedEvent.id)?.patient_phone}
@@ -5322,7 +6019,7 @@ return (
                     background: "#25d366",
                     color: "#fff",
                     cursor: events.find(e => e.id === selectedEvent.id)?.patient_phone ? "pointer" : "not-allowed",
-                    fontWeight: 900,
+                    fontWeight: 600,
                     fontSize: 13,
                     display: "flex",
                     alignItems: "center",
@@ -5337,7 +6034,7 @@ return (
               </div>
             </div>
 
-            <label style={{ display: "block", fontSize: 13, fontWeight: 900, color: THEME.textSoft, marginBottom: 20 }}>
+            <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: THEME.textSoft, marginBottom: 20 }}>
               Nota
               <textarea
                 value={editNote}
@@ -5349,11 +6046,11 @@ return (
                   padding: 10,
                   borderRadius: 8,
                   border: `1px solid ${THEME.borderSoft}`,
-                  background: "#fff",
+                  background: THEME.panelBg,
                   color: THEME.text,
                   outline: "none",
                   resize: "vertical",
-                  fontWeight: 800,
+                  fontWeight: 600,
                   fontSize: 13,
                 }}
               />
@@ -5365,11 +6062,11 @@ return (
                 style={{
                   padding: "12px 20px",
                   borderRadius: 8,
-                  border: `1px solid rgba(220,38,38,0.40)`,
-                  background: "rgba(220,38,38,0.08)",
+                  border: `1px solid rgba(220,38,38,0.25)`,
+                  background: "rgba(220,38,38,0.06)",
                   color: THEME.red,
                   cursor: "pointer",
-                  fontWeight: 900,
+                  fontWeight: 600,
                   minWidth: 120,
                   fontSize: 13,
                 }}
@@ -5386,7 +6083,7 @@ return (
                     border: `1px solid ${THEME.borderSoft}`,
                     background: THEME.panelSoft,
                     color: THEME.text,
-                    fontWeight: 900,
+                    fontWeight: 600,
                     textDecoration: "none",
                     display: "inline-flex",
                     alignItems: "center",
@@ -5409,7 +6106,7 @@ return (
                     background: THEME.green,
                     color: "#fff",
                     cursor: "pointer",
-                    fontWeight: 900,
+                    fontWeight: 600,
                     minWidth: 140,
                     fontSize: 13,
                   }}
@@ -5419,7 +6116,7 @@ return (
               </div>
             </div>
 
-            <div style={{ marginTop: 16, fontSize: 12, color: THEME.muted, fontWeight: 900 }}>
+            <div style={{ marginTop: 16, fontSize: 12, color: THEME.muted, fontWeight: 600 }}>
               Nota: "Annullato" mantiene lo storico · "Elimina" rimuove dal DB.
             </div>
           </div>
@@ -5433,12 +6130,12 @@ return (
             top: quickActionsMenu.y,
             left: quickActionsMenu.x,
             background: THEME.panelBg,
-            border: `1px solid ${THEME.borderSoft}`,
-            borderRadius: 8,
-            boxShadow: "0 10px 30px rgba(15,23,42,0.15)",
+            border: `2px solid ${THEME.border}`,
+            borderRadius: 12,
+            boxShadow: "0 8px 28px rgba(30,64,175,0.14)",
             zIndex: 10000,
-            minWidth: 180,
-            overflow: "visible",
+            minWidth: 200,
+            overflow: "hidden",
           }}
         >
           {quickActionsMenu.eventId ? (
@@ -5458,9 +6155,9 @@ return (
                   background: "transparent",
                   color: THEME.text,
                   cursor: "pointer",
-                  fontWeight: 900,
+                  fontWeight: 600,
                   textAlign: "left",
-                  borderBottom: `1px solid ${THEME.border}`,
+                  borderBottom: `1.5px solid ${THEME.border}`,
                   fontSize: 13,
                   display: "flex",
                   alignItems: "center",
@@ -5473,7 +6170,7 @@ return (
                 onClick={() => {
                   const event = events.find(e => e.id === quickActionsMenu?.eventId);
                   if (event) {
-                    sendReminder(event.id, event.patient_phone, event.patient_first_name ?? undefined);
+                    sendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined);
                     setQuickActionsMenu(null);
                   }
                 }}
@@ -5484,16 +6181,16 @@ return (
                   background: "transparent",
                   color: THEME.text,
                   cursor: "pointer",
-                  fontWeight: 900,
+                  fontWeight: 600,
                   textAlign: "left",
-                  borderBottom: `1px solid ${THEME.border}`,
+                  borderBottom: `1.5px solid ${THEME.border}`,
                   fontSize: 13,
                   display: "flex",
                   alignItems: "center",
                   gap: 8,
                 }}
               >
-                📱 Invia WhatsApp
+                ◈ Invia WhatsApp
               </button>
               <button
                 onClick={() => {
@@ -5510,7 +6207,7 @@ return (
                   background: "transparent",
                   color: THEME.text,
                   cursor: "pointer",
-                  fontWeight: 900,
+                  fontWeight: 600,
                   textAlign: "left",
                   fontSize: 13,
                   display: "flex",
@@ -5518,7 +6215,7 @@ return (
                   gap: 8,
                 }}
               >
-                📋 Duplica
+                ◫ Duplica
               </button>
             </>
           ) : (
@@ -5534,7 +6231,7 @@ return (
                 background: "transparent",
                 color: THEME.text,
                 cursor: "pointer",
-                fontWeight: 900,
+                fontWeight: 600,
                 textAlign: "left",
                 fontSize: 13,
                 display: "flex",
@@ -5542,9 +6239,188 @@ return (
                 gap: 8,
               }}
             >
-              ➕ Nuovo appuntamento
+              ◈ Nuovo appuntamento
             </button>
           )}
+        </div>
+      )}
+
+      {/* Feature: Mini-scheda paziente al hover */}
+      {hoverTooltip && (
+        <div
+          onMouseEnter={() => { /* keep visible */ }}
+          onMouseLeave={handleEventHoverEnd}
+          style={{
+            position: "fixed",
+            left: Math.min(hoverTooltip.x, window.innerWidth - 290),
+            top: Math.min(hoverTooltip.y, window.innerHeight - 220),
+            width: 270,
+            background: THEME.panelBg,
+            border: `2px solid ${THEME.border}`,
+            borderRadius: 12,
+            boxShadow: "0 12px 40px rgba(30,64,175,0.18)",
+            padding: "14px 16px",
+            zIndex: 10000,
+            fontSize: 12,
+            fontWeight: 600,
+            color: THEME.text,
+          }}
+        >
+          <div style={{ fontSize: 14, fontWeight: 800, color: THEME.blue, marginBottom: 8 }}>
+            {hoverTooltip.event.patient_name}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: THEME.muted }}>Orario</span>
+              <span>{fmtTime(hoverTooltip.event.start.toISOString())} – {fmtTime(hoverTooltip.event.end.toISOString())}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: THEME.muted }}>Stato</span>
+              <span style={{ color: statusColor(hoverTooltip.event.status), fontWeight: 700 }}>{statusLabel(hoverTooltip.event.status)}</span>
+            </div>
+            {hoverTooltip.event.patient_phone && (
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: THEME.muted }}>Telefono</span>
+                <span>{hoverTooltip.event.patient_phone}</span>
+              </div>
+            )}
+            {hoverTooltip.event.diagnosis && (
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: THEME.muted }}>Diagnosi</span>
+                <span style={{ maxWidth: 150, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{hoverTooltip.event.diagnosis}</span>
+              </div>
+            )}
+            {hoverTooltip.event.treatment && (
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: THEME.muted }}>Trattamento</span>
+                <span>{hoverTooltip.event.treatment}</span>
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: THEME.muted }}>Tipo</span>
+              <span>{hoverTooltip.event.treatment_type === "macchinario" ? "Macchinario" : "Seduta"} · {hoverTooltip.event.price_type === "cash" ? "Contanti" : "Fattura"}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: THEME.muted }}>Importo</span>
+              <span style={{ fontWeight: 800 }}>€ {hoverTooltip.event.amount ?? getDefaultAmount(
+                (hoverTooltip.event.treatment_type as "seduta" | "macchinario") || "seduta",
+                (hoverTooltip.event.price_type as "invoiced" | "cash") || "invoiced"
+              )}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: THEME.muted }}>Pagato</span>
+              <span style={{ color: hoverTooltip.event.is_paid ? THEME.green : THEME.red, fontWeight: 700 }}>
+                {hoverTooltip.event.is_paid ? "✓ Sì" : "✗ No"}
+              </span>
+            </div>
+            {hoverTooltip.event.calendar_note && (
+              <div style={{ marginTop: 4, padding: "6px 8px", background: THEME.panelSoft, borderRadius: 6, fontSize: 11, color: THEME.muted, lineHeight: 1.4 }}>
+                📝 {hoverTooltip.event.calendar_note}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Feature: Riepilogo giornaliero */}
+      {dailySummaryOpen && (
+        <div
+          onClick={() => setDailySummaryOpen(false)}
+          style={{
+            position: "fixed", inset: 0,
+            background: "rgba(30,64,175,0.35)",
+            zIndex: 9999,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 480,
+              maxWidth: "90vw",
+              maxHeight: "85vh",
+              overflowY: "auto",
+              background: THEME.panelBg,
+              borderRadius: 16,
+              border: `2px solid ${THEME.border}`,
+              boxShadow: "0 24px 64px rgba(30,64,175,0.2)",
+              padding: "28px 24px",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: THEME.blue }}>📋 Riepilogo di oggi</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginTop: 4 }}>{formatDMY(new Date())}</div>
+              </div>
+              <button onClick={() => setDailySummaryOpen(false)} style={{
+                width: 38, height: 38, borderRadius: 10, border: `2px solid ${THEME.border}`,
+                background: THEME.panelSoft, color: THEME.blue, cursor: "pointer", fontWeight: 800, fontSize: 14,
+              }}>✕</button>
+            </div>
+
+            {/* Stats cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
+              <div style={{ padding: "14px 12px", borderRadius: 10, background: "rgba(22,163,74,0.08)", border: `1px solid rgba(22,163,74,0.2)`, textAlign: "center" }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: THEME.green }}>{dailySummary.done}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: THEME.muted }}>Eseguiti</div>
+              </div>
+              <div style={{ padding: "14px 12px", borderRadius: 10, background: "rgba(234,88,12,0.08)", border: `1px solid rgba(234,88,12,0.2)`, textAlign: "center" }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: THEME.amber }}>{dailySummary.notDone}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: THEME.muted }}>Da fare</div>
+              </div>
+              <div style={{ padding: "14px 12px", borderRadius: 10, background: "rgba(220,38,38,0.08)", border: `1px solid rgba(220,38,38,0.2)`, textAlign: "center" }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: THEME.red }}>{dailySummary.unpaid}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: THEME.muted }}>Non pagati</div>
+              </div>
+            </div>
+
+            {/* Revenue breakdown */}
+            <div style={{ padding: "16px", borderRadius: 10, background: THEME.panelSoft, border: `1px solid ${THEME.borderSoft}`, marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft, marginBottom: 12 }}>Incassi del giorno</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 600 }}>
+                  <span style={{ color: THEME.muted }}>Fatturato</span>
+                  <span style={{ color: THEME.blue }}>€ {dailySummary.invoicedTotal.toFixed(2)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 600 }}>
+                  <span style={{ color: THEME.muted }}>Contanti</span>
+                  <span style={{ color: THEME.amber }}>€ {dailySummary.cashTotal.toFixed(2)}</span>
+                </div>
+                <div style={{ borderTop: `1.5px solid ${THEME.border}`, paddingTop: 8, display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 800 }}>
+                  <span>Totale</span>
+                  <span style={{ color: THEME.green }}>€ {dailySummary.grandTotal.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Event list */}
+            <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft, marginBottom: 8 }}>Dettaglio appuntamenti ({dailySummary.total})</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {dailySummary.events.map(ev => (
+                <div key={ev.id} style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "8px 10px", borderRadius: 8,
+                  background: statusBg(ev.status),
+                  borderLeft: `4px solid ${statusColor(ev.status)}`,
+                  fontSize: 12, fontWeight: 600,
+                }}>
+                  <span style={{ color: THEME.muted, minWidth: 42 }}>{fmtTime(ev.start.toISOString())}</span>
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.patient_name}</span>
+                  <span style={{ color: ev.is_paid ? THEME.green : THEME.red, fontSize: 11, fontWeight: 700 }}>
+                    {ev.is_paid ? "💰" : "—"}
+                  </span>
+                  <span style={{ color: statusColor(ev.status), fontSize: 10, fontWeight: 700, minWidth: 60, textAlign: "right" }}>
+                    {statusLabel(ev.status)}
+                  </span>
+                </div>
+              ))}
+              {dailySummary.events.length === 0 && (
+                <div style={{ padding: 20, textAlign: "center", color: THEME.muted, fontWeight: 600 }}>
+                  Nessun appuntamento oggi
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

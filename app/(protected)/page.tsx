@@ -22,6 +22,10 @@ type AppointmentRow = {
   clinic_site: string | null;
   domicile_address: string | null;
   amount: number | string | null;
+  // WhatsApp / pagamento (verità su DB, come in calendario)
+  whatsapp_sent_at?: string | null;
+  whatsapp_sent?: boolean | null;
+  is_paid?: boolean | null;
   price_type?: string | null;
   treatment_type?: string | null;
   patients?: {
@@ -156,31 +160,7 @@ const openWhatsApp = (phone: string, message: string) => {
 };
 
 // -----------------------------------------------------------------------------
-// HOOK TRACKER WHATSAPP (locale)
-// -----------------------------------------------------------------------------
-const useWASentTracker = () => {
-  const key = "fisiohub_wa_sent_v1";
-  const [sentMap, setSentMap] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw) setSentMap(JSON.parse(raw));
-    } catch {}
-  }, []);
-
-  const setSent = useCallback((id: string, v: boolean) => {
-    setSentMap((prev) => {
-      const next = { ...prev, [id]: v };
-      try {
-        localStorage.setItem(key, JSON.stringify(next));
-      } catch {}
-      return next;
-    });
-  }, []);
-
-  return { sentMap, setSent };
-};
+// WhatsApp: niente tracker locale. La verità è whatsapp_sent_at su DB (come Calendario).
 
 // -----------------------------------------------------------------------------
 // DESIGN SYSTEM (variabili CSS globali)
@@ -473,10 +453,14 @@ const NextAppointmentEnhanced = ({
   appointment,
   onMarkDone,
   onCancel,
+  onSetStatus,
+  onWhatsApp,
 }: {
   appointment: AppointmentRow | null;
   onMarkDone?: (id: string) => void;
   onCancel?: (id: string) => void;
+  onSetStatus?: (id: string, next: Status) => void;
+  onWhatsApp?: (a: AppointmentRow) => void;
 }) => {
   const router = useRouter();
   const timeLeft = useCountdown(appointment?.start_at ?? null);
@@ -569,7 +553,7 @@ const NextAppointmentEnhanced = ({
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <button
             style={buttonPrimaryStyle}
-            onClick={() => router.push(`/appointments/${appointment.id}/checkin`)}
+            onClick={() => onMarkDone?.(appointment.id)}
           >
             
             ✅ Fatto
@@ -577,8 +561,7 @@ const NextAppointmentEnhanced = ({
           <button
             style={buttonWAStyle}
             onClick={() => {
-              const msg = buildWhatsAppMessage(appointment);
-              openWhatsApp(phone, msg);
+              onWhatsApp?.(appointment);
             }}
           >
             💬 WhatsApp
@@ -642,7 +625,6 @@ export default function Page() {
   const [tab, setTab] = useState<"today" | "next7" | "thisWeek">("today");
   const [searchInput, setSearchInput] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const { sentMap, setSent } = useWASentTracker();
 
   // --- USER MENU (Logout) ---
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -725,6 +707,8 @@ export default function Page() {
         .select(
           `
           id, patient_id, start_at, end_at, status, location, clinic_site, domicile_address, amount, price_type, treatment_type,
+          is_paid,
+          whatsapp_sent_at, whatsapp_sent,
           patients:patient_id ( first_name, last_name, phone, status )
         `
         )
@@ -860,8 +844,8 @@ export default function Page() {
     [appointments, tomorrow]
   );
   const remindersToSend = useMemo(
-    () => tomorrowAppointments.filter((a) => !sentMap[a.id]).slice(0, 5),
-    [tomorrowAppointments, sentMap]
+    () => tomorrowAppointments.filter((a) => !a.whatsapp_sent_at).slice(0, 5),
+    [tomorrowAppointments]
   );
 
   const todayKPIs = useMemo(() => {
@@ -969,29 +953,89 @@ export default function Page() {
 
   const activeBuckets = tab === "today" ? todayBuckets : tab === "next7" ? next7Buckets : thisBuckets;
 
-  // Handlers per azioni sul prossimo appuntamento
-  const handleMarkDone = async (id: string) => {
-    const { error } = await supabase
-      .from("appointments")
-      .update({ status: "done" })
-      .eq("id", id);
+
+  // ---------------------------------------------------------------------------
+  // STATI: allineati al Calendario (done/confirmed/not_paid/cancelled + is_paid)
+  // ---------------------------------------------------------------------------
+  const setAppointmentStatus = useCallback(async (id: string, next: Status) => {
+    const patch: any = { status: next };
+
+    // Coerenza pagamento (stessa filosofia del calendario)
+    if (next === "done") patch.is_paid = true;
+    if (next === "not_paid") patch.is_paid = false;
+    if (next === "confirmed" || next === "booked") patch.is_paid = false;
+
+    const { error } = await supabase.from("appointments").update(patch).eq("id", id);
     if (error) {
       alert("Errore nell'aggiornamento: " + error.message);
-    } else {
-      fetchAppointments();
+      return;
     }
+    fetchAppointments();
+  }, [fetchAppointments]);
+
+  const toggleDone = useCallback(async (a: AppointmentRow) => {
+    const next: Status = a.status === "done" ? "confirmed" : "done";
+    await setAppointmentStatus(a.id, next);
+  }, [setAppointmentStatus]);
+
+  // ---------------------------------------------------------------------------
+  // WHATSAPP: verità = whatsapp_sent_at su DB (come Calendario)
+  // ---------------------------------------------------------------------------
+  const sendWhatsApp = useCallback(async (appt: AppointmentRow) => {
+    const phone = pickPatient(appt.patients)?.phone || "";
+    const msg = buildWhatsAppMessage(appt);
+
+    const cleanPhone = formatPhoneForWhatsAppWeb(phone);
+    if (!cleanPhone) {
+      alert("Numero di telefono non valido o mancante.");
+      return;
+    }
+
+    const whatsappUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(msg)}`;
+
+    const confirmText =
+      `📱 INVIO PROMEMORIA WHATSAPP\n\n` +
+      `Destinatario: ${phone}\n\n` +
+      `Messaggio:\n${msg}\n\n` +
+      `Clicca OK per aprire WhatsApp e inviare.`;
+
+    const ok = window.confirm(confirmText);
+    if (!ok) return;
+
+    // Marca come inviato (timestamp = verità)
+    const nowIso = new Date().toISOString();
+    const { error: upErr } = await supabase
+      .from("appointments")
+      .update({ whatsapp_sent_at: nowIso, whatsapp_sent: true })
+      .eq("id", appt.id);
+
+    // Non blocco l'apertura WhatsApp se l'update fallisce, ma lo segnalo.
+    if (upErr) console.error("WhatsApp update error:", upErr.message);
+
+    const newWindow = window.open(whatsappUrl, "_blank");
+
+    if (!newWindow || newWindow.closed || typeof (newWindow as any).closed === "undefined") {
+      const manualOpen = window.confirm(
+        `Il browser ha bloccato l'apertura automatica di WhatsApp.\n\n` +
+          `URL: ${whatsappUrl}\n\n` +
+          `Clicca OK per provare ad aprire, oppure Annulla per copiare il link.`
+      );
+      if (manualOpen) window.location.href = whatsappUrl;
+      else alert(`Copia questo link e aprilo manualmente:\n\n${whatsappUrl}`);
+    }
+
+    fetchAppointments();
+  }, [fetchAppointments]);
+
+  // Handlers per azioni sul prossimo appuntamento
+  const handleMarkDone = async (id: string) => {
+    const appt = appointments.find((x) => x.id === id);
+    if (appt) return toggleDone(appt);
+    return setAppointmentStatus(id, "done");
   };
 
   const handleCancel = async (id: string) => {
-    const { error } = await supabase
-      .from("appointments")
-      .update({ status: "cancelled" })
-      .eq("id", id);
-    if (error) {
-      alert("Errore nell'annullamento: " + error.message);
-    } else {
-      fetchAppointments();
-    }
+    return setAppointmentStatus(id, "cancelled");
   };
 
   return (
@@ -1292,7 +1336,7 @@ export default function Page() {
         <div className="gridMain">
           {/* Sinistra: Command Center */}
           <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-            <NextAppointmentEnhanced appointment={focusNext} onMarkDone={handleMarkDone} onCancel={handleCancel} />
+            <NextAppointmentEnhanced appointment={focusNext} onMarkDone={handleMarkDone} onCancel={handleCancel} onSetStatus={setAppointmentStatus} onWhatsApp={sendWhatsApp} />
 
             {/* Oggi – prossimi */}
             {remainingTodayAppointments.length > 0 && (
@@ -1444,17 +1488,15 @@ export default function Page() {
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           <input
                             type="checkbox"
-                            checked={sentMap[a.id] || false}
-                            onChange={(e) => setSent(a.id, e.target.checked)}
+                            checked={Boolean(a.whatsapp_sent_at)}
+                            disabled
                             style={{ width: 16, height: 16, cursor: "pointer", accentColor: theme.secondary }}
                             title="Segna come inviato"
                           />
                           <button
                             style={buttonWACompact}
                             onClick={() => {
-                              const msg = buildWhatsAppMessage(a);
-                              openWhatsApp(pickPatient(a.patients)?.phone || "", msg);
-                              setSent(a.id, true);
+                              sendWhatsApp(a);
                             }}
                             title="Invia WhatsApp"
                           >
@@ -1541,7 +1583,7 @@ export default function Page() {
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                     {activeBuckets.map((b) => (
-                      <Bucket key={b.dayKey} bucket={b} sentMap={sentMap} onToggleSent={setSent} />
+                      <Bucket key={b.dayKey} bucket={b} onWhatsApp={sendWhatsApp} />
                     ))}
                   </div>
                 )}
@@ -1786,12 +1828,10 @@ const KPICard = ({
 
 const Bucket = ({
   bucket,
-  sentMap,
-  onToggleSent,
+  onWhatsApp,
 }: {
   bucket: { dayKey: string; date: Date; items: AppointmentRow[] };
-  sentMap: Record<string, boolean>;
-  onToggleSent: (id: string, v: boolean) => void;
+  onWhatsApp: (a: AppointmentRow) => void;
 }) => {
   const rel = formatDateRelative(bucket.date);
   const dayLabel = `${fmtWeekday(bucket.date)} • ${bucket.date.toLocaleDateString("it-IT", {
@@ -1837,8 +1877,8 @@ const Bucket = ({
           <AppointmentRowItem
             key={a.id}
             a={a}
-            waSent={!!sentMap[a.id]}
-            onToggleSent={(v) => onToggleSent(a.id, v)}
+            waSent={Boolean(a.whatsapp_sent_at)}
+            onWhatsApp={onWhatsApp}
           />
         ))}
       </div>
@@ -1849,11 +1889,11 @@ const Bucket = ({
 const AppointmentRowItem = ({
   a,
   waSent,
-  onToggleSent,
+  onWhatsApp,
 }: {
   a: AppointmentRow;
   waSent: boolean;
-  onToggleSent: (v: boolean) => void;
+  onWhatsApp: (a: AppointmentRow) => void;
 }) => {
   const name = patientDisplayName(a.patients);
   const phone = pickPatient(a.patients)?.phone || "";
@@ -1893,7 +1933,7 @@ const AppointmentRowItem = ({
               <input
                 type="checkbox"
                 checked={waSent}
-                onChange={(e) => onToggleSent(e.target.checked)}
+                disabled
                 style={{ width: 14, height: 14, accentColor: theme.secondary }}
               />
               <span style={{ fontWeight: 600 }}>WA</span>
@@ -1906,9 +1946,7 @@ const AppointmentRowItem = ({
         <button
           style={buttonWACompact}
           onClick={() => {
-            const msg = buildWhatsAppMessage(a);
-            openWhatsApp(phone, msg);
-            onToggleSent(true);
+            onWhatsApp(a);
           }}
           title="Invia WhatsApp"
         >
