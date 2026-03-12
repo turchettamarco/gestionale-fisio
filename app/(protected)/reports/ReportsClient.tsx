@@ -1,3056 +1,1242 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import Link from "next/link";
 
-const COLORS = {
-  primary: "#1e3a8a",
-  secondary: "#2563eb",
-  accent: "#0d9488",
-  success: "#16a34a",
-  warning: "#f97316",
-  danger: "#dc2626",
-  muted: "#64748b",
-  background: "#f8fafc",
-  card: "#ffffff",
-  border: "#e2e8f0",
-  text: "#0f172a",
-  
-  // Aggiunti per il menu laterale
-  appBg: "#f1f5f9",
-  panelBg: "#ffffff",
-  panelSoft: "#f7f9fd",
-  blueDark: "#1e40af",
-  patientsAccent: "#0d9488",
-  orange: "#f97316", // Aggiunto per il riquadro DETTAGLIO FONTI
+// ─── THEME (identico al calendario) ──────────────────────────────────────────
+const T = {
+  appBg:      "#f1f5f9",
+  panelBg:    "#ffffff",
+  panelSoft:  "#f7f9fd",
+  text:       "#0f172a",
+  textSoft:   "#1e293b",
+  muted:      "#334155",
+  border:     "#cbd5e1",
+  borderSoft: "#94a3b8",
+  blue:       "#2563eb",
+  blueDark:   "#1e40af",
+  green:      "#16a34a",
+  greenDark:  "#15803d",
+  accent:     "#0d9488",
+  red:        "#dc2626",
+  amber:      "#f97316",
+  gray:       "#94a3b8",
 };
 
 type Period = "day" | "week" | "month";
 
-// --- Helper Date ---
-function toISODate(date: Date) {
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+// ─── DATE HELPERS ─────────────────────────────────────────────────────────────
+function toISODate(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
-
-function startOfDay(d: Date) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
-function endOfDay(d: Date) {
-  const x = new Date(d);
-  x.setHours(23, 59, 59, 999);
-  return x;
-}
-
-function startOfWeek(d: Date) {
-  const x = new Date(d);
-  const day = (x.getDay() + 6) % 7; // Lunedì = 0
-  x.setDate(x.getDate() - day);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
-function endOfWeek(d: Date) {
-  const s = startOfWeek(d);
-  const x = new Date(s);
-  x.setDate(s.getDate() + 6);
-  x.setHours(23, 59, 59, 999);
-  return x;
-}
-
-function startOfMonth(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
-}
-
-function endOfMonth(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
-}
-
-const currency = new Intl.NumberFormat("it-IT", { 
-  style: "currency", 
-  currency: "EUR",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2
-});
-
-function makeLabels(period: Period, base: Date) {
-  if (period === "day") {
-    return Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, "0")}:00`);
-  }
-  if (period === "week") {
-    return ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"];
-  }
-  const days = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
-  return Array.from({ length: days }, (_, i) => String(i + 1));
-}
+function startOfDay(d: Date)   { const x=new Date(d); x.setHours(0,0,0,0); return x; }
+function endOfDay(d: Date)     { const x=new Date(d); x.setHours(23,59,59,999); return x; }
+function startOfWeek(d: Date)  { const x=new Date(d); x.setDate(x.getDate()-((x.getDay()+6)%7)); x.setHours(0,0,0,0); return x; }
+function endOfWeek(d: Date)    { const s=startOfWeek(d); const x=new Date(s); x.setDate(s.getDate()+6); x.setHours(23,59,59,999); return x; }
+function startOfMonth(d: Date) { return new Date(d.getFullYear(),d.getMonth(),1,0,0,0,0); }
+function endOfMonth(d: Date)   { return new Date(d.getFullYear(),d.getMonth()+1,0,23,59,59,999); }
 
 function getRange(period: Period, base: Date) {
-  if (period === "day") return { from: startOfDay(base), to: endOfDay(base) };
-  if (period === "week") return { from: startOfWeek(base), to: endOfWeek(base) };
-  return { from: startOfMonth(base), to: endOfMonth(base) };
+  if (period==="day")  return { from: startOfDay(base),   to: endOfDay(base)   };
+  if (period==="week") return { from: startOfWeek(base),  to: endOfWeek(base)  };
+  return                      { from: startOfMonth(base), to: endOfMonth(base) };
+}
+function makeLabels(period: Period, base: Date) {
+  if (period==="day")  return Array.from({length:24},(_,h)=>`${String(h).padStart(2,"0")}:00`);
+  if (period==="week") return ["Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato","Domenica"];
+  const days = new Date(base.getFullYear(), base.getMonth()+1, 0).getDate();
+  return Array.from({length:days},(_,i)=>String(i+1));
 }
 
-type FinancialItem = { 
-  amount: number; 
-  date: string; 
-  source: 'invoice' | 'appointment';
-  description?: string;
-  patient_name?: string;
-  patient_id?: string;
-  status?: string;
+const fmt = new Intl.NumberFormat("it-IT", { style:"currency", currency:"EUR", minimumFractionDigits:2, maximumFractionDigits:2 });
+
+// ─── TIPI ─────────────────────────────────────────────────────────────────────
+type FinancialItem = {
+  amount:number; date:string; source:"invoice"|"appointment";
+  description?:string; patient_name?:string; patient_id?:string; status?:string;
 };
-
 type UnpaidTherapy = {
-  id: string;
-  patient_id: string;
-  patient_name: string;
-  amount: number;
-  date: string;
-  treatment_type: string;
-  days_since: number;
-  status: string;
-
-
+  id:string; patient_id:string; patient_name:string;
+  amount:number; date:string; treatment_type:string; days_since:number; status:string;
 };
 type AppointmentTherapy = {
-  id: string;
-  patient_id: string;
-  patient_name: string;
-  amount: number;
-  date: string; // start_at
-  treatment_type: string;
-  status: "done" | "not_paid";
-  price_type?: string | null;
+  id:string; patient_id:string; patient_name:string;
+  amount:number; date:string; treatment_type:string;
+  status:"done"|"not_paid"; price_type?:string|null;
 };
-
 type Statistic = {
-  total: number;
-  invoiceCount: number;
-  appointmentCount: number;
-  averageAmount: number;
-  maxAmount: number;
-  minAmount: number;
-  unpaidTotal: number;
-  unpaidCount: number;
-  unpaidAppointmentCount: number;
-  unpaidInvoiceCount: number;
+  total:number; invoiceCount:number; appointmentCount:number;
+  averageAmount:number; maxAmount:number; minAmount:number;
+  unpaidTotal:number; unpaidCount:number; unpaidAppointmentCount:number; unpaidInvoiceCount:number;
 };
 
-function logSupabaseError(label: string, err: any) {
-  if (!err) return;
-  console.error(label, {
-    message: err?.message,
-    details: err?.details,
-    hint: err?.hint,
-    code: err?.code,
-    status: err?.status,
-    name: err?.name,
-  });
-}
-
-export default function ReportsPage() {
-  const params = useSearchParams();
-  const initialPeriod = (params.get("period") as Period) || "month";
-  const initialDate = params.get("date") || toISODate(new Date());
-
-  const [period, setPeriod] = useState<Period>(initialPeriod);
-  const [dateStr, setDateStr] = useState<string>(initialDate);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [statistics, setStatistics] = useState<Statistic>({
-    total: 0,
-    invoiceCount: 0,
-    appointmentCount: 0,
-    averageAmount: 0,
-    maxAmount: 0,
-    minAmount: 0,
-    unpaidTotal: 0,
-    unpaidCount: 0,
-    unpaidAppointmentCount: 0,
-    unpaidInvoiceCount: 0
-  });
-  const [series, setSeries] = useState<number[]>([]);
-  const [unpaidSeries, setUnpaidSeries] = useState<number[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [rawData, setRawData] = useState<FinancialItem[]>([]);
-  const [unpaidTherapies, setUnpaidTherapies] = useState<UnpaidTherapy[]>([]);
-  // Lista completa (tutti i mesi) usata SOLO per stampa / dropdown "Report non pagati"
-  const [unpaidTherapiesAll, setUnpaidTherapiesAll] = useState<UnpaidTherapy[]>([]);
-  // Arretrati: appuntamenti non pagati prima del periodo selezionato, raggruppati per mese
-  const [arrearsMonths, setArrearsMonths] = useState<{ month: string; count: number; total: number }[]>([]);
-  const [reportTherapies, setReportTherapies] = useState<AppointmentTherapy[]>([]);
-  const [selectedDay, setSelectedDay] = useState<number | null>(null);
-  const [dayDetails, setDayDetails] = useState<FinancialItem[]>([]);
-  const [showUnpaidDropdown, setShowUnpaidDropdown] = useState<boolean>(false);
-
-  const baseDate = useMemo(() => {
-    const [y, m, d] = dateStr.split("-").map(Number);
-    return new Date(y, m - 1, d);
-  }, [dateStr]);
-
-  const labels = useMemo(() => makeLabels(period, baseDate), [period, baseDate]);
-
-  async function loadData() {
-    setLoading(true);
-    setError(null);
-    setSelectedDay(null);
-    setDayDetails([]);
-    
-    try {
-      const { from, to } = getRange(period, baseDate);
-      const fromStr = from.toISOString();
-      const toStr = to.toISOString();
-
-      // 1. Fetch FATTURE (Invoices) PAGATE
-      let invoicesData: any[] = [];
-      let unpaidInvoicesData: any[] = [];
-      let appointmentsData: any[] = [];
-      let unpaidAppointmentsData: any[] = [];
-
-      // Fatture pagate
-      const { data: paidInvoices, error: paidInvoicesError } = await supabase
-        .from("invoices")
-        .select("id, amount, paid_at, status, patient_id")
-        .eq("status", "paid")
-        .gte("paid_at", fromStr)
-        .lte("paid_at", toStr)
-        .order("paid_at", { ascending: true });
-
-      if (paidInvoicesError) {
-        console.error("Errore nel caricamento fatture pagate:", paidInvoicesError);
-      } else {
-        invoicesData = paidInvoices || [];
-      }
-
-      // Carica i dati dei pazienti per le fatture pagate
-      const paidInvoiceIds = invoicesData.map(i => i.patient_id).filter(Boolean);
-      let paidInvoicePatients: any[] = [];
-      
-      if (paidInvoiceIds.length > 0) {
-        const { data: patientsData } = await supabase
-          .from("patients")
-          .select("id, first_name, last_name")
-          .in("id", paidInvoiceIds);
-        
-        paidInvoicePatients = patientsData || [];
-      }
-
-      // Collega i dati dei pazienti
-      invoicesData = invoicesData.map(invoice => ({
-        ...invoice,
-        patients: paidInvoicePatients.find(p => p.id === invoice.patient_id) || null
-      }));
-
-      // 2. Fetch FATTURE NON PAGATE (FILTRATE PER PERIODO SELEZIONATO)
-      const { data: unpaidInvoices, error: unpaidInvoicesError } = await supabase
-        .from("invoices")
-        .select("id, amount, paid_at, created_at, status, patient_id")
-        .eq("status", "not_paid")
-        .gte("created_at", fromStr)
-        .lte("created_at", toStr)
-        .order("created_at", { ascending: true });
-
-      if (unpaidInvoicesError) {
-        logSupabaseError("Errore nel caricamento fatture non pagate:", unpaidInvoicesError);
-      } else {
-        unpaidInvoicesData = unpaidInvoices || [];
-      }
-
-      // Carica i dati dei pazienti per le fatture non pagate
-      const unpaidInvoiceIds = unpaidInvoicesData.map(i => i.patient_id).filter(Boolean);
-      let unpaidInvoicePatients: any[] = [];
-      
-      if (unpaidInvoiceIds.length > 0) {
-        const { data: patientsData } = await supabase
-          .from("patients")
-          .select("id, first_name, last_name")
-          .in("id", unpaidInvoiceIds);
-        
-        unpaidInvoicePatients = patientsData || [];
-      }
-
-      // Collega i dati dei pazienti
-      unpaidInvoicesData = unpaidInvoicesData.map(invoice => ({
-        ...invoice,
-        patients: unpaidInvoicePatients.find(p => p.id === invoice.patient_id) || null
-      }));
-
-      // 3. Fetch APPUNTAMENTI (Appointments) PAGATI
-      const { data: paidAppointments, error: paidAppointmentsError } = await supabase
-        .from("appointments")
-        .select("id, amount, start_at, status, treatment_type, price_type, patient_id")
-        .eq("status", "done")
-        .gte("amount", 0.01)
-        .gte("start_at", fromStr)
-        .lte("start_at", toStr)
-        .order("start_at", { ascending: true });
-
-      if (paidAppointmentsError) {
-        console.error("Errore nel caricamento appuntamenti pagati:", paidAppointmentsError);
-      } else {
-        appointmentsData = paidAppointments || [];
-      }
-
-      // Carica i dati dei pazienti per gli appuntamenti pagati
-      const paidAppointmentIds = appointmentsData.map(a => a.patient_id).filter(Boolean);
-      let paidAppointmentPatients: any[] = [];
-      
-      if (paidAppointmentIds.length > 0) {
-        const { data: patientsData } = await supabase
-          .from("patients")
-          .select("id, first_name, last_name")
-          .in("id", paidAppointmentIds);
-        
-        paidAppointmentPatients = patientsData || [];
-      }
-
-      // Collega i dati dei pazienti
-      appointmentsData = appointmentsData.map(appointment => ({
-        ...appointment,
-        patients: paidAppointmentPatients.find(p => p.id === appointment.patient_id) || null
-      }));
-
-      // 4. Fetch APPUNTAMENTI NON PAGATI (FILTRATI PER PERIODO SELEZIONATO)
-      const { data: unpaidAppointments, error: unpaidAppointmentsError } = await supabase
-        .from("appointments")
-        .select("id, amount, start_at, status, treatment_type, price_type, patient_id")
-        .eq("status", "not_paid")
-        .gte("start_at", fromStr)
-        .lte("start_at", toStr)
-        .order("start_at", { ascending: true });
-
-      if (unpaidAppointmentsError) {
-        console.error("Errore nel caricamento appuntamenti non pagati:", unpaidAppointmentsError);
-      } else {
-        unpaidAppointmentsData = unpaidAppointments || [];
-      }
-
-      // Carica i dati dei pazienti per gli appuntamenti non pagati
-      const unpaidAppointmentIds = unpaidAppointmentsData.map(a => a.patient_id).filter(Boolean);
-      let unpaidAppointmentPatients: any[] = [];
-      
-      if (unpaidAppointmentIds.length > 0) {
-        const { data: patientsData } = await supabase
-          .from("patients")
-          .select("id, first_name, last_name")
-          .in("id", unpaidAppointmentIds);
-        
-        unpaidAppointmentPatients = patientsData || [];
-      }
-
-      // Collega i dati dei pazienti
-      unpaidAppointmentsData = unpaidAppointmentsData.map(appointment => ({
-        ...appointment,
-        patients: unpaidAppointmentPatients.find(p => p.id === appointment.patient_id) || null
-      }));
-
-
-      // 4.bis Arretrati: appuntamenti non pagati PRIMA del periodo selezionato (raggruppati per mese)
-      const { data: arrearsAppointments, error: arrearsAppointmentsError } = await supabase
-        .from("appointments")
-        .select("id, amount, start_at, status")
-        .eq("status", "not_paid")
-        .lt("start_at", fromStr)
-        .order("start_at", { ascending: false })
-        .limit(5000);
-
-      if (arrearsAppointmentsError) {
-        console.error("Errore nel caricamento arretrati appuntamenti non pagati:", arrearsAppointmentsError);
-        setArrearsMonths([]);
-      } else {
-        const monthMap = new Map<string, { count: number; total: number }>();
-        (arrearsAppointments || []).forEach((a: any) => {
-          const amount = parseFloat(String(a.amount)) || 0;
-          if (amount <= 0) return;
-          const dt = new Date(a.start_at);
-          const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
-          const prev = monthMap.get(key) || { count: 0, total: 0 };
-          monthMap.set(key, { count: prev.count + 1, total: prev.total + amount });
-        });
-
-        const sorted = Array.from(monthMap.entries())
-          .map(([month, v]) => ({ month, count: v.count, total: v.total }))
-          .sort((a, b) => (a.month < b.month ? 1 : -1)); // più recenti prima
-
-        setArrearsMonths(sorted);
-      }
-
-      // 5. Carica LISTA COMPLETA non pagati (tutti i mesi) per stampa / dropdown "Report Non Pagati"
-      //    NB: limitiamo a 5000 righe per evitare query enormi (se ti serve paginazione, la aggiungiamo).
-      const { data: unpaidInvoicesAllRaw, error: unpaidInvoicesAllError } = await supabase
-        .from("invoices")
-        .select("id, amount, paid_at, created_at, status, patient_id")
-        .eq("status", "not_paid")
-        .order("created_at", { ascending: true })
-        .limit(5000);
-
-      if (unpaidInvoicesAllError) {
-        console.error("Errore nel caricamento fatture non pagate (tutti i mesi):", unpaidInvoicesAllError);
-      }
-
-      const { data: unpaidAppointmentsAllRaw, error: unpaidAppointmentsAllError } = await supabase
-        .from("appointments")
-        .select("id, amount, start_at, status, treatment_type, price_type, patient_id")
-        .eq("status", "not_paid")
-        .order("start_at", { ascending: true })
-        .limit(5000);
-
-      if (unpaidAppointmentsAllError) {
-        console.error("Errore nel caricamento appuntamenti non pagati (tutti i mesi):", unpaidAppointmentsAllError);
-      }
-
-      const unpaidAllPatientIds = Array.from(
-        new Set([
-          ...((unpaidInvoicesAllRaw || []).map((i: any) => i.patient_id).filter(Boolean)),
-          ...((unpaidAppointmentsAllRaw || []).map((a: any) => a.patient_id).filter(Boolean)),
-        ])
-      );
-
-      let unpaidAllPatients: any[] = [];
-      if (unpaidAllPatientIds.length > 0) {
-        const { data: patientsData } = await supabase
-          .from("patients")
-          .select("id, first_name, last_name")
-          .in("id", unpaidAllPatientIds);
-
-        unpaidAllPatients = patientsData || [];
-      }
-
-      const todayAll = new Date();
-      const unpaidAllList: UnpaidTherapy[] = [];
-
-      (unpaidInvoicesAllRaw || []).forEach((inv: any) => {
-        const amount = parseFloat(String(inv.amount)) || 0;
-        if (amount <= 0) return;
-
-        const p = unpaidAllPatients.find((x) => x.id === inv.patient_id) || null;
-        const patientName = p ? `${p.last_name || ""} ${p.first_name || ""}`.trim() : "Sconosciuto";
-
-        const invoiceDate = new Date(inv.paid_at || inv.created_at);
-        const daysSince = Math.floor((todayAll.getTime() - invoiceDate.getTime()) / (1000 * 60 * 60 * 24));
-
-        unpaidAllList.push({
-          id: inv.id,
-          patient_id: inv.patient_id,
-          patient_name: patientName,
-          amount,
-          date: inv.paid_at || inv.created_at,
-          treatment_type: "Fattura",
-          days_since: daysSince,
-          status: "not_paid",
-        });
-      });
-
-      (unpaidAppointmentsAllRaw || []).forEach((app: any) => {
-        const amount = parseFloat(String(app.amount)) || 0;
-        if (amount <= 0) return;
-
-        const p = unpaidAllPatients.find((x) => x.id === app.patient_id) || null;
-        const patientName = p ? `${p.last_name || ""} ${p.first_name || ""}`.trim() : "Sconosciuto";
-
-        const appDate = new Date(app.start_at);
-        const daysSince = Math.floor((todayAll.getTime() - appDate.getTime()) / (1000 * 60 * 60 * 24));
-
-        unpaidAllList.push({
-          id: app.id,
-          patient_id: app.patient_id,
-          patient_name: patientName,
-          amount,
-          date: app.start_at,
-          treatment_type: app.treatment_type || "Seduta",
-          days_since: daysSince,
-          status: app.status,
-        });
-      });
-
-      unpaidAllList.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      setUnpaidTherapiesAll(unpaidAllList);
-
-
-      // Terapie (solo appuntamenti) per stampa report generale - filtrate per periodo selezionato
-      const therapiesForPrint: AppointmentTherapy[] = [
-        ...(appointmentsData || []).map((a: any) => {
-          const patientName = a.patients
-            ? `${a.patients.last_name || ""} ${a.patients.first_name || ""}`.trim()
-            : "Senza nome";
-          return {
-            id: String(a.id),
-            patient_id: String(a.patient_id || ""),
-            patient_name: patientName,
-            amount: parseFloat(String(a.amount)) || 0,
-            date: a.start_at,
-            treatment_type: a.treatment_type || "Terapia",
-            status: "done" as const,
-            price_type: a.price_type ?? null,
-          };
-        }),
-        ...(unpaidAppointmentsData || []).map((a: any) => {
-          const patientName = a.patients
-            ? `${a.patients.last_name || ""} ${a.patients.first_name || ""}`.trim()
-            : "Senza nome";
-          return {
-            id: String(a.id),
-            patient_id: String(a.patient_id || ""),
-            patient_name: patientName,
-            amount: parseFloat(String(a.amount)) || 0,
-            date: a.start_at,
-            treatment_type: a.treatment_type || "Terapia",
-            status: "not_paid" as const,
-            price_type: a.price_type ?? null,
-          };
-        }),
-      ]
-        .filter((t) => !!t.date)
-        .sort((x, y) => {
-          const pn = x.patient_name.localeCompare(y.patient_name, "it");
-          if (pn !== 0) return pn;
-          return new Date(x.date).getTime() - new Date(y.date).getTime();
-        });
-
-      setReportTherapies(therapiesForPrint);
-
-      // Processa FATTURE PAGATE
-      const invoices: FinancialItem[] = invoicesData.map((i: any) => {
-        const amount = parseFloat(String(i.amount)) || 0;
-        
-        const patientName = i.patients 
-          ? `${i.patients.last_name || ''} ${i.patients.first_name || ''}`.trim()
-          : undefined;
-
-        return {
-          amount,
-          date: i.paid_at,
-          source: 'invoice' as const,
-          description: `Fattura #${i.id}`,
-          patient_name: patientName,
-          patient_id: i.patient_id,
-          status: 'paid'
-        };
-      }).filter(item => item.amount > 0);
-
-      // Processa APPUNTAMENTI PAGATI
-      const appointments: FinancialItem[] = appointmentsData.map((a: any) => {
-        const amount = parseFloat(String(a.amount)) || 0;
-        const patientName = a.patients 
-          ? `${a.patients.last_name || ''} ${a.patients.first_name || ''}`.trim()
-          : undefined;
-        return {
-          amount,
-          date: a.start_at,
-          source: 'appointment' as const,
-          description: `Appuntamento - ${a.treatment_type || 'Seduta'}`,
-          patient_name: patientName,
-          patient_id: a.patient_id,
-          status: 'paid'
-        };
-      }).filter(item => item.amount > 0);
-
-      // Uniamo tutto PAGATO
-      const allData: FinancialItem[] = [...invoices, ...appointments];
-      setRawData(allData);
-
-      // Processa e crea lista terapie NON PAGATE
-      const today = new Date();
-      const unpaidTherapiesList: UnpaidTherapy[] = [];
-
-      // Aggiungi fatture non pagate
-      unpaidInvoicesData.forEach((inv: any) => {
-        const amount = parseFloat(String(inv.amount)) || 0;
-        if (amount > 0) {
-          const patientName = inv.patients 
-            ? `${inv.patients.last_name || ''} ${inv.patients.first_name || ''}`.trim()
-            : 'Sconosciuto';
-          
-          const invoiceDate = new Date(inv.paid_at || inv.created_at);
-          const daysSince = Math.floor((today.getTime() - invoiceDate.getTime()) / (1000 * 60 * 60 * 24));
-          
-          unpaidTherapiesList.push({
-            id: inv.id,
-            patient_id: inv.patient_id,
-            patient_name: patientName,
-            amount,
-            date: inv.paid_at || inv.created_at,
-            treatment_type: 'Fattura',
-            days_since: daysSince,
-            status: 'not_paid'
-          });
-        }
-      });
-
-      // Aggiungi appuntamenti non pagati
-      unpaidAppointmentsData.forEach((app: any) => {
-        const amount = parseFloat(String(app.amount)) || 0;
-        
-        if (amount > 0) {
-          const patientName = app.patients 
-            ? `${app.patients.last_name || ''} ${app.patients.first_name || ''}`.trim()
-            : 'Sconosciuto';
-          
-          const appDate = new Date(app.start_at);
-          const daysSince = Math.floor((today.getTime() - appDate.getTime()) / (1000 * 60 * 60 * 24));
-          
-          unpaidTherapiesList.push({
-            id: app.id,
-            patient_id: app.patient_id,
-            patient_name: patientName,
-            amount,
-            date: app.start_at,
-            treatment_type: app.treatment_type || 'Seduta',
-            days_since: daysSince,
-            status: app.status
-          });
-        }
-      });
-
-      // Ordina per data (più vecchie prima)
-      unpaidTherapiesList.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      setUnpaidTherapies(unpaidTherapiesList);
-
-      // Calcolo statistiche PAGATE
-      const amounts = allData.map(item => item.amount).filter(amount => amount > 0);
-      const total = amounts.reduce((sum, amount) => sum + amount, 0);
-      const invoiceCount = invoices.length;
-      const appointmentCount = appointments.length;
-      const averageAmount = amounts.length > 0 ? total / amounts.length : 0;
-      const maxAmount = amounts.length > 0 ? Math.max(...amounts) : 0;
-      const minAmount = amounts.length > 0 ? Math.min(...amounts) : 0;
-
-      // Calcolo statistiche NON PAGATE
-      const unpaidTotal = unpaidTherapiesList.reduce((sum, item) => sum + item.amount, 0);
-      const unpaidCount = unpaidTherapiesList.length;
-      const unpaidInvoiceCount = unpaidInvoicesData.length;
-      const unpaidAppointmentCount = unpaidAppointmentsData.length;
-
-      setStatistics({
-        total,
-        invoiceCount,
-        appointmentCount,
-        averageAmount,
-        maxAmount,
-        minAmount,
-        unpaidTotal,
-        unpaidCount,
-        unpaidAppointmentCount,
-        unpaidInvoiceCount
-      });
-
-      // Calcolo Grafico PAGATI
-      const paidBuckets = new Array(labels.length).fill(0);
-      const unpaidBuckets = new Array(labels.length).fill(0);
-
-      // Calcola buckets PAGATI
-      for (const item of allData) {
-        if (!item.date) continue;
-        
-        const dt = new Date(item.date);
-        const bucketIndex = getBucketIndex(dt, period);
-        
-        if (bucketIndex >= 0 && bucketIndex < labels.length) {
-          paidBuckets[bucketIndex] += item.amount;
-        }
-      }
-
-      // Calcola buckets NON PAGATI
-      for (const item of unpaidTherapiesList) {
-        const dt = new Date(item.date);
-        const bucketIndex = getBucketIndex(dt, period);
-        
-        if (bucketIndex >= 0 && bucketIndex < labels.length) {
-          unpaidBuckets[bucketIndex] += item.amount;
-        }
-      }
-
-      setSeries(paidBuckets);
-      setUnpaidSeries(unpaidBuckets);
-
-    } catch (e: any) {
-      console.error("Errore nel caricamento dati:", e);
-      setError(e.message || "Errore nel caricamento dei dati.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // Funzione helper per ottenere l'indice del bucket
-  function getBucketIndex(dt: Date, period: Period): number {
-    if (period === "day") {
-      return dt.getHours();
-    } else if (period === "week") {
-      const idx = dt.getDay();
-      const adjustedIdx = (idx + 6) % 7;
-      return adjustedIdx;
-    } else {
-      return dt.getDate() - 1;
-    }
-  }
-
-  // Funzione per ottenere i dettagli di un giorno specifico
-  function getDayDetails(dayIndex: number) {
-    const dayItems: FinancialItem[] = [];
-    
-    // Aggiungi elementi pagati per questo giorno
-    rawData.forEach(item => {
-      if (!item.date) return;
-      
-      const dt = new Date(item.date);
-      const bucketIndex = getBucketIndex(dt, period);
-      
-      if (bucketIndex === dayIndex) {
-        dayItems.push({ ...item, status: 'paid' });
-      }
-    });
-    
-    // Aggiungi elementi non pagati per questo giorno
-    unpaidTherapies.forEach(item => {
-      const dt = new Date(item.date);
-      const bucketIndex = getBucketIndex(dt, period);
-      
-      if (bucketIndex === dayIndex) {
-        dayItems.push({
-          amount: item.amount,
-          date: item.date,
-          source: 'appointment',
-          description: `${item.treatment_type} (Non pagato)`,
-          patient_name: item.patient_name,
-          patient_id: item.patient_id,
-          status: 'not_paid'
-        });
-      }
-    });
-    
-    return dayItems;
-  }
-
-  // Funzione per gestire il click su una barra del grafico
-  function handleBarClick(dayIndex: number) {
-    setSelectedDay(dayIndex);
-    const details = getDayDetails(dayIndex);
-    setDayDetails(details);
-  }
-
-  // Funzione per stampare report COMPLETO delle terapie non pagate
-  function printUnpaidReport() {
-    printReport(unpaidTherapiesAll, "Report Terapie Non Pagate");
-  }
-
-  // Funzione per stampare report di UN SOLO PAZIENTE
-  function printPatientReport(patientName: string) {
-    const patientTherapies = unpaidTherapiesAll.filter(t => t.patient_name === patientName);
-    printReport(patientTherapies, `Report Terapie Non Pagate - ${patientName}`);
-  }
-
-  // Funzione generica per stampare report
-  function printReport(therapies: UnpaidTherapy[], title: string) {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-
-    const today = new Date();
-    const formattedDate = today.toLocaleDateString('it-IT', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html lang="it">
-      <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>${title} - ${formattedDate}</title>
-          <style>
-              @media print {
-                  @page { margin: 1cm; }
-                  body {
-                      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                      color: #000;
-                      background: #fff;
-                      font-size: 12pt;
-                      line-height: 1.4;
-                  }
-                  .header {
-                      text-align: center;
-                      margin-bottom: 2cm;
-                      border-bottom: 2px solid #000;
-                      padding-bottom: 0.5cm;
-                  }
-                  .header h1 {
-                      font-size: 18pt;
-                      margin: 0;
-                      font-weight: bold;
-                  }
-                  .header .date {
-                      font-size: 11pt;
-                      margin-top: 0.2cm;
-                      color: #555;
-                  }
-                  table {
-                      width: 100%;
-                      border-collapse: collapse;
-                      margin-top: 1cm;
-                      page-break-inside: avoid;
-                  }
-                  th {
-                      background-color: #f0f0f0;
-                      border: 1px solid #000;
-                      padding: 8pt;
-                      text-align: left;
-                      font-weight: bold;
-                      font-size: 10pt;
-                  }
-                  td {
-                      border: 1px solid #000;
-                      padding: 6pt;
-                      font-size: 10pt;
-                      vertical-align: top;
-                  }
-                  .total-row {
-                      background-color: #f0f0f0;
-                      font-weight: bold;
-                  }
-                  .patient-total {
-                      background-color: #e8e8e8;
-                      font-weight: bold;
-                  }
-                  .footer {
-                      margin-top: 2cm;
-                      padding-top: 0.5cm;
-                      border-top: 1px solid #000;
-                      font-size: 9pt;
-                      color: #555;
-                  }
-                  .no-print { display: none; }
-              }
-              body {
-                  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                  color: #000;
-                  background: #fff;
-                  padding: 2cm;
-              }
-              .header {
-                  text-align: center;
-                  margin-bottom: 2cm;
-                  border-bottom: 2px solid #000;
-                  padding-bottom: 0.5cm;
-              }
-              .header h1 {
-                  font-size: 18pt;
-                  margin: 0;
-                  font-weight: bold;
-              }
-              .header .date {
-                  font-size: 11pt;
-                  margin-top: 0.2cm;
-                  color: #555;
-              }
-              table {
-                  width: 100%;
-                  border-collapse: collapse;
-                  margin-top: 1cm;
-              }
-              th {
-                  background-color: #f0f0f0;
-                  border: 1px solid #000;
-                  padding: 8pt;
-                  text-align: left;
-                  font-weight: bold;
-                  font-size: 10pt;
-              }
-              td {
-                  border: 1px solid #000;
-                  padding: 6pt;
-                  font-size: 10pt;
-                  vertical-align: top;
-              }
-              .total-row {
-                  background-color: #f0f0f0;
-                  font-weight: bold;
-              }
-              .patient-total {
-                  background-color: #e8e8e8;
-                  font-weight: bold;
-              }
-              .footer {
-                  margin-top: 2cm;
-                  padding-top: 0.5cm;
-                  border-top: 1px solid #000;
-                  font-size: 9pt;
-                  color: #555;
-              }
-              button {
-                  padding: 10px 20px;
-                  background: #2563eb;
-                  color: white;
-                  border: none;
-                  border-radius: 4px;
-                  cursor: pointer;
-                  font-weight: bold;
-                  margin-bottom: 1cm;
-              }
-              button:hover { background: #1d4ed8; }
-          </style>
-      </head>
-      <body>
-          <button onclick="window.print()" class="no-print">🖨️ Stampa Report</button>
-          
-          <div class="header">
-              <h1>${title}</h1>
-              <div class="date">${formattedDate}</div>
-          </div>
-          
-          <table>
-              <thead>
-                  <tr>
-                      <th>Paziente</th>
-                      <th>Tipo Terapia</th>
-                      <th>Data</th>
-                      <th>Giorni dalla Terapia</th>
-                      <th>Importo (€)</th>
-                  </tr>
-              </thead>
-              <tbody>
-                  ${(() => {
-                      const patients: { [key: string]: { items: UnpaidTherapy[], total: number } } = {};
-                      
-                      therapies.forEach(therapy => {
-                          if (!patients[therapy.patient_name]) {
-                              patients[therapy.patient_name] = { items: [], total: 0 };
-                          }
-                          patients[therapy.patient_name].items.push(therapy);
-                          patients[therapy.patient_name].total += therapy.amount;
-                      });
-                      
-                      let html = '';
-                      let grandTotal = 0;
-                      
-                      Object.keys(patients).forEach(patientName => {
-                          const patientData = patients[patientName];
-                          grandTotal += patientData.total;
-                          
-                          html += `
-                              <tr class="patient-total">
-                                  <td colspan="4"><strong>${patientName}</strong></td>
-                                  <td><strong>${currency.format(patientData.total)}</strong></td>
-                              </tr>`;
-                          
-                          patientData.items.forEach((item, index) => {
-                              html += `
-                                  <tr>
-                                      <td>${index === 0 ? '' : ''}</td>
-                                      <td>${item.treatment_type}</td>
-                                      <td>${new Date(item.date).toLocaleDateString('it-IT')}</td>
-                                      <td>${item.days_since} giorni</td>
-                                      <td>${currency.format(item.amount)}</td>
-                                  </tr>`;
-                          });
-                      });
-                      
-                      html += `
-                          <tr class="total-row">
-                              <td colspan="4"><strong>TOTALE GENERALE</strong></td>
-                              <td><strong>${currency.format(grandTotal)}</strong></td>
-                          </tr>`;
-                      
-                      return html;
-                  })()}
-              </tbody>
-          </table>
-          
-          <div class="footer">
-              <p>Report generato automaticamente da FisioHub</p>
-              <p>Numero totale terapie non pagate: ${therapies.length}</p>
-              <p>Numero pazienti con terapie non pagate: ${(() => {
-                  const uniquePatients = new Set(therapies.map(t => t.patient_name));
-                  return uniquePatients.size;
-              })()}</p>
-          </div>
-          
-          <script>
-              window.onload = function() {
-                  setTimeout(() => {
-                      window.print();
-                  }, 500);
-              };
-          </script>
-      </body>
-      </html>
-    `;
-
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-  }
-
-  useEffect(() => {
-    setSeries([]);
-    setUnpaidSeries([]);
-    setSelectedDay(null);
-    setDayDetails([]);
-    loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period, dateStr]);
-
-  // Funzione per formattare la data in italiano
-  function formatDateLabel(date: Date): string {
-    const options: Intl.DateTimeFormatOptions = { 
-      weekday: 'long', 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
-    };
-    return date.toLocaleDateString('it-IT', options);
-  }
-
-  function formatMonthKey(monthKey: string): string {
-    // monthKey: YYYY-MM
-    const [y, m] = monthKey.split('-').map(Number);
-    const dt = new Date(y, (m || 1) - 1, 1);
-    return dt.toLocaleDateString('it-IT', { month: 'short', year: 'numeric' });
-  }
-
-  // Ottieni pazienti unici per il dropdown
-  const uniquePatients = useMemo(() => {
-    const patients = new Set(unpaidTherapiesAll.map(t => t.patient_name));
-    return Array.from(patients).sort();
-  }, [unpaidTherapiesAll]);
+// ─── BAR CHART (tooltip via React state — non manipola il DOM) ───────────────
+function BarChart({ labels, values, unpaidValues, period, onBarClick, selectedDay }: {
+  labels:string[]; values:number[]; unpaidValues:number[];
+  period:Period; onBarClick:(i:number)=>void; selectedDay:number|null;
+}) {
+  const [hovered, setHovered] = useState<number|null>(null);
+  const CHART_H = 220;
+  const LABEL_H = 44;  // spazio per le etichette sotto
+  const TOOLTIP_H = 80; // spazio sopra per il tooltip
+  const total    = values.reduce((a,b)=>a+b,0);
+  const totalUnp = unpaidValues.reduce((a,b)=>a+b,0);
+  const max = Math.max(...values.map((v,i)=>v+(unpaidValues[i]??0)), 0.01);
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: COLORS.appBg }}>
-      {/* Menu Laterale */}
-      <aside
-        className="no-print"
-        style={{
-          width: 250,
-          background: COLORS.panelBg,
-          borderRight: `1px solid ${COLORS.border}`,
-          padding: 16,
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ fontSize: 18, fontWeight: 900, color: COLORS.blueDark, letterSpacing: -0.2 }}>
-          FisioHub
-        </div>
+    <div style={{ width:"100%", overflowX:"auto" }}>
+      {/* Legenda */}
+      <div style={{ display:"flex", gap:16, marginBottom:14, fontSize:11, color:T.muted, fontWeight:700, flexWrap:"wrap" }}>
+        <span style={{ display:"flex", alignItems:"center", gap:5 }}>
+          <span style={{ width:12, height:12, background:T.blue, borderRadius:3, display:"inline-block" }}/>
+          Incassato
+        </span>
+        <span style={{ display:"flex", alignItems:"center", gap:5 }}>
+          <span style={{ width:12, height:12, background:T.red, borderRadius:3, display:"inline-block" }}/>
+          Non pagato
+        </span>
+        <span style={{ marginLeft:"auto", fontStyle:"italic", color:T.borderSoft }}>
+          Clicca su una barra per i dettagli
+        </span>
+      </div>
 
-        <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-          <Link 
-            href="/" 
-            style={{ 
-              color: COLORS.blueDark, 
-              fontWeight: 800, 
-              textDecoration: "none", 
-              display: "flex", 
-              alignItems: "center", 
-              gap: 8,
-            }}
-          >
-            🏠 Home
-          </Link>
-          <Link 
-            href="/calendar" 
-            style={{ 
-              color: COLORS.blueDark, 
-              fontWeight: 800, 
-              textDecoration: "none",
-              display: "flex", 
-              alignItems: "center", 
-              gap: 8,
-            }}
-          >
-            📅 Calendario
-          </Link>
-          <Link 
-            href="/reports" 
-            style={{ 
-              color: COLORS.primary,
-              fontWeight: 800, 
-              textDecoration: "none",
-              display: "flex", 
-              alignItems: "center", 
-              gap: 8,
-            }}
-          >
-            📊 Report
-          </Link>
-          <Link 
-            href="/patients" 
-            style={{ 
-              color: COLORS.blueDark, 
-              fontWeight: 800, 
-              textDecoration: "none",
-              display: "flex", 
-              alignItems: "center", 
-              gap: 8,
-            }}
-          >
-            👤 Pazienti
-          </Link>
-        </div>
-
-        <div style={{ marginTop: 26, fontSize: 12, color: COLORS.muted }}>
-          Analisi dati e statistiche incassi
-        </div>
-
-        {/* Sezione Informazioni */}
-        <div style={{ marginTop: 32, padding: 12, background: COLORS.panelSoft, borderRadius: 8 }}>
-          <div style={{ fontSize: 13, fontWeight: 900, color: COLORS.blueDark, marginBottom: 6 }}>
-            ℹ️ Informazioni
-          </div>
-          <div style={{ fontSize: 11, color: COLORS.muted, lineHeight: 1.4 }}>
-            I report mostrano gli incassi provenienti da fatture pagate e appuntamenti completati.
-            <br/><br/>
-            <strong>Terapie non pagate:</strong> visualizza le terapie in attesa di pagamento.
-          </div>
-        </div>
-
-        {/* Sezione Filtri Rapidi */}
-        <div style={{ marginTop: 20 }}>
-          <div style={{ fontSize: 13, fontWeight: 900, color: COLORS.blueDark, marginBottom: 8 }}>
-            ⚡ Filtri Rapidi
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <button
-              onClick={() => {
-                setPeriod("day");
-                setDateStr(toISODate(new Date()));
-              }}
-              style={{
-                padding: "8px 12px",
-                borderRadius: 6,
-                border: `1px solid ${COLORS.border}`,
-                background: COLORS.panelSoft,
-                color: COLORS.text,
-                cursor: "pointer",
-                fontWeight: 800,
-                fontSize: 12,
-                textAlign: "left",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              📅 Oggi
-            </button>
-            <button
-              onClick={() => {
-                setPeriod("week");
-                setDateStr(toISODate(new Date()));
-              }}
-              style={{
-                padding: "8px 12px",
-                borderRadius: 6,
-                border: `1px solid ${COLORS.border}`,
-                background: COLORS.panelSoft,
-                color: COLORS.text,
-                cursor: "pointer",
-                fontWeight: 800,
-                fontSize: 12,
-                textAlign: "left",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              📆 Settimana Corrente
-            </button>
-            <button
-              onClick={() => {
-                setPeriod("month");
-                setDateStr(toISODate(new Date()));
-              }}
-              style={{
-                padding: "8px 12px",
-                borderRadius: 6,
-                border: `1px solid ${COLORS.border}`,
-                background: COLORS.panelSoft,
-                color: COLORS.text,
-                cursor: "pointer",
-                fontWeight: 800,
-                fontSize: 12,
-                textAlign: "left",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              📊 Mese Corrente
-            </button>
-          </div>
-        </div>
-
-        {/* Statistiche Veloci */}
-        <div style={{ marginTop: 32 }}>
-          <div style={{ fontSize: 13, fontWeight: 900, color: COLORS.blueDark, marginBottom: 8 }}>
-            📈 Dati Recenti
-          </div>
-          <div style={{ fontSize: 11, color: COLORS.muted }}>
-            {rawData.length > 0 || unpaidTherapies.length > 0 ? (
-              <>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span>Totale incassato:</span>
-                  <span style={{ fontWeight: 900, color: COLORS.success }}>
-                    {currency.format(statistics.total)}
-                  </span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span>Transazioni:</span>
-                  <span style={{ fontWeight: 900, color: COLORS.primary }}>
-                    {rawData.length}
-                  </span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span>Terapie non pagate:</span>
-                  <span style={{ fontWeight: 900, color: COLORS.danger }}>
-                    {unpaidTherapies.length}
-                  </span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>Residuo:</span>
-                  <span style={{ fontWeight: 900, color: COLORS.warning }}>
-                    {currency.format(statistics.unpaidTotal)}
-                  </span>
-                </div>
-              </>
-            ) : (
-              <div style={{ padding: 8, textAlign: "center", fontStyle: "italic" }}>
-                Nessun dato disponibile
-              </div>
-            )}
-          </div>
-        </div>
-      </aside>
-
-      {/* Contenuto Principale */}
-      <main style={{ 
-        flex: 1, 
-        display: "flex", 
-        flexDirection: "column", 
-        padding: 24, 
-        minWidth: 0,
-        width: "100%",
-        overflowX: "hidden"
+      {/* Area grafico: padding-top per il tooltip, padding-bottom per le label */}
+      <div style={{
+        position:"relative",
+        paddingTop: TOOLTIP_H,
+        paddingBottom: LABEL_H,
       }}>
-        {/* Header con titolo e pulsanti */}
-        <div style={{ width: "100%" }}>
-          <div className="no-print" style={{ 
-            display: "flex", 
-            alignItems: "center", 
-            justifyContent: "space-between", 
-            gap: 20, 
-            flexWrap: "wrap", 
-            marginBottom: 24,
-            padding: "0 4px"
+        {/* Linee guida orizzontali */}
+        {[1, 0.75, 0.5, 0.25].map(f => (
+          <div key={f} style={{
+            position:"absolute",
+            left:0, right:0,
+            top: TOOLTIP_H + CHART_H*(1-f),
+            height:1,
+            background:"rgba(203,213,225,0.5)",
+            zIndex:0,
+            pointerEvents:"none",
           }}>
-            <div style={{ flex: 1, minWidth: 300 }}>
-              <h1 style={{ margin: 0, color: COLORS.blueDark, fontWeight: 900, fontSize: 32, letterSpacing: -0.2 }}>
-                Report Incassi
-              </h1>
-              <div style={{ marginTop: 6, fontSize: 12, color: COLORS.muted, fontWeight: 800 }}>
-                Analisi dettagliata dei ricavi e terapie non pagate
-              </div>
-            </div>
-
-            <div style={{ 
-              display: "flex", 
-              gap: 16, 
-              flexWrap: "wrap", 
-              alignItems: "center",
-              justifyContent: "flex-end",
-              flex: 1,
-              minWidth: "min(100%, 400px)",
-              marginTop: 8,
-              maxWidth: "100%"
+            <span style={{
+              position:"absolute", right:4, top:-9,
+              fontSize:9, color:T.gray, fontWeight:700,
             }}>
-              {/* Pulsante Report Totali */}
-              <button
-                onClick={() => {
-                  const printWindow = window.open('', '_blank');
-                  if (!printWindow) return;
+              {f===1 ? fmt.format(max) : `${(f*100).toFixed(0)}%`}
+            </span>
+          </div>
+        ))}
 
-                  const today = new Date();
-                  const formattedDate = today.toLocaleDateString('it-IT', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                  });
+        {/* Barre */}
+        <div style={{
+          display:"flex",
+          alignItems:"flex-end",
+          height: CHART_H,
+          gap: period==="month" ? 2 : 8,
+          position:"relative", zIndex:1,
+          minWidth: period==="month" ? labels.length*22 : "auto",
+        }}>
+          {labels.map((label, i) => {
+            const v       = values[i]??0;
+            const unpaid  = unpaidValues[i]??0;
+            const totalV  = v+unpaid;
+            const active  = totalV>0;
+            const sel     = selectedDay===i;
+            const hov     = hovered===i;
+            const paidH   = active ? Math.max((v/max)*CHART_H, v>0?3:0)   : 0;
+            const unpaidH = active ? Math.max((unpaid/max)*CHART_H, unpaid>0?3:0) : 0;
 
-
-                  const { from, to } = getRange(period, baseDate);
-                  const labelsRangeLabel =
-                    period === "day"
-                      ? from.toLocaleDateString("it-IT")
-                      : period === "week"
-                        ? `${from.toLocaleDateString("it-IT")} → ${to.toLocaleDateString("it-IT")}`
-                        : from.toLocaleDateString("it-IT", { month: "long", year: "numeric" });
-
-                  const escapeHtml = (s: any) =>
-                    String(s ?? "")
-                      .replaceAll("&", "&amp;")
-                      .replaceAll("<", "&lt;")
-                      .replaceAll(">", "&gt;")
-                      .replaceAll('"', "&quot;")
-                      .replaceAll("'", "&#039;");
-
-                  // Terapie svolte nel periodo selezionato, organizzate per paziente (solo appuntamenti)
-                  const byPatient = reportTherapies.reduce<Record<string, AppointmentTherapy[]>>((acc, t) => {
-                    const key = (t.patient_name || "Senza nome").trim();
-                    if (!acc[key]) acc[key] = [];
-                    acc[key].push(t);
-                    return acc;
-                  }, {});
-
-                  const patientNames = Object.keys(byPatient).sort((a, b) => a.localeCompare(b, "it"));
-
-                  const therapiesByPatientHtml =
-                    patientNames.length === 0
-                      ? `<div style="margin-top: 2cm; font-size: 11pt; color: #555;">Nessuna terapia (appuntamento) trovata nel periodo selezionato.</div>`
-                      : `
-                        <div class="details">
-                          <h2>🧑‍⚕️ Terapie effettuate (per paziente)</h2>
-                          <div style="font-size: 10pt; color: #555; margin-bottom: 10px;">
-                            Periodo: <strong>${escapeHtml(labelsRangeLabel)}</strong>
-                          </div>
-                          ${patientNames
-                            .map((name) => {
-                              const list = (byPatient[name] || []).slice().sort((x, y) => new Date(x.date).getTime() - new Date(y.date).getTime());
-                              const tot = list.reduce((s, x) => s + (Number(x.amount) || 0), 0);
-                              const paid = list.filter((x) => x.status === "done").reduce((s, x) => s + (Number(x.amount) || 0), 0);
-                              const unpaid = list.filter((x) => x.status === "not_paid").reduce((s, x) => s + (Number(x.amount) || 0), 0);
-
-                              return `
-                                <div style="margin-top: 18px; padding-top: 12px; border-top: 1px solid #ddd;">
-                                  <div style="display:flex; justify-content: space-between; align-items: baseline;">
-                                    <div style="font-size: 13pt; font-weight: 800;">${escapeHtml(name)}</div>
-                                    <div style="font-size: 10pt; color: #555;">
-                                      Tot: <strong>${escapeHtml(currency.format(tot))}</strong> —
-                                      Incassato: <strong style="color:#16a34a;">${escapeHtml(currency.format(paid))}</strong> —
-                                      Non pagato: <strong style="color:#dc2626;">${escapeHtml(currency.format(unpaid))}</strong>
-                                    </div>
-                                  </div>
-
-                                  <table style="width:100%; border-collapse: collapse; margin-top: 10px; font-size: 10pt;">
-                                    <thead>
-                                      <tr>
-                                        <th style="text-align:left; border-bottom:1px solid #ccc; padding:6px;">Data</th>
-                                        <th style="text-align:left; border-bottom:1px solid #ccc; padding:6px;">Trattamento</th>
-                                        <th style="text-align:left; border-bottom:1px solid #ccc; padding:6px;">Stato</th>
-                                        <th style="text-align:right; border-bottom:1px solid #ccc; padding:6px;">Importo</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      ${list
-                                        .map((t) => {
-                                          const d = new Date(t.date);
-                                          const dateLabel = isNaN(d.getTime()) ? "" : d.toLocaleDateString("it-IT");
-                                          const stato = t.status === "done" ? "PAGATO" : "NON PAGATO";
-                                          const statoColor = t.status === "done" ? "#16a34a" : "#dc2626";
-                                          return `
-                                            <tr>
-                                              <td style="padding:6px; border-bottom:1px solid #eee;">${escapeHtml(dateLabel)}</td>
-                                              <td style="padding:6px; border-bottom:1px solid #eee;">${escapeHtml(t.treatment_type)}</td>
-                                              <td style="padding:6px; border-bottom:1px solid #eee; font-weight:700; color:${statoColor};">${escapeHtml(stato)}</td>
-                                              <td style="padding:6px; border-bottom:1px solid #eee; text-align:right;">${escapeHtml(currency.format(Number(t.amount) || 0))}</td>
-                                            </tr>
-                                          `;
-                                        })
-                                        .join("")}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              `;
-                            })
-                            .join("")}
-                        </div>
-                      `;
-
-
-                  const totalPaid = statistics.total;
-                  const totalUnpaid = statistics.unpaidTotal;
-                  const grandTotal = totalPaid + totalUnpaid;
-
-                  const htmlContent = `
-                    <!DOCTYPE html>
-                    <html lang="it">
-                    <head>
-                        <meta charset="UTF-8">
-                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                        <title>Report Totali - ${formattedDate}</title>
-                        <style>
-                            @media print {
-                                @page { margin: 1cm; }
-                                body {
-                                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                                    color: #000;
-                                    background: #fff;
-                                    font-size: 12pt;
-                                    line-height: 1.4;
-                                }
-                                .header {
-                                    text-align: center;
-                                    margin-bottom: 2cm;
-                                    border-bottom: 2px solid #000;
-                                    padding-bottom: 0.5cm;
-                                }
-                                .header h1 {
-                                    font-size: 18pt;
-                                    margin: 0;
-                                    font-weight: bold;
-                                }
-                                .header .date {
-                                    font-size: 11pt;
-                                    margin-top: 0.2cm;
-                                    color: #555;
-                                }
-                                .summary {
-                                    display: grid;
-                                    grid-template-columns: repeat(2, 1fr);
-                                    gap: 20px;
-                                    margin: 2cm 0;
-                                }
-                                .summary-card {
-                                    padding: 20px;
-                                    border: 1px solid #000;
-                                    border-radius: 8px;
-                                    text-align: center;
-                                }
-                                .summary-card.paid {
-                                    background-color: #f0f9ff;
-                                }
-                                .summary-card.unpaid {
-                                    background-color: #fef2f2;
-                                }
-                                .summary-card.total {
-                                    background-color: #f0f0f0;
-                                    grid-column: span 2;
-                                }
-                                .summary-title {
-                                    font-size: 14pt;
-                                    font-weight: bold;
-                                    margin-bottom: 10px;
-                                }
-                                .summary-amount {
-                                    font-size: 20pt;
-                                    font-weight: bold;
-                                }
-                                .paid .summary-amount { color: #16a34a; }
-                                .unpaid .summary-amount { color: #dc2626; }
-                                .total .summary-amount { color: #1e40af; }
-                                .details {
-                                    margin-top: 2cm;
-                                }
-                                .details h2 {
-                                    font-size: 16pt;
-                                    margin-bottom: 10px;
-                                }
-                                .no-print { display: none; }
-                            }
-                            body {
-                                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                                color: #000;
-                                background: #fff;
-                                padding: 2cm;
-                            }
-                            .header {
-                                text-align: center;
-                                margin-bottom: 2cm;
-                                border-bottom: 2px solid #000;
-                                padding-bottom: 0.5cm;
-                            }
-                            .header h1 {
-                                font-size: 18pt;
-                                margin: 0;
-                                font-weight: bold;
-                            }
-                            .header .date {
-                                font-size: 11pt;
-                                margin-top: 0.2cm;
-                                color: #555;
-                            }
-                            .summary {
-                                display: grid;
-                                grid-template-columns: repeat(2, 1fr);
-                                gap: 20px;
-                                margin: 2cm 0;
-                            }
-                            .summary-card {
-                                padding: 20px;
-                                border: 1px solid #000;
-                                border-radius: 8px;
-                                text-align: center;
-                            }
-                            .summary-card.paid {
-                                background-color: #f0f9ff;
-                            }
-                            .summary-card.unpaid {
-                                background-color: #fef2f2;
-                            }
-                            .summary-card.total {
-                                background-color: #f0f0f0;
-                                grid-column: span 2;
-                            }
-                            .summary-title {
-                                font-size: 14pt;
-                                font-weight: bold;
-                                margin-bottom: 10px;
-                            }
-                            .summary-amount {
-                                font-size: 20pt;
-                                font-weight: bold;
-                            }
-                            .paid .summary-amount { color: #16a34a; }
-                            .unpaid .summary-amount { color: #dc2626; }
-                            .total .summary-amount { color: #1e40af; }
-                            .details {
-                                margin-top: 2cm;
-                            }
-                            .details h2 {
-                                font-size: 16pt;
-                                margin-bottom: 10px;
-                            }
-                            button {
-                                padding: 10px 20px;
-                                background: #2563eb;
-                                color: white;
-                                border: none;
-                                border-radius: 4px;
-                                cursor: pointer;
-                                font-weight: bold;
-                                margin-bottom: 1cm;
-                            }
-                        </style>
-                    </head>
-                    <body>
-                        <button onclick="window.print()" class="no-print">🖨️ Stampa Report</button>
-                        
-                        <div class="header">
-                            <h1>REPORT TOTALI - FISIOHUB</h1>
-                            <div class="date">${formattedDate}</div>
-                        </div>
-                        
-                        <div class="summary">
-                            <div class="summary-card paid">
-                                <div class="summary-title">TOTALE INCASSATO</div>
-                                <div class="summary-amount">${currency.format(totalPaid)}</div>
-                                <div style="font-size: 10pt; margin-top: 10px; color: #555;">
-                                    ${statistics.invoiceCount} fatture • ${statistics.appointmentCount} appuntamenti
-                                </div>
-                            </div>
-                            
-                            <div class="summary-card unpaid">
-                                <div class="summary-title">TOTALE NON PAGATO</div>
-                                <div class="summary-amount">${currency.format(totalUnpaid)}</div>
-                                <div style="font-size: 10pt; margin-top: 10px; color: #555;">
-                                    ${statistics.unpaidCount} terapie in sospeso
-                                </div>
-                            </div>
-                            
-                            <div class="summary-card total">
-                                <div class="summary-title">TOTALE GENERALE (Incassato + Non Pagato)</div>
-                                <div class="summary-amount">${currency.format(grandTotal)}</div>
-                                <div style="font-size: 10pt; margin-top: 10px; color: #555;">
-                                    ${statistics.invoiceCount + statistics.unpaidInvoiceCount} fatture totali • 
-                                    ${statistics.appointmentCount + statistics.unpaidAppointmentCount} appuntamenti totali
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="details">
-                            <h2>📊 Statistiche Dettagliate</h2>
-                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; font-size: 11pt;">
-                                <div><strong>Media per transazione:</strong> ${currency.format(statistics.averageAmount)}</div>
-                                <div><strong>Importo massimo:</strong> ${currency.format(statistics.maxAmount)}</div>
-                                <div><strong>Importo minimo:</strong> ${currency.format(statistics.minAmount)}</div>
-                                <div><strong>Fatture non pagate:</strong> ${statistics.unpaidInvoiceCount}</div>
-                                <div><strong>Appuntamenti non pagati:</strong> ${statistics.unpaidAppointmentCount}</div>
-                                <div><strong>Totale transazioni:</strong> ${rawData.length}</div>
-                            </div>
-                        </div>
-                        
-                        ${therapiesByPatientHtml}
-
-                        <div style="margin-top: 3cm; padding-top: 1cm; border-top: 1px solid #ccc; font-size: 9pt; color: #555;">
-                            <p>Report generato automaticamente da FisioHub</p>
-                            <p>Data di generazione: ${new Date().toLocaleString('it-IT')}</p>
-                        </div>
-                        
-                        <script>
-                            window.onload = function() {
-                                setTimeout(() => {
-                                    window.print();
-                                }, 500);
-                            };
-                        </script>
-                    </body>
-                    </html>
-                  `;
-
-                  printWindow.document.write(htmlContent);
-                  printWindow.document.close();
-                }}
+            return (
+              <div
+                key={i}
                 style={{
-                  padding: "12px 20px",
-                  borderRadius: 8,
-                  border: `1px solid ${COLORS.primary}`,
-                  background: COLORS.primary,
-                  color: "white",
-                  textDecoration: "none",
-                  fontWeight: 900,
-                  fontSize: 13,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  height: 46,
-                  whiteSpace: "nowrap",
-                  cursor: "pointer",
+                  flex:1, minWidth: period==="month" ? 18 : 28,
+                  display:"flex", flexDirection:"column", alignItems:"center",
+                  cursor: active ? "pointer" : "default",
+                  position:"relative",
                 }}
+                onClick={()=>active && onBarClick(i)}
+                onMouseEnter={()=>active && setHovered(i)}
+                onMouseLeave={()=>setHovered(null)}
               >
-                📄 Report Totali
-              </button>
-
-              {/* Pulsante Report Non Pagati con Dropdown */}
-              <div style={{ position: "relative" }}>
-                <button
-                  onClick={() => setShowUnpaidDropdown(!showUnpaidDropdown)}
-                  style={{
-                    padding: "12px 20px",
-                    borderRadius: 8,
-                    border: `1px solid ${COLORS.danger}`,
-                    background: COLORS.danger,
-                    color: "white",
-                    textDecoration: "none",
-                    fontWeight: 900,
-                    fontSize: 13,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    height: 46,
-                    whiteSpace: "nowrap",
-                    cursor: "pointer",
-                  }}
-                >
-                  ⚠️ Report Non Pagati
-                  <span style={{ fontSize: 12 }}>{showUnpaidDropdown ? '▲' : '▼'}</span>
-                </button>
-
-                {showUnpaidDropdown && (
+                {/* Tooltip */}
+                {hov && active && (
                   <div style={{
-                    position: "absolute",
-                    top: "100%",
-                    right: 0,
-                    marginTop: 8,
-                    background: COLORS.card,
-                    border: `1px solid ${COLORS.border}`,
-                    borderRadius: 8,
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-                    zIndex: 100,
-                    minWidth: 200,
+                    position:"absolute",
+                    bottom: CHART_H + 8,
+                    left:"50%", transform:"translateX(-50%)",
+                    background:T.text, color:"#fff",
+                    padding:"8px 12px", borderRadius:8,
+                    fontSize:11, fontWeight:700, whiteSpace:"nowrap",
+                    zIndex:100, boxShadow:"0 4px 16px rgba(0,0,0,0.3)",
+                    pointerEvents:"none",
                   }}>
-                    <div style={{
-                      padding: "8px 12px",
-                      fontSize: 11,
-                      color: COLORS.muted,
-                      borderBottom: `1px solid ${COLORS.border}`,
-                      fontWeight: 800,
-                    }}>
-                      Seleziona opzione di stampa:
+                    <div style={{ fontWeight:900, marginBottom:3 }}>{label}</div>
+                    <div style={{ color:"#86efac" }}>✓ {fmt.format(v)}</div>
+                    {unpaid>0 && <div style={{ color:"#fca5a5" }}>✗ {fmt.format(unpaid)}</div>}
+                    <div style={{ borderTop:"1px solid rgba(255,255,255,0.2)", marginTop:4, paddingTop:4 }}>
+                      Totale: {fmt.format(totalV)}
                     </div>
-                    
-                    <button
-                      onClick={() => {
-                        printUnpaidReport();
-                        setShowUnpaidDropdown(false);
-                      }}
-                      style={{
-                        width: "100%",
-                        padding: "10px 16px",
-                        background: "none",
-                        border: "none",
-                        textAlign: "left",
-                        fontSize: 12,
-                        color: COLORS.text,
-                        cursor: "pointer",
-                        fontWeight: 800,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                    >
-                      📋 Tutti i non pagati
-                    </button>
-                    
+                    {/* freccia */}
                     <div style={{
-                      padding: "4px 12px",
-                      fontSize: 10,
-                      color: COLORS.muted,
-                      borderTop: `1px solid ${COLORS.border}`,
-                      borderBottom: `1px solid ${COLORS.border}`,
-                      background: COLORS.panelSoft,
-                    }}>
-                      Per paziente:
-                    </div>
-                    
-                    {uniquePatients.map(patient => (
-                      <button
-                        key={patient}
-                        onClick={() => {
-                          printPatientReport(patient);
-                          setShowUnpaidDropdown(false);
-                        }}
-                        style={{
-                          width: "100%",
-                          padding: "8px 16px",
-                          background: "none",
-                          border: "none",
-                          textAlign: "left",
-                          fontSize: 12,
-                          color: COLORS.text,
-                          cursor: "pointer",
-                          fontWeight: 600,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          borderBottom: `1px solid ${COLORS.border}`,
-                        }}
-                      >
-                        👤 {patient}
-                      </button>
-                    ))}
+                      position:"absolute", bottom:-6, left:"50%", transform:"translateX(-50%)",
+                      width:0, height:0,
+                      borderLeft:"6px solid transparent", borderRight:"6px solid transparent",
+                      borderTop:`6px solid ${T.text}`,
+                    }}/>
                   </div>
                 )}
-              </div>
-              
-              <Link
-                href="/calendar"
-                style={{
-                  padding: "12px 20px",
-                  borderRadius: 8,
-                  border: `1px solid ${COLORS.accent}`,
-                  background: COLORS.accent,
-                  color: "white",
-                  textDecoration: "none",
-                  fontWeight: 900,
-                  fontSize: 13,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  height: 46,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                <span>📅</span>
-                Vai al Calendario
-              </Link>
-              
-              <Link
-                href="/"
-                style={{
-                  padding: "12px 20px",
-                  borderRadius: 8,
-                  border: `1px solid ${COLORS.border}`,
-                  background: COLORS.panelSoft,
-                  color: COLORS.text,
-                  textDecoration: "none",
-                  fontWeight: 900,
-                  fontSize: 13,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  height: 46,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                ← Torna alla Home
-              </Link>
-            </div>
-          </div>
 
-          {/* Filtri */}
-          <div
-            style={{
-              background: COLORS.card,
-              borderRadius: 16,
-              padding: 16,
-              border: `1px solid ${COLORS.border}`,
-              marginBottom: 16,
-              boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
-            }}
-          >
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-              <div
-                style={{
-                  display: "inline-flex",
-                  background: "#eef2ff",
-                  padding: 4,
-                  borderRadius: 12,
-                  border: `1px solid ${COLORS.border}`,
-                }}
-              >
-                {[
-                  { k: "day", label: "Giorno", icon: "📅" },
-                  { k: "week", label: "Settimana", icon: "📆" },
-                  { k: "month", label: "Mese", icon: "📊" },
-                ].map((p) => (
-                  <button
-                    key={p.k}
-                    onClick={() => setPeriod(p.k as Period)}
-                    style={{
-                      cursor: "pointer",
-                      padding: "8px 16px",
-                      border: "none",
-                      borderRadius: 8,
-                      fontWeight: 900,
-                      fontSize: 13,
-                      color: period === p.k ? "white" : COLORS.primary,
-                      background: period === p.k ? COLORS.primary : "transparent",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      transition: "all 0.2s",
-                    }}
-                  >
-                    <span>{p.icon}</span>
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {period === "month" ? (
-                  <input
-                    type="month"
-                    value={dateStr.slice(0, 7)}
-                    onChange={(e) => {
-                      // mantiene il giorno = 01 per avere un range mese pulito
-                      const v = e.target.value; // YYYY-MM
-                      if (!v) return;
-                      setDateStr(`${v}-01`);
-                    }}
-                    style={{
-                      border: `1px solid ${COLORS.border}`,
-                      background: "white",
-                      color: COLORS.text,
-                      padding: "10px 12px",
-                      borderRadius: 8,
-                      fontSize: 14,
-                      fontWeight: 600,
-                      minWidth: 160,
-                    }}
-                  />
-                ) : (
-                  <input
-                    type="date"
-                    value={dateStr}
-                    onChange={(e) => setDateStr(e.target.value)}
-                    style={{
-                      border: `1px solid ${COLORS.border}`,
-                      background: "white",
-                      color: COLORS.text,
-                      padding: "10px 12px",
-                      borderRadius: 8,
-                      fontSize: 14,
-                      fontWeight: 600,
-                      minWidth: 160,
-                    }}
-                  />
-                )}
-
-                <button
-                  onClick={() => setDateStr(toISODate(new Date()))}
-                  style={{
-                    cursor: "pointer",
-                    padding: "10px 16px",
-                    borderRadius: 8,
-                    border: `1px solid ${COLORS.border}`,
-                    background: "white",
-                    fontWeight: 800,
-                    fontSize: 13,
-                    color: COLORS.primary,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                  }}
-                >
-                  <span>🎯</span>
-                  Oggi
-                </button>
-
-                <button 
-                  onClick={loadData}
-                  disabled={loading}
-                  style={{
-                    cursor: loading ? "wait" : "pointer",
-                    padding: "10px 16px",
-                    borderRadius: 8,
-                    border: `1px solid ${COLORS.accent}`,
-                    background: loading ? COLORS.muted : COLORS.accent,
-                    fontWeight: 800,
-                    fontSize: 13,
-                    color: "white",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                  }}
-                >
-                  <span>🔄</span>
-                  {loading ? "Caricamento..." : "Ricarica"}
-                </button>
-              </div>
-
-              <div style={{ marginLeft: "auto", fontSize: 13, color: COLORS.muted, fontWeight: 700 }}>
-                {formatDateLabel(baseDate)}
-              </div>
-            </div>
-          </div>
-
-         {/* DETTAGLIO FONTI - Stile compatto */}
-<div
-  style={{
-    background: COLORS.card,
-    borderRadius: 16,
-    padding: 20,
-    border: `1px solid ${COLORS.border}`,
-    boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
-    marginBottom: 24,
-  }}
->
-  <div style={{ 
-    display: "flex", 
-    justifyContent: "space-between", 
-    alignItems: "center", 
-    marginBottom: 20,
-    borderBottom: `1px solid ${COLORS.border}`,
-    paddingBottom: 16 
-  }}>
-    <div>
-      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: COLORS.text }}>
-        🧾 DETTAGLIO FONTI
-      </h2>
-      <div style={{ color: COLORS.muted, fontSize: 13, marginTop: 4, fontWeight: 700 }}>
-        Incassi per tipologia e stato di pagamento
-      </div>
-    </div>
-    
-    <div style={{ fontSize: 14, fontWeight: 900, color: COLORS.accent }}>
-      Totale: {currency.format(statistics.total + statistics.unpaidTotal)}
-    </div>
-  </div>
-
-  <div style={{ 
-    display: "grid", 
-    gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", 
-    gap: 16,
-    width: "100%"
-  }}>
-    {/* Fatture Pagate */}
-    <div style={{
-      background: "linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)",
-      borderRadius: 12,
-      padding: 20,
-      border: `1px solid ${COLORS.border}`,
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-        <div style={{
-          width: 40,
-          height: 40,
-          borderRadius: 10,
-          background: COLORS.success,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "white",
-          fontSize: 18,
-        }}>
-          📄
-        </div>
-        <div>
-          <div style={{ color: COLORS.muted, fontSize: 12, fontWeight: 900, textTransform: "uppercase" }}>
-            Fatture Pagate
-          </div>
-          <div style={{ fontSize: 24, fontWeight: 1000, color: COLORS.success, marginTop: 4 }}>
-            {currency.format(statistics.invoiceCount > 0 ? 
-              rawData.filter(d => d.source === 'invoice').reduce((sum, d) => sum + d.amount, 0) : 0)}
-          </div>
-          <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 2 }}>
-            {statistics.invoiceCount} fatture • Media: {currency.format(
-              statistics.invoiceCount > 0 ? 
-              rawData.filter(d => d.source === 'invoice').reduce((sum, d) => sum + d.amount, 0) / statistics.invoiceCount : 0
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-
-    {/* Appuntamenti Pagati */}
-    <div style={{
-      background: "linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)",
-      borderRadius: 12,
-      padding: 20,
-      border: `1px solid ${COLORS.border}`,
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-        <div style={{
-          width: 40,
-          height: 40,
-          borderRadius: 10,
-          background: COLORS.accent,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "white",
-          fontSize: 18,
-        }}>
-          📅
-        </div>
-        <div>
-          <div style={{ color: COLORS.muted, fontSize: 12, fontWeight: 900, textTransform: "uppercase" }}>
-            Appuntamenti Pagati
-          </div>
-          <div style={{ fontSize: 24, fontWeight: 1000, color: COLORS.accent, marginTop: 4 }}>
-            {currency.format(statistics.appointmentCount > 0 ? 
-              rawData.filter(d => d.source === 'appointment').reduce((sum, d) => sum + d.amount, 0) : 0)}
-          </div>
-          <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 2 }}>
-            {statistics.appointmentCount} appuntamenti • Media: {currency.format(
-              statistics.appointmentCount > 0 ? 
-              rawData.filter(d => d.source === 'appointment').reduce((sum, d) => sum + d.amount, 0) / statistics.appointmentCount : 0
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-
-    {/* Fatture Non Pagate */}
-    <div style={{
-      background: "linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)",
-      borderRadius: 12,
-      padding: 20,
-      border: `1px solid ${COLORS.border}`,
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-        <div style={{
-          width: 40,
-          height: 40,
-          borderRadius: 10,
-          background: COLORS.danger,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "white",
-          fontSize: 18,
-        }}>
-          ⚠️
-        </div>
-        <div>
-          <div style={{ color: COLORS.muted, fontSize: 12, fontWeight: 900, textTransform: "uppercase" }}>
-            Fatture Non Pagate
-          </div>
-          <div style={{ fontSize: 24, fontWeight: 1000, color: COLORS.danger, marginTop: 4 }}>
-            {currency.format(
-              unpaidTherapies
-                .filter(t => t.treatment_type === 'Fattura')
-                .reduce((sum, t) => sum + t.amount, 0)
-            )}
-          </div>
-          <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 2 }}>
-            {statistics.unpaidInvoiceCount} fatture • Residuo
-          </div>
-        </div>
-      </div>
-    </div>
-
-    {/* Appuntamenti Non Pagati */}
-    <div style={{
-      background: "linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)",
-      borderRadius: 12,
-      padding: 20,
-      border: `1px solid ${COLORS.border}`,
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-        <div style={{
-          width: 40,
-          height: 40,
-          borderRadius: 10,
-          background: COLORS.warning,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "white",
-          fontSize: 18,
-        }}>
-          ⏰
-        </div>
-        <div>
-          <div style={{ color: COLORS.muted, fontSize: 12, fontWeight: 900, textTransform: "uppercase" }}>
-            Appuntamenti Non Pagati
-          </div>
-          <div style={{ fontSize: 24, fontWeight: 1000, color: COLORS.warning, marginTop: 4 }}>
-            {currency.format(
-              unpaidTherapies
-                .filter(t => t.treatment_type !== 'Fattura')
-                .reduce((sum, t) => sum + t.amount, 0)
-            )}
-          </div>
-          <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 2 }}>
-            {statistics.unpaidAppointmentCount} appuntamenti • In attesa
-          </div>
-          {arrearsMonths.length > 0 && (
-            <div style={{ fontSize: 10, color: COLORS.muted, marginTop: 6, lineHeight: 1.3 }}>
-              <strong>Arretrati (mesi precedenti):</strong>{" "}
-              {arrearsMonths.slice(0, 4).map((m, idx) => (
-                <span key={m.month}>
-                  {idx > 0 ? " • " : ""}
-                  {formatMonthKey(m.month)}: {m.count} ({currency.format(m.total)})
-                </span>
-              ))}
-              {arrearsMonths.length > 4 ? (
-                <span> • +{arrearsMonths.length - 4} mesi</span>
-              ) : null}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  </div>
-
-  {/* Riepilogo totale - stile compatto */}
-  <div style={{
-    marginTop: 20,
-    padding: "16px",
-    background: "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)",
-    borderRadius: 12,
-    border: `1px solid ${COLORS.border}`,
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-  }}>
-    <div style={{ fontSize: 13, fontWeight: 900, color: COLORS.text }}>
-      🧮 RIEPILOGO TOTALE
-    </div>
-    <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
-      <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: 11, color: COLORS.muted, fontWeight: 700 }}>PAGATO</div>
-        <div style={{ fontSize: 18, fontWeight: 1000, color: COLORS.success }}>
-          {currency.format(statistics.total)}
-        </div>
-      </div>
-      <div style={{ fontSize: 20, color: COLORS.muted, fontWeight: 900 }}>+</div>
-      <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: 11, color: COLORS.muted, fontWeight: 700 }}>NON PAGATO</div>
-        <div style={{ fontSize: 18, fontWeight: 1000, color: COLORS.danger }}>
-          {currency.format(statistics.unpaidTotal)}
-        </div>
-      </div>
-      <div style={{ fontSize: 20, color: COLORS.muted, fontWeight: 900 }}>=</div>
-      <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: 11, color: COLORS.muted, fontWeight: 700 }}>TOTALE GENERALE</div>
-        <div style={{ fontSize: 24, fontWeight: 1000, color: COLORS.accent }}>
-          {currency.format(statistics.total + statistics.unpaidTotal)}
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-          {/* Grafico Distribuzione Incassi */}
-          <div
-            style={{
-              background: COLORS.card,
-              borderRadius: 16,
-              padding: 20,
-              border: `1px solid ${COLORS.border}`,
-              boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
-              marginBottom: 24,
-              width: "100%",
-              overflow: "hidden",
-            }}
-          >
-            <div style={{ 
-              display: "flex", 
-              justifyContent: "space-between", 
-              alignItems: "center", 
-              marginBottom: 20,
-              borderBottom: `1px solid ${COLORS.border}`,
-              paddingBottom: 12 
-            }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: COLORS.text }}>
-                  📊 Distribuzione Incassi
-                </h3>
-                <div style={{ color: COLORS.muted, fontSize: 12, marginTop: 2 }}>
-                  {period === "day" ? "Per ore del giorno" : 
-                   period === "week" ? "Per giorni della settimana" : 
-                   "Per giorni del mese"}
-                </div>
-              </div>
-              <div style={{ fontSize: 12, color: COLORS.muted, fontWeight: 700 }}>
-                Totale periodo: {currency.format(series.reduce((a, b) => a + b, 0) + unpaidSeries.reduce((a, b) => a + b, 0))}
-              </div>
-            </div>
-
-            {series.length > 0 ? (
-              <EnhancedBarChart 
-                labels={labels} 
-                values={series}
-                unpaidValues={unpaidSeries}
-                period={period} 
-                onBarClick={handleBarClick}
-                selectedDay={selectedDay}
-              />
-            ) : (
-              <div style={{ 
-                height: 250, // Altezza ridotta per evitare sforamenti
-                display: "flex", 
-                flexDirection: "column", 
-                alignItems: "center", 
-                justifyContent: "center",
-                color: COLORS.muted,
-                fontSize: 14,
-                fontWeight: 700
-              }}>
-                📊 Nessun dato disponibile per il periodo selezionato
-                <div style={{ fontSize: 12, marginTop: 8, opacity: 0.7 }}>
-                  Prova a cambiare data o periodo
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Layout inferiore con transazioni e dettagli */}
-          <div style={{ 
-            display: "grid", 
-            gridTemplateColumns: selectedDay !== null ? "1fr 1fr 300px" : "1fr 1fr", 
-            gap: 24,
-            width: "100%",
-            maxWidth: "100%",
-            overflow: "hidden",
-            transition: "all 0.3s ease"
-          }}>
-            {/* Lista Transazioni Pagate */}
-            <div
-              style={{
-                background: COLORS.card,
-                borderRadius: 16,
-                padding: 20,
-                border: `1px solid ${COLORS.border}`,
-                boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
-                maxHeight: 600,
-                overflow: "hidden",
-                display: "flex",
-                flexDirection: "column",
-              }}
-            >
-              <div style={{ 
-                display: "flex", 
-                justifyContent: "space-between", 
-                alignItems: "center", 
-                marginBottom: 16,
-                borderBottom: `1px solid ${COLORS.border}`,
-                paddingBottom: 12 
-              }}>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: COLORS.text }}>
-                  💰 Transazioni Pagate
-                </h3>
-                <div style={{ fontSize: 11, color: COLORS.muted, fontWeight: 700 }}>
-                  {rawData.length} elementi
-                </div>
-              </div>
-
-              <div style={{ flex: 1, overflowY: "auto", paddingRight: 4 }}>
-                {loading ? (
-                  <div style={{ 
-                    display: "flex", 
-                    alignItems: "center", 
-                    justifyContent: "center", 
-                    height: 200,
-                    color: COLORS.muted,
-                    fontSize: 14
-                  }}>
-                    Caricamento...
-                  </div>
-                ) : rawData.length === 0 ? (
-                  <div style={{ 
-                    textAlign: "center", 
-                    padding: 40, 
-                    color: COLORS.muted,
-                    fontSize: 13
-                  }}>
-                    Nessuna transazione pagata trovata
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {rawData.map((item, index) => (
-                      <div
-                        key={index}
-                        style={{
-                          padding: 12,
-                          background: item.source === 'invoice' 
-                            ? "rgba(37, 99, 235, 0.05)" 
-                            : "rgba(13, 148, 136, 0.05)",
-                          borderRadius: 8,
-                          borderLeft: `4px solid ${
-                            item.source === 'invoice' ? COLORS.secondary : COLORS.accent
-                          }`,
-                        }}
-                      >
-                        <div style={{ 
-                          display: "flex", 
-                          justifyContent: "space-between", 
-                          alignItems: "flex-start",
-                          marginBottom: 4 
-                        }}>
-                          <div>
-                            <div style={{ 
-                              fontSize: 13, 
-                              fontWeight: 900,
-                              color: COLORS.text
-                            }}>
-                              {currency.format(item.amount)}
-                            </div>
-                            <div style={{ 
-                              fontSize: 11, 
-                              color: COLORS.muted,
-                              marginTop: 2 
-                            }}>
-                              {new Date(item.date).toLocaleDateString('it-IT', {
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
-                            </div>
-                          </div>
-                          <div style={{
-                            fontSize: 10,
-                            fontWeight: 900,
-                            padding: "2px 6px",
-                            borderRadius: 4,
-                            background: item.source === 'invoice' 
-                              ? "rgba(37, 99, 235, 0.1)" 
-                              : "rgba(13, 148, 136, 0.1)",
-                            color: item.source === 'invoice' ? COLORS.secondary : COLORS.accent,
-                          }}>
-                            {item.source === 'invoice' ? 'FATTURA' : 'APPUNTAMENTO'}
-                          </div>
-                        </div>
-                        
-                        {item.patient_name && (
-                          <div style={{ 
-                            fontSize: 11, 
-                            color: COLORS.text,
-                            marginTop: 4,
-                            fontWeight: 700
-                          }}>
-                            👤 {item.patient_name}
-                          </div>
-                        )}
-                        
-                        {item.description && (
-                          <div style={{ 
-                            fontSize: 10, 
-                            color: COLORS.muted,
-                            marginTop: 2
-                          }}>
-                            {item.description}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Lista Terapie Non Pagate */}
-            <div
-              style={{
-                background: COLORS.card,
-                borderRadius: 16,
-                padding: 20,
-                border: `1px solid ${COLORS.border}`,
-                boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
-                maxHeight: 600,
-                overflow: "hidden",
-                display: "flex",
-                flexDirection: "column",
-              }}
-            >
-              <div style={{ 
-                display: "flex", 
-                justifyContent: "space-between", 
-                alignItems: "center", 
-                marginBottom: 16,
-                borderBottom: `1px solid ${COLORS.border}`,
-                paddingBottom: 12 
-              }}>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: COLORS.text }}>
-                  ⚠️ Terapie Non Pagate
-                </h3>
-                <div style={{ fontSize: 11, color: COLORS.muted, fontWeight: 700 }}>
-                  {unpaidTherapiesAll.length} elementi
-                </div>
-              </div>
-
-              <div style={{ flex: 1, overflowY: "auto", paddingRight: 4 }}>
-                {loading ? (
-                  <div style={{ 
-                    display: "flex", 
-                    alignItems: "center", 
-                    justifyContent: "center", 
-                    height: 200,
-                    color: COLORS.muted,
-                    fontSize: 14
-                  }}>
-                    Caricamento...
-                  </div>
-                ) : unpaidTherapiesAll.length === 0 ? (
-                  <div style={{ 
-                    textAlign: "center", 
-                    padding: 40, 
-                    color: COLORS.muted,
-                    fontSize: 13
-                  }}>
-                    🎉 Nessuna terapia non pagata trovata
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {unpaidTherapiesAll.map((therapy, index) => (
-                      <div
-                        key={therapy.id}
-                        style={{
-                          padding: 12,
-                          background: index % 2 === 0 ? "rgba(254, 242, 242, 0.3)" : "rgba(254, 226, 226, 0.3)",
-                          borderRadius: 8,
-                          borderLeft: `4px solid ${COLORS.danger}`,
-                        }}
-                      >
-                        <div style={{ 
-                          display: "flex", 
-                          justifyContent: "space-between", 
-                          alignItems: "flex-start",
-                          marginBottom: 4 
-                        }}>
-                          <div>
-                            <div style={{ 
-                              fontSize: 13, 
-                              fontWeight: 900,
-                              color: COLORS.text
-                            }}>
-                              {currency.format(therapy.amount)}
-                            </div>
-                            <div style={{ 
-                              fontSize: 11, 
-                              color: COLORS.muted,
-                              marginTop: 2 
-                            }}>
-                              {new Date(therapy.date).toLocaleDateString('it-IT')} • {new Date(therapy.date).toLocaleDateString('it-IT', { month: 'short', year: 'numeric' })} • {therapy.treatment_type}
-                            </div>
-                          </div>
-                          <div style={{
-                            fontSize: 10,
-                            fontWeight: 900,
-                            padding: "2px 6px",
-                            borderRadius: 4,
-                            background: "rgba(220, 38, 38, 0.1)",
-                            color: COLORS.danger,
-                          }}>
-                            NON PAGATO
-                          </div>
-                        </div>
-                        
-                        <div style={{ 
-                          fontSize: 11, 
-                          color: COLORS.text,
-                          marginTop: 4,
-                          fontWeight: 700
-                        }}>
-                          👤 {therapy.patient_name}
-                        </div>
-                        
-                        <div style={{ 
-                          fontSize: 10, 
-                          color: COLORS.warning,
-                          marginTop: 2,
-                          fontWeight: 700
-                        }}>
-                          ⏰ {therapy.days_since} giorni fa
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Dettagli Giorno Selezionato */}
-            {selectedDay !== null && (
-              <div
-                style={{
-                  background: COLORS.card,
-                  borderRadius: 16,
-                  padding: 20,
-                  border: `1px solid ${COLORS.border}`,
-                  boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
-                  maxHeight: 600,
-                  overflow: "hidden",
-                  display: "flex",
-                  flexDirection: "column",
-                  animation: "slideIn 0.3s ease"
-                }}
-              >
-                <div style={{ 
-                  display: "flex", 
-                  justifyContent: "space-between", 
-                  alignItems: "center", 
-                  marginBottom: 16,
-                  borderBottom: `1px solid ${COLORS.border}`,
-                  paddingBottom: 12 
+                {/* Stack barre */}
+                <div style={{
+                  width: period==="month" ? "85%" : "70%",
+                  display:"flex", flexDirection:"column", overflow:"visible",
+                  borderRadius:4,
+                  outline: sel ? `2px solid ${T.blue}` : "none",
+                  outlineOffset:1,
+                  transform: hov||sel ? "scaleX(1.08)" : "scaleX(1)",
+                  transition:"transform 0.12s ease",
                 }}>
-                  <div>
-                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: COLORS.text }}>
-                      📅 {labels[selectedDay]}
-                    </h3>
-                    <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }}>
-                      Dettagli del giorno selezionato
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setSelectedDay(null);
-                      setDayDetails([]);
-                    }}
-                    style={{
-                      cursor: "pointer",
-                      background: "none",
-                      border: "none",
-                      fontSize: 18,
-                      color: COLORS.muted,
-                    }}
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <div style={{ flex: 1, overflowY: "auto", paddingRight: 4 }}>
-                  {dayDetails.length === 0 ? (
-                    <div style={{ 
-                      textAlign: "center", 
-                      padding: 40, 
-                      color: COLORS.muted,
-                      fontSize: 13
+                  {/* Barra non pagato */}
+                  {unpaid>0 && (
+                    <div style={{
+                      height:unpaidH,
+                      background:"linear-gradient(180deg, rgba(220,38,38,0.9), rgba(220,38,38,0.65))",
+                      borderRadius: v>0 ? "4px 4px 0 0" : 4,
+                      position:"relative",
                     }}>
-                      Nessun dato per questo giorno
-                    </div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {dayDetails.map((item, index) => {
-                        const isUnpaid = item.status === 'not_paid';
-                        
-                        return (
-                          <div
-                            key={index}
-                            style={{
-                              padding: 12,
-                              background: isUnpaid 
-                                ? "rgba(220, 38, 38, 0.05)" 
-                                : item.source === 'invoice' 
-                                  ? "rgba(37, 99, 235, 0.05)" 
-                                  : "rgba(13, 148, 136, 0.05)",
-                              borderRadius: 8,
-                              borderLeft: `4px solid ${
-                                isUnpaid 
-                                  ? COLORS.danger 
-                                  : item.source === 'invoice' 
-                                    ? COLORS.secondary 
-                                    : COLORS.accent
-                              }`,
-                            }}
-                          >
-                            <div style={{ 
-                              display: "flex", 
-                              justifyContent: "space-between", 
-                              alignItems: "flex-start",
-                              marginBottom: 4 
-                            }}>
-                              <div>
-                                <div style={{ 
-                                  fontSize: 13, 
-                                  fontWeight: 900,
-                                  color: isUnpaid ? COLORS.danger : COLORS.text
-                                }}>
-                                  {currency.format(item.amount)}
-                                </div>
-                                <div style={{ 
-                                  fontSize: 10, 
-                                  color: COLORS.muted,
-                                  marginTop: 2 
-                                }}>
-                                  {new Date(item.date).toLocaleTimeString('it-IT', {
-                                    hour: '2-digit',
-                                    minute: '2-digit'
-                                  })}
-                                </div>
-                              </div>
-                              <div style={{
-                                fontSize: 9,
-                                fontWeight: 900,
-                                padding: "2px 6px",
-                                borderRadius: 4,
-                                background: isUnpaid 
-                                  ? "rgba(220, 38, 38, 0.1)" 
-                                  : item.source === 'invoice' 
-                                    ? "rgba(37, 99, 235, 0.1)" 
-                                    : "rgba(13, 148, 136, 0.1)",
-                                color: isUnpaid 
-                                  ? COLORS.danger 
-                                  : item.source === 'invoice' 
-                                    ? COLORS.secondary 
-                                    : COLORS.accent,
-                              }}>
-                                {isUnpaid ? 'NON PAGATO' : item.source === 'invoice' ? 'FATTURA' : 'APPUNTAMENTO'}
-                              </div>
-                            </div>
-                            
-                            {item.patient_name && (
-                              <div style={{ 
-                                fontSize: 11, 
-                                color: COLORS.text,
-                                marginTop: 4,
-                                fontWeight: 700
-                              }}>
-                                👤 {item.patient_name}
-                              </div>
-                            )}
-                            
-                            {item.description && (
-                              <div style={{ 
-                                fontSize: 10, 
-                                color: COLORS.muted,
-                                marginTop: 2
-                              }}>
-                                {item.description}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                      {unpaidH>18 && (
+                        <span style={{ position:"absolute", top:2, left:0, right:0, textAlign:"center",
+                          fontSize:8, fontWeight:900, color:"rgba(255,255,255,0.9)", lineHeight:1 }}>
+                          {unpaid>=1000?`${(unpaid/1000).toFixed(1)}k`:Math.round(unpaid).toString()}
+                        </span>
+                      )}
                     </div>
                   )}
+                  {/* Barra pagato */}
+                  {v>0 && (
+                    <div style={{
+                      height:paidH,
+                      background: active
+                        ? `linear-gradient(180deg, ${T.accent}, ${T.blue})`
+                        : "rgba(203,213,225,0.4)",
+                      borderRadius: unpaid>0 ? "0 0 4px 4px" : 4,
+                      position:"relative",
+                    }}>
+                      {paidH>22 && (
+                        <span style={{ position:"absolute", top:3, left:0, right:0, textAlign:"center",
+                          fontSize:9, fontWeight:900, color:"rgba(255,255,255,0.95)", lineHeight:1,
+                          textShadow:"0 1px 2px rgba(0,0,0,0.3)" }}>
+                          {v>=1000?`${(v/1000).toFixed(1)}k`:Math.round(v).toString()}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {!active && (
+                    <div style={{ height:2, background:"rgba(203,213,225,0.3)", borderRadius:2 }}/>
+                  )}
                 </div>
-                
-                {dayDetails.length > 0 && (
-                  <div style={{
-                    marginTop: 16,
-                    padding: "12px 16px",
-                    background: "rgba(37, 99, 235, 0.05)",
-                    borderRadius: 8,
-                    border: `1px solid rgba(37, 99, 235, 0.1)`,
-                  }}>
-                    <div style={{ fontSize: 12, fontWeight: 900, color: COLORS.text }}>
-                      📊 Riepilogo giorno:
-                    </div>
-                    <div style={{ 
-                      display: "flex", 
-                      justifyContent: "space-between", 
-                      fontSize: 11, 
-                      marginTop: 4 
-                    }}>
-                      <span style={{ color: COLORS.success }}>Pagati: {currency.format(
-                        dayDetails.filter(d => d.status === 'paid').reduce((sum, d) => sum + d.amount, 0)
-                      )}</span>
-                      <span style={{ color: COLORS.danger }}>Non pagati: {currency.format(
-                        dayDetails.filter(d => d.status === 'not_paid').reduce((sum, d) => sum + d.amount, 0)
-                      )}</span>
-                    </div>
-                    <div style={{ 
-                      fontSize: 11, 
-                      color: COLORS.muted, 
-                      marginTop: 4,
-                      fontWeight: 700
-                    }}>
-                      Totale: {currency.format(dayDetails.reduce((sum, d) => sum + d.amount, 0))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </main>
 
-      <style jsx>{`
-        @keyframes slideIn {
-          from {
-            opacity: 0;
-            transform: translateX(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0);
-          }
-        }
-      `}</style>
+                {/* Label asse X */}
+                <div style={{
+                  marginTop:6, fontSize: period==="month" ? 9 : 10,
+                  color: sel ? T.blue : active ? T.text : T.gray,
+                  fontWeight: sel ? 900 : active ? 700 : 500,
+                  textAlign:"center", lineHeight:1.2,
+                  height:LABEL_H-6, display:"flex", alignItems:"flex-start",
+                  justifyContent:"center", padding:"0 1px",
+                  overflow:"visible", whiteSpace:"nowrap",
+                }}>
+                  {period==="week" ? label.substring(0,3) : label}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Footer riepilogo */}
+      <div style={{
+        display:"flex", justifyContent:"space-between", alignItems:"center",
+        marginTop:8, padding:"10px 14px",
+        background:"rgba(37,99,235,0.05)",
+        borderRadius:8, border:"1px solid rgba(37,99,235,0.1)",
+        flexWrap:"wrap", gap:8,
+      }}>
+        <div style={{ display:"flex", gap:16, fontSize:12, fontWeight:700, flexWrap:"wrap" }}>
+          <span style={{ color:T.green }}>✓ Incassato: <b>{fmt.format(total)}</b></span>
+          <span style={{ color:T.red }}>✗ Non pagato: <b>{fmt.format(totalUnp)}</b></span>
+          <span style={{ color:T.blue }}>Totale: <b>{fmt.format(total+totalUnp)}</b></span>
+        </div>
+        <span style={{ fontSize:11, color:T.muted }}>
+          {values.filter(v=>v>0).length} periodi con incassi
+        </span>
+      </div>
     </div>
   );
 }
 
-function EnhancedBarChart({ 
-  labels, 
-  values, 
-  unpaidValues,
-  period, 
-  onBarClick,
-  selectedDay 
-}: { 
-  labels: string[]; 
-  values: number[]; 
-  unpaidValues: number[];
-  period: Period;
-  onBarClick: (dayIndex: number) => void;
-  selectedDay: number | null;
+// ─── CALENDAR GRID ────────────────────────────────────────────────────────────
+function CalendarGrid({ baseDate, series, unpaidSeries, onDayClick, selectedDay }: {
+  baseDate:Date; series:number[]; unpaidSeries:number[];
+  onDayClick:(i:number)=>void; selectedDay:number|null;
 }) {
-  const max = Math.max(1, ...values, ...unpaidValues);
-  const totalPaid = values.reduce((a, b) => a + b, 0);
-  const totalUnpaid = unpaidValues.reduce((a, b) => a + b, 0);
-  const total = totalPaid + totalUnpaid;
-  const hasData = values.some(v => v > 0) || unpaidValues.some(v => v > 0);
-  const chartHeight = 220; // Altezza ridotta per evitare sforamenti
-  
-  // Calcola la larghezza dinamica delle barre
-  const barWidth = period === 'day' 
-    ? 'calc((100% - 192px) / 24)'
-    : period === 'week' 
-      ? 'calc((100% - 56px) / 7)'
-      : 'calc((100% - 120px) / 31)';
+  const year  = baseDate.getFullYear();
+  const month = baseDate.getMonth();
+  const daysInMonth  = new Date(year, month+1, 0).getDate();
+  const firstDow     = (new Date(year, month, 1).getDay()+6)%7; // 0=Lun
+  const today        = new Date();
+  const isThisMonth  = today.getFullYear()===year && today.getMonth()===month;
+  const maxVal       = Math.max(...series.map((v,i)=>v+(unpaidSeries[i]??0)), 0.01);
+  const DAYS         = ["Lun","Mar","Mer","Gio","Ven","Sab","Dom"];
 
-  if (!hasData) {
-    return (
-      <div style={{ 
-        height: chartHeight, 
-        display: "flex", 
-        flexDirection: "column", 
-        alignItems: "center", 
-        justifyContent: "center",
-        color: COLORS.muted,
-        fontSize: 14,
-        fontWeight: 700
-      }}>
-        📊 Nessun dato disponibile per il periodo selezionato
-        <div style={{ fontSize: 12, marginTop: 8, opacity: 0.7 }}>
-          Prova a cambiare data o periodo
-        </div>
-      </div>
-    );
-  }
+  const cells:(number|null)[] = [
+    ...Array(firstDow).fill(null),
+    ...Array.from({length:daysInMonth},(_,i)=>i+1),
+  ];
+  while(cells.length%7!==0) cells.push(null);
 
   return (
-    <div style={{ 
-      width: "100%", 
-      overflowX: "auto", 
-      paddingBottom: 8,
-      maxWidth: "100%"
-    }}>
-      <div
-        style={{
-          minWidth: period === 'month' ? 800 : 600,
-          display: "flex",
-          alignItems: "flex-end",
-          justifyContent: "flex-start",
-          gap: 4,
-          height: chartHeight,
-          borderBottom: `1px solid ${COLORS.border}`,
-          paddingBottom: 24,
-          position: "relative",
-        }}
-      >
-        {/* Griglia di sfondo */}
-        <div style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 24,
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "space-between",
-          zIndex: 0,
-        }}>
-          {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => (
-            <div
-              key={i}
-              style={{
-                height: 1,
-                background: i === 0 ? COLORS.border : "rgba(226, 232, 240, 0.5)",
-                width: "100%",
-              }}
-            />
-          ))}
-        </div>
+    <div>
+      {/* Header giorni settimana — stile calendario */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3, marginBottom:4 }}>
+        {DAYS.map(d=>(
+          <div key={d} style={{
+            textAlign:"center", fontSize:11, fontWeight:700,
+            color: d==="Sab"||d==="Dom" ? T.borderSoft : T.muted,
+            padding:"6px 0", borderBottom:`2px solid ${T.border}`,
+            letterSpacing:0.5,
+          }}>{d}</div>
+        ))}
+      </div>
 
-        {values.map((v, i) => {
-          const label = labels[i];
-          if (!label) return null;
+      {/* Griglia */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3 }}>
+        {cells.map((day, idx)=>{
+          if(day===null) return <div key={`e${idx}`} style={{ minHeight:78 }}/>;
 
-          const unpaid = unpaidValues[i] || 0;
-          const totalValue = v + unpaid;
-          
-          const paidHeight = (v / max) * (chartHeight - 35); // Ridotto ulteriormente
-          const unpaidHeight = (unpaid / max) * (chartHeight - 35);
-          const totalHeight = paidHeight + unpaidHeight;
-          
-          const isActive = totalValue > 0;
-          const isSelected = selectedDay === i;
-          
+          const di       = day-1;
+          const paid     = series[di]??0;
+          const unpaid   = unpaidSeries[di]??0;
+          const total    = paid+unpaid;
+          const hasData  = total>0;
+          const isToday  = isThisMonth && today.getDate()===day;
+          const isSel    = selectedDay===di;
+          const dow      = (firstDow+di)%7;
+          const isWeekend= dow>=5;
+          const intensity= hasData ? Math.min((paid/maxVal)*0.9+0.1, 1) : 0;
+
           return (
-            <div 
-              key={i} 
-              style={{ 
-                display: "flex", 
-                flexDirection: "column", 
-                alignItems: "center",
-                width: barWidth,
-                minWidth: period === 'month' ? 20 : 24,
-                position: "relative",
-                zIndex: 1,
-              }}
-              onClick={() => {
-                if (totalValue > 0) {
-                  onBarClick(i);
-                }
+            <div
+              key={day}
+              onClick={()=>hasData && onDayClick(di)}
+              onMouseEnter={e=>{ if(hasData)(e.currentTarget as HTMLElement).style.transform="scale(1.04)"; }}
+              onMouseLeave={e=>{ (e.currentTarget as HTMLElement).style.transform="scale(1)"; }}
+              style={{
+                minHeight:78, padding:"7px 8px", borderRadius:9,
+                background: isSel
+                  ? "rgba(37,99,235,0.1)"
+                  : hasData
+                    ? `rgba(13,148,136,${intensity*0.15})`
+                    : "transparent",
+                border: isSel
+                  ? `2px solid ${T.blue}`
+                  : isToday
+                    ? `2px solid ${T.accent}`
+                    : `1px solid ${hasData?"rgba(13,148,136,0.2)":T.border}`,
+                cursor: hasData ? "pointer" : "default",
+                transition:"transform 0.12s ease, background 0.12s ease",
+                display:"flex", flexDirection:"column",
               }}
             >
-              {/* Tooltip */}
-              <div style={{
-                position: "absolute",
-                top: -65,
-                left: "50%",
-                transform: "translateX(-50%)",
-                background: COLORS.text,
-                color: "white",
-                padding: "8px 12px",
-                borderRadius: 6,
-                fontSize: 11,
-                fontWeight: 900,
-                whiteSpace: "nowrap",
-                opacity: 0,
-                transition: "opacity 0.2s",
-                pointerEvents: "none",
-                zIndex: 100,
-                boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-                minWidth: 160,
-              }}>
-                <div style={{ marginBottom: 4 }}>{label}</div>
-                <div style={{ fontSize: 10, opacity: 0.9 }}>
-                  <div style={{ color: COLORS.success }}>
-                    Pagati: {currency.format(v)} {total > 0 && `(${((v / total) * 100).toFixed(1)}%)`}
-                  </div>
-                  <div style={{ color: COLORS.danger, marginTop: 2 }}>
-                    Non pagati: {currency.format(unpaid)} {total > 0 && `(${((unpaid / total) * 100).toFixed(1)}%)`}
-                  </div>
-                  <div style={{ marginTop: 4, borderTop: '1px solid rgba(255,255,255,0.2)', paddingTop: 4 }}>
-                    Totale: {currency.format(totalValue)}
-                  </div>
-                </div>
-              </div>
-
-              {/* Barra Non Pagata (parte inferiore) */}
-              {unpaid > 0 && (
-                <div
-                  onMouseEnter={(e) => {
-                    const tooltip = e.currentTarget.parentElement?.firstChild as HTMLElement;
-                    if (tooltip) tooltip.style.opacity = "1";
-                  }}
-                  onMouseLeave={(e) => {
-                    const tooltip = e.currentTarget.parentElement?.firstChild as HTMLElement;
-                    if (tooltip) tooltip.style.opacity = "0";
-                  }}
-                  style={{
-                    width: "85%",
-                    height: unpaidHeight,
-                    background: `linear-gradient(to top, rgba(220, 38, 38, 0.8), rgba(220, 38, 38, 0.6))`,
-                    borderRadius: "4px 4px 0 0",
-                    transition: "all 0.3s ease",
-                    cursor: totalValue > 0 ? "pointer" : "default",
-                    position: "relative",
-                    borderWidth: "1px 1px 0 1px",
-                    borderStyle: "solid",
-                    borderColor: isActive ? `rgba(220, 38, 38, 0.8)` : COLORS.border,
-                    minHeight: unpaid > 0 ? 4 : 0,
-                  }}
-                >
-                  {/* Valore sulla barra non pagata */}
-                  {unpaid > 0 && unpaidHeight > 20 && (
-                    <div style={{
-                      position: "absolute",
-                      top: 2,
-                      left: "50%",
-                      transform: "translateX(-50%)",
-                      color: "white",
-                      fontSize: 9,
-                      fontWeight: 900,
-                      textShadow: "0 1px 2px rgba(0,0,0,0.3)",
-                      whiteSpace: "nowrap",
-                    }}>
-                      {unpaid > 1000 ? `${(unpaid/1000).toFixed(1)}k` : currency.format(unpaid).replace('€', '').trim()}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Barra Pagata (parte superiore) */}
-              <div
-                onMouseEnter={(e) => {
-                  const tooltip = e.currentTarget.parentElement?.firstChild as HTMLElement;
-                  if (tooltip) tooltip.style.opacity = "1";
-                  if (totalValue > 0) {
-                    e.currentTarget.style.transform = "scale(1.05)";
-                    e.currentTarget.style.boxShadow = isSelected 
-                      ? "0 4px 12px rgba(37, 99, 235, 0.6)" 
-                      : "0 4px 12px rgba(37, 99, 235, 0.3)";
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  const tooltip = e.currentTarget.parentElement?.firstChild as HTMLElement;
-                  if (tooltip) tooltip.style.opacity = "0";
-                  e.currentTarget.style.transform = "scale(1)";
-                  e.currentTarget.style.boxShadow = "none";
-                }}
-                style={{
-                  width: "85%",
-                  height: paidHeight,
-                  background: isActive 
-                    ? `linear-gradient(to top, ${COLORS.secondary}, ${COLORS.primary})`
-                    : "rgba(226, 232, 240, 0.3)",
-                  borderRadius: unpaid > 0 ? "0 0 4px 4px" : "4px 4px 0 0",
-                  transition: "all 0.3s ease",
-                  cursor: totalValue > 0 ? "pointer" : "default",
-                  position: "relative",
-                  borderWidth: unpaid > 0 ? "0 1px 1px 1px" : "1px 1px 1px 1px",
-                  borderStyle: "solid",
-                  borderColor: isActive 
-                    ? isSelected 
-                      ? COLORS.secondary
-                      : `${COLORS.secondary}80`
-                    : COLORS.border,
-                  minHeight: v > 0 ? 4 : 0,
-                  transform: isSelected ? "scale(1.05)" : "scale(1)",
-                  boxShadow: isSelected ? "0 4px 12px rgba(37, 99, 235, 0.6)" : "none",
-                }}
-              >
-                {/* Valore sulla barra pagata */}
-                {v > 0 && paidHeight > 30 && (
-                  <div style={{
-                    position: "absolute",
-                    top: 4,
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                    color: "white",
-                    fontSize: 10,
-                    fontWeight: 900,
-                    textShadow: "0 1px 2px rgba(0,0,0,0.3)",
-                    whiteSpace: "nowrap",
-                  }}>
-                    {v > 1000 ? `${(v/1000).toFixed(1)}k` : currency.format(v).replace('€', '').trim()}
-                  </div>
+              {/* Numero giorno */}
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+                <span style={isToday ? {
+                  background:T.accent, color:"#fff",
+                  width:22, height:22, borderRadius:"50%",
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                  fontSize:11, fontWeight:800,
+                } : {
+                  fontSize:12, fontWeight: hasData ? 800 : 600,
+                  color: isWeekend ? T.gray : T.text,
+                }}>
+                  {day}
+                </span>
+                {unpaid>0 && (
+                  <div style={{ width:7, height:7, borderRadius:"50%", background:T.red, flexShrink:0 }}/>
                 )}
               </div>
-              
-              {/* Etichetta */}
-              <div style={{ 
-                marginTop: 8, 
-                fontSize: period === 'month' ? 10 : 11, 
-                color: isSelected ? COLORS.primary : (isActive ? COLORS.text : COLORS.muted), 
-                fontWeight: isSelected ? 1000 : (isActive ? 900 : 700),
-                textAlign: "center",
-                height: period === 'month' ? 40 : 30,
-                display: "flex",
-                alignItems: "flex-start",
-                justifyContent: "center",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                padding: "0 2px",
-              }}>
-                {period === 'month' && label.length > 2 
-                  ? label 
-                  : label.substring(0, 3)}
-              </div>
+
+              {/* Importi */}
+              {hasData && (
+                <div style={{ flex:1, display:"flex", flexDirection:"column", justifyContent:"flex-end" }}>
+                  {paid>0 && (
+                    <div style={{ fontSize:10, fontWeight:800, color:T.green, lineHeight:1.4 }}>
+                      +{paid>=1000?`${(paid/1000).toFixed(1)}k€`:fmt.format(paid).replace("€","").trim()}
+                    </div>
+                  )}
+                  {unpaid>0 && (
+                    <div style={{ fontSize:9, fontWeight:700, color:T.red, lineHeight:1.4 }}>
+                      ✗{unpaid>=1000?`${(unpaid/1000).toFixed(1)}k€`:fmt.format(unpaid).replace("€","").trim()}
+                    </div>
+                  )}
+                  {/* Barra intensità */}
+                  <div style={{ marginTop:4, height:2, borderRadius:1, background:T.border }}>
+                    <div style={{
+                      height:"100%", borderRadius:1,
+                      width:`${Math.max((paid/maxVal)*100, 0)}%`,
+                      background:`linear-gradient(90deg,${T.accent},${T.blue})`,
+                    }}/>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
-
-        {/* Linea zero */}
-        <div style={{
-          position: "absolute",
-          bottom: 24,
-          left: 0,
-          right: 0,
-          height: 1,
-          background: COLORS.border,
-          zIndex: 0,
-        }} />
-
-        {/* Legenda scala */}
-        <div style={{
-          position: "absolute",
-          right: 0,
-          top: 0,
-          fontSize: 10,
-          color: COLORS.muted,
-          fontWeight: 700,
-          textAlign: "right",
-        }}>
-          <div>Max: {currency.format(max)}</div>
-          <div style={{ marginTop: (chartHeight - 10) * 0.5 }}>50%</div>
-          <div style={{ marginTop: (chartHeight - 10) * 0.25 }}>25%</div>
-        </div>
-
-        {/* Legenda colori */}
-        <div style={{
-          position: "absolute",
-          left: 0,
-          top: -35,
-          display: "flex",
-          gap: 12,
-          fontSize: 10,
-          color: COLORS.muted,
-          fontWeight: 700,
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <div style={{ width: 12, height: 12, background: COLORS.primary, borderRadius: 2 }}></div>
-            <span>Pagati</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <div style={{ width: 12, height: 12, background: COLORS.danger, borderRadius: 2 }}></div>
-            <span>Non pagati</span>
-          </div>
-          <div style={{ fontSize: 9, color: COLORS.muted, fontStyle: "italic" }}>
-            Clicca su una barra per i dettagli
-          </div>
-        </div>
       </div>
 
-      {/* Totale sotto il grafico */}
-      <div style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginTop: 16,
-        padding: "12px 16px",
-        background: "rgba(37, 99, 235, 0.05)",
-        borderRadius: 8,
-        border: `1px solid rgba(37, 99, 235, 0.1)`,
+      {/* Legenda intensità */}
+      <div style={{ marginTop:10, display:"flex", justifyContent:"flex-end", alignItems:"center", gap:6, fontSize:10, color:T.muted }}>
+        <span>Basso</span>
+        {[0.05,0.1,0.17,0.24,0.34].map(op=>(
+          <div key={op} style={{ width:13,height:13,borderRadius:3,background:`rgba(13,148,136,${op})`,border:`1px solid rgba(13,148,136,0.3)` }}/>
+        ))}
+        <span>Alto</span>
+        <div style={{ width:10,height:10,borderRadius:"50%",background:T.red,marginLeft:10 }}/>
+        <span>Non pagato</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── KPI CARD ─────────────────────────────────────────────────────────────────
+function KpiCard({ label, value, sub, color, bg, icon }: {
+  label:string; value:string; sub?:string; color:string; bg:string; icon:string;
+}) {
+  return (
+    <div style={{ background:bg, borderRadius:12, padding:"14px 16px",
+      border:"1px solid rgba(0,0,0,0.05)", flex:1, minWidth:150, display:"flex", alignItems:"center", gap:12 }}>
+      <div style={{ width:42,height:42,borderRadius:10,background:color,
+        display:"flex",alignItems:"center",justifyContent:"center",fontSize:19,flexShrink:0 }}>
+        {icon}
+      </div>
+      <div style={{ minWidth:0 }}>
+        <div style={{ fontSize:10,fontWeight:800,color:T.muted,textTransform:"uppercase",letterSpacing:0.5 }}>{label}</div>
+        <div style={{ fontSize:19,fontWeight:900,color,marginTop:2,lineHeight:1 }}>{value}</div>
+        {sub && <div style={{ fontSize:10,color:T.muted,marginTop:2 }}>{sub}</div>}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPONENTE PRINCIPALE
+// ─────────────────────────────────────────────────────────────────────────────
+export default function ReportsPage() {
+  const params        = useSearchParams();
+  const initPeriod    = (params.get("period") as Period)||"month";
+  const initDate      = params.get("date")||toISODate(new Date());
+
+  const [period, setPeriod]         = useState<Period>(initPeriod);
+  const [dateStr, setDateStr]       = useState<string>(initDate);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState<string|null>(null);
+  const [statistics, setStatistics] = useState<Statistic>({
+    total:0,invoiceCount:0,appointmentCount:0,averageAmount:0,
+    maxAmount:0,minAmount:0,unpaidTotal:0,unpaidCount:0,
+    unpaidAppointmentCount:0,unpaidInvoiceCount:0,
+  });
+  const [series, setSeries]             = useState<number[]>([]);
+  const [unpaidSeries, setUnpaidSeries] = useState<number[]>([]);
+  const [rawData, setRawData]           = useState<FinancialItem[]>([]);
+  const [unpaidTherapies, setUnpaidTherapies]       = useState<UnpaidTherapy[]>([]);
+  const [unpaidTherapiesAll, setUnpaidTherapiesAll] = useState<UnpaidTherapy[]>([]);
+  const [arrearsMonths, setArrearsMonths] = useState<{month:string;count:number;total:number}[]>([]);
+  const [reportTherapies, setReportTherapies] = useState<AppointmentTherapy[]>([]);
+  const [selectedDay, setSelectedDay]   = useState<number|null>(null);
+  const [dayDetails, setDayDetails]     = useState<FinancialItem[]>([]);
+  const [showUnpaidDropdown, setShowUnpaidDropdown] = useState(false);
+  const [calView, setCalView]           = useState<"calendar"|"chart">("calendar");
+
+  const baseDate = useMemo(()=>{
+    const [y,m,d] = dateStr.split("-").map(Number);
+    return new Date(y,m-1,d);
+  },[dateStr]);
+  const labels = useMemo(()=>makeLabels(period,baseDate),[period,baseDate]);
+
+  // ── Fetch data ──────────────────────────────────────────────────────────────
+  async function loadData() {
+    setLoading(true); setError(null); setSelectedDay(null); setDayDetails([]);
+    try {
+      const {from,to} = getRange(period,baseDate);
+      const fromStr=from.toISOString(), toStr=to.toISOString();
+
+      // helper: carica pazienti per una lista di patient_id
+      async function loadPatients(ids:string[]) {
+        if(!ids.length) return [];
+        const {data} = await supabase.from("patients").select("id,first_name,last_name").in("id",ids);
+        return data||[];
+      }
+      function patName(pats:any[], pid:string) {
+        const p=pats.find(x=>x.id===pid); return p?`${p.last_name||""} ${p.first_name||""}`.trim():"Sconosciuto";
+      }
+
+      // 1. Fatture pagate
+      const {data:pi} = await supabase.from("invoices")
+        .select("id,amount,paid_at,status,patient_id")
+        .eq("status","paid").gte("paid_at",fromStr).lte("paid_at",toStr)
+        .order("paid_at",{ascending:true});
+      const invoicesData = pi||[];
+      const invPats = await loadPatients(invoicesData.map((i:any)=>i.patient_id).filter(Boolean));
+
+      // 2. Fatture non pagate (periodo)
+      const {data:ui} = await supabase.from("invoices")
+        .select("id,amount,paid_at,created_at,status,patient_id")
+        .eq("status","not_paid").gte("created_at",fromStr).lte("created_at",toStr)
+        .order("created_at",{ascending:true});
+      const unpaidInvData = ui||[];
+      const unpaidInvPats = await loadPatients(unpaidInvData.map((i:any)=>i.patient_id).filter(Boolean));
+
+      // 3. Appuntamenti pagati
+      const {data:pa} = await supabase.from("appointments")
+        .select("id,amount,start_at,status,treatment_type,price_type,patient_id")
+        .eq("status","done").gte("amount",0.01).gte("start_at",fromStr).lte("start_at",toStr)
+        .order("start_at",{ascending:true});
+      const appsData = pa||[];
+      const appPats = await loadPatients(appsData.map((a:any)=>a.patient_id).filter(Boolean));
+
+      // 4. Appuntamenti non pagati (periodo)
+      const {data:ua} = await supabase.from("appointments")
+        .select("id,amount,start_at,status,treatment_type,price_type,patient_id")
+        .eq("status","not_paid").gte("start_at",fromStr).lte("start_at",toStr)
+        .order("start_at",{ascending:true});
+      const unpaidAppsData = ua||[];
+      const unpaidAppPats = await loadPatients(unpaidAppsData.map((a:any)=>a.patient_id).filter(Boolean));
+
+      // 4b. Arretrati
+      const {data:ar} = await supabase.from("appointments")
+        .select("id,amount,start_at,status").eq("status","not_paid")
+        .lt("start_at",fromStr).order("start_at",{ascending:false}).limit(5000);
+      const monthMap=new Map<string,{count:number;total:number}>();
+      (ar||[]).forEach((a:any)=>{
+        const amt=parseFloat(String(a.amount))||0; if(amt<=0) return;
+        const dt=new Date(a.start_at);
+        const key=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`;
+        const prev=monthMap.get(key)||{count:0,total:0};
+        monthMap.set(key,{count:prev.count+1,total:prev.total+amt});
+      });
+      setArrearsMonths(Array.from(monthMap.entries()).map(([month,v])=>({month,...v})).sort((a,b)=>a.month<b.month?1:-1));
+
+      // 5. Lista completa non pagati (tutti i mesi)
+      const {data:uiAll} = await supabase.from("invoices")
+        .select("id,amount,paid_at,created_at,status,patient_id").eq("status","not_paid")
+        .order("created_at",{ascending:true}).limit(5000);
+      const {data:uaAll} = await supabase.from("appointments")
+        .select("id,amount,start_at,status,treatment_type,price_type,patient_id").eq("status","not_paid")
+        .order("start_at",{ascending:true}).limit(5000);
+      const allUnpaidPats = await loadPatients(Array.from(new Set([
+        ...((uiAll||[]).map((i:any)=>i.patient_id).filter(Boolean)),
+        ...((uaAll||[]).map((a:any)=>a.patient_id).filter(Boolean)),
+      ])));
+
+      const todayD=new Date();
+      const unpaidAllList:UnpaidTherapy[]=[];
+      (uiAll||[]).forEach((inv:any)=>{
+        const amt=parseFloat(String(inv.amount))||0; if(amt<=0) return;
+        const invDate=new Date(inv.paid_at||inv.created_at);
+        unpaidAllList.push({ id:inv.id, patient_id:inv.patient_id, patient_name:patName(allUnpaidPats,inv.patient_id),
+          amount:amt, date:inv.paid_at||inv.created_at, treatment_type:"Fattura",
+          days_since:Math.floor((todayD.getTime()-invDate.getTime())/86400000), status:"not_paid" });
+      });
+      (uaAll||[]).forEach((app:any)=>{
+        const amt=parseFloat(String(app.amount))||0; if(amt<=0) return;
+        const appDate=new Date(app.start_at);
+        unpaidAllList.push({ id:app.id, patient_id:app.patient_id, patient_name:patName(allUnpaidPats,app.patient_id),
+          amount:amt, date:app.start_at, treatment_type:app.treatment_type||"Seduta",
+          days_since:Math.floor((todayD.getTime()-appDate.getTime())/86400000), status:app.status });
+      });
+      unpaidAllList.sort((a,b)=>new Date(a.date).getTime()-new Date(b.date).getTime());
+      setUnpaidTherapiesAll(unpaidAllList);
+
+      // Terapie per stampa
+      const therapiesForPrint:AppointmentTherapy[]=[
+        ...(appsData||[]).map((a:any)=>({
+          id:String(a.id), patient_id:String(a.patient_id||""),
+          patient_name:patName(appPats,a.patient_id),
+          amount:parseFloat(String(a.amount))||0, date:a.start_at,
+          treatment_type:a.treatment_type||"Terapia", status:"done" as const, price_type:a.price_type??null,
+        })),
+        ...(unpaidAppsData||[]).map((a:any)=>({
+          id:String(a.id), patient_id:String(a.patient_id||""),
+          patient_name:patName(unpaidAppPats,a.patient_id),
+          amount:parseFloat(String(a.amount))||0, date:a.start_at,
+          treatment_type:a.treatment_type||"Terapia", status:"not_paid" as const, price_type:a.price_type??null,
+        })),
+      ].filter(t=>!!t.date).sort((x,y)=>{
+        const pn=x.patient_name.localeCompare(y.patient_name,"it"); if(pn!==0) return pn;
+        return new Date(x.date).getTime()-new Date(y.date).getTime();
+      });
+      setReportTherapies(therapiesForPrint);
+
+      // FinancialItems pagati
+      const invoices:FinancialItem[] = invoicesData.map((i:any)=>({
+        amount:parseFloat(String(i.amount))||0, date:i.paid_at, source:"invoice" as const,
+        description:`Fattura #${i.id}`, patient_name:patName(invPats,i.patient_id),
+        patient_id:i.patient_id, status:"paid",
+      })).filter((x:FinancialItem)=>x.amount>0);
+
+      const appointments:FinancialItem[] = appsData.map((a:any)=>({
+        amount:parseFloat(String(a.amount))||0, date:a.start_at, source:"appointment" as const,
+        description:`${a.treatment_type||"Seduta"}`, patient_name:patName(appPats,a.patient_id),
+        patient_id:a.patient_id, status:"paid",
+      })).filter((x:FinancialItem)=>x.amount>0);
+
+      const allData:FinancialItem[]=[...invoices,...appointments];
+      setRawData(allData);
+
+      // Unpaid periodo
+      const unpaidList:UnpaidTherapy[]=[];
+      unpaidInvData.forEach((inv:any)=>{
+        const amt=parseFloat(String(inv.amount))||0; if(amt<=0) return;
+        const invDate=new Date(inv.paid_at||inv.created_at);
+        unpaidList.push({ id:inv.id, patient_id:inv.patient_id, patient_name:patName(unpaidInvPats,inv.patient_id),
+          amount:amt, date:inv.paid_at||inv.created_at, treatment_type:"Fattura",
+          days_since:Math.floor((todayD.getTime()-invDate.getTime())/86400000), status:"not_paid" });
+      });
+      unpaidAppsData.forEach((app:any)=>{
+        const amt=parseFloat(String(app.amount))||0; if(amt<=0) return;
+        const appDate=new Date(app.start_at);
+        unpaidList.push({ id:app.id, patient_id:app.patient_id, patient_name:patName(unpaidAppPats,app.patient_id),
+          amount:amt, date:app.start_at, treatment_type:app.treatment_type||"Seduta",
+          days_since:Math.floor((todayD.getTime()-appDate.getTime())/86400000), status:app.status });
+      });
+      unpaidList.sort((a,b)=>new Date(a.date).getTime()-new Date(b.date).getTime());
+      setUnpaidTherapies(unpaidList);
+
+      // Statistiche
+      const amounts=allData.map(i=>i.amount).filter(a=>a>0);
+      const total=amounts.reduce((s,a)=>s+a,0);
+      setStatistics({
+        total, invoiceCount:invoices.length, appointmentCount:appointments.length,
+        averageAmount:amounts.length>0?total/amounts.length:0,
+        maxAmount:amounts.length>0?Math.max(...amounts):0,
+        minAmount:amounts.length>0?Math.min(...amounts):0,
+        unpaidTotal:unpaidList.reduce((s,i)=>s+i.amount,0),
+        unpaidCount:unpaidList.length,
+        unpaidInvoiceCount:unpaidInvData.length,
+        unpaidAppointmentCount:unpaidAppsData.length,
+      });
+
+      // Series grafico
+      function getBucket(dt:Date):number {
+        if(period==="day")  return dt.getHours();
+        if(period==="week") return (dt.getDay()+6)%7;
+        return dt.getDate()-1;
+      }
+      const paidB=new Array(labels.length).fill(0);
+      const unpaidB=new Array(labels.length).fill(0);
+      for(const item of allData){
+        if(!item.date) continue;
+        const idx=getBucket(new Date(item.date));
+        if(idx>=0&&idx<labels.length) paidB[idx]+=item.amount;
+      }
+      for(const item of unpaidList){
+        const idx=getBucket(new Date(item.date));
+        if(idx>=0&&idx<labels.length) unpaidB[idx]+=item.amount;
+      }
+      setSeries(paidB); setUnpaidSeries(unpaidB);
+
+    } catch(e:any){
+      console.error(e);
+      setError(e.message||"Errore nel caricamento dei dati.");
+    } finally { setLoading(false); }
+  }
+
+  function getDayDetails(dayIndex:number):FinancialItem[] {
+    function getBucket(dt:Date):number {
+      if(period==="day")  return dt.getHours();
+      if(period==="week") return (dt.getDay()+6)%7;
+      return dt.getDate()-1;
+    }
+    const items:FinancialItem[]=[];
+    rawData.forEach(item=>{
+      if(!item.date) return;
+      if(getBucket(new Date(item.date))===dayIndex) items.push({...item,status:"paid"});
+    });
+    unpaidTherapies.forEach(item=>{
+      if(getBucket(new Date(item.date))===dayIndex)
+        items.push({ amount:item.amount, date:item.date, source:"appointment",
+          description:`${item.treatment_type}`, patient_name:item.patient_name,
+          patient_id:item.patient_id, status:"not_paid" });
+    });
+    return items;
+  }
+
+  function handleBarClick(i:number){
+    setSelectedDay(i); setDayDetails(getDayDetails(i));
+  }
+
+  useEffect(()=>{
+    setSeries([]); setUnpaidSeries([]); setSelectedDay(null); setDayDetails([]);
+    loadData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[period,dateStr]);
+
+  useEffect(()=>{
+    setCalView(period==="month"?"calendar":"chart");
+  },[period]);
+
+  // ── Helpers UI ───────────────────────────────────────────────────────────────
+  const uniquePatients = useMemo(()=>
+    Array.from(new Set(unpaidTherapiesAll.map(t=>t.patient_name))).sort(),
+    [unpaidTherapiesAll]);
+
+  function fmtMonthKey(k:string):string {
+    const [y,m]=k.split("-").map(Number);
+    return new Date(y,(m||1)-1,1).toLocaleDateString("it-IT",{month:"short",year:"numeric"});
+  }
+
+  function periodLabel():string {
+    const {from,to}=getRange(period,baseDate);
+    if(period==="day")  return from.toLocaleDateString("it-IT",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+    if(period==="week") return `${from.toLocaleDateString("it-IT")} → ${to.toLocaleDateString("it-IT")}`;
+    const MESI=["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+    return `${MESI[from.getMonth()]} ${from.getFullYear()}`;
+  }
+
+  function navigate(dir:1|-1){
+    const d=new Date(baseDate);
+    if(period==="day")   d.setDate(d.getDate()+dir);
+    if(period==="week")  d.setDate(d.getDate()+dir*7);
+    if(period==="month") d.setMonth(d.getMonth()+dir);
+    setDateStr(toISODate(d));
+  }
+
+  const riscossione = (statistics.total+statistics.unpaidTotal)>0
+    ? Math.round((statistics.total/(statistics.total+statistics.unpaidTotal))*100) : 100;
+  const activeDays = series.filter(v=>v>0).length;
+  const avgPerActive = activeDays>0 ? statistics.total/activeDays : 0;
+
+  // ── Stampa ──────────────────────────────────────────────────────────────────
+  function printReport(therapies:UnpaidTherapy[], title:string) {
+    const pw=window.open("","_blank"); if(!pw) return;
+    const esc=(s:any)=>String(s??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+    const byPat:{[k:string]:{items:UnpaidTherapy[];total:number}}={};
+    therapies.forEach(t=>{ if(!byPat[t.patient_name]) byPat[t.patient_name]={items:[],total:0};
+      byPat[t.patient_name].items.push(t); byPat[t.patient_name].total+=t.amount; });
+    let rows=""; let grand=0;
+    Object.keys(byPat).forEach(pn=>{
+      const pd=byPat[pn]; grand+=pd.total;
+      rows+=`<tr style="background:#f0f0f0"><td colspan="4"><strong>${esc(pn)}</strong></td><td><strong>${fmt.format(pd.total)}</strong></td></tr>`;
+      pd.items.forEach(item=>{ rows+=`<tr><td></td><td>${esc(item.treatment_type)}</td><td>${new Date(item.date).toLocaleDateString("it-IT")}</td><td>${item.days_since}g</td><td>${fmt.format(item.amount)}</td></tr>`; });
+    });
+    rows+=`<tr style="background:#ddd"><td colspan="4"><strong>TOTALE</strong></td><td><strong>${fmt.format(grand)}</strong></td></tr>`;
+    pw.document.write(`<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>${esc(title)}</title>
+    <style>body{font-family:Arial,sans-serif;padding:2cm}table{width:100%;border-collapse:collapse}
+    th,td{border:1px solid #000;padding:6pt;font-size:10pt}th{background:#f0f0f0}</style></head><body>
+    <button onclick="window.print()" style="padding:8px 16px;margin-bottom:20px;cursor:pointer">🖨️ Stampa</button>
+    <h1 style="text-align:center">${esc(title)}</h1>
+    <p style="text-align:center;color:#555">${new Date().toLocaleDateString("it-IT",{year:"numeric",month:"long",day:"numeric"})}</p>
+    <table><thead><tr><th>Paziente</th><th>Tipo</th><th>Data</th><th>Giorni</th><th>Importo</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+    <p style="margin-top:1cm;font-size:9pt;color:#555">Generato da FisioHub · ${therapies.length} terapie</p>
+    <script>window.onload=()=>setTimeout(()=>window.print(),500);</script></body></html>`);
+    pw.document.close();
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // RENDER
+  // ────────────────────────────────────────────────────────────────────────────
+  return (
+    <div style={{ minHeight:"100vh", background:T.appBg, fontFamily:"'Outfit','Segoe UI',system-ui,sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+        * { -webkit-font-smoothing:antialiased; box-sizing:border-box; }
+        body { margin:0; background:${T.appBg}; }
+        button,input,select { font-family:inherit; }
+        input:focus,select:focus { border-color:${T.blue}!important; box-shadow:0 0 0 3px rgba(37,99,235,0.12)!important; outline:none!important; }
+        .rep-scroll::-webkit-scrollbar { width:4px; }
+        .rep-scroll::-webkit-scrollbar-thumb { background:rgba(37,99,235,0.15); border-radius:99px; }
+        @media print { .no-print { display:none!important; } }
+      `}</style>
+
+      {/* ══════════════════════════════════════════════════════════════════
+          TOP BAR  — identica al calendario
+      ══════════════════════════════════════════════════════════════════ */}
+      <header className="no-print" style={{
+        position:"sticky", top:0, zIndex:50,
+        background:"linear-gradient(135deg, #0d9488, #2563eb)",
+        padding:"0 20px", height:58,
+        display:"flex", alignItems:"center", justifyContent:"space-between",
+        boxShadow:"0 2px 12px rgba(13,148,136,0.2)", gap:8,
       }}>
-        <div style={{ fontSize: 13, fontWeight: 900, color: COLORS.text }}>
-          📊 Riepilogo periodo: 
-          <span style={{ color: COLORS.success, marginLeft: 8 }}>Pagati: {currency.format(totalPaid)}</span>
-          <span style={{ color: COLORS.danger, marginLeft: 12 }}>Non pagati: {currency.format(totalUnpaid)}</span>
-          <span style={{ color: COLORS.primary, marginLeft: 12 }}>Totale: {currency.format(total)}</span>
+        {/* Sinistra: logo + nav */}
+        <div style={{ display:"flex", alignItems:"center", gap:20, flexShrink:0 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <div style={{
+              width:30,height:30,borderRadius:8,
+              background:"rgba(255,255,255,0.2)",
+              display:"flex",alignItems:"center",justifyContent:"center",
+              color:"#fff",fontWeight:800,fontSize:14,
+              border:"1.5px solid rgba(255,255,255,0.3)",
+            }}>F</div>
+            <span style={{ fontWeight:700,fontSize:15,color:"#fff",letterSpacing:0.5,textTransform:"uppercase" as const }}>
+              Fisio<span style={{ fontWeight:800 }}>Hub</span>
+            </span>
+          </div>
+          <nav style={{ display:"flex", gap:2 }}>
+            {[
+              { href:"/",         label:"Home",       icon:"⌂" },
+              { href:"/calendar", label:"Calendario",  icon:"▦" },
+              { href:"/reports",  label:"Report",      icon:"◈", active:true },
+              { href:"/patients", label:"Pazienti",    icon:"◉" },
+            ].map(item=>(
+              <Link key={item.href} href={item.href} style={{
+                padding:"6px 12px", borderRadius:8, fontSize:12, fontWeight:700,
+                textDecoration:"none",
+                background:item.active?"rgba(255,255,255,0.22)":"transparent",
+                color:item.active?"#fff":"rgba(255,255,255,0.8)",
+                letterSpacing:0.3,
+              }}>
+                {item.icon} {item.label}
+              </Link>
+            ))}
+          </nav>
         </div>
-        <div style={{ fontSize: 11, color: COLORS.muted, fontWeight: 700 }}>
-          {values.filter(v => v > 0).length} giorni con incassi
+
+        {/* Centro: periodo + navigazione */}
+        <div style={{ display:"flex", alignItems:"center", gap:8, flex:1, justifyContent:"center" }}>
+          {/* Date title */}
+          <span style={{ fontWeight:800, fontSize:15, color:"#fff", whiteSpace:"nowrap",
+            textShadow:"0 1px 3px rgba(0,0,0,0.15)", letterSpacing:-0.3 }}>
+            {periodLabel()}
+          </span>
+
+          {/* ◀ Oggi ▶ */}
+          <button onClick={()=>navigate(-1)} style={{
+            padding:"5px 12px", borderRadius:8, border:"1.5px solid rgba(255,255,255,0.35)",
+            background:"rgba(255,255,255,0.15)", color:"#fff",
+            cursor:"pointer", fontWeight:700, fontSize:13,
+          }}>◀</button>
+          <button onClick={()=>setDateStr(toISODate(new Date()))} style={{
+            padding:"5px 12px", borderRadius:8, border:"1.5px solid rgba(255,255,255,0.5)",
+            background:"rgba(255,255,255,0.25)", color:"#fff",
+            cursor:"pointer", fontWeight:700, fontSize:12,
+          }}>Oggi</button>
+          <button onClick={()=>navigate(1)} style={{
+            padding:"5px 12px", borderRadius:8, border:"1.5px solid rgba(255,255,255,0.35)",
+            background:"rgba(255,255,255,0.15)", color:"#fff",
+            cursor:"pointer", fontWeight:700, fontSize:13,
+          }}>▶</button>
+
+          {/* Pill: Giorno / Settimana / Mese */}
+          <div style={{ display:"flex", gap:0 }}>
+            {([
+              {k:"day",   label:"Giorno"},
+              {k:"week",  label:"Settimana"},
+              {k:"month", label:"Mese"},
+            ] as {k:Period;label:string}[]).map((p,idx)=>(
+              <button key={p.k} onClick={()=>setPeriod(p.k)} style={{
+                padding:"6px 16px",
+                borderRadius: idx===0?"8px 0 0 8px":idx===2?"0 8px 8px 0":"0",
+                border:`2px solid ${period===p.k?T.blue:"rgba(255,255,255,0.3)"}`,
+                background:period===p.k?"linear-gradient(135deg,#0d9488,#2563eb)":"rgba(255,255,255,0.12)",
+                color:period===p.k?"#93c5fd":"rgba(255,255,255,0.85)",
+                cursor:"pointer", fontWeight:700, fontSize:12, letterSpacing:0.3,
+                transition:"all 0.15s",
+              }}>{p.label}</button>
+            ))}
+          </div>
         </div>
-      </div>
+
+        {/* Destra: stats rapide + azioni */}
+        <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
+          {/* Mini stats */}
+          {!loading && (
+            <>
+              <span style={{ fontSize:11,fontWeight:700,color:"#fff",background:"rgba(255,255,255,0.2)",
+                padding:"4px 10px",borderRadius:6,border:"1px solid rgba(255,255,255,0.15)",whiteSpace:"nowrap" }}>
+                ✓ {fmt.format(statistics.total)}
+              </span>
+              <span style={{ fontSize:11,fontWeight:700,color:"#fff",background:"rgba(220,38,38,0.35)",
+                padding:"4px 10px",borderRadius:6,border:"1px solid rgba(255,255,255,0.15)",whiteSpace:"nowrap" }}>
+                ✗ {fmt.format(statistics.unpaidTotal)}
+              </span>
+            </>
+          )}
+
+          {/* Pulsante Report Totali */}
+          <button onClick={()=>{
+            const {from,to}=getRange(period,baseDate);
+            const rangeLabel=period==="day"?from.toLocaleDateString("it-IT"):
+              period==="week"?`${from.toLocaleDateString("it-IT")} → ${to.toLocaleDateString("it-IT")}`:
+              from.toLocaleDateString("it-IT",{month:"long",year:"numeric"});
+            const pw=window.open("","_blank"); if(!pw) return;
+            const esc=(s:any)=>String(s??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+            const byP=reportTherapies.reduce<Record<string,AppointmentTherapy[]>>((acc,t)=>{
+              const k=(t.patient_name||"Senza nome").trim(); if(!acc[k]) acc[k]=[]; acc[k].push(t); return acc;
+            },{});
+            let rows=""; let grand=0;
+            Object.keys(byP).forEach(pn=>{
+              const items=byP[pn]; const tot=items.reduce((s,i)=>s+i.amount,0); grand+=tot;
+              rows+=`<tr style="background:#f0f0f0"><td colspan="4"><strong>${esc(pn)}</strong></td><td><strong>${fmt.format(tot)}</strong></td></tr>`;
+              items.forEach(i=>{rows+=`<tr><td></td><td>${esc(i.treatment_type)}</td><td>${new Date(i.date).toLocaleDateString("it-IT")}</td><td style="color:${i.status==="not_paid"?"#dc2626":"#16a34a"}">${i.status==="not_paid"?"NON PAGATO":"PAGATO"}</td><td>${fmt.format(i.amount)}</td></tr>`;});
+            });
+            rows+=`<tr style="background:#ddd"><td colspan="4"><strong>TOTALE</strong></td><td><strong>${fmt.format(grand)}</strong></td></tr>`;
+            pw.document.write(`<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>Report</title>
+            <style>body{font-family:Arial,sans-serif;padding:2cm}table{width:100%;border-collapse:collapse}
+            th,td{border:1px solid #000;padding:6pt;font-size:10pt}th{background:#f0f0f0}</style></head><body>
+            <button onclick="window.print()" style="padding:8px 16px;margin-bottom:20px;cursor:pointer">🖨️ Stampa</button>
+            <h1 style="text-align:center">Report Incassi — ${esc(rangeLabel)}</h1>
+            <table><thead><tr><th>Paziente</th><th>Tipo</th><th>Data</th><th>Stato</th><th>Importo</th></tr></thead>
+            <tbody>${rows}</tbody></table>
+            <script>window.onload=()=>setTimeout(()=>window.print(),500);</script></body></html>`);
+            pw.document.close();
+          }} style={{
+            padding:"5px 12px", borderRadius:8, border:"1.5px solid rgba(255,255,255,0.35)",
+            background:"rgba(255,255,255,0.18)", color:"#fff",
+            cursor:"pointer", fontWeight:700, fontSize:12, whiteSpace:"nowrap" as const,
+          }}>📄 Report</button>
+
+          {/* Dropdown non pagati */}
+          <div style={{ position:"relative" }}>
+            <button onClick={()=>setShowUnpaidDropdown(v=>!v)} style={{
+              padding:"5px 12px", borderRadius:8, border:"1.5px solid rgba(220,38,38,0.5)",
+              background:"rgba(220,38,38,0.3)", color:"#fff",
+              cursor:"pointer", fontWeight:700, fontSize:12,
+              display:"flex", alignItems:"center", gap:5, whiteSpace:"nowrap" as const,
+            }}>
+              ⚠️ Non Pagati {showUnpaidDropdown?"▲":"▼"}
+            </button>
+            {showUnpaidDropdown && (
+              <div style={{
+                position:"absolute", top:"calc(100% + 8px)", right:0,
+                background:T.panelBg, border:`1.5px solid ${T.border}`,
+                borderRadius:12, boxShadow:"0 12px 40px rgba(30,64,175,0.18)",
+                zIndex:9999, minWidth:210, overflow:"hidden",
+              }}>
+                <button onClick={()=>{printReport(unpaidTherapiesAll,"Report Terapie Non Pagate");setShowUnpaidDropdown(false);}}
+                  style={{ width:"100%",padding:"12px 16px",background:"none",border:"none",
+                    textAlign:"left",fontSize:13,fontWeight:700,cursor:"pointer",color:T.text,
+                    borderBottom:`1px solid ${T.border}` }}>
+                  📋 Tutti i non pagati
+                </button>
+                {uniquePatients.length>0 && (
+                  <div style={{ padding:"4px 12px",fontSize:10,color:T.muted,
+                    background:T.panelSoft, fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 }}>
+                    Per paziente
+                  </div>
+                )}
+                {uniquePatients.map(p=>(
+                  <button key={p} onClick={()=>{printReport(unpaidTherapiesAll.filter(t=>t.patient_name===p),`Non pagati — ${p}`);setShowUnpaidDropdown(false);}}
+                    style={{ width:"100%",padding:"9px 16px",background:"none",border:"none",
+                      textAlign:"left",fontSize:12,cursor:"pointer",color:T.text,
+                      borderBottom:`1px solid ${T.border}` }}>
+                    👤 {p}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* ══════════════════════════════════════════════════════════════════
+          BODY
+      ══════════════════════════════════════════════════════════════════ */}
+      <div style={{ padding:"20px 24px", display:"flex", flexDirection:"column", gap:18 }}>
+
+        {error && (
+          <div style={{ padding:14, background:"#fef2f2", borderRadius:10,
+            border:`1px solid ${T.red}`, color:T.red, fontWeight:700 }}>
+            ⚠️ {error}
+          </div>
+        )}
+
+        {/* ── KPI STRIP ──────────────────────────────────────────────────── */}
+        <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
+          <KpiCard label="Incassato" value={fmt.format(statistics.total)}
+            sub={`${statistics.invoiceCount+statistics.appointmentCount} transazioni`}
+            color={T.green} bg="linear-gradient(135deg,#f0fdf4,#dcfce7)" icon="💰"/>
+          <KpiCard label="Non pagato" value={fmt.format(statistics.unpaidTotal)}
+            sub={`${statistics.unpaidCount} in attesa`}
+            color={T.red} bg="linear-gradient(135deg,#fef2f2,#fee2e2)" icon="⚠️"/>
+          <KpiCard label="Tasso riscossione" value={`${riscossione}%`}
+            sub={riscossione>=80?"🟢 Ottimo":riscossione>=60?"🟡 Attenzione":"🔴 Critico"}
+            color={riscossione>=80?T.green:riscossione>=60?T.amber:T.red}
+            bg="linear-gradient(135deg,#f0f9ff,#e0f2fe)" icon="📈"/>
+          <KpiCard
+            label={period==="day"?"Ore attive":period==="week"?"Giorni attivi":"Giorni attivi"}
+            value={String(activeDays)}
+            sub={`Media: ${activeDays>0?fmt.format(avgPerActive):"—"} / giorno`}
+            color={T.blue} bg="linear-gradient(135deg,#eef2ff,#e0e7ff)" icon="📅"/>
+        </div>
+
+        {/* ── GRAFICO / CALENDARIO ──────────────────────────────────────── */}
+        <div style={{
+          background:T.panelBg, borderRadius:14, padding:"20px 24px",
+          border:`1px solid ${T.border}`, boxShadow:"0 2px 10px rgba(0,0,0,0.04)",
+        }}>
+          {/* Header card */}
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center",
+            marginBottom:18, flexWrap:"wrap", gap:10 }}>
+            <div>
+              <div style={{ fontSize:16, fontWeight:800, color:T.text }}>
+                {calView==="calendar" ? "📅 Calendario Incassi" : "📊 Distribuzione Incassi"}
+              </div>
+              <div style={{ fontSize:12, color:T.muted, marginTop:2 }}>
+                {period==="day"?"Per ora del giorno":period==="week"?"Per giorno della settimana":"Per giorno del mese"}
+              </div>
+            </div>
+
+            {/* Toggle solo per vista mese */}
+            {period==="month" && (
+              <div style={{ display:"flex", gap:4 }}>
+                {(["calendar","chart"] as const).map((v,idx)=>(
+                  <button key={v} onClick={()=>setCalView(v)} style={{
+                    padding:"6px 14px",
+                    borderRadius:idx===0?"8px 0 0 8px":"0 8px 8px 0",
+                    border:`2px solid ${calView===v?T.blue:T.border}`,
+                    background:calView===v?`linear-gradient(135deg,${T.accent},${T.blue})`:T.panelBg,
+                    color:calView===v?"#93c5fd":T.muted,
+                    cursor:"pointer", fontWeight:700, fontSize:11,
+                  }}>
+                    {v==="calendar"?"📅 Calendario":"📊 Grafico"}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Spinner caricamento */}
+          {loading ? (
+            <div style={{ height:280, display:"flex", flexDirection:"column",
+              alignItems:"center", justifyContent:"center", gap:12, color:T.muted }}>
+              <div style={{ width:36,height:36,
+                border:`3px solid ${T.border}`, borderTopColor:T.blue,
+                borderRadius:"50%", animation:"spin 0.8s linear infinite" }}/>
+              <span style={{ fontSize:13, fontWeight:600 }}>Caricamento dati…</span>
+              <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+            </div>
+          ) : (calView==="calendar" && period==="month") ? (
+            <CalendarGrid
+              baseDate={baseDate} series={series} unpaidSeries={unpaidSeries}
+              onDayClick={handleBarClick} selectedDay={selectedDay}
+            />
+          ) : (series.length>0 || unpaidSeries.length>0) ? (
+            <BarChart
+              labels={labels} values={series} unpaidValues={unpaidSeries}
+              period={period} onBarClick={handleBarClick} selectedDay={selectedDay}
+            />
+          ) : (
+            <div style={{ height:240, display:"flex", flexDirection:"column",
+              alignItems:"center", justifyContent:"center", color:T.gray, gap:8 }}>
+              <div style={{ fontSize:36 }}>📭</div>
+              <div style={{ fontSize:14, fontWeight:700 }}>Nessun dato per il periodo selezionato</div>
+              <div style={{ fontSize:12 }}>Prova a cambiare data o periodo</div>
+            </div>
+          )}
+        </div>
+
+        {/* ── FONTI COMPATTE ─────────────────────────────────────────────── */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:10 }}>
+          {[
+            { label:"Fatture Pagate",    amount:rawData.filter(d=>d.source==="invoice").reduce((s,d)=>s+d.amount,0),   count:statistics.invoiceCount,            color:T.green, bg:"linear-gradient(135deg,#f0fdf4,#dcfce7)", icon:"📄" },
+            { label:"Sedute Pagate",     amount:rawData.filter(d=>d.source==="appointment").reduce((s,d)=>s+d.amount,0), count:statistics.appointmentCount,         color:T.accent, bg:"linear-gradient(135deg,#f0f9ff,#e0f2fe)", icon:"🩺" },
+            { label:"Fatture Non Pagate",amount:unpaidTherapies.filter(t=>t.treatment_type==="Fattura").reduce((s,t)=>s+t.amount,0), count:statistics.unpaidInvoiceCount, color:T.red,   bg:"linear-gradient(135deg,#fef2f2,#fee2e2)", icon:"📋" },
+            { label:"Sedute Non Pagate", amount:unpaidTherapies.filter(t=>t.treatment_type!=="Fattura").reduce((s,t)=>s+t.amount,0), count:statistics.unpaidAppointmentCount, color:T.amber, bg:"linear-gradient(135deg,#fff7ed,#ffedd5)", icon:"⏰" },
+          ].map(({label,amount,count,color,bg,icon})=>(
+            <div key={label} style={{ background:bg, borderRadius:11, padding:"13px 15px",
+              border:"1px solid rgba(0,0,0,0.05)" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:5 }}>
+                <span style={{ fontSize:17 }}>{icon}</span>
+                <span style={{ fontSize:10, fontWeight:800, color:T.muted, textTransform:"uppercase" as const, letterSpacing:0.4 }}>{label}</span>
+              </div>
+              <div style={{ fontSize:19, fontWeight:900, color }}>{fmt.format(amount)}</div>
+              <div style={{ fontSize:10, color:T.muted, marginTop:2 }}>{count} elementi</div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── ARRETRATI (se presenti) ────────────────────────────────────── */}
+        {arrearsMonths.length>0 && (
+          <div style={{ background:T.panelBg, borderRadius:12, padding:"16px 20px",
+            border:`1px solid rgba(220,38,38,0.2)`,
+            boxShadow:"0 2px 8px rgba(220,38,38,0.06)" }}>
+            <div style={{ fontSize:13, fontWeight:800, color:T.red, marginBottom:10 }}>
+              ⚠️ Arretrati — Periodi Precedenti
+            </div>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+              {arrearsMonths.map(m=>(
+                <div key={m.month} style={{
+                  padding:"8px 14px", borderRadius:8,
+                  background:"rgba(220,38,38,0.06)",
+                  border:`1px solid rgba(220,38,38,0.2)`,
+                }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:T.muted }}>{fmtMonthKey(m.month)}</div>
+                  <div style={{ fontSize:14, fontWeight:900, color:T.red }}>{fmt.format(m.total)}</div>
+                  <div style={{ fontSize:10, color:T.muted }}>{m.count} terapie</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── SEZIONE INFERIORE: transazioni + non pagati + dettaglio ────── */}
+        <div style={{
+          display:"grid",
+          gridTemplateColumns: selectedDay!==null ? "1fr 1fr 310px" : "1fr 1fr",
+          gap:16, transition:"all 0.25s ease",
+        }}>
+
+          {/* Transazioni Pagate */}
+          <div style={{ background:T.panelBg, borderRadius:13, padding:18,
+            border:`1px solid ${T.border}`, display:"flex", flexDirection:"column",
+            maxHeight:540 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center",
+              marginBottom:13, borderBottom:`1px solid ${T.border}`, paddingBottom:11 }}>
+              <span style={{ fontSize:14, fontWeight:800, color:T.text }}>💰 Transazioni Pagate</span>
+              <span style={{ fontSize:11, color:T.muted }}>{rawData.length} elementi</span>
+            </div>
+            <div className="rep-scroll" style={{ flex:1, overflowY:"auto" }}>
+              {loading ? <div style={{ padding:40, textAlign:"center", color:T.muted }}>Caricamento…</div>
+              : rawData.length===0 ? <div style={{ padding:40, textAlign:"center", color:T.muted, fontSize:13 }}>Nessuna transazione pagata nel periodo</div>
+              : (
+                <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                  {rawData.map((item,i)=>(
+                    <div key={i} style={{
+                      padding:"9px 11px", borderRadius:8,
+                      background:item.source==="invoice"?"rgba(37,99,235,0.04)":"rgba(13,148,136,0.04)",
+                      borderLeft:`3px solid ${item.source==="invoice"?T.blue:T.accent}`,
+                    }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                        <span style={{ fontSize:13, fontWeight:900, color:T.text }}>{fmt.format(item.amount)}</span>
+                        <span style={{ fontSize:9, fontWeight:800, padding:"2px 6px", borderRadius:4,
+                          background:item.source==="invoice"?"rgba(37,99,235,0.1)":"rgba(13,148,136,0.1)",
+                          color:item.source==="invoice"?T.blue:T.accent }}>
+                          {item.source==="invoice"?"FATTURA":"SEDUTA"}
+                        </span>
+                      </div>
+                      {item.patient_name && <div style={{ fontSize:11,color:T.text,marginTop:3,fontWeight:700 }}>👤 {item.patient_name}</div>}
+                      <div style={{ fontSize:10,color:T.muted,marginTop:2 }}>
+                        {new Date(item.date).toLocaleDateString("it-IT",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Terapie Non Pagate */}
+          <div style={{ background:T.panelBg, borderRadius:13, padding:18,
+            border:`1px solid ${T.border}`, display:"flex", flexDirection:"column",
+            maxHeight:540 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center",
+              marginBottom:13, borderBottom:`1px solid ${T.border}`, paddingBottom:11 }}>
+              <span style={{ fontSize:14, fontWeight:800, color:T.text }}>⚠️ Terapie Non Pagate</span>
+              <span style={{ fontSize:11, color:T.muted }}>{unpaidTherapiesAll.length} totali</span>
+            </div>
+            <div className="rep-scroll" style={{ flex:1, overflowY:"auto" }}>
+              {loading ? <div style={{ padding:40, textAlign:"center", color:T.muted }}>Caricamento…</div>
+              : unpaidTherapiesAll.length===0 ? <div style={{ padding:40, textAlign:"center", color:T.green, fontSize:13 }}>🎉 Nessuna terapia non pagata!</div>
+              : (
+                <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                  {unpaidTherapiesAll.map(t=>(
+                    <div key={t.id} style={{
+                      padding:"9px 11px", borderRadius:8,
+                      background:t.days_since>30?"rgba(220,38,38,0.06)":"rgba(249,115,22,0.05)",
+                      borderLeft:`3px solid ${t.days_since>30?T.red:T.amber}`,
+                    }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                        <span style={{ fontSize:13, fontWeight:900, color:T.text }}>{fmt.format(t.amount)}</span>
+                        <span style={{ fontSize:9, fontWeight:800, padding:"2px 6px", borderRadius:4,
+                          background:t.days_since>30?"rgba(220,38,38,0.12)":"rgba(249,115,22,0.12)",
+                          color:t.days_since>30?T.red:T.amber }}>
+                          {t.days_since}g fa
+                        </span>
+                      </div>
+                      <div style={{ fontSize:11,color:T.text,marginTop:3,fontWeight:700 }}>👤 {t.patient_name}</div>
+                      <div style={{ fontSize:10,color:T.muted,marginTop:2 }}>{new Date(t.date).toLocaleDateString("it-IT")} · {t.treatment_type}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Dettaglio giorno selezionato ──────────────────────────────── */}
+          {selectedDay!==null && (
+            <div style={{ background:T.panelBg, borderRadius:13, padding:18,
+              border:`2px solid ${T.blue}`, display:"flex", flexDirection:"column",
+              maxHeight:540, boxShadow:"0 4px 20px rgba(37,99,235,0.12)" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center",
+                marginBottom:13, borderBottom:`1px solid ${T.border}`, paddingBottom:11 }}>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:800, color:T.blue }}>
+                    🔍 {period==="month"?`Giorno ${selectedDay+1}`:period==="week"?labels[selectedDay]:labels[selectedDay]}
+                  </div>
+                  <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>
+                    {dayDetails.filter(d=>d.status==="paid").length} pagati · {dayDetails.filter(d=>d.status!=="paid").length} non pagati
+                  </div>
+                </div>
+                <button onClick={()=>{setSelectedDay(null);setDayDetails([]);}} style={{
+                  width:28,height:28,borderRadius:7,border:`1px solid ${T.border}`,
+                  background:T.panelSoft,cursor:"pointer",fontWeight:900,color:T.muted,fontSize:13,
+                }}>✕</button>
+              </div>
+
+              <div className="rep-scroll" style={{ flex:1, overflowY:"auto" }}>
+                {dayDetails.length===0 ? (
+                  <div style={{ padding:30, textAlign:"center", color:T.muted, fontSize:12 }}>
+                    Nessuna transazione
+                  </div>
+                ) : (
+                  <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                    {dayDetails.map((item,i)=>(
+                      <div key={i} style={{
+                        padding:"9px 11px", borderRadius:8,
+                        background:item.status==="paid"?"rgba(22,163,74,0.06)":"rgba(220,38,38,0.06)",
+                        borderLeft:`3px solid ${item.status==="paid"?T.green:T.red}`,
+                      }}>
+                        <div style={{ display:"flex", justifyContent:"space-between" }}>
+                          <span style={{ fontSize:13, fontWeight:900, color:item.status==="paid"?T.green:T.red }}>
+                            {item.status==="paid"?"+":"–"}{fmt.format(item.amount)}
+                          </span>
+                          <span style={{ fontSize:9, fontWeight:800, padding:"2px 6px", borderRadius:4,
+                            background:item.status==="paid"?"rgba(22,163,74,0.1)":"rgba(220,38,38,0.1)",
+                            color:item.status==="paid"?T.green:T.red }}>
+                            {item.status==="paid"?"PAGATO":"NON PAGATO"}
+                          </span>
+                        </div>
+                        {item.patient_name && <div style={{ fontSize:11,color:T.text,marginTop:3,fontWeight:700 }}>👤 {item.patient_name}</div>}
+                        {item.description && <div style={{ fontSize:10,color:T.muted,marginTop:2 }}>{item.description}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Totale giorno */}
+                {dayDetails.length>0 && (
+                  <div style={{ marginTop:12, padding:"10px 12px", borderRadius:8,
+                    background:"rgba(37,99,235,0.05)", border:"1px solid rgba(37,99,235,0.1)" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, fontWeight:900 }}>
+                      <span style={{ color:T.green }}>
+                        +{fmt.format(dayDetails.filter(d=>d.status==="paid").reduce((s,d)=>s+d.amount,0))}
+                      </span>
+                      <span style={{ color:T.red }}>
+                        –{fmt.format(dayDetails.filter(d=>d.status!=="paid").reduce((s,d)=>s+d.amount,0))}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+      </div>{/* fine body */}
     </div>
   );
 }

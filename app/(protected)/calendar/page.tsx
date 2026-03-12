@@ -487,23 +487,21 @@ const userInitials = useMemo(() => {
   const [quickPatientPhone, setQuickPatientPhone] = useState("");
   const [creatingQuickPatient, setCreatingQuickPatient] = useState(false);
 
-  const [currentDate, setCurrentDate] = useState<Date>(new Date(2026, 0, 1)); // placeholder, overwritten in useEffect
+  const [currentDate, setCurrentDate] = useState<Date>(new Date());
+  const [clientReady, setClientReady] = useState(false);
 
-  // Hydration-safe: set real date on client only
+  // Hydration-safe: mark client ready
   useEffect(() => {
     setCurrentDate(new Date());
+    setClientReady(true);
   }, []);
 
   const [weeklyExpectedRevenue, setWeeklyExpectedRevenue] = useState<number>(0);
 
   const [viewType, setViewType] = useState<"day" | "week" | "month">("week");
 
-  // Mounted flag to prevent state updates before hydration
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
-
   useEffect(() => {
-    if (!mounted) return;
+    if (!clientReady) return;
     let cancelled = false;
 
     const loadPeriodStats = async () => {
@@ -556,7 +554,7 @@ const { data, error } = await supabase
     return () => {
       cancelled = true;
     };
-  }, [currentDate, viewType, mounted]);
+  }, [currentDate, viewType, clientReady]);
 
   const [draggingEvent, setDraggingEvent] = useState<{
     id: string;
@@ -597,7 +595,19 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
   // Feature: Riepilogo giornaliero
   const [dailySummaryOpen, setDailySummaryOpen] = useState(false);
 
-  const [currentTime, setCurrentTime] = useState(new Date(2026, 0, 1));
+  // Feature: Segna pagato in blocco
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set());
+
+  // Feature: Popover vista mese
+  const [monthPopover, setMonthPopover] = useState<{
+    day: Date;
+    events: CalendarEvent[];
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const [currentTime, setCurrentTime] = useState(new Date());
   const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
   const [showAvailableOnly, setShowAvailableOnly] = useState(false);
 
@@ -640,21 +650,29 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
   // Sidebar behavior: overlay on mobile, "push content" on desktop
   const SIDEBAR_W = 300;
   const [isDesktop, setIsDesktop] = useState(false);
+  const [isTablet, setIsTablet] = useState(false);
+
+  // Responsive time column width
+  const TIME_COL = isTablet && !isDesktop ? 50 : 80;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const mql = window.matchMedia("(min-width: 1024px)");
-    const update = () => setIsDesktop(mql.matches);
+    const mqlDesktop = window.matchMedia("(min-width: 1024px)");
+    const mqlTablet = window.matchMedia("(min-width: 768px)");
+    const update = () => {
+      setIsDesktop(mqlDesktop.matches);
+      setIsTablet(mqlTablet.matches);
+    };
     update();
-    // Safari < 14 fallback: addListener/removeListener
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyMql: any = mql;
-    if (mql.addEventListener) mql.addEventListener("change", update);
-    else if (anyMql.addListener) anyMql.addListener(update);
-
+    if (mqlDesktop.addEventListener) {
+      mqlDesktop.addEventListener("change", update);
+      mqlTablet.addEventListener("change", update);
+    }
     return () => {
-      if (mql.removeEventListener) mql.removeEventListener("change", update);
-      else if (anyMql.removeListener) anyMql.removeListener(update);
+      if (mqlDesktop.removeEventListener) {
+        mqlDesktop.removeEventListener("change", update);
+        mqlTablet.removeEventListener("change", update);
+      }
     };
   }, []);
 // Timer per linea del tempo corrente
@@ -1086,31 +1104,43 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
     setHoverTooltip(null);
   }, []);
 
-  const loadAppointments = useCallback(async (startDate: Date, endDate: Date) => {
+  const loadRequestId = useRef(0);
+
+  const loadAppointments = useCallback(async (startDate: Date, endDate: Date, retryCount = 0) => {
+    const thisRequest = ++loadRequestId.current;
     setLoading(true);
     setError("");
 
     const startISO = startDate.toISOString();
     const endISO = endDate.toISOString();
 
-    const { data, error } = await supabase
-      .from("appointments")
-        .select(`
-        id, patient_id, start_at, end_at, status, calendar_note, location, clinic_site, domicile_address, treatment_type, price_type, amount,
-        expected_price, is_paid,
-        reminder_sent_at, reminder_status,
-        whatsapp_sent_at,
-        patients:patient_id ( first_name, last_name, treatment, diagnosis, phone )
-      `)
-      .gte("start_at", startISO)
-      .lt("start_at", endISO)
-      .order("start_at", { ascending: true });
+    try {
+      const { data, error } = await supabase
+        .from("appointments")
+          .select(`
+          id, patient_id, start_at, end_at, status, calendar_note, location, clinic_site, domicile_address, treatment_type, price_type, amount,
+          expected_price, is_paid,
+          reminder_sent_at, reminder_status,
+          whatsapp_sent_at,
+          patients:patient_id ( first_name, last_name, treatment, diagnosis, phone )
+        `)
+        .gte("start_at", startISO)
+        .lt("start_at", endISO)
+        .order("start_at", { ascending: true });
 
-    if (error) {
-      setError(error.message);
-      setLoading(false);
-      return;
-    }
+      // Ignore stale responses
+      if (thisRequest !== loadRequestId.current) return;
+
+      if (error) {
+        if (retryCount < 2) {
+          // Retry after short delay
+          setTimeout(() => loadAppointments(startDate, endDate, retryCount + 1), 1000);
+          return;
+        }
+        setError(error.message);
+        setLoading(false);
+        return;
+      }
 
 const mapped = (data ?? []).map(
   (
@@ -1179,9 +1209,20 @@ diagnosis: patient?.diagnosis ?? null,
 
     setEvents(mapped);
     setLoading(false);
+    } catch (err) {
+      if (thisRequest !== loadRequestId.current) return;
+      if (retryCount < 2) {
+        setTimeout(() => loadAppointments(startDate, endDate, retryCount + 1), 1000);
+      } else {
+        setError(`Errore caricamento: ${err instanceof Error ? err.message : "connessione fallita"}`);
+        setLoading(false);
+      }
+    }
   }, []);
 
   useEffect(() => {
+    if (!clientReady) return;
+    
     if (viewType === "week") {
       const startOfWeek = startOfISOWeekMonday(currentDate);
       const endOfWeek = addDays(startOfWeek, 7);
@@ -1201,7 +1242,7 @@ diagnosis: patient?.diagnosis ?? null,
       endOfDay.setHours(23, 59, 59, 999);
       loadAppointments(startOfDay, endOfDay);
     }
-  }, [currentDate, viewType, loadAppointments]);
+  }, [currentDate, viewType, loadAppointments, clientReady]);
 
   const stats = useMemo(() => {
     const filteredEvents = viewType === "week" || viewType === "month"
@@ -1409,6 +1450,36 @@ Fisioterapia e Osteopatia`;
     }
     
   }, [events]);
+
+  // Feature: Segna pagato in blocco
+  const toggleBulkSelect = useCallback((id: string) => {
+    setBulkSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const bulkMarkPaid = useCallback(async () => {
+    if (bulkSelected.size === 0) return;
+    setError("");
+    const ids = Array.from(bulkSelected);
+    
+    for (const id of ids) {
+      const { error } = await supabase.from("appointments").update({ is_paid: true }).eq("id", id);
+      if (error) {
+        setError(`Errore aggiornamento: ${error.message}`);
+        return;
+      }
+    }
+
+    setBulkSelected(new Set());
+    setBulkMode(false);
+    const startOfWeek = startOfISOWeekMonday(currentDate);
+    const endOfWeek = addDays(startOfWeek, 7);
+    await loadAppointments(startOfWeek, endOfWeek);
+  }, [bulkSelected, currentDate, loadAppointments]);
 
   const updateDuplicateDateTime = useCallback((newDate: string, newTime: string) => {
     if (!newDate || !newTime) return;
@@ -2200,8 +2271,6 @@ return (
           box-shadow: 0 0 0 3px rgba(37,99,235,0.12) !important;
           outline: none !important;
         }
-        .calendar-grid-scroll { overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
-        .calendar-grid-scroll::-webkit-scrollbar { display: none; }
         @keyframes searchPulse {
           0%, 100% { box-shadow: 0 0 8px rgba(245,158,11,0.5); }
           50% { box-shadow: 0 0 20px rgba(245,158,11,0.8), 0 0 40px rgba(245,158,11,0.3); }
@@ -2214,6 +2283,10 @@ return (
         .sidebar-scroll.show-scrollbar::-webkit-scrollbar { width: 6px; }
         .sidebar-scroll.show-scrollbar::-webkit-scrollbar-thumb { background: rgba(91,130,168,0.18); border-radius: 99px; }
         @media (max-width: 768px) { .mob-hide { display: none !important; } .mob-col { flex-direction: column !important; } }
+        @media (min-width: 768px) and (max-width: 1024px) {
+          .tab-compact { font-size: 11px !important; padding: 3px 6px !important; }
+          .tab-hide { display: none !important; }
+        }
         @media print { .no-print { display: none !important; } .print-wrap { margin: 0 !important; padding: 4px !important; } }
       `}</style>
 
@@ -3289,6 +3362,46 @@ return (
               >
                 📋 Riepilogo
               </button>
+
+              {/* Feature: Bulk paid toggle */}
+              <button
+                onClick={() => { setBulkMode(m => !m); setBulkSelected(new Set()); }}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  border: `1px solid ${bulkMode ? THEME.blue : THEME.border}`,
+                  background: bulkMode ? "rgba(37,99,235,0.1)" : THEME.panelSoft,
+                  color: bulkMode ? THEME.blue : THEME.text,
+                  cursor: "pointer",
+                  fontWeight: 700,
+                  fontSize: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {bulkMode ? `✓ ${bulkSelected.size} selez.` : "💰 Bulk pagati"}
+              </button>
+
+              {bulkMode && bulkSelected.size > 0 && (
+                <button
+                  onClick={bulkMarkPaid}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 8,
+                    border: "none",
+                    background: THEME.green,
+                    color: "#fff",
+                    cursor: "pointer",
+                    fontWeight: 700,
+                    fontSize: 12,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Segna {bulkSelected.size} pagati
+                </button>
+              )}
             </div>
 
             <div style={{ display: "flex", gap: 4 }}>
@@ -3424,7 +3537,7 @@ return (
             >
               <div style={{ 
   display: "grid", 
-  gridTemplateColumns: "80px repeat(6, minmax(0, 1fr))",
+  gridTemplateColumns: `${TIME_COL}px repeat(6, minmax(0, 1fr))`,
   borderBottom: `2px solid ${THEME.border}`,
   background: "linear-gradient(135deg, #0d9488, #2563eb)",
   position: "sticky",
@@ -3494,7 +3607,7 @@ return (
   })}
 </div>
 
-              <div className="calendar-grid-scroll" style={{ position: "relative", height: "calc(100vh - 180px)", minHeight: 500 }}>
+              <div style={{ position: "relative" }}>
                 <div style={{ position: "relative", minHeight: "calc(15 * 60px)" }}>
                   {timeSlots.map((time, timeIndex) => (
                     <div 
@@ -3507,7 +3620,7 @@ return (
                       }}
                     >
                       <div style={{ 
-                        width: "80px",
+                        width: `${TIME_COL}px`,
                         height: "100%",
                         display: "flex",
                         alignItems: "center",
@@ -3626,9 +3739,9 @@ return (
                     <div
                       style={{
                         position: "absolute",
-                        left: `calc(80px + ${draggingOver.dayIndex} * calc((100% - 80px) / 6) + 2px)`,
+                        left: `calc(${TIME_COL}px + ${draggingOver.dayIndex} * calc((100% - 80px) / 6) + 2px)`,
                         top: `${(draggingOver.hour - 7) * 60 + draggingOver.minute}px`,
-                        width: `calc((100% - 80px) / 6 - 8px)`,
+                        width: `calc((100% - ${TIME_COL}px) / 6 - 8px)`,
                         height: `${Math.max((draggingEvent.originalEnd.getTime() - draggingEvent.originalStart.getTime()) / 60000, 28)}px`,
                         background: "rgba(37,99,235,0.12)",
                         border: `2px dashed ${THEME.blue}`,
@@ -3677,9 +3790,9 @@ return (
                         className={isMatch ? "search-highlight" : isDimmed ? "search-dimmed" : ""}
                         style={{
                           position: "absolute",
-                          left: `calc(80px + ${dayIndex} * calc((100% - 80px) / 6) + 2px)`,
+                          left: `calc(${TIME_COL}px + ${dayIndex} * calc((100% - 80px) / 6) + 2px)`,
                           top: `${top + 1}px`,
-                          width: `calc((100% - 80px) / 6 - 8px)`,
+                          width: `calc((100% - ${TIME_COL}px) / 6 - 8px)`,
                           height: `${Math.max(height - 2, 28)}px`,
                           background: isMatch ? "rgba(245,158,11,0.25)" : statusBg(event.status),
                           color: THEME.text,
@@ -3743,18 +3856,19 @@ return (
                       >
                         <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
                           <button
-                            title={isDone ? "Segna come NON eseguita" : "Segna come ESEGUITA"}
+                            title={bulkMode ? "Seleziona per pagamento" : isDone ? "Segna come NON eseguita" : "Segna come ESEGUITA"}
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              toggleDoneQuick(event.id, event.status);
+                              if (bulkMode) toggleBulkSelect(event.id);
+                              else toggleDoneQuick(event.id, event.status);
                             }}
                             style={{
                               width: 16,
                               height: 16,
-                              borderRadius: 4,
-                              border: `2px solid ${THEME.border}`,
-                              background: isDone ? THEME.green : "transparent",
+                              borderRadius: bulkMode ? 3 : 4,
+                              border: `2px solid ${bulkMode ? (bulkSelected.has(event.id) ? THEME.blue : THEME.border) : THEME.border}`,
+                              background: bulkMode ? (bulkSelected.has(event.id) ? THEME.blue : "transparent") : (isDone ? THEME.green : "transparent"),
                               cursor: "pointer",
                               flex: "0 0 auto",
                               marginTop: 2,
@@ -3921,9 +4035,9 @@ return (
                           key={`slot-${dayIndex}-${slotIndex}`}
                           style={{
                             position: "absolute",
-                            left: `calc(80px + ${dayIndex} * calc((100% - 80px) / 6))`,
+                            left: `calc(${TIME_COL}px + ${dayIndex} * calc((100% - 80px) / 6))`,
                             top: `${top}px`,
-                            width: `calc((100% - 80px) / 6 - 4px)`,
+                            width: `calc((100% - ${TIME_COL}px) / 6 - 4px)`,
                             height: `${height}px`,
                             background: "rgba(22, 163, 74, 0.1)",
                             border: "2px dashed rgba(22, 163, 74, 0.5)",
@@ -4135,6 +4249,16 @@ return (
                           <div key={i}
                             className={isMatch ? "search-highlight" : isDimmed ? "search-dimmed" : ""}
                             title={`${ev.patient_name} · ${fmtTime(ev.start.toISOString())} – ${fmtTime(ev.end.toISOString())} · ${statusLabel(ev.status)}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              setMonthPopover({
+                                day,
+                                events: dayEvents,
+                                x: rect.right + 8,
+                                y: rect.top,
+                              });
+                            }}
                             style={{
                               fontSize: isMatch ? 9.5 : 8.5,
                               fontWeight: isMatch ? 800 : 600,
@@ -4149,6 +4273,7 @@ return (
                               borderLeft: isMatch ? `3px solid #f59e0b` : `2px solid ${statusColor(ev.status)}`,
                               position: "relative",
                               zIndex: isMatch ? 5 : 0,
+                              cursor: "pointer",
                             }}>
                               {fmtTime(ev.start.toISOString())} {ev.patient_name}
                           </div>
@@ -4192,7 +4317,7 @@ return (
             >
               <div style={{ 
                 display: "grid", 
-                gridTemplateColumns: "80px 1fr",
+                gridTemplateColumns: `${TIME_COL}px 1fr`,
                 borderBottom: `2px solid ${THEME.border}`,
                 background: "linear-gradient(135deg, #0d9488, #2563eb)",
                 borderRadius: "10px 10px 0 0",
@@ -4223,7 +4348,7 @@ return (
                 </div>
               </div>
 
-              <div className="calendar-grid-scroll" style={{ position: "relative", height: "calc(100vh - 180px)", minHeight: 500 }}>
+              <div style={{ position: "relative" }}>
                 {timeSlots.map((time, timeIndex) => {
                   const hour = parseInt(time.split(':')[0]);
                   
@@ -4238,7 +4363,7 @@ return (
                       }}
                     >
                       <div style={{ 
-                        width: "80px",
+                        width: `${TIME_COL}px`,
                         height: "100%",
                         display: "flex",
                         alignItems: "center",
@@ -4352,9 +4477,9 @@ return (
                         key={`slot-${index}`}
                         style={{
                           position: "absolute",
-                          left: "80px",
+                          left: `${TIME_COL}px`,
                           top: `${top}px`,
-                          width: "calc(100% - 84px)",
+                          width: `calc(100% - ${TIME_COL + 4}px)`,
                           height: `${height}px`,
                           background: "rgba(22, 163, 74, 0.1)",
                           border: "2px dashed rgba(22, 163, 74, 0.5)",
@@ -4467,18 +4592,19 @@ return (
                       >
                         <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
                           <button
-                            title={isDone ? "Segna come NON eseguita" : "Segna come ESEGUITA"}
+                            title={bulkMode ? "Seleziona per pagamento" : isDone ? "Segna come NON eseguita" : "Segna come ESEGUITA"}
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              toggleDoneQuick(event.id, event.status);
+                              if (bulkMode) toggleBulkSelect(event.id);
+                              else toggleDoneQuick(event.id, event.status);
                             }}
                             style={{
                               width: 16,
                               height: 16,
-                              borderRadius: 4,
-                              border: `2px solid ${THEME.border}`,
-                              background: isDone ? THEME.green : "transparent",
+                              borderRadius: bulkMode ? 3 : 4,
+                              border: `2px solid ${bulkMode ? (bulkSelected.has(event.id) ? THEME.blue : THEME.border) : THEME.border}`,
+                              background: bulkMode ? (bulkSelected.has(event.id) ? THEME.blue : "transparent") : (isDone ? THEME.green : "transparent"),
                               cursor: "pointer",
                               flex: "0 0 auto",
                               marginTop: 2,
@@ -4658,9 +4784,9 @@ return (
                         <div
                           style={{
                             position: "absolute",
-                            left: "80px",
+                            left: `${TIME_COL}px`,
                             top: `${topPosition}px`,
-                            width: "calc(100% - 84px)",
+                            width: `calc(100% - ${TIME_COL + 4}px)`,
                             height: "2px",
                             background: THEME.red,
                             zIndex: 4,
@@ -6318,6 +6444,64 @@ return (
                 📝 {hoverTooltip.event.calendar_note}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Feature: Popover vista mese */}
+      {monthPopover && (
+        <div
+          onClick={() => setMonthPopover(null)}
+          style={{ position: "fixed", inset: 0, zIndex: 9998 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "fixed",
+              left: Math.min(monthPopover.x, (typeof window !== "undefined" ? window.innerWidth : 800) - 320),
+              top: Math.min(monthPopover.y, (typeof window !== "undefined" ? window.innerHeight : 600) - 300),
+              width: 300,
+              maxHeight: 340,
+              overflowY: "auto",
+              background: THEME.panelBg,
+              border: `2px solid ${THEME.border}`,
+              borderRadius: 12,
+              boxShadow: "0 12px 40px rgba(30,64,175,0.18)",
+              padding: "14px 16px",
+              zIndex: 9999,
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 800, color: THEME.blue, marginBottom: 10 }}>
+              {formatDMY(monthPopover.day)} — {monthPopover.events.length} appuntamenti
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {monthPopover.events.map(ev => (
+                <div
+                  key={ev.id}
+                  onClick={() => {
+                    setMonthPopover(null);
+                    setCurrentDate(ev.start);
+                    setViewType("day");
+                  }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    padding: "8px 10px", borderRadius: 8,
+                    background: statusBg(ev.status),
+                    borderLeft: `4px solid ${statusColor(ev.status)}`,
+                    fontSize: 12, fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  <span style={{ color: THEME.muted, minWidth: 40 }}>{fmtTime(ev.start.toISOString())}</span>
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.patient_name}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: statusColor(ev.status) }}>{statusLabel(ev.status)}</span>
+                  <span>{ev.is_paid ? "💰" : ""}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 8, fontSize: 10, color: THEME.muted, textAlign: "center" }}>
+              Click su un appuntamento → vista giorno
+            </div>
           </div>
         </div>
       )}
