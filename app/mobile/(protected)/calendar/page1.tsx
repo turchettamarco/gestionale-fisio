@@ -116,15 +116,12 @@ function statusBg(s: Status): string {
   }
 }
 
-/* ─── WhatsApp helpers ────────────────────────────────────────────────
- * wa.me richiede E.164 senza "+": 393391234567
- * ─────────────────────────────────────────────────────────────────── */
+/* ─── WhatsApp helpers (identici desktop) ────────────────────────────── */
 function formatPhoneForWhatsAppWeb(phone: string): string {
   if (!phone) return phone;
   let clean = phone.replace(/[\s\(\)\-\.]/g, "");
-  if (clean.startsWith("+")) clean = clean.substring(1);
   if (clean.startsWith("0")) clean = "39" + clean.substring(1);
-  if (!clean.startsWith("39") && clean.length <= 10) clean = "39" + clean;
+  if (!clean.startsWith("+")) clean = "+" + clean;
   return clean;
 }
 
@@ -408,7 +405,7 @@ function CalendarPageInner() {
    * Firma: sendReminder(appointmentId, patientPhone, patientFirstName, isConfirmation?)
    * Template lookup: cerca "Promemoria" o "Appuntamento" in message_templates
    * Fallback hardcoded identico al desktop
-   * URL: wa.me/NUMERO?text=... → apre l'app WhatsApp su mobile
+   * URL: web.whatsapp.com/send?phone=...&text=...
    * Dopo OK: aggiorna DB whatsapp_sent_at + whatsapp_sent
    * Se popup bloccato: secondo confirm con redirect o copia link
    * ─────────────────────────────────────────────────────────────────── */
@@ -464,7 +461,7 @@ function CalendarPageInner() {
       .replace(/{luogo}/g,         luogo);
 
     const encodedMessage = encodeURIComponent(message);
-    const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodedMessage}`;
+    const whatsappUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMessage}`;
 
     const confirmText = isConfirmation
       ? `📱 CONFERMA NUOVO APPUNTAMENTO WHATSAPP\n\nDestinatario: ${patientPhone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp e inviare.`
@@ -963,7 +960,8 @@ function CalendarPageInner() {
           borderRadius: 14, boxShadow: "0 2px 8px rgba(15,23,42,0.06)", overflow: "hidden",
         }}>
           <div ref={timelineScrollRef}
-            onTouchStart={handleSwipeTouchStart} onTouchEnd={handleSwipeTouchEnd}>
+            onTouchStart={handleSwipeTouchStart} onTouchEnd={handleSwipeTouchEnd}
+            style={{ overflowY: "auto", maxHeight: "calc(100vh - 210px)" }}>
             <div ref={timelineRef}
               onDragOver={handleDragOver} onDrop={handleDrop} onDragLeave={() => setDragOverY(null)}
               onTouchMove={handleTimelineTouchMove} onTouchEnd={handleTimelineTouchEnd}
