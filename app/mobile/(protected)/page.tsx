@@ -312,6 +312,25 @@ export default function MobileHomePage() {
     }
   }
 
+  // ─── Incassa ──────────────────────────────────────────────────────────────
+
+  const [incassando, setIncassando] = useState<string | null>(null);
+
+  async function handleIncassa(appt: Appointment) {
+    if (incassando) return;
+    setIncassando(appt.id);
+    const { error } = await supabase
+      .from("appointments")
+      .update({ is_paid: true, status: "done" })
+      .eq("id", appt.id);
+    if (!error) {
+      setTodayAppts(prev => prev.map(a =>
+        a.id === appt.id ? { ...a, is_paid: true, status: "done" as Status } : a
+      ));
+    }
+    setIncassando(null);
+  }
+
   // ─── Derived ──────────────────────────────────────────────────────────────
 
   const now    = nowRef.current;
@@ -773,6 +792,20 @@ export default function MobileHomePage() {
                         onClick={() => a.patient_id && router.push(`/mobile/patients/${a.patient_id}`)}
                         style={btnSoft({ fontSize: 12, padding: "7px 12px" })}
                       >📄 Scheda</button>
+
+                      {!a.is_paid && a.status !== "cancelled" && (
+                        <button
+                          onClick={() => handleIncassa(a)}
+                          disabled={incassando === a.id}
+                          style={{
+                            display: "inline-flex", alignItems: "center", justifyContent: "center",
+                            gap: 5, padding: "7px 12px", borderRadius: 10, border: "none",
+                            background: incassando === a.id ? THEME.border : "rgba(22,163,74,0.12)",
+                            color: THEME.green, fontWeight: 700, fontSize: 12,
+                            cursor: incassando === a.id ? "not-allowed" : "pointer",
+                          }}
+                        >{incassando === a.id ? "…" : "💰 Incassa"}</button>
+                      )}
 
                       {phone ? (
                         <>

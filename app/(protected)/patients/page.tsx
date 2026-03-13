@@ -1,11 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { supabase } from "../../../src/lib/supabaseClient";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { supabase } from "@/src/lib/supabaseClient";
 
-
-// --- TIPI ---
+// ─── Types ────────────────────────────────────────────────────────────────────
 type Plan = "invoice" | "no_invoice";
 
 type Patient = {
@@ -20,81 +19,63 @@ type Patient = {
   created_at?: string;
 };
 
-// --- TEMA ---
+// ─── Theme ────────────────────────────────────────────────────────────────────
 const THEME = {
-  appBg: "#f1f5f9",
-  panelBg: "#ffffff",
-  panelSoft: "#f7f9fd",
-  text: "#0f172a",
-  textSoft: "#1e293b",
-  muted: "#334155",
-  border: "#cbd5e1",
-  borderSoft: "#e2e8f0",
-  blue: "#2563eb",
-  blueDark: "#1e40af",
-  green: "#16a34a",
-  greenDark: "#15803d",
-  amber: "#f97316",
-  red: "#dc2626",
+  appBg:      "#f1f5f9",
+  panelBg:    "#ffffff",
+  panelSoft:  "#f7f9fd",
+  text:       "#0f172a",
+  textSoft:   "#1e293b",
+  muted:      "#334155",
+  border:     "#cbd5e1",
+  blue:       "#2563eb",
+  blueDark:   "#1e40af",
+  green:      "#16a34a",
+  greenDark:  "#15803d",
+  teal:       "#0d9488",
+  red:        "#dc2626",
+  amber:      "#f97316",
+  gray:       "#94a3b8",
 };
 
-function useIsMobile(breakpoint = 768) {
-  const [isMobile, setIsMobile] = useState(false);
+// ─── Component ────────────────────────────────────────────────────────────────
+export default function PatientsPage() {
+
+  // ── Auth / user menu ──────────────────────────────────────────────────────
+  const [userEmail, setUserEmail]       = useState<string | null>(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < breakpoint);
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, [breakpoint]);
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      setUserEmail(data?.user?.email ?? null);
+    })();
+  }, []);
 
-  return isMobile;
-}
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (!userMenuOpen) return;
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node))
+        setUserMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [userMenuOpen]);
 
-export default function PatientsPage() {
-  const isMobile = useIsMobile(768);
+  const handleLogout = useCallback(async () => {
+    try { await supabase.auth.signOut(); } finally {
+      setUserMenuOpen(false);
+      window.location.href = "/login";
+    }
+  }, []);
 
+  const userInitials = userEmail ? userEmail.slice(0, 2).toUpperCase() : "?";
+
+  // ── Data ──────────────────────────────────────────────────────────────────
   const [patients, setPatients] = useState<Patient[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string>("");
-
-  // Stati Form e UI
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-
-  const [phone, setPhone] = useState("");
-  const [birthDate, setBirthDate] = useState("");
-  const [taxCode, setTaxCode] = useState("");
-  const [residenceCity, setResidenceCity] = useState("");
-
-  // Dati clinici / strategici (V2)
-  const [patientStatus, setPatientStatus] = useState<"lead" | "active" | "paused" | "follow_up" | "discharged">("active");
-  const [acquisitionChannel, setAcquisitionChannel] = useState<"" | "passaparola" | "medico" | "instagram" | "google" | "evento" | "altro">("");
-  const [firstVisitDate, setFirstVisitDate] = useState("");
-
-  const [mainComplaint, setMainComplaint] = useState("");
-  const [bodyRegion, setBodyRegion] = useState<
-    "" | "cervicale" | "dorsale" | "lombare" | "spalla" | "gomito" | "polso_mano" | "anca" | "ginocchio" | "caviglia_piede" | "atm" | "neurologico" | "altro"
-  >("");
-  const [side, setSide] = useState<"" | "dx" | "sx" | "bilaterale">("");
-  const [pathologyType, setPathologyType] = useState<"" | "traumatico" | "degenerativo" | "post_chirurgico" | "neurologico" | "cronico" | "funzionale">("");
-  const [medicalDiagnosis, setMedicalDiagnosis] = useState("");
-
-  const [expectedFrequency, setExpectedFrequency] = useState("");
-  const [packageSize, setPackageSize] = useState("");
-
-  const [showClinicalFields, setShowClinicalFields] = useState(true);
-  const [showBusinessFields, setShowBusinessFields] = useState(true);
-
-  const [saving, setSaving] = useState(false);
-
-  const [showNewPatientForm, setShowNewPatientForm] = useState(false);
-  const [showFullList, setShowFullList] = useState(false); // Chiusa di default
-  const [showIncompleteList, setShowIncompleteList] = useState(true); // Aperta di default
-  const [searchTerm, setSearchTerm] = useState("");
-
-  // Mobile drawer
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState<string>("");
 
   async function loadPatients() {
     setLoading(true);
@@ -108,1014 +89,639 @@ export default function PatientsPage() {
     setLoading(false);
   }
 
-  useEffect(() => {
-    loadPatients();
-  }, []);
+  useEffect(() => { loadPatients(); }, []);
 
-  // Lista Filtrata (Ricerca)
-  const filteredPatients = useMemo(() => {
-    if (!searchTerm.trim()) return patients;
-    const term = searchTerm.toLowerCase().trim();
-    return patients.filter((p) =>
-      `${p.first_name} ${p.last_name}`.toLowerCase().includes(term)
-    );
-  }, [patients, searchTerm]);
+  // ── Ricerca e filtri ───────────────────────────────────────────────────────
+  const [searchTerm, setSearchTerm] = useState("");
+  const [activeTab, setActiveTab]   = useState<"all" | "incomplete">("all");
 
-  // LOGICA: PAZIENTI DA COMPLETARE (Ordinati con "Manca Telefono" in alto)
   const patientsToComplete = useMemo(() => {
-    const incomplete = patients.filter((p) => !p.tax_code || !p.phone || !p.birth_date);
-
-    return [...incomplete].sort((a, b) => {
-      const aMissingPhone = !a.phone ? 1 : 0;
-      const bMissingPhone = !b.phone ? 1 : 0;
-      return bMissingPhone - aMissingPhone;
-    });
+    const incomplete = patients.filter(p => !p.tax_code || !p.phone || !p.birth_date);
+    return [...incomplete].sort((a, b) => (!a.phone ? -1 : 0) - (!b.phone ? -1 : 0));
   }, [patients]);
+
+  const visiblePatients = useMemo(() => {
+    const base = activeTab === "incomplete" ? patientsToComplete : patients;
+    if (!searchTerm.trim()) return base;
+    const term = searchTerm.toLowerCase().trim();
+    return base.filter(p =>
+      `${p.first_name} ${p.last_name}`.toLowerCase().includes(term) ||
+      (p.phone ?? "").includes(term)
+    );
+  }, [patients, patientsToComplete, searchTerm, activeTab]);
+
+  // ── Drawer nuovo paziente ─────────────────────────────────────────────────
+  const [drawerOpen, setDrawerOpen]               = useState(false);
+  const [showClinicalFields, setShowClinicalFields] = useState(false);
+  const [showBusinessFields, setShowBusinessFields] = useState(false);
+
+  const [firstName,          setFirstName]          = useState("");
+  const [lastName,           setLastName]            = useState("");
+  const [phone,              setPhone]               = useState("");
+  const [birthDate,          setBirthDate]           = useState("");
+  const [taxCode,            setTaxCode]             = useState("");
+  const [residenceCity,      setResidenceCity]       = useState("");
+  const [patientStatus,      setPatientStatus]       = useState<"lead"|"active"|"paused"|"follow_up"|"discharged">("active");
+  const [acquisitionChannel, setAcquisitionChannel]  = useState<""|"passaparola"|"medico"|"instagram"|"google"|"evento"|"altro">("");
+  const [firstVisitDate,     setFirstVisitDate]      = useState("");
+  const [mainComplaint,      setMainComplaint]       = useState("");
+  const [bodyRegion,         setBodyRegion]          = useState<""|"cervicale"|"dorsale"|"lombare"|"spalla"|"gomito"|"polso_mano"|"anca"|"ginocchio"|"caviglia_piede"|"atm"|"neurologico"|"altro">("");
+  const [side,               setSide]                = useState<""|"dx"|"sx"|"bilaterale">("");
+  const [pathologyType,      setPathologyType]       = useState<""|"traumatico"|"degenerativo"|"post_chirurgico"|"neurologico"|"cronico"|"funzionale">("");
+  const [medicalDiagnosis,   setMedicalDiagnosis]    = useState("");
+  const [expectedFrequency,  setExpectedFrequency]   = useState("");
+  const [packageSize,        setPackageSize]         = useState("");
+  const [saving,             setSaving]              = useState(false);
+  const [drawerError,        setDrawerError]         = useState("");
+
+  function resetForm() {
+    setFirstName(""); setLastName(""); setPhone(""); setBirthDate("");
+    setTaxCode(""); setResidenceCity(""); setPatientStatus("active");
+    setAcquisitionChannel(""); setFirstVisitDate(""); setMainComplaint("");
+    setBodyRegion(""); setSide(""); setPathologyType(""); setMedicalDiagnosis("");
+    setExpectedFrequency(""); setPackageSize("");
+    setShowClinicalFields(false); setShowBusinessFields(false);
+    setDrawerError("");
+  }
+
+  function openDrawer()  { resetForm(); setDrawerOpen(true);  }
+  function closeDrawer() { setDrawerOpen(false); }
 
   async function createPatient(e: React.FormEvent) {
     e.preventDefault();
     if (!firstName.trim() || !lastName.trim() || !phone.trim() || !birthDate.trim()) {
-      setError("Compila almeno Nome, Cognome, Telefono e Data di nascita.");
+      setDrawerError("Compila Nome, Cognome, Telefono e Data di nascita.");
       return;
     }
-
     setSaving(true);
+    setDrawerError("");
     const { error } = await supabase.from("patients").insert({
-      first_name: firstName.trim(),
-      last_name: lastName.trim(),
-      phone: phone.trim(),
-      birth_date: birthDate.trim() || null,
-      tax_code: taxCode.trim() || null,
-      residence_city: residenceCity.trim() || null,
-
-      // V2 (richiede migration SQL)
-      patient_status: patientStatus,
+      first_name:          firstName.trim(),
+      last_name:           lastName.trim(),
+      phone:               phone.trim(),
+      birth_date:          birthDate.trim() || null,
+      tax_code:            taxCode.trim() || null,
+      residence_city:      residenceCity.trim() || null,
+      patient_status:      patientStatus,
       acquisition_channel: acquisitionChannel || null,
-      first_visit_date: firstVisitDate.trim() || null,
-      main_complaint: mainComplaint.trim() || null,
-      body_region: bodyRegion || null,
-      side: side || null,
-      pathology_type: pathologyType || null,
-      medical_diagnosis: medicalDiagnosis.trim() || null,
-      expected_frequency: expectedFrequency.trim() ? Number(expectedFrequency) : null,
-      package_size: packageSize.trim() ? Number(packageSize) : null,
+      first_visit_date:    firstVisitDate.trim() || null,
+      main_complaint:      mainComplaint.trim() || null,
+      body_region:         bodyRegion || null,
+      side:                side || null,
+      pathology_type:      pathologyType || null,
+      medical_diagnosis:   medicalDiagnosis.trim() || null,
+      expected_frequency:  expectedFrequency.trim() ? Number(expectedFrequency) : null,
+      package_size:        packageSize.trim() ? Number(packageSize) : null,
     });
     setSaving(false);
-
-    if (!error) {
-      setFirstName("");
-      setLastName("");
-      setPhone("");
-      setBirthDate("");
-      setTaxCode("");
-      setResidenceCity("");
-      setPatientStatus("active");
-      setAcquisitionChannel("");
-      setFirstVisitDate("");
-      setMainComplaint("");
-      setBodyRegion("");
-      setSide("");
-      setPathologyType("");
-      setMedicalDiagnosis("");
-      setExpectedFrequency("");
-      setPackageSize("");
-      setShowNewPatientForm(false);
-      await loadPatients();
-    } else {
-      setError(error.message);
-    }
+    if (!error) { closeDrawer(); await loadPatients(); }
+    else setDrawerError(error.message);
   }
 
-  // --- STILI ---
+  // ── Stili condivisi ───────────────────────────────────────────────────────
+  const inputStyle: React.CSSProperties = {
+    padding: "9px 12px", borderRadius: 7,
+    border: `1.5px solid ${THEME.border}`,
+    fontWeight: 500, fontSize: 13, outline: "none",
+    background: "#fff", color: THEME.text,
+    width: "100%", boxSizing: "border-box",
+  };
+
+  const selectStyle: React.CSSProperties = {
+    ...inputStyle,
+    appearance: "none" as const,
+    WebkitAppearance: "none" as const,
+  };
+
+  const labelStyle: React.CSSProperties = {
+    display: "block", fontSize: 11, fontWeight: 600,
+    color: THEME.muted, marginBottom: 4,
+    textTransform: "uppercase", letterSpacing: 0.4,
+  };
+
   const tableHeaderStyle: React.CSSProperties = {
-    textAlign: "left",
-    padding: "12px 16px",
-    fontSize: 12,
-    color: THEME.muted,
-    fontWeight: 1000,
-    borderBottom: `1px solid ${THEME.borderSoft}`,
-    background: "rgba(241,245,249,0.85)",
-    textTransform: "uppercase",
+    textAlign: "left", padding: "10px 16px",
+    fontSize: 11, color: THEME.muted, fontWeight: 600,
+    borderBottom: `1px solid ${THEME.border}`,
+    background: THEME.panelSoft,
+    textTransform: "uppercase", letterSpacing: 0.5,
   };
 
-  const cardStyle: React.CSSProperties = {
-    background: THEME.panelBg,
-    borderRadius: 16,
-    padding: isMobile ? 16 : 24,
-    boxShadow: "0 4px 20px rgba(0,0,0,0.04)",
-    border: `1px solid ${THEME.border}`,
-    marginBottom: 16,
-  };
+  function missingBadges(p: Patient) {
+    const items = [];
+    if (!p.phone)      items.push({ label: "telefono", color: THEME.red,   bg: "rgba(220,38,38,0.08)"  });
+    if (!p.tax_code)   items.push({ label: "CF",       color: THEME.muted, bg: "rgba(51,65,85,0.08)"   });
+    if (!p.birth_date) items.push({ label: "nascita",  color: THEME.blue,  bg: "rgba(37,99,235,0.08)"  });
+    return items;
+  }
 
-  const patientLinkStyle: React.CSSProperties = {
-    textDecoration: "none",
-    color: THEME.text,
-    fontWeight: 1000,
-    cursor: "pointer",
-    display: "block",
-  };
+  // ─── Render ───────────────────────────────────────────────────────────────
+  return (
+    <div style={{ minHeight: "100vh", background: THEME.appBg, fontFamily: "'Outfit', 'Segoe UI', system-ui, sans-serif" }}>
+      <style jsx global>{`
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+        * { -webkit-font-smoothing: antialiased; box-sizing: border-box; }
+        body { font-family: 'Outfit','Segoe UI',system-ui,sans-serif; margin:0; background:${THEME.appBg}; }
+        select, input, textarea, button { font-family: inherit; }
+        input:focus, select:focus, textarea:focus {
+          border-color: ${THEME.blue} !important;
+          box-shadow: 0 0 0 3px rgba(37,99,235,0.10) !important;
+          outline: none !important;
+        }
+        .row-hover:hover { background: rgba(37,99,235,0.03) !important; }
+        .drawer-overlay {
+          position: fixed; inset: 0;
+          background: rgba(15,23,42,0.35);
+          z-index: 40; backdrop-filter: blur(2px);
+        }
+        .drawer {
+          position: fixed; top: 0; right: 0; height: 100vh;
+          width: 520px; max-width: 95vw;
+          background: #fff; z-index: 50;
+          box-shadow: -8px 0 40px rgba(15,23,42,0.12);
+          display: flex; flex-direction: column;
+          transform: translateX(100%);
+          transition: transform 260ms cubic-bezier(.4,0,.2,1);
+        }
+        .drawer.open { transform: translateX(0); }
+        @media (min-width: 768px) and (max-width: 1024px) {
+          .tab-hide    { display: none !important; }
+          .tab-compact { font-size: 11px !important; padding: 3px 8px !important; }
+          .tab-p       { padding: 20px 18px !important; }
+        }
+      `}</style>
 
-  const chipStyle = (bg: string, color: string): React.CSSProperties => ({
-    fontSize: 11,
-    background: bg,
-    color,
-    padding: "6px 10px",
-    borderRadius: 999,
-    fontWeight: 1000,
-    display: "inline-block",
-    lineHeight: 1,
-  });
+      {/* ━━━ DRAWER ━━━ */}
+      {drawerOpen && <div className="drawer-overlay" onClick={closeDrawer} />}
+      <div className={`drawer ${drawerOpen ? "open" : ""}`}>
+        <div style={{
+          padding: "18px 24px",
+          borderBottom: `1px solid ${THEME.border}`,
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          flexShrink: 0,
+        }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 16, color: THEME.text }}>Nuovo paziente</div>
+            <div style={{ fontSize: 12, color: THEME.muted, marginTop: 2 }}>I campi con * sono obbligatori</div>
+          </div>
+          <button onClick={closeDrawer} style={{
+            width: 30, height: 30, borderRadius: 6,
+            border: `1px solid ${THEME.border}`, background: "transparent",
+            color: THEME.muted, cursor: "pointer", fontSize: 16,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>✕</button>
+        </div>
 
-  const subtleButton: React.CSSProperties = {
-    border: `1px solid ${THEME.border}`,
-    background: THEME.panelBg,
-    color: THEME.textSoft,
-    fontWeight: 900,
-    borderRadius: 12,
-    padding: "10px 12px",
-    cursor: "pointer",
-  };
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
+          <form onSubmit={createPatient} id="new-patient-form">
 
-  const primaryButton: React.CSSProperties = {
-    border: "none",
-    background: THEME.blue,
-    color: "#fff",
-    fontWeight: 1000,
-    borderRadius: 12,
-    padding: "12px 14px",
-    cursor: "pointer",
-  };
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+              <div>
+                <label style={labelStyle}>Nome *</label>
+                <input value={firstName} onChange={e => setFirstName(e.target.value)} style={inputStyle} required autoFocus />
+              </div>
+              <div>
+                <label style={labelStyle}>Cognome *</label>
+                <input value={lastName} onChange={e => setLastName(e.target.value)} style={inputStyle} required />
+              </div>
+              <div>
+                <label style={labelStyle}>Telefono *</label>
+                <input value={phone} onChange={e => setPhone(e.target.value)} style={inputStyle} required />
+              </div>
+              <div>
+                <label style={labelStyle}>Data di nascita *</label>
+                <input type="date" value={birthDate} onChange={e => setBirthDate(e.target.value)} style={inputStyle} required />
+              </div>
+              <div>
+                <label style={labelStyle}>Codice Fiscale</label>
+                <input value={taxCode} onChange={e => setTaxCode(e.target.value)} style={inputStyle} placeholder="Opzionale" />
+              </div>
+              <div>
+                <label style={labelStyle}>Città</label>
+                <input value={residenceCity} onChange={e => setResidenceCity(e.target.value)} style={inputStyle} placeholder="Opzionale" />
+              </div>
+            </div>
 
-  function MobileDrawer() {
-    if (!isMobile) return null;
+            {/* Sezione clinica */}
+            <button type="button" onClick={() => setShowClinicalFields(v => !v)} style={{
+              width: "100%", textAlign: "left",
+              background: showClinicalFields ? "rgba(37,99,235,0.03)" : "transparent",
+              border: `1px solid ${THEME.border}`,
+              padding: "9px 14px", borderRadius: 7, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              fontWeight: 600, fontSize: 13, color: THEME.textSoft,
+              marginBottom: showClinicalFields ? 12 : 10,
+            }}>
+              <span>Dati clinici iniziali</span>
+              <span style={{ color: THEME.gray, fontSize: 11, fontWeight: 500 }}>
+                {showClinicalFields ? "nascondi" : "mostra"}
+              </span>
+            </button>
 
-    return (
-      <>
-        {/* Overlay */}
-        {mobileNavOpen && (
-          <div
-            onClick={() => setMobileNavOpen(false)}
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(15,23,42,0.35)",
-              zIndex: 49,
-            }}
-          />
-        )}
+            {showClinicalFields && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ marginBottom: 10 }}>
+                  <label style={labelStyle}>Motivo principale</label>
+                  <textarea value={mainComplaint} onChange={e => setMainComplaint(e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical" }} placeholder="Es. dolore lombare da 3 settimane…" />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                  <div>
+                    <label style={labelStyle}>Distretto</label>
+                    <select value={bodyRegion} onChange={e => setBodyRegion(e.target.value as any)} style={selectStyle}>
+                      <option value="">—</option>
+                      <option value="cervicale">Cervicale</option><option value="dorsale">Dorsale</option>
+                      <option value="lombare">Lombare</option><option value="spalla">Spalla</option>
+                      <option value="gomito">Gomito</option><option value="polso_mano">Polso / Mano</option>
+                      <option value="anca">Anca</option><option value="ginocchio">Ginocchio</option>
+                      <option value="caviglia_piede">Caviglia / Piede</option><option value="atm">ATM</option>
+                      <option value="neurologico">Neurologico</option><option value="altro">Altro</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Lato</label>
+                    <select value={side} onChange={e => setSide(e.target.value as any)} style={selectStyle}>
+                      <option value="">—</option>
+                      <option value="dx">DX</option><option value="sx">SX</option>
+                      <option value="bilaterale">Bilaterale</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Patologia</label>
+                    <select value={pathologyType} onChange={e => setPathologyType(e.target.value as any)} style={selectStyle}>
+                      <option value="">—</option>
+                      <option value="traumatico">Traumatico</option>
+                      <option value="degenerativo">Degenerativo</option>
+                      <option value="post_chirurgico">Post-chir.</option>
+                      <option value="neurologico">Neurologico</option>
+                      <option value="cronico">Cronico</option>
+                      <option value="funzionale">Funzionale</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label style={labelStyle}>Diagnosi medica</label>
+                  <textarea value={medicalDiagnosis} onChange={e => setMedicalDiagnosis(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} placeholder="Es. discopatia L4-L5" />
+                </div>
+              </div>
+            )}
 
-        {/* Drawer */}
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            height: "100vh",
-            width: "78vw",
-            maxWidth: 320,
-            background: THEME.panelBg,
-            borderRight: `1px solid ${THEME.border}`,
-            transform: mobileNavOpen ? "translateX(0)" : "translateX(-110%)",
-            transition: "transform 220ms ease",
-            zIndex: 50,
-            padding: 16,
-            boxShadow: "8px 0 30px rgba(0,0,0,0.10)",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ fontSize: 18, fontWeight: 1000, color: THEME.blueDark }}>FisioHub</div>
-            <button
-              onClick={() => setMobileNavOpen(false)}
-              style={{ ...subtleButton, padding: "8px 10px", borderRadius: 10 }}
-              aria-label="Chiudi menu"
-            >
-              ✕
+            {/* Sezione economica */}
+            <button type="button" onClick={() => setShowBusinessFields(v => !v)} style={{
+              width: "100%", textAlign: "left",
+              background: showBusinessFields ? "rgba(22,163,74,0.03)" : "transparent",
+              border: `1px solid ${THEME.border}`,
+              padding: "9px 14px", borderRadius: 7, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              fontWeight: 600, fontSize: 13, color: THEME.textSoft,
+              marginBottom: showBusinessFields ? 12 : 0,
+            }}>
+              <span>Stato & dati economici</span>
+              <span style={{ color: THEME.gray, fontSize: 11, fontWeight: 500 }}>
+                {showBusinessFields ? "nascondi" : "mostra"}
+              </span>
+            </button>
+
+            {showBusinessFields && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <label style={labelStyle}>Stato</label>
+                  <select value={patientStatus} onChange={e => setPatientStatus(e.target.value as any)} style={selectStyle}>
+                    <option value="active">Attivo</option><option value="lead">Lead</option>
+                    <option value="follow_up">Follow-up</option><option value="paused">In pausa</option>
+                    <option value="discharged">Dimesso</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Canale acquisizione</label>
+                  <select value={acquisitionChannel} onChange={e => setAcquisitionChannel(e.target.value as any)} style={selectStyle}>
+                    <option value="">—</option><option value="passaparola">Passaparola</option>
+                    <option value="medico">Medico</option><option value="instagram">Instagram</option>
+                    <option value="google">Google</option><option value="evento">Evento</option>
+                    <option value="altro">Altro</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Primo contatto</label>
+                  <input type="date" value={firstVisitDate} onChange={e => setFirstVisitDate(e.target.value)} style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Frequenza / sett.</label>
+                  <input placeholder="es. 2" inputMode="numeric" value={expectedFrequency} onChange={e => setExpectedFrequency(e.target.value)} style={inputStyle} />
+                </div>
+                <div style={{ gridColumn: "1 / span 2" }}>
+                  <label style={labelStyle}>Pacchetto sedute</label>
+                  <input placeholder="es. 10" inputMode="numeric" value={packageSize} onChange={e => setPackageSize(e.target.value)} style={inputStyle} />
+                </div>
+              </div>
+            )}
+          </form>
+        </div>
+
+        <div style={{
+          padding: "14px 24px",
+          borderTop: `1px solid ${THEME.border}`,
+          display: "flex", alignItems: "center", gap: 10,
+          background: THEME.panelSoft, flexShrink: 0,
+        }}>
+          {drawerError && (
+            <span style={{ flex: 1, fontSize: 12, color: THEME.red, fontWeight: 600 }}>{drawerError}</span>
+          )}
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            <button onClick={closeDrawer} style={{
+              padding: "9px 16px", borderRadius: 7,
+              border: `1px solid ${THEME.border}`, background: "#fff",
+              color: THEME.textSoft, fontWeight: 600, fontSize: 13, cursor: "pointer",
+            }}>Annulla</button>
+            <button type="submit" form="new-patient-form" disabled={saving} style={{
+              padding: "9px 20px", borderRadius: 7, border: "none",
+              background: saving ? THEME.gray : THEME.teal,
+              color: "#fff", fontWeight: 700, fontSize: 13,
+              cursor: saving ? "not-allowed" : "pointer",
+            }}>
+              {saving ? "Salvataggio…" : "Registra paziente"}
             </button>
           </div>
-
-          <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 10 }}>
-            <Link
-              href="/"
-              onClick={() => setMobileNavOpen(false)}
-              style={{ color: THEME.textSoft, fontWeight: 900, textDecoration: "none" }}
-            >
-              🏠 Home
-            </Link>
-            <Link
-              href="/calendar"
-              onClick={() => setMobileNavOpen(false)}
-              style={{ color: THEME.textSoft, fontWeight: 900, textDecoration: "none" }}
-            >
-              📅 Calendario
-            </Link>
-            <Link
-              href="/patients"
-              onClick={() => setMobileNavOpen(false)}
-              style={{ color: THEME.blue, fontWeight: 1000, textDecoration: "none" }}
-            >
-              👤 Pazienti
-            </Link>
-          </div>
-
-          <div style={{ marginTop: 18, borderTop: `1px solid ${THEME.borderSoft}`, paddingTop: 14 }}>
-            <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 800 }}>Tip</div>
-            <div style={{ fontSize: 13, color: THEME.textSoft, fontWeight: 800, marginTop: 6 }}>
-              Su mobile usi le schede (card), non le tabelle. È così che si lavora.
-            </div>
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  function MobileTopBar() {
-    if (!isMobile) return null;
-
-    return (
-      <div
-        style={{
-          position: "sticky",
-          top: 0,
-          zIndex: 20,
-          background: THEME.panelBg,
-          borderBottom: `1px solid ${THEME.border}`,
-          padding: "12px 12px",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <button onClick={() => setMobileNavOpen(true)} style={subtleButton} aria-label="Apri menu">
-            ☰
-          </button>
-          <div style={{ fontWeight: 1000, color: THEME.blueDark, fontSize: 16 }}>Pazienti</div>
-          <button onClick={() => loadPatients()} style={subtleButton} aria-label="Aggiorna">
-            ↻
-          </button>
         </div>
       </div>
-    );
-  }
 
-  function PatientCard({ p }: { p: Patient }) {
-    return (
-      <div
-        style={{
-          border: `1px solid ${THEME.borderSoft}`,
-          background: "#fff",
-          borderRadius: 14,
-          padding: 14,
-          marginBottom: 12,
-          boxShadow: "0 2px 10px rgba(0,0,0,0.03)",
-        }}
-      >
-        <Link href={`/patients/${p.id}`} style={{ textDecoration: "none" }}>
-          <div style={{ fontWeight: 1000, color: THEME.text, fontSize: 16 }}>
-            {p.last_name} {p.first_name}
+      {/* ━━━ NAVBAR ━━━ */}
+      <header style={{
+        position: "sticky", top: 0, zIndex: 30,
+        background: "linear-gradient(135deg, #0d9488, #2563eb)",
+        padding: "0 20px", height: 58,
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        boxShadow: "0 2px 12px rgba(13,148,136,0.18)", gap: 8,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 20, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{
+              width: 30, height: 30, borderRadius: 8,
+              background: "rgba(255,255,255,0.2)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              color: "#fff", fontWeight: 800, fontSize: 14,
+              border: "1.5px solid rgba(255,255,255,0.3)",
+            }}>F</div>
+            <span style={{ fontWeight: 700, fontSize: 15, color: "#fff", letterSpacing: 0.5, textTransform: "uppercase" }}>
+              Fisio<span style={{ fontWeight: 800 }}>Hub</span>
+            </span>
           </div>
-        </Link>
-
-        <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-            <div style={{ color: THEME.muted, fontWeight: 800, fontSize: 12 }}>Telefono</div>
-            <div style={{ color: THEME.textSoft, fontWeight: 900, fontSize: 13 }}>
-              {p.phone || "—"}
-            </div>
-          </div>
-
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-            <div style={{ color: THEME.muted, fontWeight: 800, fontSize: 12 }}>Scheda</div>
-            <Link
-              href={`/patients/${p.id}`}
-              style={{ color: THEME.blue, fontWeight: 1000, textDecoration: "none", fontSize: 13 }}
-            >
-              Dettagli →
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  function IncompleteCard({ p }: { p: Patient }) {
-    const missingPhone = !p.phone;
-    const missingCF = !p.tax_code;
-    const missingBirth = !p.birth_date;
-
-    return (
-      <div
-        style={{
-          border: `1px solid ${THEME.borderSoft}`,
-          background: "#fff",
-          borderRadius: 14,
-          padding: 14,
-          marginBottom: 12,
-          boxShadow: "0 2px 10px rgba(0,0,0,0.03)",
-          borderLeft: missingPhone ? `4px solid ${THEME.red}` : `4px solid ${THEME.amber}`,
-        }}
-      >
-        <Link href={`/patients/${p.id}`} style={{ textDecoration: "none" }}>
-          <div style={{ fontWeight: 1000, color: THEME.text, fontSize: 16 }}>
-            {p.last_name} {p.first_name}
-          </div>
-        </Link>
-
-        <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {missingPhone && chipStyle("rgba(220,38,38,0.15)", THEME.red) && (
-            <span style={chipStyle("rgba(220,38,38,0.15)", THEME.red)}>⚠️ MANCA TELEFONO</span>
-          )}
-          {missingCF && <span style={chipStyle("rgba(51,65,85,0.10)", THEME.muted)}>NO CF</span>}
-          {missingBirth && (
-            <span style={chipStyle("rgba(37,99,235,0.10)", THEME.blue)}>NO NASCITA</span>
-          )}
-        </div>
-
-        <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end" }}>
-          <Link
-            href={`/patients/${p.id}`}
-            style={{
-              color: THEME.blue,
-              fontWeight: 1000,
-              textDecoration: "none",
-              fontSize: 13,
-              border: `1px solid ${THEME.blue}`,
-              padding: "8px 12px",
-              borderRadius: 12,
-            }}
-          >
-            COMPLETA
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ display: "flex", minHeight: "100vh", background: THEME.appBg, color: THEME.text }}>
-      <MobileDrawer />
-
-      {/* SIDEBAR DESKTOP */}
-      {!isMobile && (
-        <aside
-          style={{
-            width: 260,
-            background: THEME.panelBg,
-            borderRight: `1px solid ${THEME.border}`,
-            padding: 20,
-            flexShrink: 0,
-          }}
-        >
-          <div style={{ fontSize: 22, fontWeight: 1000, color: THEME.blueDark, marginBottom: 30 }}>
-            FisioHub
-          </div>
-          <nav style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <Link href="/" style={{ color: THEME.textSoft, fontWeight: 800, textDecoration: "none" }}>
-              🏠 Home
-            </Link>
-            <Link
-              href="/calendar"
-              style={{ color: THEME.textSoft, fontWeight: 800, textDecoration: "none" }}
-            >
-              📅 Calendario
-            </Link>
-            <Link href="/patients" style={{ color: THEME.blue, fontWeight: 1000, textDecoration: "none" }}>
-              👤 Pazienti
-            </Link>
+          <nav style={{ display: "flex", gap: 2 }}>
+            {([
+              { href: "/",         label: "Home",       icon: "⌂",  active: false },
+              { href: "/calendar", label: "Calendario", icon: "▦",  active: false },
+              { href: "/reports",  label: "Report",     icon: "◈",  active: false },
+              { href: "/patients", label: "Pazienti",   icon: "◉",  active: true  },
+            ] as const).map(item => (
+              <Link key={item.href} href={item.href} style={{
+                padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+                textDecoration: "none",
+                background: item.active ? "rgba(255,255,255,0.2)" : "transparent",
+                color: item.active ? "#fff" : "rgba(255,255,255,0.8)",
+                letterSpacing: 0.3,
+              }}>
+                <span className="tab-compact">{item.icon} {item.label}</span>
+              </Link>
+            ))}
           </nav>
-        </aside>
-      )}
+        </div>
 
-      <main
-        style={{
-          flex: 1,
-          padding: isMobile ? 0 : "32px 40px",
-          overflowY: "auto",
-        }}
-      >
-        <MobileTopBar />
-
-        <div style={{ padding: isMobile ? "14px" : 0 }}>
-          <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-            {!isMobile && (
-              <header style={{ marginBottom: 22 }}>
-                <h1 style={{ margin: 0, fontWeight: 1000, fontSize: 32, letterSpacing: "-0.02em" }}>
-                  Anagrafica Pazienti
-                </h1>
-              </header>
-            )}
-
-            {/* ERROR / LOADING */}
-            {(loading || error) && (
-              <section style={cardStyle}>
-                {loading && <div style={{ fontWeight: 900, color: THEME.muted }}>Caricamento...</div>}
-                {error && (
-                  <div style={{ fontWeight: 900, color: THEME.red }}>
-                    Errore: {error}
-                  </div>
-                )}
-              </section>
-            )}
-
-            {/* 1. NUOVO PAZIENTE */}
-            <section style={cardStyle}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  cursor: "pointer",
-                }}
-                onClick={() => setShowNewPatientForm(!showNewPatientForm)}
-              >
-                <h2 style={{ margin: 0, fontWeight: 1000, fontSize: 18, color: THEME.blueDark }}>
-                  ➕ Aggiungi Nuovo Paziente
-                </h2>
-                <span style={{ fontWeight: 1000 }}>{showNewPatientForm ? "−" : "+"}</span>
-              </div>
-
-              {showNewPatientForm && (
-                <form
-                  onSubmit={createPatient}
-                  style={{
-                    marginTop: 16,
-                    display: "grid",
-                    gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
-                    gap: 12,
-                  }}
-                >
-                  {/* Anagrafica (minimo serio) */}
-                  <input
-                    placeholder="Nome *"
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    style={{
-                      padding: "12px",
-                      borderRadius: 12,
-                      border: `1px solid ${THEME.border}`,
-                      fontWeight: 800,
-                      outline: "none",
-                    }}
-                    required
-                  />
-                  <input
-                    placeholder="Cognome *"
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                    style={{
-                      padding: "12px",
-                      borderRadius: 12,
-                      border: `1px solid ${THEME.border}`,
-                      fontWeight: 800,
-                      outline: "none",
-                    }}
-                    required
-                  />
-
-                  <input
-                    placeholder="Telefono *"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    style={{
-                      padding: "12px",
-                      borderRadius: 12,
-                      border: `1px solid ${THEME.border}`,
-                      fontWeight: 800,
-                      outline: "none",
-                    }}
-                    required
-                  />
-                  <input
-                    type="date"
-                    value={birthDate}
-                    onChange={(e) => setBirthDate(e.target.value)}
-                    style={{
-                      padding: "12px",
-                      borderRadius: 12,
-                      border: `1px solid ${THEME.border}`,
-                      fontWeight: 800,
-                      outline: "none",
-                    }}
-                    required
-                    title="Data di nascita"
-                  />
-
-                  <input
-                    placeholder="Codice Fiscale (opzionale)"
-                    value={taxCode}
-                    onChange={(e) => setTaxCode(e.target.value)}
-                    style={{
-                      padding: "12px",
-                      borderRadius: 12,
-                      border: `1px solid ${THEME.border}`,
-                      fontWeight: 800,
-                      outline: "none",
-                    }}
-                  />
-                  <input
-                    placeholder="Città (opzionale)"
-                    value={residenceCity}
-                    onChange={(e) => setResidenceCity(e.target.value)}
-                    style={{
-                      padding: "12px",
-                      borderRadius: 12,
-                      border: `1px solid ${THEME.border}`,
-                      fontWeight: 800,
-                      outline: "none",
-                    }}
-                  />
-
-                  {/* Sezione Clinica (espandibile) */}
-                  <div
-                    style={{
-                      gridColumn: isMobile ? "auto" : "1 / span 2",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      padding: "10px 12px",
-                      borderRadius: 12,
-                      border: `1px dashed ${THEME.border}`,
-                      background: "rgba(37,99,235,0.04)",
-                      cursor: "pointer",
-                      userSelect: "none",
-                      fontWeight: 1000,
-                      color: THEME.blueDark,
-                    }}
-                    onClick={() => setShowClinicalFields((v) => !v)}
-                  >
-                    <span>🩺 Dati clinici iniziali</span>
-                    <span>{showClinicalFields ? "−" : "+"}</span>
-                  </div>
-
-                  {showClinicalFields && (
-                    <>
-                      <textarea
-                        placeholder="Motivo principale (opzionale)"
-                        value={mainComplaint}
-                        onChange={(e) => setMainComplaint(e.target.value)}
-                        style={{
-                          gridColumn: isMobile ? "auto" : "1 / span 2",
-                          padding: "12px",
-                          borderRadius: 12,
-                          border: `1px solid ${THEME.border}`,
-                          fontWeight: 800,
-                          outline: "none",
-                          minHeight: 70,
-                          resize: "vertical",
-                        }}
-                      />
-
-                      <select
-                        value={bodyRegion}
-                        onChange={(e) => setBodyRegion(e.target.value as any)}
-                        style={{
-                          padding: "12px",
-                          borderRadius: 12,
-                          border: `1px solid ${THEME.border}`,
-                          fontWeight: 900,
-                          outline: "none",
-                          background: "#fff",
-                        }}
-                      >
-                        <option value="">Distretto</option>
-                        <option value="cervicale">Cervicale</option>
-                        <option value="dorsale">Dorsale</option>
-                        <option value="lombare">Lombare</option>
-                        <option value="spalla">Spalla</option>
-                        <option value="gomito">Gomito</option>
-                        <option value="polso_mano">Polso / Mano</option>
-                        <option value="anca">Anca</option>
-                        <option value="ginocchio">Ginocchio</option>
-                        <option value="caviglia_piede">Caviglia / Piede</option>
-                        <option value="atm">ATM</option>
-                        <option value="neurologico">Neurologico</option>
-                        <option value="altro">Altro</option>
-                      </select>
-
-                      <select
-                        value={side}
-                        onChange={(e) => setSide(e.target.value as any)}
-                        style={{
-                          padding: "12px",
-                          borderRadius: 12,
-                          border: `1px solid ${THEME.border}`,
-                          fontWeight: 900,
-                          outline: "none",
-                          background: "#fff",
-                        }}
-                      >
-                        <option value="">Lato</option>
-                        <option value="dx">DX</option>
-                        <option value="sx">SX</option>
-                        <option value="bilaterale">Bilaterale</option>
-                      </select>
-
-                      <select
-                        value={pathologyType}
-                        onChange={(e) => setPathologyType(e.target.value as any)}
-                        style={{
-                          padding: "12px",
-                          borderRadius: 12,
-                          border: `1px solid ${THEME.border}`,
-                          fontWeight: 900,
-                          outline: "none",
-                          background: "#fff",
-                        }}
-                      >
-                        <option value="">Tipo problema</option>
-                        <option value="traumatico">Traumatico</option>
-                        <option value="degenerativo">Degenerativo</option>
-                        <option value="post_chirurgico">Post-chirurgico</option>
-                        <option value="neurologico">Neurologico</option>
-                        <option value="cronico">Cronico</option>
-                        <option value="funzionale">Funzionale</option>
-                      </select>
-
-                      <textarea
-                        placeholder="Diagnosi medica (opzionale)"
-                        value={medicalDiagnosis}
-                        onChange={(e) => setMedicalDiagnosis(e.target.value)}
-                        style={{
-                          padding: "12px",
-                          borderRadius: 12,
-                          border: `1px solid ${THEME.border}`,
-                          fontWeight: 800,
-                          outline: "none",
-                          minHeight: 70,
-                          resize: "vertical",
-                        }}
-                      />
-                    </>
-                  )}
-
-                  {/* Sezione Economica/Strategica (espandibile) */}
-                  <div
-                    style={{
-                      gridColumn: isMobile ? "auto" : "1 / span 2",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      padding: "10px 12px",
-                      borderRadius: 12,
-                      border: `1px dashed ${THEME.border}`,
-                      background: "rgba(22,163,74,0.05)",
-                      cursor: "pointer",
-                      userSelect: "none",
-                      fontWeight: 1000,
-                      color: THEME.greenDark,
-                    }}
-                    onClick={() => setShowBusinessFields((v) => !v)}
-                  >
-                    <span>💼 Stato & dati economici</span>
-                    <span>{showBusinessFields ? "−" : "+"}</span>
-                  </div>
-
-                  {showBusinessFields && (
-                    <>
-                      <select
-                        value={patientStatus}
-                        onChange={(e) => setPatientStatus(e.target.value as any)}
-                        style={{
-                          padding: "12px",
-                          borderRadius: 12,
-                          border: `1px solid ${THEME.border}`,
-                          fontWeight: 900,
-                          outline: "none",
-                          background: "#fff",
-                        }}
-                      >
-                        <option value="active">Attivo</option>
-                        <option value="lead">Lead</option>
-                        <option value="follow_up">Follow-up</option>
-                        <option value="paused">In pausa</option>
-                        <option value="discharged">Dimesso</option>
-                      </select>
-
-                      <select
-                        value={acquisitionChannel}
-                        onChange={(e) => setAcquisitionChannel(e.target.value as any)}
-                        style={{
-                          padding: "12px",
-                          borderRadius: 12,
-                          border: `1px solid ${THEME.border}`,
-                          fontWeight: 900,
-                          outline: "none",
-                          background: "#fff",
-                        }}
-                      >
-                        <option value="">Canale acquisizione</option>
-                        <option value="passaparola">Passaparola</option>
-                        <option value="medico">Medico</option>
-                        <option value="instagram">Instagram</option>
-                        <option value="google">Google</option>
-                        <option value="evento">Evento</option>
-                        <option value="altro">Altro</option>
-                      </select>
-
-                      <input
-                        type="date"
-                        value={firstVisitDate}
-                        onChange={(e) => setFirstVisitDate(e.target.value)}
-                        style={{
-                          padding: "12px",
-                          borderRadius: 12,
-                          border: `1px solid ${THEME.border}`,
-                          fontWeight: 800,
-                          outline: "none",
-                        }}
-                        title="Data primo contatto (opzionale)"
-                      />
-
-                      <input
-                        placeholder="Frequenza prevista (es. 2)"
-                        inputMode="numeric"
-                        value={expectedFrequency}
-                        onChange={(e) => setExpectedFrequency(e.target.value)}
-                        style={{
-                          padding: "12px",
-                          borderRadius: 12,
-                          border: `1px solid ${THEME.border}`,
-                          fontWeight: 800,
-                          outline: "none",
-                        }}
-                      />
-
-                      <input
-                        placeholder="Pacchetto sedute (es. 10)"
-                        inputMode="numeric"
-                        value={packageSize}
-                        onChange={(e) => setPackageSize(e.target.value)}
-                        style={{
-                          padding: "12px",
-                          borderRadius: 12,
-                          border: `1px solid ${THEME.border}`,
-                          fontWeight: 800,
-                          outline: "none",
-                        }}
-                      />
-                    </>
-                  )}
-
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    style={{
-                      gridColumn: isMobile ? "auto" : "1 / span 2",
-                      padding: "12px",
-                      borderRadius: 12,
-                      background: saving ? THEME.border : THEME.blue,
-                      color: "#fff",
-                      fontWeight: 1000,
-                      border: "none",
-                      cursor: saving ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    {saving ? "SALVATAGGIO..." : "REGISTRA"}
-                  </button>
-                </form>
-              )}
-            </section>
-
-            {/* 2. LISTA COMPLETA */}
-            <section style={{ ...cardStyle, borderLeft: `6px solid ${THEME.green}` }}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  cursor: "pointer",
-                  gap: 12,
-                }}
-                onClick={() => setShowFullList(!showFullList)}
-              >
-                <h2 style={{ margin: 0, fontWeight: 1000, fontSize: 18, color: THEME.greenDark }}>
-                  📋 Lista Pazienti Completa
-                </h2>
-                <span style={{ fontWeight: 1000 }}>{showFullList ? "−" : "+"}</span>
-              </div>
-
-              {showFullList && (
-                <div style={{ marginTop: 14 }}>
-                  <input
-                    placeholder="Filtra pazienti..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "12px",
-                      borderRadius: 12,
-                      border: `1px solid ${THEME.border}`,
-                      marginBottom: 14,
-                      fontWeight: 800,
-                      outline: "none",
-                    }}
-                  />
-
-                  {/* MOBILE: CARD */}
-                  {isMobile ? (
-                    <div>
-                      {filteredPatients.length === 0 ? (
-                        <div style={{ padding: 10, color: THEME.muted, fontWeight: 900 }}>
-                          Nessun paziente trovato.
-                        </div>
-                      ) : (
-                        filteredPatients.map((p) => <PatientCard key={p.id} p={p} />)
-                      )}
-                    </div>
-                  ) : (
-                    // DESKTOP: TABELLA
-                    <div style={{ overflow: "hidden", borderRadius: 12, border: `1px solid ${THEME.borderSoft}` }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                        <thead>
-                          <tr>
-                            <th style={tableHeaderStyle}>Paziente</th>
-                            <th style={tableHeaderStyle}>Telefono</th>
-                            <th style={{ ...tableHeaderStyle, textAlign: "right" }}>Scheda</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filteredPatients.map((p, idx) => (
-                            <tr
-                              key={p.id}
-                              style={{
-                                background: idx % 2 === 0 ? "#fff" : THEME.panelSoft,
-                                borderBottom: `1px solid ${THEME.borderSoft}`,
-                              }}
-                            >
-                              <td style={{ padding: "16px" }}>
-                                <Link href={`/patients/${p.id}`} style={patientLinkStyle}>
-                                  {p.last_name} {p.first_name}
-                                </Link>
-                              </td>
-                              <td style={{ padding: "16px", fontWeight: 800 }}>{p.phone || "—"}</td>
-                              <td style={{ padding: "16px", textAlign: "right" }}>
-                                <Link
-                                  href={`/patients/${p.id}`}
-                                  style={{ color: THEME.blue, fontWeight: 1000, textDecoration: "none" }}
-                                >
-                                  Dettagli →
-                                </Link>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          {!loading && (
+            <span className="tab-hide" style={{
+              fontSize: 11, fontWeight: 700, color: "#fff",
+              background: "rgba(255,255,255,0.2)", padding: "4px 10px",
+              borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", whiteSpace: "nowrap",
+            }}>{patients.length} pazienti</span>
+          )}
+          {!loading && patientsToComplete.length > 0 && (
+            <span className="tab-hide" style={{
+              fontSize: 11, fontWeight: 700, color: "#fff",
+              background: "rgba(249,115,22,0.4)", padding: "4px 10px",
+              borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", whiteSpace: "nowrap",
+            }}>{patientsToComplete.length} incompleti</span>
+          )}
+          <button onClick={loadPatients} title="Aggiorna" style={{
+            width: 32, height: 32, borderRadius: 8,
+            border: "1.5px solid rgba(255,255,255,0.3)",
+            background: "rgba(255,255,255,0.15)",
+            color: "#fff", cursor: "pointer", fontSize: 15,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>↺</button>
+          <div ref={userMenuRef} style={{ position: "relative" }}>
+            <button onClick={() => setUserMenuOpen(v => !v)} style={{
+              width: 32, height: 32, borderRadius: 8,
+              border: "1.5px solid rgba(255,255,255,0.35)",
+              background: "rgba(255,255,255,0.2)",
+              color: "#fff", fontWeight: 800, fontSize: 12,
+              cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+            }}>{userInitials}</button>
+            {userMenuOpen && (
+              <div style={{
+                position: "absolute", right: 0, top: "calc(100% + 8px)", width: 200,
+                background: "#fff", border: `1px solid ${THEME.border}`,
+                borderRadius: 10, boxShadow: "0 8px 24px rgba(15,23,42,0.10)",
+                overflow: "hidden", zIndex: 60,
+              }}>
+                <div style={{ padding: "11px 16px", borderBottom: `1px solid ${THEME.border}`, fontSize: 12, color: THEME.muted }}>
+                  {userEmail}
                 </div>
-              )}
-            </section>
-
-            {/* 3. PAZIENTI DA COMPLETARE */}
-            <section style={{ ...cardStyle, borderLeft: `6px solid ${THEME.amber}` }}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  cursor: "pointer",
-                  gap: 12,
-                }}
-                onClick={() => setShowIncompleteList(!showIncompleteList)}
-              >
-                <div>
-                  <h2 style={{ margin: 0, fontWeight: 1000, fontSize: 18, color: THEME.amber }}>
-                    ⚠️ Pazienti da Completare
-                  </h2>
-                  <p style={{ margin: "4px 0 0", fontSize: 13, color: THEME.muted, fontWeight: 800 }}>
-                    Priorità: {patientsToComplete.filter((p) => !p.phone).length} mancano num. di telefono
-                  </p>
-                </div>
-                <span style={{ fontWeight: 1000 }}>{showIncompleteList ? "−" : "+"}</span>
-              </div>
-
-              {showIncompleteList && (
-                <div style={{ marginTop: 14 }}>
-                  {/* MOBILE: CARD */}
-                  {isMobile ? (
-                    <div>
-                      {patientsToComplete.length === 0 ? (
-                        <div style={{ padding: 10, color: THEME.green, fontWeight: 1000 }}>
-                          Nessuna scheda da completare ✅
-                        </div>
-                      ) : (
-                        patientsToComplete.map((p) => <IncompleteCard key={p.id} p={p} />)
-                      )}
-                    </div>
-                  ) : (
-                    // DESKTOP: TABELLA
-                    <div style={{ overflow: "hidden", borderRadius: 12, border: `1px solid ${THEME.borderSoft}` }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                        <thead>
-                          <tr>
-                            <th style={tableHeaderStyle}>Paziente</th>
-                            <th style={tableHeaderStyle}>Mancanze</th>
-                            <th style={{ ...tableHeaderStyle, textAlign: "right" }}>Azione</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {patientsToComplete.length === 0 ? (
-                            <tr>
-                              <td
-                                colSpan={3}
-                                style={{ padding: 24, textAlign: "center", color: THEME.green, fontWeight: 800 }}
-                              >
-                                Nessuna scheda da completare ✅
-                              </td>
-                            </tr>
-                          ) : (
-                            patientsToComplete.map((p, idx) => (
-                              <tr
-                                key={p.id}
-                                style={{
-                                  background: idx % 2 === 0 ? "#fff" : "rgba(249,115,22,0.02)",
-                                  borderBottom: `1px solid ${THEME.borderSoft}`,
-                                  borderLeft: !p.phone ? `4px solid ${THEME.red}` : "none",
-                                }}
-                              >
-                                <td style={{ padding: "16px" }}>
-                                  <Link href={`/patients/${p.id}`} style={patientLinkStyle}>
-                                    {p.last_name} {p.first_name}
-                                  </Link>
-                                </td>
-                                <td style={{ padding: "16px" }}>
-                                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                                    {!p.phone && (
-                                      <span
-                                        style={{
-                                          fontSize: 10,
-                                          background: "rgba(220,38,38,0.15)",
-                                          color: THEME.red,
-                                          padding: "4px 8px",
-                                          borderRadius: 6,
-                                          fontWeight: 1000,
-                                        }}
-                                      >
-                                        ⚠️ MANCA TELEFONO
-                                      </span>
-                                    )}
-                                    {!p.tax_code && (
-                                      <span
-                                        style={{
-                                          fontSize: 10,
-                                          background: "rgba(51,65,85,0.1)",
-                                          color: THEME.muted,
-                                          padding: "4px 8px",
-                                          borderRadius: 6,
-                                          fontWeight: 1000,
-                                        }}
-                                      >
-                                        NO CF
-                                      </span>
-                                    )}
-                                    {!p.birth_date && (
-                                      <span
-                                        style={{
-                                          fontSize: 10,
-                                          background: "rgba(37,99,235,0.1)",
-                                          color: THEME.blue,
-                                          padding: "4px 8px",
-                                          borderRadius: 6,
-                                          fontWeight: 1000,
-                                        }}
-                                      >
-                                        NO NASCITA
-                                      </span>
-                                    )}
-                                  </div>
-                                </td>
-                                <td style={{ padding: "16px", textAlign: "right" }}>
-                                  <Link
-                                    href={`/patients/${p.id}`}
-                                    style={{
-                                      color: THEME.blue,
-                                      fontWeight: 1000,
-                                      textDecoration: "none",
-                                      fontSize: 13,
-                                      border: `1px solid ${THEME.blue}`,
-                                      padding: "6px 12px",
-                                      borderRadius: 8,
-                                    }}
-                                  >
-                                    COMPLETA
-                                  </Link>
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
-            </section>
-
-            {/* Footer micro (mobile) */}
-            {isMobile && (
-              <div style={{ padding: "10px 2px 24px", color: THEME.muted, fontWeight: 800, fontSize: 12 }}>
-                {patients.length} pazienti totali • {patientsToComplete.length} da completare
+                <Link href="/settings" onClick={() => setUserMenuOpen(false)} style={{
+                  display: "flex", alignItems: "center", gap: 8, padding: "11px 16px",
+                  color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
+                  borderBottom: `1px solid ${THEME.border}`,
+                }}>Impostazioni</Link>
+                <button onClick={handleLogout} style={{
+                  width: "100%", display: "flex", alignItems: "center", gap: 8,
+                  padding: "11px 16px", background: "transparent", border: "none",
+                  cursor: "pointer", color: THEME.red, fontWeight: 600, fontSize: 13,
+                }}>Logout</button>
               </div>
             )}
           </div>
         </div>
+      </header>
+
+      {/* ━━━ MAIN ━━━ */}
+      <main style={{ padding: "28px 32px", maxWidth: 1280, margin: "0 auto" }} className="tab-p">
+
+        {/* Page header */}
+        <div style={{ marginBottom: 24, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+          <div>
+            <h1 style={{ margin: 0, fontWeight: 800, fontSize: 24, color: THEME.text, letterSpacing: -0.4 }}>
+              Pazienti
+            </h1>
+            {!loading && (
+              <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+                {[
+                  { label: "Totali",      value: patients.length,                                    color: THEME.blue  },
+                  { label: "Incompleti",  value: patientsToComplete.length,                          color: patientsToComplete.length > 0 ? THEME.amber : THEME.muted },
+                  { label: "Senza tel.", value: patientsToComplete.filter(p => !p.phone).length,    color: patientsToComplete.filter(p => !p.phone).length > 0 ? THEME.red : THEME.muted },
+                ].map(k => (
+                  <div key={k.label} style={{
+                    display: "flex", alignItems: "baseline", gap: 5,
+                    padding: "5px 12px", borderRadius: 6,
+                    background: "#fff", border: `1px solid ${THEME.border}`,
+                  }}>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: k.color }}>{k.value}</span>
+                    <span style={{ fontSize: 12, color: THEME.muted, fontWeight: 500 }}>{k.label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <button onClick={openDrawer} style={{
+            padding: "10px 18px", borderRadius: 8, border: "none",
+            background: THEME.teal, color: "#fff",
+            fontWeight: 700, fontSize: 13, cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
+          }}>
+            + Nuovo paziente
+          </button>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div style={{
+            marginBottom: 16, padding: "11px 16px", borderRadius: 7,
+            background: "rgba(220,38,38,0.05)", border: `1px solid rgba(220,38,38,0.18)`,
+            color: THEME.red, fontWeight: 600, fontSize: 13,
+          }}>{error}</div>
+        )}
+
+        {/* ── Pannello lista ─────────────────────────────────────────────── */}
+        <div style={{
+          background: "#fff", borderRadius: 12,
+          border: `1px solid ${THEME.border}`,
+          boxShadow: "0 1px 4px rgba(15,23,42,0.04)",
+        }}>
+
+          {/* Toolbar */}
+          <div style={{
+            padding: "14px 20px",
+            borderBottom: `1px solid ${THEME.border}`,
+            display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+          }}>
+            <div style={{ position: "relative", flex: 1, minWidth: 200 }}>
+              <span style={{
+                position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
+                color: THEME.gray, fontSize: 15, pointerEvents: "none", lineHeight: 1,
+              }}>⌕</span>
+              <input
+                placeholder="Cerca per nome o telefono…"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                style={{ ...inputStyle, paddingLeft: 32, background: THEME.appBg }}
+              />
+            </div>
+
+            <div style={{
+              display: "flex",
+              border: `1px solid ${THEME.border}`,
+              borderRadius: 7, overflow: "hidden", flexShrink: 0,
+            }}>
+              {([
+                { key: "all",        label: `Tutti (${patients.length})` },
+                { key: "incomplete", label: `Incompleti (${patientsToComplete.length})` },
+              ] as const).map(t => (
+                <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
+                  padding: "7px 14px", border: "none", cursor: "pointer",
+                  fontSize: 12, fontWeight: 600,
+                  background: activeTab === t.key ? THEME.teal : "#fff",
+                  color:      activeTab === t.key ? "#fff"     : THEME.muted,
+                  transition: "background 0.15s, color 0.15s",
+                }}>{t.label}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Tabella */}
+          {loading ? (
+            <div style={{ padding: 40, textAlign: "center", color: THEME.muted, fontSize: 13 }}>
+              Caricamento…
+            </div>
+          ) : visiblePatients.length === 0 ? (
+            <div style={{ padding: 48, textAlign: "center", color: THEME.muted, fontSize: 13 }}>
+              {searchTerm ? `Nessun risultato per "${searchTerm}"` : "Nessun paziente registrato."}
+            </div>
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={tableHeaderStyle}>Paziente</th>
+                  <th style={tableHeaderStyle}>Telefono</th>
+                  <th style={tableHeaderStyle} className="tab-hide">Città</th>
+                  {activeTab === "incomplete" && (
+                    <th style={tableHeaderStyle}>Mancante</th>
+                  )}
+                  <th style={{ ...tableHeaderStyle, textAlign: "right" }}> </th>
+                </tr>
+              </thead>
+              <tbody>
+                {visiblePatients.map((p, idx) => {
+                  const missing = missingBadges(p);
+                  return (
+                    <tr
+                      key={p.id}
+                      className="row-hover"
+                      style={{
+                        background: idx % 2 === 0 ? "#fff" : THEME.panelSoft,
+                        borderBottom: `1px solid ${THEME.border}`,
+                        borderLeft: !p.phone ? `3px solid ${THEME.red}` : "3px solid transparent",
+                      }}
+                    >
+                      <td style={{ padding: "13px 16px" }}>
+                        <Link href={`/patients/${p.id}`} style={{
+                          textDecoration: "none", color: THEME.text,
+                          fontWeight: 600, fontSize: 14,
+                        }}>
+                          {p.last_name} {p.first_name}
+                        </Link>
+                      </td>
+                      <td style={{ padding: "13px 16px", color: THEME.textSoft, fontSize: 13 }}>
+                        {p.phone ?? <span style={{ color: THEME.gray }}>—</span>}
+                      </td>
+                      <td style={{ padding: "13px 16px", color: THEME.muted, fontSize: 13 }} className="tab-hide">
+                        {p.residence_city ?? <span style={{ color: THEME.gray }}>—</span>}
+                      </td>
+                      {activeTab === "incomplete" && (
+                        <td style={{ padding: "13px 16px" }}>
+                          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                            {missing.map(m => (
+                              <span key={m.label} style={{
+                                fontSize: 11, background: m.bg, color: m.color,
+                                padding: "3px 8px", borderRadius: 4, fontWeight: 600,
+                              }}>{m.label}</span>
+                            ))}
+                          </div>
+                        </td>
+                      )}
+                      <td style={{ padding: "13px 16px", textAlign: "right" }}>
+                        <Link href={`/patients/${p.id}`} style={{
+                          color: THEME.blue, fontWeight: 600, textDecoration: "none",
+                          fontSize: 12, padding: "5px 12px",
+                          border: `1px solid ${THEME.border}`, borderRadius: 6,
+                          display: "inline-flex", alignItems: "center", gap: 4,
+                        }}>Apri →</Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+
+          {!loading && visiblePatients.length > 0 && (
+            <div style={{
+              padding: "9px 20px",
+              borderTop: `1px solid ${THEME.border}`,
+              fontSize: 12, color: THEME.muted,
+            }}>
+              {visiblePatients.length} {visiblePatients.length === 1 ? "paziente" : "pazienti"}
+              {searchTerm && ` per "${searchTerm}"`}
+            </div>
+          )}
+        </div>
+
       </main>
     </div>
   );
