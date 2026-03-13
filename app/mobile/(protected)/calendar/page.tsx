@@ -10,28 +10,17 @@ type Status = "booked" | "confirmed" | "done" | "cancelled" | "not_paid";
 type LocationType = "studio" | "domicile";
 
 type PatientLite = {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-  phone?: string | null;
+  id: string; first_name: string | null; last_name: string | null; phone?: string | null;
 };
 
 type CalendarEvent = {
-  id: string;
-  patient_id: string | null;
-  patient_name: string;
-  patient_first_name: string | null;
-  patient_phone: string | null;
-  start: Date;
-  end: Date;
-  status: Status;
-  calendar_note: string | null;
-  location: LocationType | null;
-  clinic_site: string | null;
-  domicile_address: string | null;
-  amount: number | null;
-  treatment_type: string | null;
-  price_type: string | null;
+  id: string; patient_id: string | null;
+  patient_name: string; patient_first_name: string | null; patient_phone: string | null;
+  start: Date; end: Date; status: Status;
+  calendar_note: string | null; location: LocationType | null;
+  clinic_site: string | null; domicile_address: string | null;
+  amount: number | null; is_paid: boolean;
+  treatment_type: string | null; price_type: string | null;
   whatsapp_sent_at: string | null;
 };
 
@@ -61,7 +50,7 @@ type TouchDragState = {
   activated: boolean; activationTimer: ReturnType<typeof setTimeout> | null;
 };
 
-/* ─── Theme (identico home + desktop) ────────────────────────────────── */
+/* ─── Theme ───────────────────────────────────────────────────────────── */
 const THEME = {
   appBg:     "#f1f5f9",
   panelBg:   "#ffffff",
@@ -75,6 +64,7 @@ const THEME = {
   red:       "#dc2626",
   amber:     "#f97316",
   gray:      "#94a3b8",
+  teal:      "#0d9488",
   gradient:  "linear-gradient(135deg, #0d9488, #2563eb)",
 };
 
@@ -84,18 +74,14 @@ const DEFAULT_START  = 7;
 const DEFAULT_END    = 22;
 const DEFAULT_CLINIC = "Studio Pontecorvo";
 
-/* ─── Costanti WhatsApp (identiche desktop) ──────────────────────────── */
 const CLINIC_ADDRESSES: Record<string, string> = {
   "Studio Pontecorvo": "Pontecorvo, Via Galileo Galilei 5, dietro il Bar Principe",
 };
 
-/* ─── Status helpers (identici desktop) ──────────────────────────────── */
+/* ─── Status helpers ──────────────────────────────────────────────────── */
 function statusLabel(s: Status) {
-  const map: Record<Status, string> = {
-    booked: "Prenotato", confirmed: "Confermato", done: "Eseguito",
-    not_paid: "Non pagata", cancelled: "Annullato",
-  };
-  return map[s] ?? "Prenotato";
+  return ({ booked:"Prenotato", confirmed:"Confermato", done:"Eseguito",
+            not_paid:"Non pagata", cancelled:"Annullato" } as Record<Status,string>)[s] ?? "Prenotato";
 }
 function statusColor(s: Status): string {
   switch (s) {
@@ -116,67 +102,63 @@ function statusBg(s: Status): string {
   }
 }
 
-/* ─── WhatsApp helpers ────────────────────────────────────────────────
- * wa.me richiede E.164 senza "+": 393391234567
- * ─────────────────────────────────────────────────────────────────── */
-function formatPhoneForWhatsAppWeb(phone: string): string {
+/* ─── WhatsApp helpers ────────────────────────────────────────────────── */
+function formatPhoneForWA(phone: string): string {
   if (!phone) return phone;
-  let clean = phone.replace(/[\s\(\)\-\.]/g, "");
-  if (clean.startsWith("+")) clean = clean.substring(1);
-  if (clean.startsWith("0")) clean = "39" + clean.substring(1);
-  if (!clean.startsWith("39") && clean.length <= 10) clean = "39" + clean;
-  return clean;
+  let c = phone.replace(/[\s\(\)\-\.]/g, "");
+  if (c.startsWith("+")) c = c.substring(1);
+  if (c.startsWith("0")) c = "39" + c.substring(1);
+  if (!c.startsWith("39") && c.length <= 10) c = "39" + c;
+  return c;
 }
 
 function formatDateRelative(date: Date): string {
-  const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
-  const domani = new Date(oggi); domani.setDate(oggi.getDate() + 1);
-  const dataAppt = new Date(date); dataAppt.setHours(0, 0, 0, 0);
-  if (dataAppt.getTime() === oggi.getTime()) return "Oggi";
-  if (dataAppt.getTime() === domani.getTime()) return "Domani";
-  const giorni = ["Domenica","Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato"];
-  const mesi   = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno",
-                  "Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
-  return `${giorni[dataAppt.getDay()]} ${dataAppt.getDate()} ${mesi[dataAppt.getMonth()]}`;
+  const oggi = new Date(); oggi.setHours(0,0,0,0);
+  const domani = new Date(oggi); domani.setDate(oggi.getDate()+1);
+  const d = new Date(date); d.setHours(0,0,0,0);
+  if (d.getTime() === oggi.getTime()) return "Oggi";
+  if (d.getTime() === domani.getTime()) return "Domani";
+  const gg = ["Domenica","Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato"];
+  const mm = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno",
+              "Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+  return `${gg[d.getDay()]} ${d.getDate()} ${mm[d.getMonth()]}`;
 }
 
-/* ─── Generic helpers ────────────────────────────────────────────────── */
-function pad2(n: number) { return String(n).padStart(2, "0"); }
-function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+/* ─── Generic helpers ─────────────────────────────────────────────────── */
+function pad2(n: number) { return String(n).padStart(2,"0"); }
+function addDays(d: Date, n: number) { const x=new Date(d); x.setDate(x.getDate()+n); return x; }
 function formatDMY(d: Date) { return `${pad2(d.getDate())}/${pad2(d.getMonth()+1)}/${d.getFullYear()}`; }
+function formatWeekdayShort(d: Date) {
+  return ["Dom","Lun","Mar","Mer","Gio","Ven","Sab"][d.getDay()];
+}
 function formatWeekday(d: Date) {
   return ["Domenica","Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato"][d.getDay()];
 }
 function isSameDay(a: Date, b: Date) {
-  return a.getDate() === b.getDate() && a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
+  return a.getDate()===b.getDate() && a.getMonth()===b.getMonth() && a.getFullYear()===b.getFullYear();
 }
-function fmtTime(d: Date) { return d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }); }
+function fmtTime(d: Date) { return d.toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}); }
 function toISODateLocal(d: Date) { return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
-function parseTimeHHMM(t: string) {
-  const [hh, mm] = t.split(":").map(Number);
-  return { hh: Number.isFinite(hh) ? hh : 0, mm: Number.isFinite(mm) ? mm : 0 };
-}
-function buildDateTime(dateISO: string, timeHHMM: string) {
+function buildDateTime(dateISO: string, hhmm: string) {
   const b = new Date(`${dateISO}T00:00:00`);
-  const { hh, mm } = parseTimeHHMM(timeHHMM);
-  b.setHours(hh, mm, 0, 0); return b;
+  const [hh,mm] = hhmm.split(":").map(Number);
+  b.setHours(hh||0, mm||0, 0, 0); return b;
 }
-function normalizePhone(raw?: string | null) {
-  if (!raw) return null;
-  const d = raw.replace(/\D/g, ""); return d.length < 9 ? null : d;
+function normalizePhone(raw?: string|null) {
+  if (!raw) return null; const d=raw.replace(/\D/g,""); return d.length<9?null:d;
 }
 function isValidISODate(s: string) { return /^\d{4}-\d{2}-\d{2}$/.test(s); }
 function isValidHHMM(s: string) { return /^([01]\d|2[0-3]):[0-5]\d$/.test(s); }
-function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
-function roundTo(n: number, step: number) { return Math.round(n / step) * step; }
+function clamp(n: number, lo: number, hi: number) { return Math.max(lo,Math.min(hi,n)); }
+function roundTo(n: number, step: number) { return Math.round(n/step)*step; }
 
-/* ─── Page shell ─────────────────────────────────────────────────────── */
+/* ─── Page shell ──────────────────────────────────────────────────────── */
 export default function CalendarPage() {
   return (
     <Suspense fallback={
-      <div style={{ minHeight: "100vh", background: THEME.appBg, display: "flex",
-        alignItems: "center", justifyContent: "center", color: THEME.muted,
-        fontFamily: "Inter,-apple-system,sans-serif", fontSize: 14 }}>
+      <div style={{minHeight:"100vh",background:THEME.appBg,display:"flex",
+        alignItems:"center",justifyContent:"center",color:THEME.muted,
+        fontFamily:"Inter,-apple-system,sans-serif",fontSize:14}}>
         Caricamento…
       </div>
     }>
@@ -185,20 +167,20 @@ export default function CalendarPage() {
   );
 }
 
-/* ─── Main component ─────────────────────────────────────────────────── */
+/* ─── Main ────────────────────────────────────────────────────────────── */
 function CalendarPageInner() {
   const router       = useRouter();
   const searchParams = useSearchParams();
 
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
-  const [events,   setEvents]   = useState<CalendarEvent[]>([]);
-  const [loading,  setLoading]  = useState(false);
-  const [busy,     setBusy]     = useState(false);
-  const [error,    setError]    = useState("");
+  const [events,  setEvents]  = useState<CalendarEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [busy,    setBusy]    = useState(false);
+  const [error,   setError]   = useState("");
 
   /* user */
-  const [userEmail,    setUserEmail]    = useState<string | null>(null);
+  const [userEmail,    setUserEmail]    = useState<string|null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
@@ -207,22 +189,47 @@ function CalendarPageInner() {
   const timelineScrollRef = useRef<HTMLDivElement>(null);
 
   /* drag mouse */
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dragOverY,  setDragOverY]  = useState<number | null>(null);
+  const [draggingId, setDraggingId] = useState<string|null>(null);
+  const [dragOverY,  setDragOverY]  = useState<number|null>(null);
 
   /* drag touch */
-  const touchDragRef          = useRef<TouchDragState | null>(null);
-  const touchDragYRef         = useRef<number | null>(null);
-  const [touchDragY, _setTDY] = useState<number | null>(null);
-  const [touchDraggingId, setTouchDraggingId] = useState<string | null>(null);
-  const setTouchDragY = (y: number | null) => { touchDragYRef.current = y; _setTDY(y); };
+  const touchDragRef          = useRef<TouchDragState|null>(null);
+  const touchDragYRef         = useRef<number|null>(null);
+  const [touchDragY, _setTDY] = useState<number|null>(null);
+  const [touchDraggingId, setTouchDraggingId] = useState<string|null>(null);
+  const setTouchDragY = (y: number|null) => { touchDragYRef.current=y; _setTDY(y); };
 
   /* swipe */
-  const swipeXRef = useRef<number | null>(null);
-  const swipeYRef = useRef<number | null>(null);
+  const swipeXRef = useRef<number|null>(null);
+  const swipeYRef = useRef<number|null>(null);
+
+  /* ─── NEW: pull-to-refresh ────────────────── */
+  const [pullY,        setPullY]        = useState(0);
+  const [isPulling,    setIsPulling]    = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const pullStartY = useRef<number|null>(null);
+  const PULL_THRESHOLD = 64;
+
+  /* ─── NEW: swipe actions ──────────────────── */
+  const [swipeState, setSwipeState] = useState<{id:string; x:number}|null>(null);
+  const cardSwipeStartRef = useRef<{id:string; startX:number; startY:number}|null>(null);
+
+  /* ─── NEW: quick note ─────────────────────── */
+  const [quickNoteId,   setQuickNoteId]   = useState<string|null>(null);
+  const [quickNoteText, setQuickNoteText] = useState("");
+
+  /* ─── NEW: search patient ─────────────────── */
+  const [searchOpen,    setSearchOpen]    = useState(false);
+  const [searchQuery,   setSearchQuery]   = useState("");
+  const [searchResults, setSearchResults] = useState<PatientLite[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  /* ─── NEW: go to date ─────────────────────── */
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const dateInputRef = useRef<HTMLInputElement>(null);
 
   /* edit modal */
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent|null>(null);
   const [editStatus,    setEditStatus]    = useState<Status>("booked");
   const [editNote,      setEditNote]      = useState("");
   const [editAmount,    setEditAmount]    = useState("");
@@ -242,26 +249,25 @@ function CalendarPageInner() {
   const [createAmount,          setCreateAmount]          = useState("");
   const [createNote,            setCreateNote]            = useState("");
 
-  /* patient search */
+  /* patient search (create) */
   const [patientQuery,    setPatientQuery]    = useState("");
   const [patientResults,  setPatientResults]  = useState<PatientLite[]>([]);
   const [patientLoading,  setPatientLoading]  = useState(false);
-  const [selectedPatient, setSelectedPatient] = useState<PatientLite | null>(null);
+  const [selectedPatient, setSelectedPatient] = useState<PatientLite|null>(null);
   const [quickFirstName,  setQuickFirstName]  = useState("");
   const [quickLastName,   setQuickLastName]   = useState("");
   const [quickPhone,      setQuickPhone]      = useState("");
 
-  /* ── Clock ────────────────────────────────── */
+  /* ── Clock ───────────────────────────────── */
   useEffect(() => {
     const t = setInterval(() => setCurrentTime(new Date()), 60_000);
     return () => clearInterval(t);
   }, []);
 
-  /* ── User ─────────────────────────────────── */
+  /* ── User ────────────────────────────────── */
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUserEmail(data?.user?.email ?? null)).catch(() => {});
+    supabase.auth.getUser().then(({data}) => setUserEmail(data?.user?.email??null)).catch(()=>{});
   }, []);
-
   useEffect(() => {
     const fn = (e: MouseEvent) => {
       if (userMenuOpen && userMenuRef.current && !userMenuRef.current.contains(e.target as Node))
@@ -271,39 +277,32 @@ function CalendarPageInner() {
     return () => document.removeEventListener("mousedown", fn);
   }, [userMenuOpen]);
 
-  /* ── Load ─────────────────────────────────── */
+  /* ── Load ────────────────────────────────── */
   const loadAppointments = useCallback(async (date: Date) => {
     setLoading(true); setError("");
-    const s0 = new Date(date); s0.setHours(0, 0, 0, 0);
-    const e0 = new Date(date); e0.setHours(23, 59, 59, 999);
-    const { data, error: err } = await supabase.from("appointments").select(`
-      id, patient_id, start_at, end_at, status, calendar_note,
-      location, clinic_site, domicile_address,
-      amount, treatment_type, price_type, whatsapp_sent_at,
-      patients:patient_id(first_name, last_name, phone)
-    `).gte("start_at", s0.toISOString()).lt("start_at", e0.toISOString())
-      .order("start_at", { ascending: true });
-
+    const s0=new Date(date); s0.setHours(0,0,0,0);
+    const e0=new Date(date); e0.setHours(23,59,59,999);
+    const {data,error:err} = await supabase.from("appointments").select(`
+      id,patient_id,start_at,end_at,status,calendar_note,is_paid,
+      location,clinic_site,domicile_address,
+      amount,treatment_type,price_type,whatsapp_sent_at,
+      patients:patient_id(first_name,last_name,phone)
+    `).gte("start_at",s0.toISOString()).lt("start_at",e0.toISOString())
+      .order("start_at",{ascending:true});
     if (err) { setError(`Errore: ${err.message}`); setLoading(false); return; }
-
-    const mapped: CalendarEvent[] = (data ?? []).map((a: any) => {
-      const p = Array.isArray(a.patients) ? a.patients[0] : a.patients;
-      const name = p ? `${p.last_name ?? ""} ${p.first_name ?? ""}`.trim() : "Paziente";
+    const mapped: CalendarEvent[] = (data??[]).map((a:any) => {
+      const p = Array.isArray(a.patients)?a.patients[0]:a.patients;
+      const name = p?`${p.last_name??""} ${p.first_name??""}`.trim():"Paziente";
       return {
-        id: a.id, patient_id: a.patient_id ?? null,
-        patient_name: name || "Paziente",
-        patient_first_name: p?.first_name ?? null,
-        patient_phone: p?.phone ?? null,
-        start: new Date(a.start_at), end: new Date(a.end_at),
-        status: (a.status ?? "booked") as Status,
-        calendar_note: a.calendar_note ?? null,
-        location: (a.location ?? null) as LocationType | null,
-        clinic_site: a.clinic_site ?? null,
-        domicile_address: a.domicile_address ?? null,
-        amount: a.amount ?? null,
-        treatment_type: a.treatment_type ?? null,
-        price_type: a.price_type ?? null,
-        whatsapp_sent_at: a.whatsapp_sent_at ?? null,
+        id:a.id, patient_id:a.patient_id??null,
+        patient_name:name||"Paziente", patient_first_name:p?.first_name??null,
+        patient_phone:p?.phone??null, start:new Date(a.start_at), end:new Date(a.end_at),
+        status:(a.status??"booked") as Status, calendar_note:a.calendar_note??null,
+        is_paid:a.is_paid??false,
+        location:(a.location??null) as LocationType|null, clinic_site:a.clinic_site??null,
+        domicile_address:a.domicile_address??null, amount:a.amount??null,
+        treatment_type:a.treatment_type??null, price_type:a.price_type??null,
+        whatsapp_sent_at:a.whatsapp_sent_at??null,
       };
     });
     setEvents(mapped); setLoading(false);
@@ -311,161 +310,223 @@ function CalendarPageInner() {
 
   useEffect(() => { loadAppointments(currentDate); }, [currentDate, loadAppointments]);
 
-  /* ── URL params ───────────────────────────── */
+  /* ── URL params ──────────────────────────── */
   const handledNewRef = useRef(false);
   useEffect(() => {
     const qDate = searchParams.get("date");
     if (qDate && isValidISODate(qDate)) {
       const d = new Date(`${qDate}T00:00:00`);
-      if (!isNaN(d.getTime()) && !isSameDay(d, currentDate)) setCurrentDate(d);
+      if (!isNaN(d.getTime()) && !isSameDay(d,currentDate)) setCurrentDate(d);
     }
-    const isNew = searchParams.get("new") === "1" || searchParams.get("action") === "new";
-    if (!isNew) { handledNewRef.current = false; return; }
+    const isNew = searchParams.get("new")==="1"||searchParams.get("action")==="new";
+    if (!isNew) { handledNewRef.current=false; return; }
     if (handledNewRef.current) return;
-    handledNewRef.current = true;
-    const base = qDate && isValidISODate(qDate) ? qDate : toISODateLocal(currentDate);
+    handledNewRef.current=true;
+    const base = qDate&&isValidISODate(qDate)?qDate:toISODateLocal(currentDate);
     const qt = searchParams.get("time");
-    openCreate(qt && isValidHHMM(qt) ? qt : undefined, base);
+    openCreate(qt&&isValidHHMM(qt)?qt:undefined,base);
     const params = new URLSearchParams(searchParams.toString());
     params.delete("new"); params.delete("time"); params.delete("action");
-    router.replace(`/mobile/calendar${params.toString() ? `?${params}` : ""}`);
+    router.replace(`/mobile/calendar${params.toString()?`?${params}`:""}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, router]);
+  }, [searchParams,router]);
 
-  /* ── Derived ──────────────────────────────── */
+  /* ── Derived ─────────────────────────────── */
   const dayEvents = useMemo(() =>
-    events.filter(e => isSameDay(e.start, currentDate)), [events, currentDate]);
+    events.filter(e=>isSameDay(e.start,currentDate)), [events,currentDate]);
 
   const dayStats = useMemo(() => ({
-    total:   dayEvents.filter(e => e.status !== "cancelled").length,
-    done:    dayEvents.filter(e => e.status === "done").length,
-    revenue: dayEvents.reduce((s, e) => e.status === "done" ? s + (e.amount ?? 0) : s, 0),
+    total:   dayEvents.filter(e=>e.status!=="cancelled").length,
+    done:    dayEvents.filter(e=>e.status==="done").length,
+    revenue: dayEvents.reduce((s,e)=>e.status==="done"?s+(e.amount??0):s,0),
+    unpaidDone: dayEvents.filter(e=>e.status==="done"&&!e.is_paid).length,
   }), [dayEvents]);
 
-  const { dayStartHour, dayEndHour } = useMemo(() => {
-    if (!dayEvents.length) return { dayStartHour: DEFAULT_START, dayEndHour: DEFAULT_END };
-    const starts = dayEvents.map(e => e.start.getHours());
-    const ends   = dayEvents.map(e => e.end.getHours() + (e.end.getMinutes() > 0 ? 1 : 0));
+  /* ─── Slot liberi tra appuntamenti ──────── */
+  const freeSlots = useMemo(() => {
+    const active = dayEvents
+      .filter(e => e.status !== "cancelled")
+      .sort((a,b) => a.start.getTime() - b.start.getTime());
+    const slots: {start: Date; end: Date; minutes: number}[] = [];
+    for (let i = 0; i < active.length - 1; i++) {
+      const gapStart = active[i].end;
+      const gapEnd   = active[i+1].start;
+      const minutes  = Math.round((gapEnd.getTime() - gapStart.getTime()) / 60_000);
+      if (minutes >= 60) slots.push({ start: gapStart, end: gapEnd, minutes });
+    }
+    return slots;
+  }, [dayEvents]);
+  const fabBadge = useMemo(() => {
+    const now = new Date();
+    return dayEvents.filter(e=>
+      e.end < now && e.status!=="done" && e.status!=="cancelled"
+    ).length;
+  }, [dayEvents]);
+
+  const {dayStartHour,dayEndHour} = useMemo(() => {
+    if (!dayEvents.length) return {dayStartHour:DEFAULT_START,dayEndHour:DEFAULT_END};
+    const starts = dayEvents.map(e=>e.start.getHours());
+    const ends   = dayEvents.map(e=>e.end.getHours()+(e.end.getMinutes()>0?1:0));
     return {
-      dayStartHour: clamp(Math.min(DEFAULT_START, ...starts), 0, 23),
-      dayEndHour:   clamp(Math.max(DEFAULT_END, ...ends), 1, 24),
+      dayStartHour: clamp(Math.min(DEFAULT_START,...starts),0,23),
+      dayEndHour:   clamp(Math.max(DEFAULT_END,...ends),1,24),
     };
   }, [dayEvents]);
 
   const timeSlots = useMemo(() => {
-    const s: { label: string; hour: number }[] = [];
-    for (let h = dayStartHour; h < dayEndHour; h++) s.push({ label: `${pad2(h)}:00`, hour: h });
+    const s:{label:string;hour:number}[]=[];
+    for (let h=dayStartHour;h<dayEndHour;h++) s.push({label:`${pad2(h)}:00`,hour:h});
     return s;
-  }, [dayStartHour, dayEndHour]);
+  }, [dayStartHour,dayEndHour]);
 
-  const getEventPosition = useCallback((start: Date, end: Date) => {
-    const ppm = PX_PER_HOUR / 60;
-    const top    = ((start.getHours() - dayStartHour) * 60 + start.getMinutes()) * ppm;
-    const height = ((end.getHours() - start.getHours()) * 60 + (end.getMinutes() - start.getMinutes())) * ppm;
-    return { top: Math.max(0, top), height: Math.max(Math.round(PX_PER_HOUR * 0.55), height) };
+  const getEventPosition = useCallback((start:Date,end:Date) => {
+    const ppm = PX_PER_HOUR/60;
+    const top    = ((start.getHours()-dayStartHour)*60+start.getMinutes())*ppm;
+    const height = ((end.getHours()-start.getHours())*60+(end.getMinutes()-start.getMinutes()))*ppm;
+    return {top:Math.max(0,top),height:Math.max(Math.round(PX_PER_HOUR*0.55),height)};
   }, [dayStartHour]);
+
+  /* ─── NEW: week strip — 7 giorni centrati sul corrente ─── */
+  const weekDays = useMemo(() => {
+    return Array.from({length:7},(_,i)=>addDays(currentDate,i-3));
+  }, [currentDate]);
 
   const userInitials = useMemo(() => {
     if (!userEmail) return "U";
-    const parts = (userEmail.split("@")[0] ?? "U")
-      .replace(/[^a-zA-Z0-9]/g, " ").split(" ").filter(Boolean);
-    return ((parts[0]?.[0] ?? "U") + (parts[1]?.[0] ?? "")).toUpperCase().slice(0, 2);
+    const parts=(userEmail.split("@")[0]??"U").replace(/[^a-zA-Z0-9]/g," ").split(" ").filter(Boolean);
+    return ((parts[0]?.[0]??"U")+(parts[1]?.[0]??"")).toUpperCase().slice(0,2);
   }, [userEmail]);
 
-  /* ── Auto-scroll ──────────────────────────── */
-  useEffect(() => {
-    if (loading) return;
-    const el = timelineScrollRef.current; if (!el) return;
-    if (isSameDay(currentDate, new Date())) {
-      const now = new Date();
-      const top = ((now.getHours() - dayStartHour) * 60 + now.getMinutes()) * (PX_PER_HOUR / 60);
-      el.scrollTo({ top: Math.max(0, top - 120), behavior: "smooth" });
-    } else { el.scrollTo({ top: 0, behavior: "smooth" }); }
-  }, [loading, currentDate, dayStartHour]);
-
-  /* ── Navigation ───────────────────────────── */
-  const goPrev  = useCallback(() => setCurrentDate(p => addDays(p, -1)), []);
-  const goNext  = useCallback(() => setCurrentDate(p => addDays(p,  1)), []);
+  /* ── Navigation ──────────────────────────── */
+  const goPrev  = useCallback(() => setCurrentDate(p=>addDays(p,-1)), []);
+  const goNext  = useCallback(() => setCurrentDate(p=>addDays(p, 1)), []);
   const goToday = useCallback(() => setCurrentDate(new Date()), []);
 
-  /* ── Swipe ────────────────────────────────── */
-  const handleSwipeTouchStart = useCallback((e: React.TouchEvent) => {
-    if (touchDragRef.current?.activated) return;
-    swipeXRef.current = e.touches[0].clientX;
-    swipeYRef.current = e.touches[0].clientY;
+  /* ── Swipe page ──────────────────────────── */
+  const handleSwipeTouchStart = useCallback((e:React.TouchEvent) => {
+    if (touchDragRef.current?.activated||cardSwipeStartRef.current) return;
+    swipeXRef.current=e.touches[0].clientX;
+    swipeYRef.current=e.touches[0].clientY;
   }, []);
-  const handleSwipeTouchEnd = useCallback((e: React.TouchEvent) => {
-    if (swipeXRef.current === null) return;
-    const dx = e.changedTouches[0].clientX - swipeXRef.current;
-    const dy = e.changedTouches[0].clientY - (swipeYRef.current ?? 0);
-    swipeXRef.current = null;
-    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-      if (dx < 0) goNext(); else goPrev();
-    }
-  }, [goPrev, goNext]);
+  const handleSwipeTouchEnd = useCallback((e:React.TouchEvent) => {
+    if (swipeXRef.current===null) return;
+    const dx=e.changedTouches[0].clientX-swipeXRef.current;
+    const dy=e.changedTouches[0].clientY-(swipeYRef.current??0);
+    swipeXRef.current=null;
+    if (Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.5) { if(dx<0) goNext(); else goPrev(); }
+  }, [goPrev,goNext]);
 
-  /* ── WhatsApp — IDENTICO AL DESKTOP ──────────────────────────────────
-   * Firma: sendReminder(appointmentId, patientPhone, patientFirstName, isConfirmation?)
-   * Template lookup: cerca "Promemoria" o "Appuntamento" in message_templates
-   * Fallback hardcoded identico al desktop
-   * URL: wa.me/NUMERO?text=... → apre l'app WhatsApp su mobile
-   * Dopo OK: aggiorna DB whatsapp_sent_at + whatsapp_sent
-   * Se popup bloccato: secondo confirm con redirect o copia link
-   * ─────────────────────────────────────────────────────────────────── */
+  /* ─── NEW: pull-to-refresh handlers ─────── */
+  const handlePullStart = useCallback((e:React.TouchEvent) => {
+    const el = timelineScrollRef.current;
+    if (el && el.scrollTop===0) pullStartY.current=e.touches[0].clientY;
+  }, []);
+  const handlePullMove = useCallback((e:React.TouchEvent) => {
+    if (pullStartY.current===null||isRefreshing) return;
+    const dy=e.touches[0].clientY-pullStartY.current;
+    if (dy>0) { setIsPulling(true); setPullY(Math.min(dy,PULL_THRESHOLD*1.5)); }
+  }, [isRefreshing]);
+  const handlePullEnd = useCallback(async () => {
+    if (!isPulling) { pullStartY.current=null; return; }
+    if (pullY>=PULL_THRESHOLD) {
+      setIsRefreshing(true); setPullY(PULL_THRESHOLD);
+      await loadAppointments(currentDate);
+      setIsRefreshing(false);
+    }
+    setPullY(0); setIsPulling(false); pullStartY.current=null;
+  }, [isPulling,pullY,currentDate,loadAppointments]);
+
+  /* ─── NEW: segna pagato rapido ───────────── */
+  const togglePaid = useCallback(async (id:string, isPaid:boolean) => {
+    setEvents(prev=>prev.map(e=>e.id===id?{...e,is_paid:!isPaid}:e));
+    await supabase.from("appointments").update({is_paid:!isPaid}).eq("id",id);
+  }, []);
+
+  /* ─── NEW: swipe card actions ────────────── */
+  const handleCardSwipeStart = useCallback((e:React.TouchEvent, ev:CalendarEvent) => {
+    cardSwipeStartRef.current={id:ev.id,startX:e.touches[0].clientX,startY:e.touches[0].clientY};
+  }, []);
+  const handleCardSwipeMove = useCallback((e:React.TouchEvent, ev:CalendarEvent) => {
+    const s=cardSwipeStartRef.current; if (!s||s.id!==ev.id) return;
+    const dx=e.touches[0].clientX-s.startX;
+    const dy=e.touches[0].clientY-s.startY;
+    if (Math.abs(dx)<8&&Math.abs(dy)<8) return;
+    if (Math.abs(dy)>Math.abs(dx)*1.2) { cardSwipeStartRef.current=null; return; }
+    e.stopPropagation();
+    setSwipeState({id:ev.id,x:clamp(dx,-140,140)});
+  }, []);
+  const handleCardSwipeEnd = useCallback(async (ev:CalendarEvent) => {
+    const s=swipeState;
+    cardSwipeStartRef.current=null;
+    if (!s||s.id!==ev.id) return;
+    if (s.x>80) {
+      // swipe destra → eseguito
+      setEvents(prev=>prev.map(e=>e.id===ev.id?{...e,status:"done"}:e));
+      await supabase.from("appointments").update({status:"done"}).eq("id",ev.id);
+    } else if (s.x<-80) {
+      // swipe sinistra → apri modal
+      openEvent(ev);
+    }
+    setSwipeState(null);
+  }, [swipeState]);
+
+  /* ─── NEW: quick note save ───────────────── */
+  const saveQuickNote = useCallback(async () => {
+    if (!quickNoteId) return;
+    setEvents(prev=>prev.map(e=>e.id===quickNoteId?{...e,calendar_note:quickNoteText||null}:e));
+    await supabase.from("appointments").update({calendar_note:quickNoteText||null}).eq("id",quickNoteId);
+    setQuickNoteId(null); setQuickNoteText("");
+  }, [quickNoteId,quickNoteText]);
+
+
+  /* ─── NEW: patient global search ─────────── */
+  const globalSearchDebRef = useRef<number|null>(null);
+  useEffect(() => {
+    if (!searchOpen) return;
+    if (globalSearchDebRef.current) clearTimeout(globalSearchDebRef.current);
+    globalSearchDebRef.current = window.setTimeout(async () => {
+      const q=searchQuery.trim(); if (q.length<2) { setSearchResults([]); return; }
+      setSearchLoading(true);
+      const {data} = await supabase.from("patients")
+        .select("id,first_name,last_name,phone")
+        .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%`).limit(10);
+      setSearchLoading(false); setSearchResults((data??[]) as PatientLite[]);
+    }, 250);
+    return () => { if (globalSearchDebRef.current) clearTimeout(globalSearchDebRef.current); };
+  }, [searchQuery,searchOpen]);
+
+  /* ── WhatsApp ────────────────────────────── */
   const sendReminder = useCallback(async (
-    appointmentId: string,
-    patientPhone?: string,
-    patientFirstName?: string,
-    isConfirmation?: boolean,
+    appointmentId:string, patientPhone?:string, patientFirstName?:string, isConfirmation?:boolean,
   ) => {
-    if (!patientPhone) {
-      alert("Nessun telefono registrato per questo paziente");
-      return;
-    }
-
-    const appointment = events.find(e => e.id === appointmentId);
+    if (!patientPhone) { alert("Nessun telefono registrato per questo paziente"); return; }
+    const appointment = events.find(e=>e.id===appointmentId);
     if (!appointment) return;
 
-    const templateName = isConfirmation ? "Appuntamento" : "Promemoria";
-    const { data: templateData } = await supabase
-      .from("message_templates")
-      .select("template")
-      .eq("name", templateName)
-      .maybeSingle();
+    const templateName = isConfirmation?"Appuntamento":"Promemoria";
+    const {data:tplData} = await supabase.from("message_templates")
+      .select("template").eq("name",templateName).maybeSingle();
 
-    let templateText = "";
-    if (isConfirmation) {
-      templateText = `Grazie per averci scelto.\nRicordiamo il prossimo appuntamento fissato per {data_relativa} alle {ora}.\n\nA presto,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
-    } else {
-      templateText = `Buongiorno {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore ⏰ {ora}.\n\n📍 {luogo}\n\nCordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
-    }
-    if (templateData?.template) templateText = templateData.template;
+    let tpl = isConfirmation
+      ? `Grazie per averci scelto.\nRicordiamo il prossimo appuntamento fissato per {data_relativa} alle {ora}.\n\nA presto,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`
+      : `Buongiorno {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore ⏰ {ora}.\n\n📍 {luogo}\n\nCordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
+    if (tplData?.template) tpl = tplData.template;
 
-    const cleanPhone   = formatPhoneForWhatsAppWeb(patientPhone);
+    const cleanPhone   = formatPhoneForWA(patientPhone);
     const dataRelativa = formatDateRelative(appointment.start);
     const ora          = fmtTime(appointment.start);
+    const luogo = appointment.location==="studio"
+      ? (CLINIC_ADDRESSES[appointment.clinic_site??""] || appointment.clinic_site || "Pontecorvo, Via Galileo Galilei 5, dietro il Bar Principe")
+      : `Presso il suo domicilio (${appointment.domicile_address??""})`;
+    const nomePaziente = (patientFirstName&&patientFirstName.trim())?patientFirstName.trim():"Cliente";
 
-    let luogo = "";
-    if (appointment.location === "studio") {
-      luogo = CLINIC_ADDRESSES[appointment.clinic_site ?? ""]
-           || appointment.clinic_site
-           || "Pontecorvo, Via Galileo Galilei 5, dietro il Bar Principe";
-    } else {
-      luogo = `Presso il suo domicilio (${appointment.domicile_address ?? ""})`;
-    }
-
-    const nomePaziente = (patientFirstName && patientFirstName.trim())
-      ? patientFirstName.trim() : "Cliente";
-
-    const message = templateText
+    const message = tpl
       .replace(/{nome}/g,          nomePaziente)
       .replace(/{data_relativa}/g, dataRelativa)
       .replace(/{ora}/g,           ora)
       .replace(/{luogo}/g,         luogo);
 
-    const encodedMessage = encodeURIComponent(message);
-    const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodedMessage}`;
-
+    const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
     const confirmText = isConfirmation
       ? `📱 CONFERMA NUOVO APPUNTAMENTO WHATSAPP\n\nDestinatario: ${patientPhone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp e inviare.`
       : `📱 INVIO PROMEMORIA WHATSAPP\n\nDestinatario: ${patientPhone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp e inviare.`;
@@ -473,395 +534,407 @@ function CalendarPageInner() {
     const confirmed = window.confirm(confirmText);
     if (!confirmed) return;
 
-    const newWindow = window.open(whatsappUrl, "_blank");
+    const newWindow = window.open(whatsappUrl,"_blank");
 
-    /* Marca come inviato (timestamp = verità) */
     const nowIso = new Date().toISOString();
-    await supabase.from("appointments")
-      .update({ whatsapp_sent_at: nowIso, whatsapp_sent: true }).eq("id", appointmentId);
-    setEvents(prev => prev.map(ev =>
-      ev.id === appointmentId ? { ...ev, whatsapp_sent_at: nowIso } : ev
-    ));
-    setSelectedEvent(prev =>
-      prev?.id === appointmentId ? { ...prev, whatsapp_sent_at: nowIso } : prev
-    );
+    await supabase.from("appointments").update({whatsapp_sent_at:nowIso,whatsapp_sent:true}).eq("id",appointmentId);
+    setEvents(prev=>prev.map(ev=>ev.id===appointmentId?{...ev,whatsapp_sent_at:nowIso}:ev));
+    setSelectedEvent(prev=>prev?.id===appointmentId?{...prev,whatsapp_sent_at:nowIso}:prev);
 
-    if (!newWindow || newWindow.closed || typeof newWindow.closed === "undefined") {
-      const manualOpen = window.confirm(
-        `Il browser ha bloccato l'apertura automatica di WhatsApp.\n\nURL: ${whatsappUrl}\n\nClicca OK per provare ad aprire, oppure Annulla per copiare il link.`
-      );
-      if (manualOpen) window.location.href = whatsappUrl;
+    if (!newWindow||newWindow.closed||typeof newWindow.closed==="undefined") {
+      const manual=window.confirm(`Il browser ha bloccato l'apertura automatica di WhatsApp.\n\nURL: ${whatsappUrl}\n\nClicca OK per provare ad aprire, oppure Annulla per copiare il link.`);
+      if (manual) window.location.href=whatsappUrl;
       else alert(`Copia questo link e aprilo manualmente:\n\n${whatsappUrl}`);
     }
   }, [events]);
 
-  /* ── Open / Save / Delete ─────────────────── */
-  const openEvent = useCallback((ev: CalendarEvent) => {
+  /* ── Open / Save / Delete ────────────────── */
+  const openEvent = useCallback((ev:CalendarEvent) => {
     setSelectedEvent(ev); setEditStatus(ev.status);
-    setEditNote(ev.calendar_note ?? "");
-    setEditAmount(ev.amount == null ? "" : String(ev.amount));
+    setEditNote(ev.calendar_note??""); setEditAmount(ev.amount==null?"":String(ev.amount));
     setEditDate(toISODateLocal(ev.start));
     setEditTime(`${pad2(ev.start.getHours())}:${pad2(ev.start.getMinutes())}`);
-    setEditDuration(Math.max(15, Math.round((ev.end.getTime() - ev.start.getTime()) / 60_000)));
+    setEditDuration(Math.max(15,Math.round((ev.end.getTime()-ev.start.getTime())/60_000)));
   }, []);
 
   const saveEvent = useCallback(async () => {
     if (!selectedEvent) return;
     setBusy(true); setError("");
-    const amount = editAmount.trim() === "" ? null
-      : (() => { const n = Number(editAmount.replace(",", ".")); return isFinite(n) ? n : null; })();
-    const upd: Record<string, unknown> = {
-      status: editStatus, calendar_note: editNote.trim() || null, amount,
-    };
-    if (isValidISODate(editDate) && isValidHHMM(editTime)) {
-      const ns = buildDateTime(editDate, editTime);
-      const d = Number(editDuration);
-      const dur = isFinite(d) && d > 0 ? d
-        : Math.round((selectedEvent.end.getTime() - selectedEvent.start.getTime()) / 60_000);
-      const ne = new Date(ns); ne.setMinutes(ne.getMinutes() + dur);
-      if (ns.getTime() !== selectedEvent.start.getTime() || ne.getTime() !== selectedEvent.end.getTime()) {
-        upd.start_at = ns.toISOString(); upd.end_at = ne.toISOString();
+    const amount = editAmount.trim()===""?null
+      :(()=>{const n=Number(editAmount.replace(",",".")); return isFinite(n)?n:null;})();
+    const upd:Record<string,unknown>={status:editStatus,calendar_note:editNote.trim()||null,amount};
+    if (isValidISODate(editDate)&&isValidHHMM(editTime)) {
+      const ns=buildDateTime(editDate,editTime);
+      const d=Number(editDuration);
+      const dur=isFinite(d)&&d>0?d:Math.round((selectedEvent.end.getTime()-selectedEvent.start.getTime())/60_000);
+      const ne=new Date(ns); ne.setMinutes(ne.getMinutes()+dur);
+      if (ns.getTime()!==selectedEvent.start.getTime()||ne.getTime()!==selectedEvent.end.getTime()) {
+        upd.start_at=ns.toISOString(); upd.end_at=ne.toISOString();
       }
     }
-    const { error: e } = await supabase.from("appointments").update(upd).eq("id", selectedEvent.id);
-    if (e) { setError(`Errore: ${e.message}`); setBusy(false); return; }
-    setSelectedEvent(null); setBusy(false);
-    await loadAppointments(currentDate);
-  }, [selectedEvent, editStatus, editNote, editAmount, editDate, editTime, editDuration, currentDate, loadAppointments]);
+    const {error:e}=await supabase.from("appointments").update(upd).eq("id",selectedEvent.id);
+    if (e){setError(`Errore: ${e.message}`);setBusy(false);return;}
+    setSelectedEvent(null); setBusy(false); await loadAppointments(currentDate);
+  }, [selectedEvent,editStatus,editNote,editAmount,editDate,editTime,editDuration,currentDate,loadAppointments]);
 
   const deleteEvent = useCallback(async () => {
-    if (!selectedEvent || !window.confirm("Eliminare definitivamente questo appuntamento?")) return;
+    if (!selectedEvent||!window.confirm("Eliminare definitivamente questo appuntamento?")) return;
     setBusy(true); setError("");
-    const { error: e } = await supabase.from("appointments").delete().eq("id", selectedEvent.id);
-    if (e) { setError(`Errore: ${e.message}`); setBusy(false); return; }
-    setSelectedEvent(null); setBusy(false);
-    await loadAppointments(currentDate);
-  }, [selectedEvent, currentDate, loadAppointments]);
+    const {error:e}=await supabase.from("appointments").delete().eq("id",selectedEvent.id);
+    if (e){setError(`Errore: ${e.message}`);setBusy(false);return;}
+    setSelectedEvent(null); setBusy(false); await loadAppointments(currentDate);
+  }, [selectedEvent,currentDate,loadAppointments]);
 
-  const openCreate = useCallback((prefillTime?: string, prefillDateISO?: string) => {
+  const openCreate = useCallback((prefillTime?:string, prefillDateISO?:string) => {
     setCreateOpen(true); setError("");
     setSelectedPatient(null); setPatientQuery(""); setPatientResults([]);
     setQuickFirstName(""); setQuickLastName(""); setQuickPhone("");
-    const dateISO = prefillDateISO && isValidISODate(prefillDateISO)
-      ? prefillDateISO : toISODateLocal(currentDate);
+    const dateISO=prefillDateISO&&isValidISODate(prefillDateISO)?prefillDateISO:toISODateLocal(currentDate);
     setCreateDate(dateISO);
-    setCreateTime(prefillTime && isValidHHMM(prefillTime) ? prefillTime : "09:00");
+    setCreateTime(prefillTime&&isValidHHMM(prefillTime)?prefillTime:"09:00");
     setCreateDuration(60); setCreateStatus("confirmed"); setCreateLocation("studio");
     setCreateClinicSite(DEFAULT_CLINIC); setCreateDomicileAddress(""); setCreateAmount(""); setCreateNote("");
   }, [currentDate]);
 
-  /* ── Patient search ───────────────────────── */
-  const debRef = useRef<number | null>(null);
+  /* ── Patient search (create) ─────────────── */
+  const debRef = useRef<number|null>(null);
   useEffect(() => {
     if (!createOpen) return;
     if (debRef.current) clearTimeout(debRef.current);
-    debRef.current = window.setTimeout(async () => {
-      const q = patientQuery.trim(); if (q.length < 2) { setPatientResults([]); return; }
+    debRef.current=window.setTimeout(async () => {
+      const q=patientQuery.trim(); if (q.length<2){setPatientResults([]);return;}
       setPatientLoading(true);
-      const { data, error: e } = await supabase.from("patients")
+      const {data,error:e}=await supabase.from("patients")
         .select("id,first_name,last_name,phone")
         .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%`).limit(8);
-      setPatientLoading(false);
-      setPatientResults(e ? [] : (data ?? []) as PatientLite[]);
+      setPatientLoading(false); setPatientResults(e?[]:(data??[]) as PatientLite[]);
     }, 250);
     return () => { if (debRef.current) clearTimeout(debRef.current); };
-  }, [patientQuery, createOpen]);
+  }, [patientQuery,createOpen]);
 
   const createQuickPatient = useCallback(async () => {
-    const fn = quickFirstName.trim(); const ln = quickLastName.trim(); const ph = quickPhone.trim();
-    if (!fn || !ln) { setError("Inserisci Nome e Cognome."); return; }
-    setBusy(true); setError("");
-    const { data, error: e } = await supabase.from("patients")
-      .insert({ first_name: fn, last_name: ln, phone: ph || null })
+    const fn=quickFirstName.trim();const ln=quickLastName.trim();const ph=quickPhone.trim();
+    if (!fn||!ln){setError("Inserisci Nome e Cognome.");return;}
+    setBusy(true);setError("");
+    const {data,error:e}=await supabase.from("patients")
+      .insert({first_name:fn,last_name:ln,phone:ph||null})
       .select("id,first_name,last_name,phone").single();
-    if (e) { setError(e.message); setBusy(false); return; }
-    const p = data as PatientLite;
-    setSelectedPatient(p);
-    setPatientQuery(`${p.first_name ?? ""} ${p.last_name ?? ""}`.trim());
-    setPatientResults([]); setBusy(false);
-  }, [quickFirstName, quickLastName, quickPhone]);
+    if (e){setError(e.message);setBusy(false);return;}
+    const p=data as PatientLite;
+    setSelectedPatient(p);setPatientQuery(`${p.first_name??""} ${p.last_name??""}`.trim());
+    setPatientResults([]);setBusy(false);
+  }, [quickFirstName,quickLastName,quickPhone]);
 
   const createAppointment = useCallback(async () => {
-    if (!selectedPatient) { setError("Seleziona un paziente."); return; }
-    const dur = Number(createDuration);
-    if (!isFinite(dur) || dur <= 0) { setError("Durata non valida."); return; }
-    setBusy(true); setError("");
-    const start = buildDateTime(createDate, createTime);
-    const end   = new Date(start); end.setMinutes(end.getMinutes() + dur);
-    const amount = createAmount.trim() === "" ? null
-      : (() => { const n = Number(createAmount.replace(",", ".")); return isFinite(n) ? n : null; })();
-    const { error: e } = await supabase.from("appointments").insert({
-      patient_id: selectedPatient.id,
-      start_at: start.toISOString(), end_at: end.toISOString(),
-      status: createStatus, calendar_note: createNote.trim() || null,
-      location: createLocation,
-      clinic_site: createLocation === "studio" ? (createClinicSite.trim() || DEFAULT_CLINIC) : null,
-      domicile_address: createLocation === "domicile" ? (createDomicileAddress.trim() || null) : null,
-      amount,
+    if (!selectedPatient){setError("Seleziona un paziente.");return;}
+    const dur=Number(createDuration);
+    if (!isFinite(dur)||dur<=0){setError("Durata non valida.");return;}
+    setBusy(true);setError("");
+    const start=buildDateTime(createDate,createTime);
+    const end=new Date(start);end.setMinutes(end.getMinutes()+dur);
+    const amount=createAmount.trim()===""?null
+      :(()=>{const n=Number(createAmount.replace(",",".")); return isFinite(n)?n:null;})();
+    const {error:e}=await supabase.from("appointments").insert({
+      patient_id:selectedPatient.id,start_at:start.toISOString(),end_at:end.toISOString(),
+      status:createStatus,calendar_note:createNote.trim()||null,location:createLocation,
+      clinic_site:createLocation==="studio"?(createClinicSite.trim()||DEFAULT_CLINIC):null,
+      domicile_address:createLocation==="domicile"?(createDomicileAddress.trim()||null):null,amount,
     });
-    if (e) { setError(e.message); setBusy(false); return; }
-    setBusy(false); setCreateOpen(false);
-    await loadAppointments(currentDate);
-  }, [selectedPatient, createDuration, createDate, createTime, createStatus, createNote,
-      createLocation, createClinicSite, createDomicileAddress, createAmount, currentDate, loadAppointments]);
+    if (e){setError(e.message);setBusy(false);return;}
+    setBusy(false);setCreateOpen(false);await loadAppointments(currentDate);
+  }, [selectedPatient,createDuration,createDate,createTime,createStatus,createNote,
+      createLocation,createClinicSite,createDomicileAddress,createAmount,currentDate,loadAppointments]);
 
-  /* ── Move appointment (drag) ──────────────── */
-  const moveAppointment = useCallback(async (id: string, newStart: Date) => {
-    const ev = events.find(x => x.id === id); if (!ev) return;
-    const durMin = Math.max(15, Math.round((ev.end.getTime() - ev.start.getTime()) / 60_000));
-    const newEnd = new Date(newStart); newEnd.setMinutes(newEnd.getMinutes() + durMin);
-    setBusy(true); setError("");
-    setEvents(prev => prev.map(x => x.id === id ? { ...x, start: newStart, end: newEnd } : x));
-    const { error: e } = await supabase.from("appointments")
-      .update({ start_at: newStart.toISOString(), end_at: newEnd.toISOString() }).eq("id", id);
-    if (e) { setError(e.message); await loadAppointments(currentDate); }
+  /* ── Move appointment (drag) ─────────────── */
+  const moveAppointment = useCallback(async (id:string,newStart:Date) => {
+    const ev=events.find(x=>x.id===id);if (!ev) return;
+    const durMin=Math.max(15,Math.round((ev.end.getTime()-ev.start.getTime())/60_000));
+    const newEnd=new Date(newStart);newEnd.setMinutes(newEnd.getMinutes()+durMin);
+    setBusy(true);setError("");
+    setEvents(prev=>prev.map(x=>x.id===id?{...x,start:newStart,end:newEnd}:x));
+    const {error:e}=await supabase.from("appointments")
+      .update({start_at:newStart.toISOString(),end_at:newEnd.toISOString()}).eq("id",id);
+    if (e){setError(e.message);await loadAppointments(currentDate);}
     else await loadAppointments(currentDate);
     setBusy(false);
-  }, [events, currentDate, loadAppointments]);
+  }, [events,currentDate,loadAppointments]);
 
-  /* ── Mouse drag ───────────────────────────── */
-  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    if (!draggingId) return; e.preventDefault();
-    const el = timelineRef.current; if (!el) return;
-    setDragOverY(e.clientY - el.getBoundingClientRect().top);
+  /* ── Mouse drag ──────────────────────────── */
+  const handleDragOver = useCallback((e:React.DragEvent<HTMLDivElement>) => {
+    if (!draggingId) return;e.preventDefault();
+    const el=timelineRef.current;if (!el) return;
+    setDragOverY(e.clientY-el.getBoundingClientRect().top);
   }, [draggingId]);
-
-  const handleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
+  const handleDrop = useCallback(async (e:React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    const id = e.dataTransfer.getData("text/appointment-id") || draggingId;
-    setDragOverY(null); setDraggingId(null);
-    const el = timelineRef.current; if (!el || !id) return;
-    const y = e.clientY - el.getBoundingClientRect().top;
-    const totalMin = clamp(roundTo(y / (PX_PER_HOUR / 60), 5), 0, (dayEndHour - dayStartHour) * 60 - 5);
-    const base = new Date(currentDate); base.setHours(dayStartHour, 0, 0, 0);
-    const ns = new Date(base); ns.setMinutes(ns.getMinutes() + totalMin);
-    await moveAppointment(id, ns);
-  }, [draggingId, currentDate, dayStartHour, dayEndHour, moveAppointment]);
+    const id=e.dataTransfer.getData("text/appointment-id")||draggingId;
+    setDragOverY(null);setDraggingId(null);
+    const el=timelineRef.current;if (!el||!id) return;
+    const y=e.clientY-el.getBoundingClientRect().top;
+    const totalMin=clamp(roundTo(y/(PX_PER_HOUR/60),5),0,(dayEndHour-dayStartHour)*60-5);
+    const base=new Date(currentDate);base.setHours(dayStartHour,0,0,0);
+    const ns=new Date(base);ns.setMinutes(ns.getMinutes()+totalMin);
+    await moveAppointment(id,ns);
+  }, [draggingId,currentDate,dayStartHour,dayEndHour,moveAppointment]);
 
-  /* ── Touch drag ───────────────────────────── */
-  const handleEventTouchStart = useCallback((e: React.TouchEvent, ev: CalendarEvent) => {
-    const { top } = getEventPosition(ev.start, ev.end);
-    const state: TouchDragState = {
-      eventId: ev.id, startClientY: e.touches[0].clientY, startEventTopPx: top, activated: false,
-      activationTimer: setTimeout(() => {
-        if (touchDragRef.current?.eventId === ev.id) {
-          touchDragRef.current.activated = true;
-          setTouchDraggingId(ev.id); setTouchDragY(top);
+  /* ── Touch drag ──────────────────────────── */
+  const handleEventTouchStart = useCallback((e:React.TouchEvent,ev:CalendarEvent) => {
+    const {top}=getEventPosition(ev.start,ev.end);
+    const state:TouchDragState={
+      eventId:ev.id,startClientY:e.touches[0].clientY,startEventTopPx:top,activated:false,
+      activationTimer:setTimeout(()=>{
+        if (touchDragRef.current?.eventId===ev.id){
+          touchDragRef.current.activated=true;setTouchDraggingId(ev.id);setTouchDragY(top);
         }
-      }, 200),
+      },300),
     };
-    touchDragRef.current = state;
+    touchDragRef.current=state;
   }, [getEventPosition]);
-
-  const handleTimelineTouchMove = useCallback((e: React.TouchEvent) => {
-    const state = touchDragRef.current; if (!state) return;
-    const dy = e.touches[0].clientY - state.startClientY;
-    if (!state.activated) {
-      if (Math.abs(dy) > 8) {
-        if (state.activationTimer) clearTimeout(state.activationTimer);
-        touchDragRef.current = null;
-      }
+  const handleTimelineTouchMove = useCallback((e:React.TouchEvent) => {
+    const state=touchDragRef.current;if (!state) return;
+    const dy=e.touches[0].clientY-state.startClientY;
+    if (!state.activated){
+      if (Math.abs(dy)>8){if (state.activationTimer) clearTimeout(state.activationTimer);touchDragRef.current=null;}
       return;
     }
     e.preventDefault();
-    setTouchDragY(clamp(state.startEventTopPx + dy, 0, (dayEndHour - dayStartHour) * PX_PER_HOUR));
-  }, [dayStartHour, dayEndHour]);
-
+    setTouchDragY(clamp(state.startEventTopPx+dy,0,(dayEndHour-dayStartHour)*PX_PER_HOUR));
+  }, [dayStartHour,dayEndHour]);
   const handleTimelineTouchEnd = useCallback(async () => {
-    const state = touchDragRef.current; touchDragRef.current = null;
+    const state=touchDragRef.current;touchDragRef.current=null;
     if (state?.activationTimer) clearTimeout(state.activationTimer);
-    const finalY = touchDragYRef.current;
-    setTouchDraggingId(null); setTouchDragY(null);
-    if (!state?.activated || finalY === null) return;
-    const totalMin = clamp(roundTo(finalY / (PX_PER_HOUR / 60), 5), 0, (dayEndHour - dayStartHour) * 60 - 5);
-    const base = new Date(currentDate); base.setHours(dayStartHour, 0, 0, 0);
-    const ns = new Date(base); ns.setMinutes(ns.getMinutes() + totalMin);
-    await moveAppointment(state.eventId, ns);
-  }, [currentDate, dayStartHour, dayEndHour, moveAppointment]);
+    const finalY=touchDragYRef.current;
+    setTouchDraggingId(null);setTouchDragY(null);
+    if (!state?.activated||finalY===null) return;
+    const totalMin=clamp(roundTo(finalY/(PX_PER_HOUR/60),5),0,(dayEndHour-dayStartHour)*60-5);
+    const base=new Date(currentDate);base.setHours(dayStartHour,0,0,0);
+    const ns=new Date(base);ns.setMinutes(ns.getMinutes()+totalMin);
+    await moveAppointment(state.eventId,ns);
+  }, [currentDate,dayStartHour,dayEndHour,moveAppointment]);
 
-  /* ── Logout ───────────────────────────────── */
+  /* ── Logout ──────────────────────────────── */
   async function handleLogout() {
-    try { await supabase.auth.signOut(); } finally {
-      setUserMenuOpen(false); window.location.href = "/login";
-    }
+    try{await supabase.auth.signOut();}finally{setUserMenuOpen(false);window.location.href="/login";}
   }
 
-  /* ── Event card ───────────────────────────── */
-  const renderEventCard = useCallback((ev: CalendarEvent) => {
-    const { top, height } = getEventPosition(ev.start, ev.end);
+  /* ─── NEW: event card con swipe actions ──── */
+  const renderEventCard = useCallback((ev:CalendarEvent) => {
+    const {top,height}=getEventPosition(ev.start,ev.end);
     const col        = statusColor(ev.status);
-    const bg         = statusBg(ev.status);
+    const bg         = ev.location==="domicile" ? "rgba(13,148,136,0.06)" : statusBg(ev.status);
     const phoneOk    = !!normalizePhone(ev.patient_phone);
-    const isDragging = touchDraggingId === ev.id;
-    const displayTop = isDragging && touchDragY !== null ? touchDragY : top;
-    const short      = height < 52;
+    const isDragging = touchDraggingId===ev.id;
+    const displayTop = isDragging&&touchDragY!==null?touchDragY:top;
+    const short      = height<52;
     const waSent     = !!ev.whatsapp_sent_at;
+    const isPast     = ev.end<currentTime && ev.status!=="done" && ev.status!=="cancelled";
+    const swipeX     = swipeState?.id===ev.id?swipeState.x:0;
 
     return (
       <div
-        key={ev.id} draggable
-        onDragStart={e => {
-          setDraggingId(ev.id);
-          try { e.dataTransfer.setData("text/appointment-id", ev.id); } catch {}
-          e.dataTransfer.effectAllowed = "move";
-        }}
-        onDragEnd={() => { setDraggingId(null); setDragOverY(null); }}
-        onTouchStart={e => handleEventTouchStart(e, ev)}
-        onClick={e => {
-          if ((e.target as HTMLElement).closest(".ev-act")) return;
-          if (isDragging) return;
-          openEvent(ev);
-        }}
+        key={ev.id}
         style={{
-          position: "absolute", left: 52, right: 8, top: displayTop, height,
-          background: bg,
-          /* nessun borderLeft — bordo uniforme sottile con tint del colore */
-          border: `1.5px solid ${col}30`,
-          borderRadius: 8,
-          padding: short ? "4px 10px" : "8px 10px",
-          boxSizing: "border-box", overflow: "hidden",
-          boxShadow: isDragging
-            ? `0 8px 24px rgba(15,23,42,0.18), 0 0 0 2px ${col}50`
-            : "0 1px 4px rgba(15,23,42,0.06)",
-          display: "flex", flexDirection: short ? "row" : "column",
-          alignItems: short ? "center" : "flex-start", gap: short ? 8 : 4,
-          cursor: "pointer", zIndex: isDragging ? 10 : 3,
-          opacity: draggingId === ev.id ? 0.2 : 1,
-          transition: isDragging ? "none" : "box-shadow 0.15s, opacity 0.15s",
-          touchAction: "none",
+          position:"absolute",left:52,right:8,top:displayTop,height,
+          zIndex:isDragging?10:3,touchAction:"none",
         }}
       >
-        {/* Nome */}
+        {/* Sfondo azioni swipe */}
         <div style={{
-          fontWeight: 700, fontSize: 13, color: THEME.text,
-          flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          position:"absolute",inset:0,borderRadius:8,
+          display:"flex",alignItems:"center",justifyContent:"space-between",
+          padding:"0 14px",pointerEvents:"none",
         }}>
-          {ev.patient_name}
+          <span style={{fontSize:18,opacity:swipeX>20?Math.min((swipeX-20)/60,1):0}}>✅</span>
+          <span style={{fontSize:18,opacity:swipeX<-20?Math.min((-swipeX-20)/60,1):0}}>✏️</span>
         </div>
 
-        {!short && (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", gap: 6 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0, overflow: "hidden" }}>
-              <span style={{ fontSize: 11, color: THEME.muted, whiteSpace: "nowrap" }}>
-                {fmtTime(ev.start)}–{fmtTime(ev.end)}
-              </span>
-              <span style={{ fontSize: 10, color: col, background: `${col}18`,
-                             padding: "1px 6px", borderRadius: 99, whiteSpace: "nowrap" }}>
-                {statusLabel(ev.status)}
-              </span>
-              {ev.location === "domicile" && <span style={{ fontSize: 11 }}>🏠</span>}
-            </div>
-            {/* Bottone WA — stessa logica del desktop */}
-            <button className="ev-act"
-              disabled={!phoneOk}
-              title={waSent
-                ? `WA inviato il ${new Date(ev.whatsapp_sent_at!).toLocaleDateString("it-IT")}`
-                : "Invia promemoria WhatsApp"}
-              onClick={e => {
-                e.stopPropagation();
-                if (phoneOk) sendReminder(ev.id, ev.patient_phone ?? undefined, ev.patient_first_name ?? undefined);
-              }}
-              style={{
-                padding: "3px 8px", borderRadius: 99, flexShrink: 0,
-                border: waSent ? `1px solid rgba(22,163,74,0.4)` : `1px solid ${THEME.border}`,
-                background: waSent ? "rgba(22,163,74,0.10)" : THEME.panelBg,
-                color: waSent ? THEME.green : THEME.muted,
-                fontSize: 11, cursor: phoneOk ? "pointer" : "not-allowed",
-                opacity: phoneOk ? 1 : 0.35,
-              }}>
-              {waSent ? "✓ 💬" : "💬"}
-            </button>
+        {/* Card */}
+        <div
+          draggable
+          onDragStart={e=>{setDraggingId(ev.id);try{e.dataTransfer.setData("text/appointment-id",ev.id);}catch{}e.dataTransfer.effectAllowed="move";}}
+          onDragEnd={()=>{setDraggingId(null);setDragOverY(null);}}
+          onTouchStart={e=>{handleEventTouchStart(e,ev);handleCardSwipeStart(e,ev);}}
+          onTouchMove={e=>handleCardSwipeMove(e,ev)}
+          onTouchEnd={e=>{handleTimelineTouchEnd();handleCardSwipeEnd(ev);}}
+          onClick={e=>{if((e.target as HTMLElement).closest(".ev-act")) return;if(isDragging||Math.abs(swipeX)>5) return;openEvent(ev);}}
+          style={{
+            position:"absolute",inset:0,
+            background:bg,
+            border:`1.5px solid ${ev.location==="domicile"?"rgba(13,148,136,0.2)":col+"30"}`,
+            borderRadius:8,padding:short?"4px 10px":"8px 10px",
+            boxSizing:"border-box",overflow:"hidden",
+            boxShadow:isDragging?"0 8px 24px rgba(15,23,42,0.18)":"0 1px 4px rgba(15,23,42,0.06)",
+            display:"flex",flexDirection:short?"row":"column",
+            alignItems:short?"center":"flex-start",gap:short?8:4,
+            cursor:"pointer",
+            opacity:isDragging?0.2:isPast?0.65:1,
+            transform:`translateX(${swipeX}px)`,
+            transition:isDragging||Math.abs(swipeX)>0?"none":"transform 0.2s,box-shadow 0.15s",
+          }}
+        >
+          {/* Nome + 🏠 badge */}
+          <div style={{display:"flex",alignItems:"center",gap:5,flex:1,minWidth:0,overflow:"hidden"}}>
+            {ev.location==="domicile"&&<span style={{fontSize:11,flexShrink:0}}>🏠</span>}
+            <span style={{fontWeight:700,fontSize:13,color:THEME.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              {ev.patient_name}
+            </span>
+            {isPast&&<span style={{fontSize:9,color:THEME.muted,flexShrink:0,background:THEME.panelSoft,padding:"1px 5px",borderRadius:99,border:`1px solid ${THEME.border}`}}>scaduto</span>}
           </div>
-        )}
 
-        {short && (
-          <span style={{ fontSize: 10, color: THEME.muted, flexShrink: 0 }}>
-            {fmtTime(ev.start)}
-          </span>
-        )}
+          {!short&&(
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",gap:6}}>
+              <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap",minWidth:0}}>
+                <span style={{fontSize:11,color:THEME.muted,whiteSpace:"nowrap"}}>
+                  {fmtTime(ev.start)}–{fmtTime(ev.end)}
+                </span>
+                <span style={{fontSize:10,color:col,background:`${col}18`,padding:"1px 6px",borderRadius:99,whiteSpace:"nowrap"}}>
+                  {statusLabel(ev.status)}
+                </span>
+              </div>
+              {/* Azioni rapide */}
+              <div style={{display:"flex",gap:5,alignItems:"center",flexShrink:0}}>
+                {/* Segna pagato */}
+                <button className="ev-act"
+                  title={ev.is_paid?"Pagato — clicca per rimuovere":"Segna come pagato"}
+                  onClick={e=>{e.stopPropagation();togglePaid(ev.id,ev.is_paid);}}
+                  style={{
+                    width:26,height:26,borderRadius:99,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
+                    border:ev.is_paid?`1px solid rgba(22,163,74,0.4)`:`1px solid ${THEME.border}`,
+                    background:ev.is_paid?"rgba(22,163,74,0.10)":THEME.panelBg,
+                    cursor:"pointer",fontSize:13,
+                  }}>
+                  {ev.is_paid?"💰":"○"}
+                </button>
+                {/* Nota rapida */}
+                <button className="ev-act"
+                  title="Nota rapida"
+                  onClick={e=>{e.stopPropagation();setQuickNoteId(ev.id);setQuickNoteText(ev.calendar_note??"");}}
+                  style={{
+                    width:26,height:26,borderRadius:99,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
+                    border:`1px solid ${ev.calendar_note?THEME.amber:THEME.border}`,
+                    background:ev.calendar_note?"rgba(249,115,22,0.08)":THEME.panelBg,
+                    cursor:"pointer",fontSize:12,
+                  }}>
+                  {ev.calendar_note?"📝":"✎"}
+                </button>
+                {/* WA */}
+                <button className="ev-act"
+                  disabled={!phoneOk}
+                  title={waSent?`WA inviato il ${new Date(ev.whatsapp_sent_at!).toLocaleDateString("it-IT")}`:"Invia promemoria WhatsApp"}
+                  onClick={e=>{e.stopPropagation();if(phoneOk)sendReminder(ev.id,ev.patient_phone??undefined,ev.patient_first_name??undefined);}}
+                  style={{
+                    width:26,height:26,borderRadius:99,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
+                    border:waSent?`1px solid rgba(22,163,74,0.4)`:`1px solid ${THEME.border}`,
+                    background:waSent?"rgba(22,163,74,0.10)":THEME.panelBg,
+                    color:waSent?THEME.green:THEME.muted,
+                    cursor:phoneOk?"pointer":"not-allowed",opacity:phoneOk?1:0.35,fontSize:13,
+                  }}>
+                  {waSent?"✓💬":"💬"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {short&&(
+            <span style={{fontSize:10,color:THEME.muted,flexShrink:0}}>{fmtTime(ev.start)}</span>
+          )}
+        </div>
       </div>
     );
-  }, [getEventPosition, touchDraggingId, touchDragY, draggingId,
-      handleEventTouchStart, openEvent, sendReminder]);
+  }, [getEventPosition,touchDraggingId,touchDragY,draggingId,currentTime,swipeState,
+      handleEventTouchStart,handleCardSwipeStart,handleCardSwipeMove,handleCardSwipeEnd,
+      handleTimelineTouchEnd,openEvent,togglePaid,sendReminder]);
 
-  const isToday = isSameDay(currentDate, new Date());
+  const isToday = isSameDay(currentDate,new Date());
 
   /* ─── RENDER ─────────────────────────────── */
   return (
-    <div style={{ minHeight: "100vh", background: THEME.appBg,
-                  paddingBottom: BOTTOM_TAB_H + 16,
-                  fontFamily: "Inter,-apple-system,sans-serif" }}>
+    <div
+      style={{minHeight:"100vh",background:THEME.appBg,paddingBottom:BOTTOM_TAB_H+16,
+              fontFamily:"Inter,-apple-system,sans-serif"}}
+      onTouchStart={handlePullStart}
+      onTouchMove={handlePullMove}
+      onTouchEnd={handlePullEnd}
+    >
+
+      {/* ━━━ Pull-to-refresh indicator ━━━ */}
+      {(isPulling||isRefreshing)&&(
+        <div style={{
+          position:"fixed",top:54,left:"50%",transform:"translateX(-50%)",zIndex:50,
+          background:THEME.panelBg,border:`1.5px solid ${THEME.border}`,
+          borderRadius:99,padding:"6px 16px",fontSize:12,fontWeight:700,
+          color:THEME.blue,boxShadow:"0 4px 12px rgba(15,23,42,0.12)",
+          display:"flex",alignItems:"center",gap:6,
+          transition:"opacity 0.2s",
+        }}>
+          <span style={{display:"inline-block",animation:isRefreshing?"spin 0.7s linear infinite":undefined}}>
+            {isRefreshing?"↻":"↓"}
+          </span>
+          {isRefreshing?"Aggiornamento…":`Trascina ancora (${Math.round(Math.min(pullY/PULL_THRESHOLD*100,100))}%)`}
+        </div>
+      )}
 
       {/* ━━━ NAVBAR ━━━ */}
       <header style={{
-        position: "sticky", top: 0, zIndex: 30,
-        background: THEME.gradient, padding: "0 14px", height: 54,
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        boxShadow: "0 2px 12px rgba(13,148,136,0.18)", gap: 10,
+        position:"sticky",top:0,zIndex:30,
+        background:THEME.gradient,padding:"0 14px",height:54,
+        display:"flex",alignItems:"center",justifyContent:"space-between",
+        boxShadow:"0 2px 12px rgba(13,148,136,0.18)",gap:10,
       }}>
-        {/* Logo */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          <div style={{
-            width: 28, height: 28, borderRadius: 7,
-            background: "rgba(255,255,255,0.2)", border: "1.5px solid rgba(255,255,255,0.3)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            color: "#fff", fontWeight: 800, fontSize: 13,
-          }}>F</div>
-          <span style={{ fontWeight: 800, fontSize: 15, color: "#fff",
-                         letterSpacing: 0.3, textTransform: "uppercase" }}>
-            Fisio<span style={{ fontWeight: 700 }}>Hub</span>
+        <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+          <div style={{width:28,height:28,borderRadius:7,background:"rgba(255,255,255,0.2)",
+            border:"1.5px solid rgba(255,255,255,0.3)",display:"flex",alignItems:"center",
+            justifyContent:"center",color:"#fff",fontWeight:800,fontSize:13}}>F</div>
+          <span style={{fontWeight:800,fontSize:15,color:"#fff",letterSpacing:0.3,textTransform:"uppercase"}}>
+            Fisio<span style={{fontWeight:700}}>Hub</span>
           </span>
         </div>
 
         {/* KPI chips */}
-        {!loading && (
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#fff",
-                           background: "rgba(255,255,255,0.2)", padding: "4px 9px",
-                           borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", whiteSpace: "nowrap" }}>
+        {!loading&&(
+          <div style={{display:"flex",gap:5,alignItems:"center"}}>
+            <span style={{fontSize:11,fontWeight:700,color:"#fff",background:"rgba(255,255,255,0.2)",
+              padding:"4px 8px",borderRadius:6,border:"1px solid rgba(255,255,255,0.15)",whiteSpace:"nowrap"}}>
               ✓ {dayStats.done}/{dayStats.total}
             </span>
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#fff",
-                           background: "rgba(255,255,255,0.2)", padding: "4px 9px",
-                           borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", whiteSpace: "nowrap" }}>
+            <span style={{fontSize:11,fontWeight:700,color:"#fff",background:"rgba(255,255,255,0.2)",
+              padding:"4px 8px",borderRadius:6,border:"1px solid rgba(255,255,255,0.15)",whiteSpace:"nowrap"}}>
               € {dayStats.revenue.toFixed(0)}
             </span>
           </div>
         )}
 
-        {/* Refresh + Avatar */}
-        <div style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }}>
-          <button onClick={() => loadAppointments(currentDate)} aria-label="Aggiorna" style={{
-            width: 30, height: 30, borderRadius: 7,
-            border: "1.5px solid rgba(255,255,255,0.3)",
-            background: "rgba(255,255,255,0.15)",
-            color: "#fff", cursor: "pointer", fontSize: 15,
-            display: "flex", alignItems: "center", justifyContent: "center",
+        <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+          {/* Ricerca paziente */}
+          <button onClick={()=>{setSearchOpen(true);setSearchQuery("");setSearchResults([]);}} aria-label="Cerca paziente" style={{
+            width:30,height:30,borderRadius:7,border:"1.5px solid rgba(255,255,255,0.3)",
+            background:"rgba(255,255,255,0.15)",color:"#fff",cursor:"pointer",fontSize:15,
+            display:"flex",alignItems:"center",justifyContent:"center",
+          }}>🔍</button>
+          <button onClick={()=>loadAppointments(currentDate)} aria-label="Aggiorna" style={{
+            width:30,height:30,borderRadius:7,border:"1.5px solid rgba(255,255,255,0.3)",
+            background:"rgba(255,255,255,0.15)",color:"#fff",cursor:"pointer",fontSize:15,
+            display:"flex",alignItems:"center",justifyContent:"center",
           }}>↺</button>
-          <div ref={userMenuRef} style={{ position: "relative" }}>
-            <button onClick={() => setUserMenuOpen(v => !v)} style={{
-              width: 30, height: 30, borderRadius: 7,
-              border: "1.5px solid rgba(255,255,255,0.35)",
-              background: "rgba(255,255,255,0.2)",
-              color: "#fff", fontWeight: 800, fontSize: 11,
-              cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+          <div ref={userMenuRef} style={{position:"relative"}}>
+            <button onClick={()=>setUserMenuOpen(v=>!v)} style={{
+              width:30,height:30,borderRadius:7,border:"1.5px solid rgba(255,255,255,0.35)",
+              background:"rgba(255,255,255,0.2)",color:"#fff",fontWeight:800,fontSize:11,
+              cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
             }}>{userInitials}</button>
-            {userMenuOpen && (
-              <div style={{
-                position: "absolute", right: 0, top: "calc(100% + 8px)", width: 190,
-                background: THEME.panelBg, border: `1.5px solid ${THEME.border}`,
-                borderRadius: 12, boxShadow: "0 12px 32px rgba(30,64,175,0.15)",
-                overflow: "hidden", zIndex: 60,
-              }}>
-                <Link href="/settings" onClick={() => setUserMenuOpen(false)} style={{
-                  display: "flex", alignItems: "center", gap: 8, padding: "12px 16px",
-                  color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
-                  borderBottom: `1.5px solid ${THEME.border}`,
+            {userMenuOpen&&(
+              <div style={{position:"absolute",right:0,top:"calc(100% + 8px)",width:190,
+                background:THEME.panelBg,border:`1.5px solid ${THEME.border}`,
+                borderRadius:12,boxShadow:"0 12px 32px rgba(30,64,175,0.15)",overflow:"hidden",zIndex:60}}>
+                <Link href="/settings" onClick={()=>setUserMenuOpen(false)} style={{
+                  display:"flex",alignItems:"center",gap:8,padding:"12px 16px",
+                  color:THEME.text,textDecoration:"none",fontSize:13,fontWeight:600,
+                  borderBottom:`1.5px solid ${THEME.border}`,
                 }}>⚙️ Impostazioni</Link>
                 <button onClick={handleLogout} style={{
-                  width: "100%", display: "flex", alignItems: "center", gap: 8,
-                  padding: "12px 16px", background: "transparent", border: "none",
-                  cursor: "pointer", color: THEME.red, fontWeight: 600, fontSize: 13,
+                  width:"100%",display:"flex",alignItems:"center",gap:8,
+                  padding:"12px 16px",background:"transparent",border:"none",
+                  cursor:"pointer",color:THEME.red,fontWeight:600,fontSize:13,
                 }}>⏻ Logout</button>
               </div>
             )}
@@ -869,171 +942,266 @@ function CalendarPageInner() {
         </div>
       </header>
 
-      {/* ━━━ TAB BAR BOTTOM ━━━ */}
+      {/* ━━━ TAB BAR ━━━ */}
       <nav style={{
-        position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 30,
-        background: THEME.panelBg, borderTop: `1.5px solid ${THEME.border}`,
-        display: "flex", boxShadow: "0 -4px 16px rgba(15,23,42,0.08)",
-        paddingBottom: "env(safe-area-inset-bottom,0px)",
+        position:"fixed",bottom:0,left:0,right:0,zIndex:30,
+        background:THEME.panelBg,borderTop:`1.5px solid ${THEME.border}`,
+        display:"flex",boxShadow:"0 -4px 16px rgba(15,23,42,0.08)",
+        paddingBottom:"env(safe-area-inset-bottom,0px)",
       }}>
         {[
-          { href: "/mobile",          label: "Home",       icon: "⌂" },
-          { href: "/mobile/calendar", label: "Calendario", icon: "▦", active: true },
-          { href: "/mobile/patients", label: "Pazienti",   icon: "◉" },
-          { href: "/mobile/reports",  label: "Report",     icon: "◈" },
-        ].map(item => (
+          {href:"/mobile",         label:"Home",      icon:"⌂"},
+          {href:"/mobile/calendar",label:"Calendario",icon:"▦",active:true},
+          {href:"/mobile/patients",label:"Pazienti",  icon:"◉"},
+          {href:"/mobile/reports", label:"Report",    icon:"◈"},
+        ].map(item=>(
           <Link key={item.href} href={item.href} style={{
-            flex: 1, display: "flex", flexDirection: "column",
-            alignItems: "center", justifyContent: "center",
-            padding: "10px 4px 9px", textDecoration: "none", gap: 3, position: "relative",
+            flex:1,display:"flex",flexDirection:"column",
+            alignItems:"center",justifyContent:"center",
+            padding:"10px 4px 9px",textDecoration:"none",gap:3,position:"relative",
           }}>
-            <span style={{
-              fontSize: 18, lineHeight: 1,
-              ...(item.active
-                ? { background: THEME.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }
-                : { color: THEME.muted }),
-            }}>{item.icon}</span>
-            <span style={{ fontSize: 10, fontWeight: item.active ? 700 : 600,
-                           color: item.active ? THEME.blue : THEME.muted }}>
+            <span style={{fontSize:18,lineHeight:1,
+              ...(item.active?{background:THEME.gradient,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}
+                             :{color:THEME.muted})}}>
+              {item.icon}
+            </span>
+            <span style={{fontSize:10,fontWeight:item.active?700:600,color:item.active?THEME.blue:THEME.muted}}>
               {item.label}
             </span>
-            {item.active && (
-              <div style={{
-                position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)",
-                width: 28, height: 2.5, borderRadius: 999, background: THEME.gradient,
-              }} />
+            {item.active&&(
+              <div style={{position:"absolute",top:0,left:"50%",transform:"translateX(-50%)",
+                width:28,height:2.5,borderRadius:999,background:THEME.gradient}} />
             )}
           </Link>
         ))}
       </nav>
 
       {/* ━━━ CONTENUTO ━━━ */}
-      <div style={{ padding: "12px 14px 0" }}>
+      <div style={{padding:"10px 14px 0"}}>
 
-        {/* Navigazione data */}
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
-          <button onClick={goPrev} aria-label="Precedente" style={{
-            padding: "9px 14px", borderRadius: 10, fontSize: 18, flexShrink: 0,
-            border: `1.5px solid ${THEME.border}`, background: THEME.panelBg,
-            color: THEME.text, cursor: "pointer",
-            display: "inline-flex", alignItems: "center", justifyContent: "center",
+        {/* ─── Barra navigazione data ─── */}
+        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
+          <button onClick={goPrev} style={{
+            padding:"9px 14px",borderRadius:10,fontSize:18,flexShrink:0,
+            border:`1.5px solid ${THEME.border}`,background:THEME.panelBg,
+            color:THEME.text,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",
           }}>‹</button>
 
-          <button onClick={goToday} style={{
-            flex: 1, padding: "9px 12px", borderRadius: 10, fontSize: 13,
-            fontWeight: 700, cursor: "pointer", textAlign: "center",
-            border: isToday ? `2px solid ${THEME.blue}` : `1.5px solid ${THEME.border}`,
-            background: isToday ? "rgba(37,99,235,0.08)" : THEME.panelBg,
-            color: isToday ? THEME.blue : THEME.text,
-          }}>
-            <span style={{ fontWeight: 800 }}>{formatWeekday(currentDate)}</span>
-            <span style={{ fontWeight: 500, opacity: 0.7, marginLeft: 6 }}>{formatDMY(currentDate)}</span>
-          </button>
+          {/* Bottone data centrale con date picker nascosto */}
+          <div style={{flex:1,position:"relative"}}>
+            <button onClick={()=>{setDatePickerOpen(true);setTimeout(()=>dateInputRef.current?.showPicker?.(),50);}}
+              style={{
+                width:"100%",padding:"9px 12px",borderRadius:10,fontSize:13,
+                fontWeight:700,cursor:"pointer",textAlign:"center",
+                border:isToday?`2px solid ${THEME.blue}`:`1.5px solid ${THEME.border}`,
+                background:isToday?"rgba(37,99,235,0.08)":THEME.panelBg,
+                color:isToday?THEME.blue:THEME.text,
+              }}>
+              {isToday&&<span style={{fontSize:10,fontWeight:800,background:THEME.blue,color:"#fff",
+                padding:"1px 6px",borderRadius:99,marginRight:6}}>Oggi</span>}
+              <span style={{fontWeight:800}}>{formatWeekday(currentDate)}</span>
+              <span style={{fontWeight:500,opacity:0.7,marginLeft:6}}>{formatDMY(currentDate)}</span>
+              <span style={{fontSize:11,color:THEME.muted,marginLeft:6}}>📅</span>
+            </button>
+            {/* Input date invisibile per picker nativo */}
+            <input
+              ref={dateInputRef}
+              type="date"
+              value={toISODateLocal(currentDate)}
+              onChange={e=>{
+                if (e.target.value&&isValidISODate(e.target.value)) {
+                  setCurrentDate(new Date(`${e.target.value}T00:00:00`));
+                }
+                setDatePickerOpen(false);
+              }}
+              style={{position:"absolute",opacity:0,top:0,left:0,width:"100%",height:"100%",cursor:"pointer",zIndex:-1}}
+            />
+          </div>
 
-          <button onClick={goNext} aria-label="Successivo" style={{
-            padding: "9px 14px", borderRadius: 10, fontSize: 18, flexShrink: 0,
-            border: `1.5px solid ${THEME.border}`, background: THEME.panelBg,
-            color: THEME.text, cursor: "pointer",
-            display: "inline-flex", alignItems: "center", justifyContent: "center",
+          <button onClick={goNext} style={{
+            padding:"9px 14px",borderRadius:10,fontSize:18,flexShrink:0,
+            border:`1.5px solid ${THEME.border}`,background:THEME.panelBg,
+            color:THEME.text,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",
           }}>›</button>
         </div>
 
-        {/* Errore / loading */}
-        {(loading || busy || error) && (
-          <div style={{ marginBottom: 10 }}>
-            {(loading || busy) && !error && (
-              <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 600 }}>
-                {busy ? "Operazione in corso…" : "Caricamento…"}
+        {/* ─── Vista settimanale compatta ─── */}
+        <div style={{
+          display:"flex",gap:4,marginBottom:10,
+          background:THEME.panelBg,borderRadius:12,padding:"8px 8px",
+          border:`1.5px solid ${THEME.border}`,
+          overflowX:"auto",
+        }}>
+          {weekDays.map(day=>{
+            const isSelected = isSameDay(day,currentDate);
+            const isDayToday = isSameDay(day,new Date());
+            const evCount = events.filter(e=>isSameDay(e.start,day)&&e.status!=="cancelled").length;
+            const doneCount = events.filter(e=>isSameDay(e.start,day)&&e.status==="done").length;
+            const fullness = evCount===0?"free":doneCount===evCount?"done":evCount>=4?"full":"partial";
+            const dotColor = fullness==="free"?THEME.gray:fullness==="done"?THEME.green:fullness==="full"?THEME.red:THEME.amber;
+            return (
+              <button key={toISODateLocal(day)} onClick={()=>setCurrentDate(day)} style={{
+                flex:"0 0 auto",minWidth:38,padding:"6px 4px",borderRadius:10,cursor:"pointer",
+                border:isSelected?`2px solid ${THEME.blue}`:`1.5px solid ${isSelected?THEME.blue:THEME.border}`,
+                background:isSelected?"rgba(37,99,235,0.10)":isDayToday?"rgba(37,99,235,0.04)":THEME.panelSoft,
+                display:"flex",flexDirection:"column",alignItems:"center",gap:3,
+              }}>
+                <span style={{fontSize:9,fontWeight:700,color:isSelected?THEME.blue:THEME.muted,textTransform:"uppercase"}}>
+                  {formatWeekdayShort(day)}
+                </span>
+                <span style={{fontSize:15,fontWeight:800,color:isSelected?THEME.blue:isDayToday?THEME.teal:THEME.text}}>
+                  {day.getDate()}
+                </span>
+                {/* indicatore occupazione */}
+                <div style={{width:6,height:6,borderRadius:99,background:evCount>0?dotColor:THEME.border}} />
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ─── Barra azioni giorno ─── */}
+        <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
+          {/* Oggi */}
+          {!isToday&&(
+            <button onClick={goToday} style={{
+              padding:"6px 12px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",
+              border:`1.5px solid ${THEME.blue}`,background:"rgba(37,99,235,0.08)",color:THEME.blue,
+            }}>Vai a oggi</button>
+          )}
+
+          {/* Non pagati reminder */}
+          {dayStats.unpaidDone>0&&(
+            <div style={{padding:"5px 10px",borderRadius:8,fontSize:11,fontWeight:700,
+              background:"rgba(249,115,22,0.08)",color:THEME.amber,
+              border:`1.5px solid rgba(249,115,22,0.3)`,whiteSpace:"nowrap"}}>
+              💸 {dayStats.unpaidDone} da incassare
+            </div>
+          )}
+        </div>
+
+        {/* ─── Errore / loading ─── */}
+        {(loading||busy||error)&&(
+          <div style={{marginBottom:10}}>
+            {(loading||busy)&&!error&&(
+              <div style={{fontSize:12,color:THEME.muted,fontWeight:600}}>
+                {busy?"Operazione in corso…":"Caricamento…"}
               </div>
             )}
-            {error && (
-              <div style={{ padding: "10px 12px", borderRadius: 10,
-                            background: "rgba(220,38,38,0.06)",
-                            border: "1.5px solid rgba(220,38,38,0.25)",
-                            color: "#7f1d1d", fontWeight: 600, fontSize: 13 }}>
+            {error&&(
+              <div style={{padding:"10px 12px",borderRadius:10,
+                background:"rgba(220,38,38,0.06)",border:"1.5px solid rgba(220,38,38,0.25)",
+                color:"#7f1d1d",fontWeight:600,fontSize:13}}>
                 ⚠️ {error}
               </div>
             )}
           </div>
         )}
 
-        {/* Timeline */}
+        {/* ─── Legenda swipe ─── */}
+        <div style={{display:"flex",gap:10,marginBottom:8,fontSize:10,color:THEME.muted,fontWeight:600}}>
+          <span>← scorri card per aprire</span>
+          <span>→ scorri per eseguito</span>
+        </div>
+
+        {/* ─── Timeline ─── */}
         <div style={{
-          background: THEME.panelBg, border: `1.5px solid ${THEME.border}`,
-          borderRadius: 14, boxShadow: "0 2px 8px rgba(15,23,42,0.06)", overflow: "hidden",
+          background:THEME.panelBg,border:`1.5px solid ${THEME.border}`,
+          borderRadius:14,boxShadow:"0 2px 8px rgba(15,23,42,0.06)",overflow:"hidden",
         }}>
           <div ref={timelineScrollRef}
             onTouchStart={handleSwipeTouchStart} onTouchEnd={handleSwipeTouchEnd}>
             <div ref={timelineRef}
-              onDragOver={handleDragOver} onDrop={handleDrop} onDragLeave={() => setDragOverY(null)}
-              onTouchMove={handleTimelineTouchMove} onTouchEnd={handleTimelineTouchEnd}
-              style={{ position: "relative", height: `${(dayEndHour - dayStartHour) * PX_PER_HOUR}px` }}>
+              onDragOver={handleDragOver} onDrop={handleDrop} onDragLeave={()=>setDragOverY(null)}
+              onTouchMove={handleTimelineTouchMove}
+              style={{position:"relative",height:`${(dayEndHour-dayStartHour)*PX_PER_HOUR}px`}}>
 
-              {/* Righe orarie */}
-              {timeSlots.map((t, i) => (
-                <div key={i} style={{
-                  height: PX_PER_HOUR, borderBottom: `1px solid ${THEME.border}`, position: "relative",
-                }}>
-                  <div style={{
-                    position: "absolute", left: 10, top: 5,
-                    fontSize: 10, fontWeight: 600, color: THEME.muted,
-                    letterSpacing: "0.04em", zIndex: 2, lineHeight: 1,
-                  }}>{t.label}</div>
-                  <div style={{ position: "absolute", left: 52, right: 0, top: PX_PER_HOUR / 2,
-                                height: 1, background: THEME.border, opacity: 0.5, pointerEvents: "none" }} />
-                  <div onClick={() => openCreate(`${pad2(t.hour)}:00`, toISODateLocal(currentDate))}
-                    style={{ position: "absolute", top: 0, left: 52, right: 8,
-                             height: PX_PER_HOUR / 2, cursor: "pointer", zIndex: 1 }} />
-                  <div onClick={() => openCreate(`${pad2(t.hour)}:30`, toISODateLocal(currentDate))}
-                    style={{ position: "absolute", top: PX_PER_HOUR / 2, left: 52, right: 8,
-                             height: PX_PER_HOUR / 2, cursor: "pointer", zIndex: 1 }} />
+              {timeSlots.map((t,i)=>(
+                <div key={i} style={{height:PX_PER_HOUR,borderBottom:`1px solid ${THEME.border}`,position:"relative"}}>
+                  <div style={{position:"absolute",left:10,top:5,fontSize:10,fontWeight:600,
+                    color:THEME.muted,letterSpacing:"0.04em",zIndex:2,lineHeight:1}}>{t.label}</div>
+                  <div style={{position:"absolute",left:52,right:0,top:PX_PER_HOUR/2,
+                    height:1,background:THEME.border,opacity:0.5,pointerEvents:"none"}} />
+                  <div onClick={()=>openCreate(`${pad2(t.hour)}:00`,toISODateLocal(currentDate))}
+                    style={{position:"absolute",top:0,left:52,right:8,height:PX_PER_HOUR/2,cursor:"pointer",zIndex:1}} />
+                  <div onClick={()=>openCreate(`${pad2(t.hour)}:30`,toISODateLocal(currentDate))}
+                    style={{position:"absolute",top:PX_PER_HOUR/2,left:52,right:8,height:PX_PER_HOUR/2,cursor:"pointer",zIndex:1}} />
                 </div>
               ))}
 
-              {/* Indicatore drag mouse */}
-              {dragOverY !== null && draggingId && (
-                <div style={{
-                  position: "absolute", left: 52, right: 8,
-                  top: clamp(dragOverY, 0, (dayEndHour - dayStartHour) * PX_PER_HOUR),
-                  height: 2, background: THEME.blue, zIndex: 5, pointerEvents: "none",
-                  boxShadow: `0 0 8px ${THEME.blue}80`,
-                }} />
+              {dragOverY!==null&&draggingId&&(
+                <div style={{position:"absolute",left:52,right:8,
+                  top:clamp(dragOverY,0,(dayEndHour-dayStartHour)*PX_PER_HOUR),
+                  height:2,background:THEME.blue,zIndex:5,pointerEvents:"none",
+                  boxShadow:`0 0 8px ${THEME.blue}80`}} />
               )}
-              {/* Indicatore drag touch */}
-              {touchDragY !== null && touchDraggingId && (
-                <div style={{
-                  position: "absolute", left: 52, right: 8, top: Math.max(0, touchDragY),
-                  height: 2, background: THEME.blue, zIndex: 5, pointerEvents: "none",
-                  boxShadow: `0 0 8px ${THEME.blue}80`,
-                }} />
+              {touchDragY!==null&&touchDraggingId&&(
+                <div style={{position:"absolute",left:52,right:8,top:Math.max(0,touchDragY),
+                  height:2,background:THEME.blue,zIndex:5,pointerEvents:"none",
+                  boxShadow:`0 0 8px ${THEME.blue}80`}} />
               )}
 
-              {/* Card appuntamenti */}
               {dayEvents.map(renderEventCard)}
 
-              {/* Linea "adesso" */}
-              {(() => {
-                if (!isSameDay(currentTime, currentDate)) return null;
-                const top = ((currentTime.getHours() - dayStartHour) * 60 + currentTime.getMinutes()) * (PX_PER_HOUR / 60);
-                const max = (dayEndHour - dayStartHour) * PX_PER_HOUR;
-                if (top < 0 || top > max) return null;
+              {/* ─── Slot liberi ─── */}
+              {freeSlots.map((slot,i) => {
+                const ppm = PX_PER_HOUR / 60;
+                const top    = ((slot.start.getHours() - dayStartHour) * 60 + slot.start.getMinutes()) * ppm;
+                const height = slot.minutes * ppm;
+                if (height < 18) return null;
+                const label = slot.minutes >= 60
+                  ? `${Math.floor(slot.minutes/60)}h${slot.minutes%60>0?` ${slot.minutes%60}min`:""} liberi`
+                  : `${slot.minutes} min liberi`;
                 return (
-                  <div style={{ position: "absolute", left: 0, right: 0, top, height: 2,
-                                background: THEME.red, zIndex: 4, pointerEvents: "none",
-                                boxShadow: `0 0 8px ${THEME.red}60` }}>
-                    <div style={{ position: "absolute", left: 8, top: -4, width: 9, height: 9,
-                                  borderRadius: 99, background: THEME.red }} />
+                  <div
+                    key={i}
+                    onClick={() => openCreate(
+                      `${pad2(slot.start.getHours())}:${pad2(slot.start.getMinutes())}`,
+                      toISODateLocal(currentDate)
+                    )}
+                    title={`Slot libero — ${label}. Tocca per creare appuntamento`}
+                    style={{
+                      position:"absolute", left:52, right:8, top, height,
+                      borderRadius:6, zIndex:2, cursor:"pointer",
+                      border:`1.5px dashed ${THEME.green}50`,
+                      background:`rgba(22,163,74,0.04)`,
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                      pointerEvents:"auto",
+                    }}
+                  >
+                    {height >= 24 && (
+                      <span style={{
+                        fontSize:10, fontWeight:700, color:THEME.green,
+                        letterSpacing:"0.03em", opacity:0.8,
+                      }}>
+                        🟢 {label}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Linea "ora" */}
+              {(()=>{
+                if (!isSameDay(currentTime,currentDate)) return null;
+                const top=((currentTime.getHours()-dayStartHour)*60+currentTime.getMinutes())*(PX_PER_HOUR/60);
+                const max=(dayEndHour-dayStartHour)*PX_PER_HOUR;
+                if (top<0||top>max) return null;
+                return (
+                  <div style={{position:"absolute",left:0,right:0,top,height:2,
+                    background:THEME.red,zIndex:4,pointerEvents:"none",
+                    boxShadow:`0 0 8px ${THEME.red}60`}}>
+                    <div style={{position:"absolute",left:8,top:-4,width:9,height:9,
+                      borderRadius:99,background:THEME.red}} />
                   </div>
                 );
               })()}
 
-              {/* Empty state */}
-              {!loading && dayEvents.length === 0 && (
-                <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column",
-                              alignItems: "center", justifyContent: "center", gap: 10, pointerEvents: "none" }}>
-                  <div style={{ fontSize: 36, opacity: 0.25 }}>📅</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: THEME.muted }}>Nessun appuntamento</div>
-                  <div style={{ fontSize: 12, color: THEME.muted, opacity: 0.6 }}>Tocca + per aggiungerne uno</div>
+              {!loading&&dayEvents.length===0&&(
+                <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",
+                  alignItems:"center",justifyContent:"center",gap:10,pointerEvents:"none"}}>
+                  <div style={{fontSize:36,opacity:0.25}}>📅</div>
+                  <div style={{fontSize:14,fontWeight:700,color:THEME.muted}}>Nessun appuntamento</div>
+                  <div style={{fontSize:12,color:THEME.muted,opacity:0.6}}>Tocca + per aggiungerne uno</div>
                 </div>
               )}
             </div>
@@ -1043,40 +1211,111 @@ function CalendarPageInner() {
 
       {/* ━━━ FAB ━━━ */}
       <button
-        onClick={() => openCreate(undefined, toISODateLocal(currentDate))}
+        onClick={()=>openCreate(undefined,toISODateLocal(currentDate))}
         aria-label="Nuovo appuntamento"
         style={{
-          position: "fixed", right: 18,
-          bottom: `calc(env(safe-area-inset-bottom,0px) + ${BOTTOM_TAB_H + 16}px)`,
-          width: 52, height: 52, borderRadius: "50%",
-          background: THEME.gradient, color: "#fff",
-          border: "none", cursor: "pointer", fontSize: 26, fontWeight: 300, zIndex: 40,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          boxShadow: "0 4px 20px rgba(13,148,136,0.40)",
-        }}>+</button>
+          position:"fixed",right:18,
+          bottom:`calc(env(safe-area-inset-bottom,0px) + ${BOTTOM_TAB_H+16}px)`,
+          width:52,height:52,borderRadius:"50%",
+          background:THEME.gradient,color:"#fff",
+          border:"none",cursor:"pointer",fontSize:26,fontWeight:300,zIndex:40,
+          display:"flex",alignItems:"center",justifyContent:"center",
+          boxShadow:"0 4px 20px rgba(13,148,136,0.40)",
+        }}>
+        +
+        {/* Badge FAB */}
+        {fabBadge>0&&(
+          <div style={{position:"absolute",top:-2,right:-2,width:18,height:18,
+            borderRadius:99,background:THEME.red,color:"#fff",
+            fontSize:10,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",
+            border:"2px solid #fff"}}>
+            {fabBadge}
+          </div>
+        )}
+      </button>
+
+      {/* ━━━ MODAL NOTA RAPIDA ━━━ */}
+      {quickNoteId&&(
+        <LightModal onClose={()=>{setQuickNoteId(null);setQuickNoteText("");}}>
+          <ModalHeader title="Nota rapida" onClose={()=>{setQuickNoteId(null);setQuickNoteText("");}} />
+          <div style={{marginTop:14,display:"flex",flexDirection:"column",gap:12}}>
+            <textarea
+              autoFocus
+              value={quickNoteText}
+              onChange={e=>setQuickNoteText(e.target.value)}
+              placeholder="Annotazione sull'appuntamento…"
+              style={{...inputS(),minHeight:100,resize:"vertical"}}
+            />
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              <LightBtn v="primary" onClick={saveQuickNote}>💾 Salva</LightBtn>
+              <LightBtn v="ghost" onClick={()=>{setQuickNoteId(null);setQuickNoteText("");}}>Annulla</LightBtn>
+            </div>
+          </div>
+        </LightModal>
+      )}
+
+      {/* ━━━ MODAL RICERCA PAZIENTE ━━━ */}
+      {searchOpen&&(
+        <LightModal onClose={()=>setSearchOpen(false)}>
+          <ModalHeader title="Cerca paziente" onClose={()=>setSearchOpen(false)} />
+          <div style={{marginTop:14,display:"flex",flexDirection:"column",gap:10}}>
+            <input
+              autoFocus
+              value={searchQuery}
+              onChange={e=>setSearchQuery(e.target.value)}
+              placeholder="Nome o cognome…"
+              style={inputS()}
+            />
+            {searchLoading&&<div style={{fontSize:12,color:THEME.muted,fontWeight:600}}>Ricerca…</div>}
+            {searchResults.length>0&&(
+              <div style={{border:`1.5px solid ${THEME.border}`,borderRadius:10,overflow:"hidden"}}>
+                {searchResults.map(p=>{
+                  const name=`${p.last_name??""} ${p.first_name??""}`.trim();
+                  return (
+                    <Link key={p.id} href={`/mobile/patients/${p.id}`} onClick={()=>setSearchOpen(false)} style={{
+                      display:"flex",alignItems:"center",justifyContent:"space-between",
+                      padding:"12px 14px",borderBottom:`1px solid ${THEME.border}`,
+                      textDecoration:"none",color:THEME.text,background:THEME.panelSoft,
+                    }}>
+                      <div>
+                        <div style={{fontWeight:700,fontSize:13}}>{name||"Paziente"}</div>
+                        {p.phone&&<div style={{fontSize:11,color:THEME.muted,marginTop:2}}>{p.phone}</div>}
+                      </div>
+                      <span style={{color:THEME.blue,fontSize:16}}>›</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+            {searchQuery.length>=2&&!searchLoading&&searchResults.length===0&&(
+              <div style={{fontSize:13,color:THEME.muted,textAlign:"center",padding:"12px 0"}}>
+                Nessun paziente trovato
+              </div>
+            )}
+          </div>
+        </LightModal>
+      )}
 
       {/* ━━━ MODAL MODIFICA ━━━ */}
-      {selectedEvent && (
-        <LightModal onClose={() => setSelectedEvent(null)}>
+      {selectedEvent&&(
+        <LightModal onClose={()=>setSelectedEvent(null)}>
           <ModalHeader
             title={selectedEvent.patient_name}
             subtitle={`${fmtTime(selectedEvent.start)} – ${fmtTime(selectedEvent.end)}`}
-            onClose={() => setSelectedEvent(null)}
+            onClose={()=>setSelectedEvent(null)}
           />
-          <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-            {error && <ErrorBox>{error}</ErrorBox>}
-
+          <div style={{marginTop:18,display:"flex",flexDirection:"column",gap:14}}>
+            {error&&<ErrorBox>{error}</ErrorBox>}
             <FG label="Orario">
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} style={inputS()} />
-                <input type="time" value={editTime} onChange={e => setEditTime(e.target.value)} style={inputS()} />
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                <input type="date" value={editDate} onChange={e=>setEditDate(e.target.value)} style={inputS()} />
+                <input type="time" value={editTime} onChange={e=>setEditTime(e.target.value)} style={inputS()} />
                 <input type="number" min={15} step={5} value={editDuration}
-                  onChange={e => setEditDuration(Number(e.target.value))} style={inputS()} placeholder="Min" />
+                  onChange={e=>setEditDuration(Number(e.target.value))} style={inputS()} placeholder="Min" />
               </div>
             </FG>
-
             <FG label="Stato">
-              <select value={editStatus} onChange={e => setEditStatus(e.target.value as Status)} style={inputS()}>
+              <select value={editStatus} onChange={e=>setEditStatus(e.target.value as Status)} style={inputS()}>
                 <option value="booked">Prenotato</option>
                 <option value="confirmed">Confermato</option>
                 <option value="done">Eseguito</option>
@@ -1084,50 +1323,38 @@ function CalendarPageInner() {
                 <option value="cancelled">Annullato</option>
               </select>
             </FG>
-
             <FG label="Note">
-              <textarea value={editNote} onChange={e => setEditNote(e.target.value)}
-                style={{ ...inputS(), minHeight: 80, resize: "vertical" }} />
+              <textarea value={editNote} onChange={e=>setEditNote(e.target.value)}
+                style={{...inputS(),minHeight:80,resize:"vertical"}} />
             </FG>
-
             <FG label="Importo">
-              <input value={editAmount} onChange={e => setEditAmount(e.target.value)}
+              <input value={editAmount} onChange={e=>setEditAmount(e.target.value)}
                 style={inputS()} placeholder="Es. 40" inputMode="decimal" />
             </FG>
-
-            {/* Stato WA */}
-            {selectedEvent.whatsapp_sent_at && (
-              <div style={{
-                fontSize: 12, fontWeight: 600, color: THEME.green,
-                padding: "6px 10px", borderRadius: 8,
-                background: "rgba(22,163,74,0.08)", border: "1px solid rgba(22,163,74,0.2)",
-              }}>
-                ✓ Promemoria WA inviato il {new Date(selectedEvent.whatsapp_sent_at).toLocaleDateString("it-IT")}
+            {selectedEvent.whatsapp_sent_at&&(
+              <div style={{fontSize:12,fontWeight:600,color:THEME.green,padding:"6px 10px",borderRadius:8,
+                background:"rgba(22,163,74,0.08)",border:"1px solid rgba(22,163,74,0.2)"}}>
+                ✓ WA inviato il {new Date(selectedEvent.whatsapp_sent_at).toLocaleDateString("it-IT")}
               </div>
             )}
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 4 }}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:4}}>
               <LightBtn v="primary" onClick={saveEvent} disabled={busy}>💾 Salva</LightBtn>
               <LightBtn v="wa"
-                onClick={() => sendReminder(
-                  selectedEvent.id,
-                  selectedEvent.patient_phone ?? undefined,
-                  selectedEvent.patient_first_name ?? undefined,
-                )}
+                onClick={()=>sendReminder(selectedEvent.id,selectedEvent.patient_phone??undefined,selectedEvent.patient_first_name??undefined)}
                 disabled={!normalizePhone(selectedEvent.patient_phone)}>
                 💬 WhatsApp
               </LightBtn>
               <LightBtn v="danger" onClick={deleteEvent} disabled={busy}>🗑 Elimina</LightBtn>
-              <LightBtn v="ghost" onClick={() => setSelectedEvent(null)}>Chiudi</LightBtn>
+              <LightBtn v="ghost" onClick={()=>setSelectedEvent(null)}>Chiudi</LightBtn>
             </div>
           </div>
         </LightModal>
       )}
 
       {/* ━━━ MODAL CREAZIONE ━━━ */}
-      {createOpen && (
+      {createOpen&&(
         <CreateModal
-          busy={busy} error={error} onClose={() => setCreateOpen(false)}
+          busy={busy} error={error} onClose={()=>setCreateOpen(false)}
           patientQuery={patientQuery} setPatientQuery={setPatientQuery}
           patientResults={patientResults} patientLoading={patientLoading}
           selectedPatient={selectedPatient} setSelectedPatient={setSelectedPatient}
@@ -1147,55 +1374,49 @@ function CalendarPageInner() {
           createAppointment={createAppointment}
         />
       )}
+
+      <style dangerouslySetInnerHTML={{__html:`
+        @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+      `}} />
     </div>
   );
 }
 
-/* ─── UI helpers ─────────────────────────────────────────────────────── */
-
+/* ─── UI components ───────────────────────────────────────────────────── */
 function inputS(): React.CSSProperties {
   return {
-    width: "100%", padding: "10px 12px", borderRadius: 10,
-    border: `1.5px solid ${THEME.border}`, outline: "none",
-    background: THEME.panelSoft, color: THEME.text,
-    fontWeight: 500, fontSize: 14, fontFamily: "Inter,-apple-system,sans-serif",
-    boxSizing: "border-box",
+    width:"100%",padding:"10px 12px",borderRadius:10,
+    border:`1.5px solid ${THEME.border}`,outline:"none",
+    background:THEME.panelSoft,color:THEME.text,
+    fontWeight:500,fontSize:14,fontFamily:"Inter,-apple-system,sans-serif",
+    boxSizing:"border-box",
   };
 }
 
-type BtnV = "primary" | "wa" | "danger" | "ghost";
-function LightBtn({
-  v, onClick, disabled, children,
-}: {
-  v: BtnV; onClick?: () => void; disabled?: boolean; children: React.ReactNode;
-}) {
-  const styles: Record<BtnV, React.CSSProperties> = {
-    primary: { background: THEME.gradient, color: "#fff", border: "none",
-               boxShadow: "0 2px 8px rgba(13,148,136,0.25)" },
-    wa:      { background: "rgba(22,163,74,0.10)", color: THEME.green,
-               border: `1.5px solid rgba(22,163,74,0.3)` },
-    danger:  { background: "rgba(220,38,38,0.08)", color: THEME.red,
-               border: `1.5px solid rgba(220,38,38,0.2)` },
-    ghost:   { background: THEME.panelSoft, color: THEME.muted,
-               border: `1.5px solid ${THEME.border}` },
+type BtnV = "primary"|"wa"|"danger"|"ghost";
+function LightBtn({v,onClick,disabled,children}:{v:BtnV;onClick?:()=>void;disabled?:boolean;children:React.ReactNode}) {
+  const styles:Record<BtnV,React.CSSProperties>={
+    primary:{background:THEME.gradient,color:"#fff",border:"none",boxShadow:"0 2px 8px rgba(13,148,136,0.25)"},
+    wa:     {background:"rgba(22,163,74,0.10)",color:THEME.green,border:`1.5px solid rgba(22,163,74,0.3)`},
+    danger: {background:"rgba(220,38,38,0.08)",color:THEME.red,border:`1.5px solid rgba(220,38,38,0.2)`},
+    ghost:  {background:THEME.panelSoft,color:THEME.muted,border:`1.5px solid ${THEME.border}`},
   };
   return (
     <button onClick={onClick} disabled={disabled} style={{
-      padding: "11px 14px", borderRadius: 10, fontWeight: 700,
-      cursor: disabled ? "not-allowed" : "pointer", fontSize: 13,
-      fontFamily: "Inter,-apple-system,sans-serif",
-      opacity: disabled ? 0.4 : 1, transition: "opacity 0.15s",
-      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-      ...styles[v],
+      padding:"11px 14px",borderRadius:10,fontWeight:700,
+      cursor:disabled?"not-allowed":"pointer",fontSize:13,
+      fontFamily:"Inter,-apple-system,sans-serif",
+      opacity:disabled?0.4:1,transition:"opacity 0.15s",
+      display:"flex",alignItems:"center",justifyContent:"center",gap:6,...styles[v],
     }}>{children}</button>
   );
 }
 
-function FG({ label, children }: { label: string; children: React.ReactNode }) {
+function FG({label,children}:{label:string;children:React.ReactNode}) {
   return (
     <div>
-      <div style={{ fontSize: 10, color: THEME.muted, fontWeight: 700, marginBottom: 6,
-                    textTransform: "uppercase", letterSpacing: "0.08em" }}>
+      <div style={{fontSize:10,color:THEME.muted,fontWeight:700,marginBottom:6,
+        textTransform:"uppercase",letterSpacing:"0.08em"}}>
         {label}
       </div>
       {children}
@@ -1203,31 +1424,28 @@ function FG({ label, children }: { label: string; children: React.ReactNode }) {
   );
 }
 
-function ErrorBox({ children }: { children: React.ReactNode }) {
+function ErrorBox({children}:{children:React.ReactNode}) {
   return (
-    <div style={{ background: "rgba(220,38,38,0.06)", border: "1.5px solid rgba(220,38,38,0.25)",
-                  color: "#7f1d1d", padding: "10px 13px", borderRadius: 10,
-                  fontSize: 13, fontWeight: 600 }}>
+    <div style={{background:"rgba(220,38,38,0.06)",border:"1.5px solid rgba(220,38,38,0.25)",
+      color:"#7f1d1d",padding:"10px 13px",borderRadius:10,fontSize:13,fontWeight:600}}>
       ⚠️ {children}
     </div>
   );
 }
 
-function LightModal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+function LightModal({children,onClose}:{children:React.ReactNode;onClose:()=>void}) {
   return (
     <>
-      <div onClick={onClose} style={{
-        position: "fixed", inset: 0, background: "rgba(15,23,42,0.4)",
-        zIndex: 4000, backdropFilter: "blur(4px)",
-      }} />
+      <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.4)",
+        zIndex:4000,backdropFilter:"blur(4px)"}} />
       <div style={{
-        position: "fixed", left: "50%", top: "50%", transform: "translate(-50%,-50%)",
-        width: "min(520px,calc(100vw - 24px))",
-        background: THEME.panelBg, border: `1.5px solid ${THEME.border}`,
-        borderRadius: 18, padding: 20, zIndex: 4001,
-        boxShadow: "0 24px 64px rgba(15,23,42,0.18)",
-        maxHeight: "85vh", overflowY: "auto",
-        fontFamily: "Inter,-apple-system,sans-serif",
+        position:"fixed",left:"50%",top:"50%",transform:"translate(-50%,-50%)",
+        width:"min(520px,calc(100vw - 24px))",
+        background:THEME.panelBg,border:`1.5px solid ${THEME.border}`,
+        borderRadius:18,padding:20,zIndex:4001,
+        boxShadow:"0 24px 64px rgba(15,23,42,0.18)",
+        maxHeight:"85vh",overflowY:"auto",
+        fontFamily:"Inter,-apple-system,sans-serif",
       }}>
         {children}
       </div>
@@ -1235,156 +1453,107 @@ function LightModal({ children, onClose }: { children: React.ReactNode; onClose:
   );
 }
 
-function ModalHeader({
-  title, subtitle, onClose,
-}: {
-  title: string; subtitle?: string; onClose: () => void;
-}) {
+function ModalHeader({title,subtitle,onClose}:{title:string;subtitle?:string;onClose:()=>void}) {
   return (
-    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 17, fontWeight: 800, color: THEME.text,
-                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {title}
-        </div>
-        {subtitle && (
-          <div style={{ marginTop: 3, fontSize: 12, color: THEME.muted, fontWeight: 600 }}>{subtitle}</div>
-        )}
+    <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}>
+      <div style={{minWidth:0}}>
+        <div style={{fontSize:17,fontWeight:800,color:THEME.text,
+          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</div>
+        {subtitle&&<div style={{marginTop:3,fontSize:12,color:THEME.muted,fontWeight:600}}>{subtitle}</div>}
       </div>
-      <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22,
-                                         cursor: "pointer", color: THEME.muted, lineHeight: 1, padding: "0 4px" }}>
-        ×
-      </button>
+      <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,
+        cursor:"pointer",color:THEME.muted,lineHeight:1,padding:"0 4px"}}>×</button>
     </div>
   );
 }
 
-/* ─── CreateModal ────────────────────────────────────────────────────── */
-function CreateModal(props: CreateModalProps) {
+/* ─── CreateModal ─────────────────────────────────────────────────────── */
+function CreateModal(props:CreateModalProps) {
   const {
-    busy, error, onClose,
-    patientQuery, setPatientQuery, patientResults, patientLoading,
-    selectedPatient, setSelectedPatient,
-    quickFirstName, setQuickFirstName, quickLastName, setQuickLastName,
-    quickPhone, setQuickPhone, createQuickPatient,
-    createDate, setCreateDate, createTime, setCreateTime,
-    createDuration, setCreateDuration, createStatus, setCreateStatus,
-    createLocation, setCreateLocation,
-    createClinicSite, setCreateClinicSite,
-    createDomicileAddress, setCreateDomicileAddress,
-    createAmount, setCreateAmount, createNote, setCreateNote, createAppointment,
-  } = props;
-
+    busy,error,onClose,
+    patientQuery,setPatientQuery,patientResults,patientLoading,selectedPatient,setSelectedPatient,
+    quickFirstName,setQuickFirstName,quickLastName,setQuickLastName,quickPhone,setQuickPhone,createQuickPatient,
+    createDate,setCreateDate,createTime,setCreateTime,createDuration,setCreateDuration,
+    createStatus,setCreateStatus,createLocation,setCreateLocation,
+    createClinicSite,setCreateClinicSite,createDomicileAddress,setCreateDomicileAddress,
+    createAmount,setCreateAmount,createNote,setCreateNote,createAppointment,
+  }=props;
   return (
     <LightModal onClose={onClose}>
       <ModalHeader title="Nuovo appuntamento" subtitle={`${createDate} · ${createTime}`} onClose={onClose} />
-      <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-        {error && <ErrorBox>{error}</ErrorBox>}
-
+      <div style={{marginTop:18,display:"flex",flexDirection:"column",gap:14}}>
+        {error&&<ErrorBox>{error}</ErrorBox>}
         <FG label="Paziente">
-          <input value={patientQuery} onChange={e => setPatientQuery(e.target.value)}
+          <input value={patientQuery} onChange={e=>setPatientQuery(e.target.value)}
             style={inputS()} placeholder="Cerca per nome/cognome…" />
-          {patientLoading && (
-            <div style={{ marginTop: 6, fontSize: 12, color: THEME.muted, fontWeight: 600 }}>Ricerca…</div>
-          )}
-          {patientResults.length > 0 && (
-            <div style={{ marginTop: 6, border: `1.5px solid ${THEME.border}`, borderRadius: 10, overflow: "hidden" }}>
-              {patientResults.map(p => {
-                const name = `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim();
+          {patientLoading&&<div style={{marginTop:6,fontSize:12,color:THEME.muted,fontWeight:600}}>Ricerca…</div>}
+          {patientResults.length>0&&(
+            <div style={{marginTop:6,border:`1.5px solid ${THEME.border}`,borderRadius:10,overflow:"hidden"}}>
+              {patientResults.map(p=>{
+                const name=`${p.first_name??""} ${p.last_name??""}`.trim();
                 return (
-                  <button key={p.id} onClick={() => setSelectedPatient(p)} style={{
-                    width: "100%", textAlign: "left", padding: "10px 14px",
-                    border: "none", borderBottom: `1px solid ${THEME.border}`,
-                    background: selectedPatient?.id === p.id ? "rgba(37,99,235,0.08)" : THEME.panelSoft,
-                    cursor: "pointer",
-                    color: selectedPatient?.id === p.id ? THEME.blue : THEME.text,
-                    fontWeight: 600, fontSize: 13, fontFamily: "Inter,-apple-system,sans-serif",
+                  <button key={p.id} onClick={()=>setSelectedPatient(p)} style={{
+                    width:"100%",textAlign:"left",padding:"10px 14px",border:"none",
+                    borderBottom:`1px solid ${THEME.border}`,
+                    background:selectedPatient?.id===p.id?"rgba(37,99,235,0.08)":THEME.panelSoft,
+                    cursor:"pointer",color:selectedPatient?.id===p.id?THEME.blue:THEME.text,
+                    fontWeight:600,fontSize:13,fontFamily:"Inter,-apple-system,sans-serif",
                   }}>
-                    {name || "Paziente"}{p.phone ? ` · ${p.phone}` : ""}
+                    {name||"Paziente"}{p.phone?` · ${p.phone}`:""}
                   </button>
                 );
               })}
             </div>
           )}
-          {selectedPatient && (
-            <div style={{ marginTop: 6, padding: "6px 12px",
-                          background: "rgba(37,99,235,0.08)", borderRadius: 8,
-                          fontSize: 13, color: THEME.blue, fontWeight: 700 }}>
-              ✓ {`${selectedPatient.first_name ?? ""} ${selectedPatient.last_name ?? ""}`.trim()}
+          {selectedPatient&&(
+            <div style={{marginTop:6,padding:"6px 12px",background:"rgba(37,99,235,0.08)",
+              borderRadius:8,fontSize:13,color:THEME.blue,fontWeight:700}}>
+              ✓ {`${selectedPatient.first_name??""} ${selectedPatient.last_name??""}`.trim()}
             </div>
           )}
         </FG>
-
-        <div style={{ borderTop: `1.5px solid ${THEME.border}`, paddingTop: 14 }}>
-          <div style={{ fontSize: 10, color: THEME.muted, fontWeight: 700, marginBottom: 10,
-                        textTransform: "uppercase", letterSpacing: "0.08em" }}>
-            Oppure crea paziente rapido
+        <div style={{borderTop:`1.5px solid ${THEME.border}`,paddingTop:14}}>
+          <div style={{fontSize:10,color:THEME.muted,fontWeight:700,marginBottom:10,
+            textTransform:"uppercase",letterSpacing:"0.08em"}}>Oppure crea paziente rapido</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <input value={quickFirstName} onChange={e=>setQuickFirstName(e.target.value)} style={inputS()} placeholder="Nome" />
+            <input value={quickLastName}  onChange={e=>setQuickLastName(e.target.value)}  style={inputS()} placeholder="Cognome" />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <input value={quickFirstName} onChange={e => setQuickFirstName(e.target.value)}
-              style={inputS()} placeholder="Nome" />
-            <input value={quickLastName} onChange={e => setQuickLastName(e.target.value)}
-              style={inputS()} placeholder="Cognome" />
-          </div>
-          <input value={quickPhone} onChange={e => setQuickPhone(e.target.value)}
-            style={{ ...inputS(), marginTop: 8 }} placeholder="Telefono (opzionale)" />
-          <div style={{ marginTop: 10 }}>
+          <input value={quickPhone} onChange={e=>setQuickPhone(e.target.value)}
+            style={{...inputS(),marginTop:8}} placeholder="Telefono (opzionale)" />
+          <div style={{marginTop:10}}>
             <LightBtn v="primary" onClick={createQuickPatient} disabled={busy}>➕ Crea e seleziona</LightBtn>
           </div>
         </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-          <FG label="Data">
-            <input type="date" value={createDate} onChange={e => setCreateDate(e.target.value)} style={inputS()} />
-          </FG>
-          <FG label="Ora">
-            <input type="time" value={createTime} onChange={e => setCreateTime(e.target.value)} style={inputS()} />
-          </FG>
-          <FG label="Durata (m)">
-            <input type="number" min={15} step={5} value={createDuration}
-              onChange={e => setCreateDuration(Number(e.target.value))} style={inputS()} />
-          </FG>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+          <FG label="Data"><input type="date" value={createDate} onChange={e=>setCreateDate(e.target.value)} style={inputS()} /></FG>
+          <FG label="Ora"><input type="time" value={createTime} onChange={e=>setCreateTime(e.target.value)} style={inputS()} /></FG>
+          <FG label="Min"><input type="number" min={15} step={5} value={createDuration} onChange={e=>setCreateDuration(Number(e.target.value))} style={inputS()} /></FG>
         </div>
-
         <FG label="Stato">
-          <select value={createStatus} onChange={e => setCreateStatus(e.target.value as Status)} style={inputS()}>
-            <option value="confirmed">Confermato</option>
-            <option value="booked">Prenotato</option>
-            <option value="done">Eseguito</option>
-            <option value="not_paid">Non pagata</option>
+          <select value={createStatus} onChange={e=>setCreateStatus(e.target.value as Status)} style={inputS()}>
+            <option value="confirmed">Confermato</option><option value="booked">Prenotato</option>
+            <option value="done">Eseguito</option><option value="not_paid">Non pagata</option>
             <option value="cancelled">Annullato</option>
           </select>
         </FG>
-
         <FG label="Luogo">
-          <select value={createLocation} onChange={e => setCreateLocation(e.target.value as LocationType)} style={inputS()}>
-            <option value="studio">Studio</option>
-            <option value="domicile">Domicilio</option>
+          <select value={createLocation} onChange={e=>setCreateLocation(e.target.value as LocationType)} style={inputS()}>
+            <option value="studio">Studio</option><option value="domicile">Domicilio</option>
           </select>
         </FG>
-
-        {createLocation === "studio"
-          ? <FG label="Sede studio">
-              <input value={createClinicSite} onChange={e => setCreateClinicSite(e.target.value)}
-                style={inputS()} placeholder={DEFAULT_CLINIC} />
-            </FG>
-          : <FG label="Indirizzo domicilio">
-              <input value={createDomicileAddress} onChange={e => setCreateDomicileAddress(e.target.value)}
-                style={inputS()} placeholder="Indirizzo…" />
-            </FG>
+        {createLocation==="studio"
+          ?<FG label="Sede"><input value={createClinicSite} onChange={e=>setCreateClinicSite(e.target.value)} style={inputS()} placeholder={DEFAULT_CLINIC} /></FG>
+          :<FG label="Indirizzo"><input value={createDomicileAddress} onChange={e=>setCreateDomicileAddress(e.target.value)} style={inputS()} placeholder="Indirizzo…" /></FG>
         }
-
         <FG label="Importo">
-          <input value={createAmount} onChange={e => setCreateAmount(e.target.value)}
-            style={inputS()} placeholder="Es. 40" inputMode="decimal" />
+          <input value={createAmount} onChange={e=>setCreateAmount(e.target.value)} style={inputS()} placeholder="Es. 40" inputMode="decimal" />
         </FG>
         <FG label="Note">
-          <textarea value={createNote} onChange={e => setCreateNote(e.target.value)}
-            style={{ ...inputS(), minHeight: 80, resize: "vertical" }} />
+          <textarea value={createNote} onChange={e=>setCreateNote(e.target.value)} style={{...inputS(),minHeight:80,resize:"vertical"}} />
         </FG>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <LightBtn v="primary" onClick={createAppointment} disabled={busy}>✅ Crea appuntamento</LightBtn>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <LightBtn v="primary" onClick={createAppointment} disabled={busy}>✅ Crea</LightBtn>
           <LightBtn v="ghost" onClick={onClose}>Annulla</LightBtn>
         </div>
       </div>
