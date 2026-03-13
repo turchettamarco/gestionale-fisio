@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
-import { Menu, X, Home, Calendar, BarChart3, Users } from "lucide-react";
 
+/* ─── Types ──────────────────────────────────────────────────────────── */
 type Status = "booked" | "confirmed" | "done" | "cancelled" | "not_paid";
 type LocationType = "studio" | "domicile";
 
@@ -21,20 +21,17 @@ type CalendarEvent = {
   patient_id: string | null;
   patient_name: string;
   patient_phone: string | null;
-
   start: Date;
   end: Date;
-
   status: Status;
   calendar_note: string | null;
-
   location: LocationType | null;
   clinic_site: string | null;
   domicile_address: string | null;
-
   amount: number | null;
   treatment_type: string | null;
   price_type: string | null;
+  whatsapp_sent_at: string | null;
 };
 
 type MessageTemplate = {
@@ -45,1271 +42,1112 @@ type MessageTemplate = {
   created_at: string;
 };
 
+type CreateModalProps = {
+  busy: boolean;
+  error: string;
+  onClose: () => void;
+  patientQuery: string;
+  setPatientQuery: (v: string) => void;
+  patientResults: PatientLite[];
+  patientLoading: boolean;
+  selectedPatient: PatientLite | null;
+  setSelectedPatient: (p: PatientLite | null) => void;
+  quickFirstName: string;
+  setQuickFirstName: (v: string) => void;
+  quickLastName: string;
+  setQuickLastName: (v: string) => void;
+  quickPhone: string;
+  setQuickPhone: (v: string) => void;
+  createQuickPatient: () => Promise<void>;
+  createDate: string;
+  setCreateDate: (v: string) => void;
+  createTime: string;
+  setCreateTime: (v: string) => void;
+  createDuration: number;
+  setCreateDuration: (v: number) => void;
+  createStatus: Status;
+  setCreateStatus: (v: Status) => void;
+  createLocation: LocationType;
+  setCreateLocation: (v: LocationType) => void;
+  createClinicSite: string;
+  setCreateClinicSite: (v: string) => void;
+  createDomicileAddress: string;
+  setCreateDomicileAddress: (v: string) => void;
+  createAmount: string;
+  setCreateAmount: (v: string) => void;
+  createNote: string;
+  setCreateNote: (v: string) => void;
+  createAppointment: () => Promise<void>;
+};
+
+type TouchDragState = {
+  eventId: string;
+  startClientY: number;
+  startEventTopPx: number;
+  activated: boolean;
+  activationTimer: ReturnType<typeof setTimeout> | null;
+};
+
+/* ─── Theme (identico home + calendario desktop) ─────────────────────── */
 const THEME = {
-  appBg: "#f1f5f9",
-  panelBg: "#ffffff",
-  panelSoft: "#f7f9fd",
-
-  text: "#0f172a",
-  muted: "#334155",
-
-  border: "#cbd5e1",
+  appBg:      "#f1f5f9",
+  panelBg:    "#ffffff",
+  panelSoft:  "#f7f9fd",
+  text:       "#0f172a",
+  textSoft:   "#1e293b",
+  muted:      "#334155",
+  border:     "#cbd5e1",
   borderSoft: "#94a3b8",
-
-  blue: "#2563eb",
-  blueDark: "#1e40af",
-  green: "#16a34a",
-  red: "#dc2626",
-  amber: "#f97316",
-  gray: "#64748b",
+  blue:       "#2563eb",
+  green:      "#16a34a",
+  red:        "#dc2626",
+  amber:      "#f97316",
+  gray:       "#94a3b8",
+  gradient:   "linear-gradient(135deg, #0d9488, #2563eb)",
 };
 
-const COLORS = {
-  primary: "#1e3a8a",
-  secondary: "#2563eb",
-  accent: "#0d9488",
-  success: "#16a34a",
-  warning: "#f97316",
-  danger: "#dc2626",
-  muted: "#64748b",
-  background: "#f8fafc",
-  card: "#ffffff",
-  border: "#e2e8f0",
-  text: "#0f172a",
+const PX_PER_HOUR     = 80;
+const BOTTOM_TAB_H    = 62;
+const DEFAULT_START_H = 7;
+const DEFAULT_END_H   = 22;
+const DEFAULT_CLINIC  = "Studio Pontecorvo";
+
+/* ─── Status helpers ─────────────────────────────────────────────────── */
+function statusLabel(s: Status) {
+  return ({ booked: "Prenotato", confirmed: "Confermato", done: "Eseguito",
+            not_paid: "Non pagata", cancelled: "Annullato" } as Record<Status, string>)[s] ?? "Prenotato";
+}
+function statusColor(s: Status): string {
+  switch (s) {
+    case "done":      return THEME.green;
+    case "confirmed": return THEME.blue;
+    case "not_paid":  return THEME.amber;
+    case "cancelled": return THEME.gray;
+    default:          return THEME.red;
+  }
+}
+function statusBgColor(s: Status): string {
+  switch (s) {
+    case "done":      return "rgba(22,163,74,0.10)";
+    case "confirmed": return "rgba(37,99,235,0.08)";
+    case "not_paid":  return "rgba(249,115,22,0.10)";
+    case "cancelled": return "rgba(148,163,184,0.08)";
+    default:          return "rgba(220,38,38,0.08)";
+  }
+}
+
+/* ─── WhatsApp ───────────────────────────────────────────────────────── */
+const CLINIC_ADDRESSES: Record<string, string> = {
+  "Studio Pontecorvo": "Pontecorvo, Via Galileo Galilei 5, dietro il Bar Principe",
 };
 
-const DEFAULT_START_HOUR = 7;
-const DEFAULT_END_HOUR = 22;
-const DEFAULT_CLINIC_SITE = "Studio Pontecorvo";
-
-function pad2(n: number) {
-  return String(n).padStart(2, "0");
-}
-function addDays(d: Date, days: number) {
-  const x = new Date(d);
-  x.setDate(x.getDate() + days);
-  return x;
-}
-function formatDMY(d: Date) {
-  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
-}
-function formatFullDate(d: Date) {
-  const days = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
-  const dayName = days[d.getDay()];
-  return `${dayName} ${formatDMY(d)}`;
+function formatPhoneForWhatsAppWeb(phone: string): string {
+  if (!phone) return phone;
+  let clean = phone.replace(/[\s\(\)\-\.]/g, "");
+  if (clean.startsWith("0")) clean = "39" + clean.substring(1);
+  if (!clean.startsWith("+")) clean = "+" + clean;
+  return clean;
 }
 
-function formatRelativeDateLabel(d: Date, now: Date = new Date()) {
-  // "Oggi 04/02/2026", "Domani 05/02/2026", altrimenti "04/02/2026"
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
-  const target = new Date(d);
-  target.setHours(0, 0, 0, 0);
-
-  const diffDays = Math.round((target.getTime() - today.getTime()) / 86400000);
-  const base = formatDMY(d);
-  if (diffDays === 0) return `Oggi ${base}`;
-  if (diffDays === 1) return `Domani ${base}`;
-  return base;
+function formatDateRelative(date: Date): string {
+  const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
+  const domani = new Date(oggi); domani.setDate(oggi.getDate() + 1);
+  const t = new Date(date); t.setHours(0, 0, 0, 0);
+  if (t.getTime() === oggi.getTime())   return "Oggi";
+  if (t.getTime() === domani.getTime()) return "Domani";
+  const gg = ["Domenica","Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato"];
+  const mm = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno",
+              "Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+  return `${gg[t.getDay()]} ${t.getDate()} ${mm[t.getMonth()]}`;
 }
 
+/* ─── Date / misc helpers ────────────────────────────────────────────── */
+function pad2(n: number) { return String(n).padStart(2, "0"); }
+function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+function formatDMY(d: Date) { return `${pad2(d.getDate())}/${pad2(d.getMonth()+1)}/${d.getFullYear()}`; }
+function formatWeekday(d: Date) {
+  return ["Domenica","Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato"][d.getDay()];
+}
+function formatRelativeDateLabel(d: Date, now = new Date()) {
+  const today = new Date(now); today.setHours(0,0,0,0);
+  const t = new Date(d); t.setHours(0,0,0,0);
+  const diff = Math.round((t.getTime() - today.getTime()) / 86400000);
+  if (diff === 0) return `Oggi ${formatDMY(d)}`;
+  if (diff === 1) return `Domani ${formatDMY(d)}`;
+  return formatDMY(d);
+}
 function isSameDay(a: Date, b: Date) {
-  return a.getDate() === b.getDate() && a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
+  return a.getDate()===b.getDate() && a.getMonth()===b.getMonth() && a.getFullYear()===b.getFullYear();
 }
-function fmtTime(d: Date) {
-  return d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
-}
-function toISODateLocal(d: Date) {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
+function fmtTime(d: Date) { return d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }); }
+function toISODateLocal(d: Date) { return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
 function parseTimeHHMM(t: string) {
-  const [hh, mm] = t.split(":").map((x) => Number(x));
+  const [hh, mm] = t.split(":").map(Number);
   return { hh: Number.isFinite(hh) ? hh : 0, mm: Number.isFinite(mm) ? mm : 0 };
 }
 function buildDateTime(dateISO: string, timeHHMM: string) {
-  const base = new Date(`${dateISO}T00:00:00`);
+  const b = new Date(`${dateISO}T00:00:00`);
   const { hh, mm } = parseTimeHHMM(timeHHMM);
-  base.setHours(hh, mm, 0, 0);
-  return base;
+  b.setHours(hh, mm, 0, 0); return b;
 }
 function normalizePhone(raw?: string | null) {
   if (!raw) return null;
-  const digits = raw.replace(/\D/g, "");
-  if (digits.length < 9) return null;
-  return digits;
+  const d = raw.replace(/\D/g, ""); return d.length < 9 ? null : d;
 }
-function isValidISODate(s: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(s);
-}
-function isValidHHMM(s: string) {
-  return /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
-}
+function isValidISODate(s: string) { return /^\d{4}-\d{2}-\d{2}$/.test(s); }
+function isValidHHMM(s: string) { return /^([01]\d|2[0-3]):[0-5]\d$/.test(s); }
+function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
+function roundTo(n: number, step: number) { return Math.round(n / step) * step; }
 
-function statusLabel(status: Status) {
-  switch (status) {
-    case "confirmed":
-      return "Confermato";
-    case "done":
-      return "Eseguito";
-    case "not_paid":
-      return "Non pagata";
-    case "cancelled":
-      return "Annullato";
-    default:
-      return "Prenotato";
-  }
-}
-function statusColor(status: Status) {
-  switch (status) {
-    case "done":
-      return THEME.green;
-    case "confirmed":
-      return THEME.blue;
-    case "not_paid":
-      return THEME.amber;
-    case "cancelled":
-      return THEME.gray;
-    case "booked":
-    default:
-      return THEME.red;
-  }
-}
-function statusBg(status: Status) {
-  switch (status) {
-    case "done":
-      return "#ecfdf5";
-    case "confirmed":
-      return "#eff6ff";
-    case "not_paid":
-      return "#fff7ed";
-    case "cancelled":
-      return "#f1f5f9";
-    case "booked":
-    default:
-      return "#fff1f2";
-  }
-}
-
-// --- BARRA LATERALE MOBILE (MENU) ---
-function MobileMenu({ showMenu, setShowMenu }: { showMenu: boolean; setShowMenu: (show: boolean) => void }) {
-  return (
-    <>
-      <button
-        onClick={() => setShowMenu(!showMenu)}
-        style={{
-          background: "none",
-          border: "none",
-          padding: 8,
-          cursor: "pointer",
-          color: COLORS.primary,
-        }}
-      >
-        <Menu size={24} />
-      </button>
-
-      {showMenu && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            bottom: 0,
-            width: "80%",
-            maxWidth: 320,
-            background: COLORS.card,
-            borderRight: `1px solid ${COLORS.border}`,
-            padding: 16,
-            zIndex: 2000,
-            boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
-            display: "flex",
-            flexDirection: "column",
-            gap: 12,
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontSize: 16, fontWeight: 900, color: COLORS.text }}>Fisio Hub</div>
-            <button
-              onClick={() => setShowMenu(false)}
-              style={{ background: "none", border: "none", cursor: "pointer", color: COLORS.primary, padding: 8 }}
-              aria-label="Chiudi menu"
-            >
-              <X size={24} />
-            </button>
-          </div>
-
-          <Link
-            href="/mobile"
-            onClick={() => setShowMenu(false)}
-            style={{ display: "flex", gap: 10, alignItems: "center", padding: "10px 12px", borderRadius: 12, textDecoration: "none", color: COLORS.text, border: `1px solid ${COLORS.border}` }}
-          >
-            <Home size={18} /> Home
-          </Link>
-
-          <Link
-            href="/calendar"
-            onClick={() => setShowMenu(false)}
-            style={{ display: "flex", gap: 10, alignItems: "center", padding: "10px 12px", borderRadius: 12, textDecoration: "none", color: COLORS.text, border: `1px solid ${COLORS.border}` }}
-          >
-            <Calendar size={18} /> Calendario
-          </Link>
-
-          <Link
-            href="/reports"
-            onClick={() => setShowMenu(false)}
-            style={{ display: "flex", gap: 10, alignItems: "center", padding: "10px 12px", borderRadius: 12, textDecoration: "none", color: COLORS.text, border: `1px solid ${COLORS.border}` }}
-          >
-            <BarChart3 size={18} /> Report
-          </Link>
-
-          <Link
-            href="/patients"
-            onClick={() => setShowMenu(false)}
-            style={{ display: "flex", gap: 10, alignItems: "center", padding: "10px 12px", borderRadius: 12, textDecoration: "none", color: COLORS.text, border: `1px solid ${COLORS.border}` }}
-          >
-            <Users size={18} /> Pazienti
-          </Link>
-        </div>
-      )}
-
-      {showMenu && (
-        <div
-          onClick={() => setShowMenu(false)}
-          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 1999 }}
-        />
-      )}
-    </>
-  );
-}
-
+/* ─── Page ───────────────────────────────────────────────────────────── */
 export default function CalendarPage() {
   return (
-    <Suspense fallback={<div style={{ padding: 24 }}>Caricamento calendario…</div>}>
+    <Suspense fallback={
+      <div style={{ minHeight: "100vh", background: THEME.appBg,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        color: THEME.muted, fontFamily: "Inter, -apple-system, sans-serif", fontSize: 14 }}>
+        Caricamento…
+      </div>
+    }>
       <CalendarPageInner />
     </Suspense>
   );
 }
 
 function CalendarPageInner() {
-  const router = useRouter();
+  const router       = useRouter();
   const searchParams = useSearchParams();
 
-  const [showMenu, setShowMenu] = useState(false);
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
+  const [events,   setEvents]   = useState<CalendarEvent[]>([]);
+  const [loading,  setLoading]  = useState(false);
+  const [busy,     setBusy]     = useState(false);
+  const [error,    setError]    = useState("");
 
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  // Navbar user state
+  const [userEmail,    setUserEmail]    = useState<string | null>(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
-  // Drag & Drop per spostare appuntamenti
-  const timelineRef = useRef<HTMLDivElement | null>(null);
+  const timelineRef       = useRef<HTMLDivElement>(null);
+  const timelineScrollRef = useRef<HTMLDivElement>(null);
+
+  /* drag mouse */
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dragOverY, setDragOverY] = useState<number | null>(null);
+  const [dragOverY,  setDragOverY]  = useState<number | null>(null);
 
-  // Template WhatsApp
-  const [messageTemplates, setMessageTemplates] = useState<MessageTemplate[]>([]);
+  /* drag touch */
+  const touchDragRef          = useRef<TouchDragState | null>(null);
+  const touchDragYRef         = useRef<number | null>(null);
+  const [touchDragY, _setTDY] = useState<number | null>(null);
+  const [touchDraggingId, setTouchDraggingId] = useState<string | null>(null);
+  const setTouchDragY = (y: number | null) => { touchDragYRef.current = y; _setTDY(y); };
+
+  /* swipe */
+  const swipeXRef = useRef<number | null>(null);
+  const swipeYRef = useRef<number | null>(null);
+
+  /* templates */
+  const [messageTemplates,   setMessageTemplates]   = useState<MessageTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
-  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [loadingTemplates,   setLoadingTemplates]   = useState(false);
 
-  // Modal edit
+  /* edit */
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
-  const [editStatus, setEditStatus] = useState<Status>("booked");
-  const [editNote, setEditNote] = useState("");
-  const [editAmount, setEditAmount] = useState("");
-  const [editDate, setEditDate] = useState<string>(toISODateLocal(new Date()));
-  const [editTime, setEditTime] = useState<string>("09:00");
-  const [editDuration, setEditDuration] = useState<number>(60);
+  const [editStatus,    setEditStatus]    = useState<Status>("booked");
+  const [editNote,      setEditNote]      = useState("");
+  const [editAmount,    setEditAmount]    = useState("");
+  const [editDate,      setEditDate]      = useState(toISODateLocal(new Date()));
+  const [editTime,      setEditTime]      = useState("09:00");
+  const [editDuration,  setEditDuration]  = useState(60);
 
-  // Modal create
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createDate, setCreateDate] = useState<string>(toISODateLocal(new Date()));
-  const [createTime, setCreateTime] = useState<string>("09:00");
-  const [createDuration, setCreateDuration] = useState<number>(60);
-  const [createStatus, setCreateStatus] = useState<Status>("confirmed");
-  const [createLocation, setCreateLocation] = useState<LocationType>("studio");
-  const [createClinicSite, setCreateClinicSite] = useState<string>(DEFAULT_CLINIC_SITE);
-  const [createDomicileAddress, setCreateDomicileAddress] = useState<string>("");
-  const [createAmount, setCreateAmount] = useState<string>("");
-  const [createNote, setCreateNote] = useState<string>("");
+  /* create */
+  const [createOpen,          setCreateOpen]          = useState(false);
+  const [createDate,          setCreateDate]          = useState(toISODateLocal(new Date()));
+  const [createTime,          setCreateTime]          = useState("09:00");
+  const [createDuration,      setCreateDuration]      = useState(60);
+  const [createStatus,        setCreateStatus]        = useState<Status>("confirmed");
+  const [createLocation,      setCreateLocation]      = useState<LocationType>("studio");
+  const [createClinicSite,    setCreateClinicSite]    = useState(DEFAULT_CLINIC);
+  const [createDomicileAddress, setCreateDomicileAddress] = useState("");
+  const [createAmount,        setCreateAmount]        = useState("");
+  const [createNote,          setCreateNote]          = useState("");
 
-  // Patient search + quick create
-  const [patientQuery, setPatientQuery] = useState("");
-  const [patientResults, setPatientResults] = useState<PatientLite[]>([]);
-  const [patientLoading, setPatientLoading] = useState(false);
+  /* patient */
+  const [patientQuery,    setPatientQuery]    = useState("");
+  const [patientResults,  setPatientResults]  = useState<PatientLite[]>([]);
+  const [patientLoading,  setPatientLoading]  = useState(false);
   const [selectedPatient, setSelectedPatient] = useState<PatientLite | null>(null);
+  const [quickFirstName,  setQuickFirstName]  = useState("");
+  const [quickLastName,   setQuickLastName]   = useState("");
+  const [quickPhone,      setQuickPhone]      = useState("");
 
-  const [quickFirstName, setQuickFirstName] = useState("");
-  const [quickLastName, setQuickLastName] = useState("");
-  const [quickPhone, setQuickPhone] = useState("");
-
-  useEffect(() => {
-    loadMessageTemplates();
-  }, []);
-
-  const loadMessageTemplates = useCallback(async () => {
+  /* ── templates ────────────────────────────── */
+  useEffect(() => { loadTemplates(); }, []);
+  const loadTemplates = useCallback(async () => {
     setLoadingTemplates(true);
     try {
-      const { data, error } = await supabase
-        .from("message_templates")
-        .select("*")
-        .order("is_default", { ascending: false })
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.error("Errore caricamento template:", error);
-        return;
-      }
-
+      const { data } = await supabase.from("message_templates").select("*")
+        .order("is_default", { ascending: false }).order("created_at", { ascending: false });
       setMessageTemplates(data || []);
+      const def = (data || []).find((t: MessageTemplate) => t.is_default);
+      setSelectedTemplateId(def ? def.id : (data?.[0]?.id ?? null));
+    } finally { setLoadingTemplates(false); }
+  }, []);
 
-      const defaultTemplate = data?.find((t) => t.is_default);
-      if (defaultTemplate) {
-        setSelectedTemplateId(defaultTemplate.id);
-      } else if (data && data.length > 0) {
-        setSelectedTemplateId(data[0].id);
-      }
-    } catch (err) {
-      console.error("Errore:", err);
-    } finally {
-      setLoadingTemplates(false);
-    }
+  /* ── user ─────────────────────────────────── */
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getUser();
+        setUserEmail(data?.user?.email ?? null);
+      } catch { /* ignore */ }
+    })();
   }, []);
 
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
-    return () => clearInterval(timer);
+    const fn = (e: MouseEvent) => {
+      if (userMenuOpen && userMenuRef.current && !userMenuRef.current.contains(e.target as Node))
+        setUserMenuOpen(false);
+    };
+    document.addEventListener("mousedown", fn);
+    return () => document.removeEventListener("mousedown", fn);
+  }, [userMenuOpen]);
+
+  /* ── clock ────────────────────────────────── */
+  useEffect(() => {
+    const t = setInterval(() => setCurrentTime(new Date()), 60000);
+    return () => clearInterval(t);
   }, []);
 
+  /* ── load ─────────────────────────────────── */
   const loadAppointments = useCallback(async (date: Date) => {
-    setLoading(true);
-    setError("");
-
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
-
-    const { data, error } = await supabase
-      .from("appointments")
-      .select(
-        `
-        id, patient_id, start_at, end_at, status, calendar_note,
-        location, clinic_site, domicile_address,
-        amount, treatment_type, price_type,
-        patients:patient_id ( first_name, last_name, phone )
-      `
-      )
-      .gte("start_at", startOfDay.toISOString())
-      .lt("start_at", endOfDay.toISOString())
-      .order("start_at", { ascending: true });
-
-    if (error) {
-      setError(`Errore caricamento: ${error.message}`);
-      setLoading(false);
-      return;
-    }
-
+    setLoading(true); setError("");
+    const s0 = new Date(date); s0.setHours(0,0,0,0);
+    const e0 = new Date(date); e0.setHours(23,59,59,999);
+    const { data, error: err } = await supabase.from("appointments").select(`
+      id,patient_id,start_at,end_at,status,calendar_note,
+      location,clinic_site,domicile_address,
+      amount,treatment_type,price_type,whatsapp_sent_at,
+      patients:patient_id(first_name,last_name,phone)
+    `).gte("start_at", s0.toISOString()).lt("start_at", e0.toISOString()).order("start_at", { ascending: true });
+    if (err) { setError(`Errore: ${err.message}`); setLoading(false); return; }
     const mapped: CalendarEvent[] = (data ?? []).map((a: any) => {
       const p = Array.isArray(a.patients) ? a.patients[0] : a.patients;
       const name = p ? `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() : "Paziente";
       return {
-        id: a.id,
-        patient_id: a.patient_id ?? null,
-        patient_name: name || "Paziente",
-        patient_phone: p?.phone ?? null,
-        start: new Date(a.start_at),
-        end: new Date(a.end_at),
-        status: (a.status ?? "booked") as Status,
-        calendar_note: a.calendar_note ?? null,
-        location: (a.location ?? null) as LocationType | null,
-        clinic_site: a.clinic_site ?? null,
-        domicile_address: a.domicile_address ?? null,
-        amount: a.amount ?? null,
-        treatment_type: a.treatment_type ?? null,
-        price_type: a.price_type ?? null,
+        id: a.id, patient_id: a.patient_id ?? null, patient_name: name || "Paziente",
+        patient_phone: p?.phone ?? null, start: new Date(a.start_at), end: new Date(a.end_at),
+        status: (a.status ?? "booked") as Status, calendar_note: a.calendar_note ?? null,
+        location: (a.location ?? null) as LocationType | null, clinic_site: a.clinic_site ?? null,
+        domicile_address: a.domicile_address ?? null, amount: a.amount ?? null,
+        treatment_type: a.treatment_type ?? null, price_type: a.price_type ?? null,
+        whatsapp_sent_at: a.whatsapp_sent_at ?? null,
       };
     });
-
-    setEvents(mapped);
-    setLoading(false);
+    setEvents(mapped); setLoading(false);
   }, []);
 
-  useEffect(() => {
-    loadAppointments(currentDate);
-  }, [currentDate, loadAppointments]);
+  useEffect(() => { loadAppointments(currentDate); }, [currentDate, loadAppointments]);
 
+  /* ── URL params ───────────────────────────── */
   const handledNewRef = useRef(false);
   useEffect(() => {
     const qDate = searchParams.get("date");
     if (qDate && isValidISODate(qDate)) {
       const d = new Date(`${qDate}T00:00:00`);
-      if (!Number.isNaN(d.getTime()) && !isSameDay(d, currentDate)) {
-        setCurrentDate(d);
-      }
+      if (!isNaN(d.getTime()) && !isSameDay(d, currentDate)) setCurrentDate(d);
     }
-
-    const isNew = searchParams.get("new") === "1";
-    if (!isNew) {
-      handledNewRef.current = false;
-      return;
-    }
+    // Supporta sia ?new=1 (vecchio) che ?action=new (FAB home)
+    const isNew = searchParams.get("new") === "1" || searchParams.get("action") === "new";
+    if (!isNew) { handledNewRef.current = false; return; }
     if (handledNewRef.current) return;
-
     handledNewRef.current = true;
-
-    const baseDate = qDate && isValidISODate(qDate) ? qDate : toISODateLocal(currentDate);
-    const qTime = searchParams.get("time");
-    const prefillTime = qTime && isValidHHMM(qTime) ? qTime : undefined;
-
-    openCreate(prefillTime, baseDate);
-
+    const base = qDate && isValidISODate(qDate) ? qDate : toISODateLocal(currentDate);
+    const qt = searchParams.get("time");
+    openCreate(qt && isValidHHMM(qt) ? qt : undefined, base);
     const params = new URLSearchParams(searchParams.toString());
-    params.delete("new");
-    params.delete("time");
-    const next = params.toString();
-    router.replace(`/calendar${next ? `?${next}` : ""}`);
+    params.delete("new"); params.delete("time"); params.delete("action");
+    router.replace(`/mobile/calendar${params.toString() ? `?${params}` : ""}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, router]);
 
-  const dayEvents = useMemo(() => events.filter((e) => isSameDay(e.start, currentDate)), [events, currentDate]);
-
-  const dayStats = useMemo(() => {
-    const total = dayEvents.length;
-    const done = dayEvents.filter((e) => e.status === "done").length;
-    const revenue = dayEvents.reduce((sum, e) => (e.status === "done" ? sum + (e.amount ?? 0) : sum), 0);
-    return { total, done, revenue };
-  }, [dayEvents]);
+  /* ── derived ──────────────────────────────── */
+  const dayEvents = useMemo(() => events.filter(e => isSameDay(e.start, currentDate)), [events, currentDate]);
+  const dayStats  = useMemo(() => ({
+    total:   dayEvents.filter(e => e.status !== "cancelled").length,
+    done:    dayEvents.filter(e => e.status === "done").length,
+    revenue: dayEvents.reduce((s,e) => e.status === "done" ? s + (e.amount ?? 0) : s, 0),
+  }), [dayEvents]);
 
   const { dayStartHour, dayEndHour } = useMemo(() => {
-    if (dayEvents.length === 0) return { dayStartHour: DEFAULT_START_HOUR, dayEndHour: DEFAULT_END_HOUR };
-
-    const starts = dayEvents.map((e) => e.start.getHours());
-    const ends = dayEvents.map((e) => e.end.getHours() + (e.end.getMinutes() > 0 ? 1 : 0));
-
-    let start = Math.min(DEFAULT_START_HOUR, ...starts);
-    let end = Math.max(DEFAULT_END_HOUR, ...ends);
-
-    start = Math.max(0, Math.min(23, start));
-    end = Math.max(start + 1, Math.min(24, end));
-
-    return { dayStartHour: start, dayEndHour: end };
+    if (!dayEvents.length) return { dayStartHour: DEFAULT_START_H, dayEndHour: DEFAULT_END_H };
+    const starts = dayEvents.map(e => e.start.getHours());
+    const ends   = dayEvents.map(e => e.end.getHours() + (e.end.getMinutes() > 0 ? 1 : 0));
+    return {
+      dayStartHour: clamp(Math.min(DEFAULT_START_H, ...starts), 0, 23),
+      dayEndHour:   clamp(Math.max(DEFAULT_END_H, ...ends), 1, 24),
+    };
   }, [dayEvents]);
 
   const timeSlots = useMemo(() => {
-    const slots: { label: string; hour: number; half: 0 | 30 }[] = [];
-    for (let h = dayStartHour; h < dayEndHour; h++) {
-      slots.push({ label: `${pad2(h)}:00`, hour: h, half: 0 });
-    }
-    return slots;
+    const s: { label: string; hour: number }[] = [];
+    for (let h = dayStartHour; h < dayEndHour; h++) s.push({ label: `${pad2(h)}:00`, hour: h });
+    return s;
   }, [dayStartHour, dayEndHour]);
 
-  const getEventPosition = useCallback(
-    (start: Date, end: Date) => {
-      const top = (start.getHours() - dayStartHour) * 60 + start.getMinutes();
-      const height = (end.getHours() - start.getHours()) * 60 + (end.getMinutes() - start.getMinutes());
-      return { top: Math.max(0, top), height: Math.max(44, height) };
-    },
-    [dayStartHour]
-  );
+  const getEventPosition = useCallback((start: Date, end: Date) => {
+    const ppm = PX_PER_HOUR / 60;
+    const top    = ((start.getHours() - dayStartHour) * 60 + start.getMinutes()) * ppm;
+    const height = ((end.getHours() - start.getHours()) * 60 + (end.getMinutes() - start.getMinutes())) * ppm;
+    return { top: Math.max(0, top), height: Math.max(Math.round(PX_PER_HOUR * 0.55), height) };
+  }, [dayStartHour]);
 
-  const buildWhatsAppMessage = useCallback(
-    (ev: CalendarEvent) => {
-      if (!selectedTemplateId || messageTemplates.length === 0) {
-        // Fallback al vecchio template se non ci sono template configurati
-        const day = formatRelativeDateLabel(ev.start);
-        const when = `${fmtTime(ev.start)}`;
-        const where = ev.location === "domicile" ? "a domicilio" : "in studio";
-        return `Ciao ${ev.patient_name}, promemoria appuntamento ${where} ${day} alle ${when}. Confermi?`;
-      }
+  const userInitials = useMemo(() => {
+    if (!userEmail) return "U";
+    const left  = userEmail.split("@")[0] || "U";
+    const parts = left.replace(/[^a-zA-Z0-9]/g, " ").split(" ").filter(Boolean);
+    return ((parts[0]?.[0] || "U") + (parts[1]?.[0] || "")).toUpperCase().slice(0, 2);
+  }, [userEmail]);
 
-      const template =
-        messageTemplates.find((t) => t.id === selectedTemplateId) ||
-        messageTemplates.find((t) => t.is_default) ||
-        messageTemplates[0];
+  /* ── auto-scroll ──────────────────────────── */
+  useEffect(() => {
+    if (loading) return;
+    const el = timelineScrollRef.current; if (!el) return;
+    if (isSameDay(currentDate, new Date())) {
+      const now = new Date();
+      const top = ((now.getHours() - dayStartHour) * 60 + now.getMinutes()) * (PX_PER_HOUR / 60);
+      el.scrollTo({ top: Math.max(0, top - 120), behavior: "smooth" });
+    } else { el.scrollTo({ top: 0, behavior: "smooth" }); }
+  }, [loading, currentDate, dayStartHour]);
 
-      if (!template) {
-        return "Messaggio di promemoria appuntamento";
-      }
-
-      return template.template
-        .replace(/{nome}/g, ev.patient_name)
-        .replace(/{data_relativa}/g, formatRelativeDateLabel(ev.start))
-        .replace(/{ora}/g, fmtTime(ev.start))
-        .replace(
-          /{luogo}/g,
-          ev.location === "domicile"
-            ? ev.domicile_address || "a domicilio"
-            : ev.clinic_site || DEFAULT_CLINIC_SITE
-        );
-    },
-    [selectedTemplateId, messageTemplates]
-  );
-
-  const goPrev = useCallback(() => setCurrentDate((p) => addDays(p, -1)), []);
-  const goNext = useCallback(() => setCurrentDate((p) => addDays(p, 1)), []);
+  /* ── navigation ───────────────────────────── */
+  const goPrev  = useCallback(() => setCurrentDate(p => addDays(p, -1)), []);
+  const goNext  = useCallback(() => setCurrentDate(p => addDays(p,  1)), []);
   const goToday = useCallback(() => setCurrentDate(new Date()), []);
 
-  const openEvent = useCallback((ev: CalendarEvent) => {
-    setSelectedEvent(ev);
-    setEditStatus(ev.status);
-    setEditNote(ev.calendar_note ?? "");
-    setEditAmount(ev.amount === null || ev.amount === undefined ? "" : String(ev.amount));
+  /* ── swipe ────────────────────────────────── */
+  const handleSwipeTouchStart = useCallback((e: React.TouchEvent) => {
+    if (touchDragRef.current?.activated) return;
+    swipeXRef.current = e.touches[0].clientX;
+    swipeYRef.current = e.touches[0].clientY;
+  }, []);
+  const handleSwipeTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (swipeXRef.current === null) return;
+    const dx = e.changedTouches[0].clientX - swipeXRef.current;
+    const dy = e.changedTouches[0].clientY - (swipeYRef.current ?? 0);
+    swipeXRef.current = null;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) { if (dx < 0) goNext(); else goPrev(); }
+  }, [goPrev, goNext]);
 
-    // orario/modifica
+  /* ── WhatsApp (identico home) ─────────────── */
+  const sendWhatsApp = useCallback(async (ev: CalendarEvent) => {
+    const phone = ev.patient_phone;
+    if (!phone) { alert("Nessun numero registrato per questo paziente."); return; }
+
+    const { data: tplData } = await supabase
+      .from("message_templates").select("template")
+      .eq("name", "Promemoria").maybeSingle();
+
+    let tpl = `Buongiorno {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore ⏰ {ora}.\n\n📍 {luogo}\n\nCordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
+
+    // Usa il template selezionato nel modal se disponibile
+    if (selectedTemplateId && messageTemplates.length) {
+      const found = messageTemplates.find(t => t.id === selectedTemplateId)
+                 || messageTemplates.find(t => t.is_default)
+                 || messageTemplates[0];
+      if (found) tpl = found.template;
+    } else if (tplData?.template) {
+      tpl = tplData.template;
+    }
+
+    const cleanPhone   = formatPhoneForWhatsAppWeb(phone);
+    const dataRelativa = formatDateRelative(ev.start);
+    const ora          = fmtTime(ev.start);
+    const luogo        = ev.location === "studio"
+      ? (CLINIC_ADDRESSES[ev.clinic_site ?? ""] || ev.clinic_site || "Pontecorvo, Via Galileo Galilei 5, dietro il Bar Principe")
+      : `Presso il suo domicilio (${ev.domicile_address ?? ""})`;
+    const nome = ev.patient_name.split(" ")[0] || ev.patient_name;
+
+    const message = tpl
+      .replace(/{nome}/g,          nome)
+      .replace(/{data_relativa}/g, dataRelativa)
+      .replace(/{ora}/g,           ora)
+      .replace(/{luogo}/g,         luogo);
+
+    const waUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
+    const ok = window.confirm(`📱 PROMEMORIA WHATSAPP\n\nDestinatario: ${phone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp.`);
+    if (!ok) return;
+
+    const win = window.open(waUrl, "_blank");
+    const nowIso = new Date().toISOString();
+    await supabase.from("appointments")
+      .update({ whatsapp_sent_at: nowIso, whatsapp_sent: true }).eq("id", ev.id);
+    setEvents(prev => prev.map(x => x.id === ev.id ? { ...x, whatsapp_sent_at: nowIso } : x));
+    // aggiorna anche selectedEvent se è aperto
+    setSelectedEvent(prev => prev?.id === ev.id ? { ...prev, whatsapp_sent_at: nowIso } : prev);
+
+    if (!win || win.closed || typeof win.closed === "undefined") {
+      const fb = window.confirm("Il browser ha bloccato WhatsApp.\nOK per redirect, Annulla per copiare il link.");
+      if (fb) window.location.href = waUrl;
+      else alert(`Copia il link:\n\n${waUrl}`);
+    }
+  }, [selectedTemplateId, messageTemplates]);
+
+  /* ── open/save/delete ─────────────────────── */
+  const openEvent = useCallback((ev: CalendarEvent) => {
+    setSelectedEvent(ev); setEditStatus(ev.status);
+    setEditNote(ev.calendar_note ?? ""); setEditAmount(ev.amount == null ? "" : String(ev.amount));
     setEditDate(toISODateLocal(ev.start));
     setEditTime(`${pad2(ev.start.getHours())}:${pad2(ev.start.getMinutes())}`);
-    const durMin = Math.max(15, Math.round((ev.end.getTime() - ev.start.getTime()) / 60000));
-    setEditDuration(durMin);
+    setEditDuration(Math.max(15, Math.round((ev.end.getTime() - ev.start.getTime()) / 60000)));
   }, []);
 
-  const sendWhatsApp = useCallback(
-    (ev: CalendarEvent) => {
-      const phone = normalizePhone(ev.patient_phone);
-      if (!phone) return;
-
-      const msg = buildWhatsAppMessage(ev);
-      const url = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
-      window.open(url, "_blank");
-    },
-    [buildWhatsAppMessage]
-  );
-
   const saveEvent = useCallback(async () => {
-    if (!selectedEvent) return;
-
-    setBusy(true);
-    setError("");
-
-    const amount =
-      editAmount.trim() === ""
-        ? null
-        : (() => {
-            const n = Number(editAmount.replace(",", "."));
-            return Number.isFinite(n) ? n : null;
-          })();
-
-    const updateData: any = {
-      status: editStatus,
-      calendar_note: editNote.trim() === "" ? null : editNote.trim(),
-      amount,
-    };
-
-    // cambio orario/data (se modificato)
+    if (!selectedEvent) return; setBusy(true); setError("");
+    const amount = editAmount.trim() === "" ? null
+      : (() => { const n = Number(editAmount.replace(",", ".")); return isFinite(n) ? n : null; })();
+    const upd: Record<string, unknown> = { status: editStatus, calendar_note: editNote.trim() || null, amount };
     if (isValidISODate(editDate) && isValidHHMM(editTime)) {
-      const newStart = buildDateTime(editDate, editTime);
-      const dur = Number(editDuration);
-      const durOk =
-        Number.isFinite(dur) && dur > 0
-          ? dur
-          : Math.round((selectedEvent.end.getTime() - selectedEvent.start.getTime()) / 60000);
-
-      const newEnd = new Date(newStart);
-      newEnd.setMinutes(newEnd.getMinutes() + durOk);
-
-      const sameStart = newStart.getTime() === selectedEvent.start.getTime();
-      const sameEnd = newEnd.getTime() === selectedEvent.end.getTime();
-
-      if (!sameStart || !sameEnd) {
-        updateData.start_at = newStart.toISOString();
-        updateData.end_at = newEnd.toISOString();
+      const ns = buildDateTime(editDate, editTime);
+      const d = Number(editDuration);
+      const dur = isFinite(d) && d > 0 ? d : Math.round((selectedEvent.end.getTime() - selectedEvent.start.getTime()) / 60000);
+      const ne = new Date(ns); ne.setMinutes(ne.getMinutes() + dur);
+      if (ns.getTime() !== selectedEvent.start.getTime() || ne.getTime() !== selectedEvent.end.getTime()) {
+        upd.start_at = ns.toISOString(); upd.end_at = ne.toISOString();
       }
     }
-
-    const { error } = await supabase.from("appointments").update(updateData).eq("id", selectedEvent.id);
-
-    if (error) {
-      setError(`Errore salvataggio: ${error.message}`);
-      setBusy(false);
-      return;
-    }
-
-    setSelectedEvent(null);
-    setBusy(false);
-    await loadAppointments(currentDate);
+    const { error: e } = await supabase.from("appointments").update(upd).eq("id", selectedEvent.id);
+    if (e) { setError(`Errore: ${e.message}`); setBusy(false); return; }
+    setSelectedEvent(null); setBusy(false); await loadAppointments(currentDate);
   }, [selectedEvent, editStatus, editNote, editAmount, editDate, editTime, editDuration, currentDate, loadAppointments]);
 
   const deleteEvent = useCallback(async () => {
-    if (!selectedEvent) return;
-    const ok = window.confirm("Vuoi eliminare definitivamente questo appuntamento?");
-    if (!ok) return;
-
-    setBusy(true);
-    setError("");
-
-    const { error } = await supabase.from("appointments").delete().eq("id", selectedEvent.id);
-    if (error) {
-      setError(`Errore eliminazione: ${error.message}`);
-      setBusy(false);
-      return;
-    }
-
-    setSelectedEvent(null);
-    setBusy(false);
-    await loadAppointments(currentDate);
+    if (!selectedEvent || !window.confirm("Eliminare definitivamente questo appuntamento?")) return;
+    setBusy(true); setError("");
+    const { error: e } = await supabase.from("appointments").delete().eq("id", selectedEvent.id);
+    if (e) { setError(`Errore: ${e.message}`); setBusy(false); return; }
+    setSelectedEvent(null); setBusy(false); await loadAppointments(currentDate);
   }, [selectedEvent, currentDate, loadAppointments]);
 
-  const openCreate = useCallback(
-    (prefillTime?: string, prefillDateISO?: string) => {
-      setCreateOpen(true);
-      setError("");
-      setSelectedPatient(null);
-      setPatientQuery("");
-      setPatientResults([]);
-      setQuickFirstName("");
-      setQuickLastName("");
-      setQuickPhone("");
+  const openCreate = useCallback((prefillTime?: string, prefillDateISO?: string) => {
+    setCreateOpen(true); setError("");
+    setSelectedPatient(null); setPatientQuery(""); setPatientResults([]);
+    setQuickFirstName(""); setQuickLastName(""); setQuickPhone("");
+    const dateISO = prefillDateISO && isValidISODate(prefillDateISO) ? prefillDateISO : toISODateLocal(currentDate);
+    setCreateDate(dateISO);
+    setCreateTime(prefillTime && isValidHHMM(prefillTime) ? prefillTime : "09:00");
+    setCreateDuration(60); setCreateStatus("confirmed"); setCreateLocation("studio");
+    setCreateClinicSite(DEFAULT_CLINIC); setCreateDomicileAddress(""); setCreateAmount(""); setCreateNote("");
+  }, [currentDate]);
 
-      const dateISO = prefillDateISO && isValidISODate(prefillDateISO) ? prefillDateISO : toISODateLocal(currentDate);
-
-      setCreateDate(dateISO);
-      setCreateTime(prefillTime && isValidHHMM(prefillTime) ? prefillTime : "09:00");
-      setCreateDuration(60);
-      setCreateStatus("confirmed");
-      setCreateLocation("studio");
-      setCreateClinicSite(DEFAULT_CLINIC_SITE);
-      setCreateDomicileAddress("");
-      setCreateAmount("");
-      setCreateNote("");
-    },
-    [currentDate]
-  );
-
-  const debounceRef = useRef<number | null>(null);
+  /* ── patient search ───────────────────────── */
+  const debRef = useRef<number | null>(null);
   useEffect(() => {
     if (!createOpen) return;
-
-    if (debounceRef.current) window.clearTimeout(debounceRef.current);
-    debounceRef.current = window.setTimeout(async () => {
-      const q = patientQuery.trim();
-      if (q.length < 2) {
-        setPatientResults([]);
-        return;
-      }
-
+    if (debRef.current) clearTimeout(debRef.current);
+    debRef.current = window.setTimeout(async () => {
+      const q = patientQuery.trim(); if (q.length < 2) { setPatientResults([]); return; }
       setPatientLoading(true);
-      const { data, error } = await supabase
-        .from("patients")
-        .select("id, first_name, last_name, phone")
-        .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
-        .limit(8);
-
-      setPatientLoading(false);
-      if (error) {
-        setPatientResults([]);
-        return;
-      }
-
-      setPatientResults((data ?? []) as PatientLite[]);
+      const { data, error: e } = await supabase.from("patients")
+        .select("id,first_name,last_name,phone")
+        .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%`).limit(8);
+      setPatientLoading(false); setPatientResults(e ? [] : (data ?? []) as PatientLite[]);
     }, 250);
-
-    return () => {
-      if (debounceRef.current) window.clearTimeout(debounceRef.current);
-    };
+    return () => { if (debRef.current) clearTimeout(debRef.current); };
   }, [patientQuery, createOpen]);
 
   const createQuickPatient = useCallback(async () => {
-    const fn = quickFirstName.trim();
-    const ln = quickLastName.trim();
-    const ph = quickPhone.trim();
-
-    if (!fn || !ln) {
-      setError("Inserisci Nome e Cognome per creare un paziente rapido.");
-      return;
-    }
-
-    setBusy(true);
-    setError("");
-
-    const insertData: any = {
-      first_name: fn,
-      last_name: ln,
-      phone: ph === "" ? null : ph,
-    };
-
-    const { data, error } = await supabase.from("patients").insert(insertData).select("id, first_name, last_name, phone").single();
-
-    if (error) {
-      setError(`Errore creazione paziente rapido: ${error.message}`);
-      setBusy(false);
-      return;
-    }
-
+    const fn = quickFirstName.trim(); const ln = quickLastName.trim(); const ph = quickPhone.trim();
+    if (!fn || !ln) { setError("Inserisci Nome e Cognome."); return; }
+    setBusy(true); setError("");
+    const { data, error: e } = await supabase.from("patients")
+      .insert({ first_name: fn, last_name: ln, phone: ph || null })
+      .select("id,first_name,last_name,phone").single();
+    if (e) { setError(e.message); setBusy(false); return; }
     const p = data as PatientLite;
-    setSelectedPatient(p);
-    setPatientQuery(`${p.first_name ?? ""} ${p.last_name ?? ""}`.trim());
-    setPatientResults([]);
+    setSelectedPatient(p); setPatientQuery(`${p.first_name ?? ""} ${p.last_name ?? ""}`.trim()); setPatientResults([]);
     setBusy(false);
   }, [quickFirstName, quickLastName, quickPhone]);
 
   const createAppointment = useCallback(async () => {
-    if (!selectedPatient) {
-      setError("Seleziona un paziente (o creane uno rapido).");
-      return;
-    }
-
-    const dur = Number(createDuration);
-    if (!Number.isFinite(dur) || dur <= 0) {
-      setError("Durata non valida.");
-      return;
-    }
-
-    setBusy(true);
-    setError("");
-
+    if (!selectedPatient) { setError("Seleziona un paziente."); return; }
+    const dur = Number(createDuration); if (!isFinite(dur) || dur <= 0) { setError("Durata non valida."); return; }
+    setBusy(true); setError("");
     const start = buildDateTime(createDate, createTime);
-    const end = new Date(start);
-    end.setMinutes(end.getMinutes() + dur);
+    const end = new Date(start); end.setMinutes(end.getMinutes() + dur);
+    const amount = createAmount.trim() === "" ? null
+      : (() => { const n = Number(createAmount.replace(",", ".")); return isFinite(n) ? n : null; })();
+    const { error: e } = await supabase.from("appointments").insert({
+      patient_id: selectedPatient.id, start_at: start.toISOString(), end_at: end.toISOString(),
+      status: createStatus, calendar_note: createNote.trim() || null, location: createLocation,
+      clinic_site: createLocation === "studio" ? (createClinicSite.trim() || DEFAULT_CLINIC) : null,
+      domicile_address: createLocation === "domicile" ? (createDomicileAddress.trim() || null) : null, amount,
+    });
+    if (e) { setError(e.message); setBusy(false); return; }
+    setBusy(false); setCreateOpen(false); await loadAppointments(currentDate);
+  }, [selectedPatient, createDuration, createDate, createTime, createStatus, createNote, createLocation, createClinicSite, createDomicileAddress, createAmount, currentDate, loadAppointments]);
 
-    const amount =
-      createAmount.trim() === ""
-        ? null
-        : (() => {
-            const n = Number(createAmount.replace(",", "."));
-            return Number.isFinite(n) ? n : null;
-          })();
+  /* ── move appointment ─────────────────────── */
+  const moveAppointment = useCallback(async (id: string, newStart: Date) => {
+    const ev = events.find(x => x.id === id); if (!ev) return;
+    const durMin = Math.max(15, Math.round((ev.end.getTime() - ev.start.getTime()) / 60000));
+    const newEnd = new Date(newStart); newEnd.setMinutes(newEnd.getMinutes() + durMin);
+    setBusy(true); setError("");
+    setEvents(prev => prev.map(x => x.id === id ? { ...x, start: newStart, end: newEnd } : x));
+    const { error: e } = await supabase.from("appointments")
+      .update({ start_at: newStart.toISOString(), end_at: newEnd.toISOString() }).eq("id", id);
+    if (e) { setError(e.message); await loadAppointments(currentDate); }
+    else await loadAppointments(currentDate);
+    setBusy(false);
+  }, [events, currentDate, loadAppointments]);
 
-    const insertData: any = {
-      patient_id: selectedPatient.id,
-      start_at: start.toISOString(),
-      end_at: end.toISOString(),
-      status: createStatus,
-      calendar_note: createNote.trim() === "" ? null : createNote.trim(),
-      location: createLocation,
-      clinic_site: createLocation === "studio" ? (createClinicSite.trim() || DEFAULT_CLINIC_SITE) : null,
-      domicile_address: createLocation === "domicile" ? (createDomicileAddress.trim() || null) : null,
-      amount,
+  /* ── drag handlers ────────────────────────── */
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    if (!draggingId) return; e.preventDefault();
+    const el = timelineRef.current; if (!el) return;
+    setDragOverY(e.clientY - el.getBoundingClientRect().top);
+  }, [draggingId]);
+
+  const handleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const id = e.dataTransfer.getData("text/appointment-id") || draggingId;
+    setDragOverY(null); setDraggingId(null);
+    const el = timelineRef.current; if (!el || !id) return;
+    const y = e.clientY - el.getBoundingClientRect().top;
+    const totalMin = clamp(roundTo(y / (PX_PER_HOUR / 60), 5), 0, (dayEndHour - dayStartHour) * 60 - 5);
+    const base = new Date(currentDate); base.setHours(dayStartHour, 0, 0, 0);
+    const ns = new Date(base); ns.setMinutes(ns.getMinutes() + totalMin);
+    await moveAppointment(id, ns);
+  }, [draggingId, currentDate, dayStartHour, dayEndHour, moveAppointment]);
+
+  /* ── touch drag ───────────────────────────── */
+  const handleEventTouchStart = useCallback((e: React.TouchEvent, ev: CalendarEvent) => {
+    const { top } = getEventPosition(ev.start, ev.end);
+    const state: TouchDragState = {
+      eventId: ev.id, startClientY: e.touches[0].clientY, startEventTopPx: top, activated: false,
+      activationTimer: setTimeout(() => {
+        if (touchDragRef.current?.eventId === ev.id) {
+          touchDragRef.current.activated = true;
+          setTouchDraggingId(ev.id); setTouchDragY(top);
+        }
+      }, 200),
     };
+    touchDragRef.current = state;
+  }, [getEventPosition]);
 
-    const { error } = await supabase.from("appointments").insert(insertData);
-
-    if (error) {
-      setError(`Errore creazione appuntamento: ${error.message}`);
-      setBusy(false);
+  const handleTimelineTouchMove = useCallback((e: React.TouchEvent) => {
+    const state = touchDragRef.current; if (!state) return;
+    const dy = e.touches[0].clientY - state.startClientY;
+    if (!state.activated) {
+      if (Math.abs(dy) > 8) { if (state.activationTimer) clearTimeout(state.activationTimer); touchDragRef.current = null; }
       return;
     }
+    e.preventDefault();
+    setTouchDragY(clamp(state.startEventTopPx + dy, 0, (dayEndHour - dayStartHour) * PX_PER_HOUR));
+  }, [dayStartHour, dayEndHour]);
 
-    setBusy(false);
-    setCreateOpen(false);
-    await loadAppointments(currentDate);
-  }, [
-    selectedPatient,
-    createDuration,
-    createDate,
-    createTime,
-    createStatus,
-    createNote,
-    createLocation,
-    createClinicSite,
-    createDomicileAddress,
-    createAmount,
-    currentDate,
-    loadAppointments,
-  ]);
+  const handleTimelineTouchEnd = useCallback(async () => {
+    const state = touchDragRef.current; touchDragRef.current = null;
+    if (state?.activationTimer) clearTimeout(state.activationTimer);
+    const finalY = touchDragYRef.current;
+    setTouchDraggingId(null); setTouchDragY(null);
+    if (!state?.activated || finalY === null) return;
+    const totalMin = clamp(roundTo(finalY / (PX_PER_HOUR / 60), 5), 0, (dayEndHour - dayStartHour) * 60 - 5);
+    const base = new Date(currentDate); base.setHours(dayStartHour, 0, 0, 0);
+    const ns = new Date(base); ns.setMinutes(ns.getMinutes() + totalMin);
+    await moveAppointment(state.eventId, ns);
+  }, [currentDate, dayStartHour, dayEndHour, moveAppointment]);
 
-  const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
-  const roundTo = (n: number, step: number) => Math.round(n / step) * step;
+  /* ── logout ───────────────────────────────── */
+  async function handleLogout() {
+    try { await supabase.auth.signOut(); } finally {
+      setUserMenuOpen(false);
+      window.location.href = "/login";
+    }
+  }
 
-  const moveAppointment = useCallback(
-    async (appointmentId: string, newStart: Date) => {
-      const ev = events.find((x) => x.id === appointmentId);
-      if (!ev) return;
-
-      const durMin = Math.max(15, Math.round((ev.end.getTime() - ev.start.getTime()) / 60000));
-      const newEnd = new Date(newStart);
-      newEnd.setMinutes(newEnd.getMinutes() + durMin);
-
-      setBusy(true);
-      setError("");
-
-      setEvents((prev) =>
-        prev.map((x) => (x.id === appointmentId ? { ...x, start: newStart, end: newEnd } : x))
-      );
-
-      const { error } = await supabase
-        .from("appointments")
-        .update({ start_at: newStart.toISOString(), end_at: newEnd.toISOString() })
-        .eq("id", appointmentId);
-
-      if (error) {
-        setError(`Errore spostamento: ${error.message}`);
-        await loadAppointments(currentDate);
-        setBusy(false);
-        return;
-      }
-
-      await loadAppointments(currentDate);
-      setBusy(false);
-    },
-    [events, currentDate, loadAppointments]
-  );
-
-  const handleTimelineDragOver = useCallback(
-    (e: DragEvent<HTMLDivElement>) => {
-      if (!draggingId) return;
-      e.preventDefault();
-      const el = timelineRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const y = e.clientY - rect.top;
-      setDragOverY(y);
-    },
-    [draggingId]
-  );
-
-  const handleTimelineDrop = useCallback(
-    async (e: DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      const id = e.dataTransfer.getData("text/appointment-id") || draggingId;
-      setDragOverY(null);
-      setDraggingId(null);
-
-      const el = timelineRef.current;
-      if (!el || !id) return;
-
-      const rect = el.getBoundingClientRect();
-      const y = e.clientY - rect.top;
-
-      const totalMinutes = clamp(roundTo(y, 5), 0, (dayEndHour - dayStartHour) * 60 - 5);
-      const base = new Date(currentDate);
-      base.setHours(dayStartHour, 0, 0, 0);
-      const newStart = new Date(base);
-      newStart.setMinutes(newStart.getMinutes() + totalMinutes);
-
-      await moveAppointment(id, newStart);
-    },
-    [draggingId, currentDate, dayStartHour, dayEndHour, moveAppointment]
-  );
-
-  const handleTimelineDragLeave = useCallback(() => {
-    setDragOverY(null);
-  }, []);
-
-  // --- COMPACT EVENT CARD RENDER ---
-  const renderEventCard = (ev: CalendarEvent) => {
+  /* ── event card ───────────────────────────── */
+  const renderEventCard = useCallback((ev: CalendarEvent) => {
     const { top, height } = getEventPosition(ev.start, ev.end);
-    const bg = statusBg(ev.status);
-    const col = statusColor(ev.status);
-    const phoneOk = !!normalizePhone(ev.patient_phone);
+    const col        = statusColor(ev.status);
+    const bg         = statusBgColor(ev.status);
+    const phoneOk    = !!normalizePhone(ev.patient_phone);
+    const isDragging = touchDraggingId === ev.id;
+    const displayTop = isDragging && touchDragY !== null ? touchDragY : top;
+    const short      = height < 52;
+    const waSent     = !!ev.whatsapp_sent_at;
 
     return (
       <div
-        key={ev.id}
-        draggable
-        onDragStart={(e) => {
+        key={ev.id} draggable
+        onDragStart={e => {
           setDraggingId(ev.id);
-          try {
-            e.dataTransfer.setData("text/appointment-id", ev.id);
-          } catch {}
+          try { e.dataTransfer.setData("text/appointment-id", ev.id); } catch {}
           e.dataTransfer.effectAllowed = "move";
         }}
-        onDragEnd={() => {
-          setDraggingId(null);
-          setDragOverY(null);
-        }}
-        onClick={(e) => {
-          if ((e.target as HTMLElement).closest(".event-action")) return;
-          openEvent(ev);
-        }}
+        onDragEnd={() => { setDraggingId(null); setDragOverY(null); }}
+        onTouchStart={e => handleEventTouchStart(e, ev)}
+        onClick={e => { if ((e.target as HTMLElement).closest(".ev-act")) return; if (isDragging) return; openEvent(ev); }}
         style={{
-          position: "absolute",
-          left: 60,
-          right: 8,
-          top,
-          height,
+          position: "absolute", left: 52, right: 8, top: displayTop, height,
           background: bg,
-          border: `1px solid ${THEME.border}`,
-          borderLeft: `6px solid ${col}`,
-          borderRadius: 10,
-          padding: "6px 8px",
-          boxSizing: "border-box",
-          overflow: "hidden",
-          boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 4,
-          cursor: "pointer",
-          zIndex: 3,
+          border: `1.5px solid ${col}30`,
+          borderLeftWidth: 3, borderLeftColor: col,
+          borderRadius: 8, padding: short ? "4px 10px" : "8px 10px",
+          boxSizing: "border-box", overflow: "hidden",
+          boxShadow: isDragging
+            ? `0 8px 24px rgba(15,23,42,0.18), 0 0 0 2px ${col}50`
+            : "0 1px 4px rgba(15,23,42,0.08)",
+          display: "flex", flexDirection: short ? "row" : "column",
+          alignItems: short ? "center" : "flex-start", gap: short ? 8 : 4,
+          cursor: "pointer", zIndex: isDragging ? 10 : 3,
+          opacity: draggingId === ev.id ? 0.2 : 1,
+          transition: isDragging ? "none" : "box-shadow 0.15s, opacity 0.15s",
+          touchAction: "none",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-          <div
-            style={{
-              fontWeight: 900,
-              fontSize: 13,
-              color: THEME.text,
-              flex: 1,
-              minWidth: 0,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {ev.patient_name}
-          </div>
-
-          <div style={{ fontSize: 11, fontWeight: 900, color: THEME.muted, flexShrink: 0 }}>
-            {fmtTime(ev.start)}-{fmtTime(ev.end)}
-          </div>
+        {/* Nome paziente */}
+        <div style={{
+          fontFamily: "Inter, -apple-system, sans-serif",
+          fontWeight: 700, fontSize: 13, color: THEME.text,
+          flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>
+          {ev.patient_name}
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-            <div style={{ width: 8, height: 8, borderRadius: 99, background: col }} />
-            <div style={{ fontSize: 11, fontWeight: 900, color: col, whiteSpace: "nowrap" }}>{statusLabel(ev.status)}</div>
-            {ev.location === "domicile" && (
-              <div style={{ fontSize: 12, fontWeight: 900, color: THEME.amber, whiteSpace: "nowrap" }}>🏠</div>
-            )}
+        {!short && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", gap: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0, overflow: "hidden", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 11, color: THEME.muted, whiteSpace: "nowrap" }}>
+                {fmtTime(ev.start)}–{fmtTime(ev.end)}
+              </span>
+              <span style={{
+                fontSize: 10, color: col,
+                background: `${col}18`, padding: "1px 6px", borderRadius: 99, whiteSpace: "nowrap",
+              }}>
+                {statusLabel(ev.status)}
+              </span>
+              {ev.location === "domicile" && <span style={{ fontSize: 12 }}>🏠</span>}
+            </div>
+            {/* Bottone WA sulla card */}
+            <button className="ev-act"
+              onClick={e => { e.stopPropagation(); if (phoneOk) sendWhatsApp(ev); }}
+              disabled={!phoneOk}
+              title={waSent
+                ? `WA inviato il ${new Date(ev.whatsapp_sent_at!).toLocaleDateString("it-IT")}`
+                : "Invia promemoria WhatsApp"}
+              style={{
+                padding: "3px 8px", borderRadius: 99,
+                border: waSent ? `1px solid ${THEME.green}40` : `1px solid ${THEME.border}`,
+                background: waSent ? "rgba(22,163,74,0.10)" : THEME.panelBg,
+                color: waSent ? THEME.green : THEME.muted,
+                fontSize: 11, cursor: phoneOk ? "pointer" : "not-allowed",
+                opacity: phoneOk ? 1 : 0.35, flexShrink: 0,
+              }}>
+              {waSent ? "✓💬" : "💬"}
+            </button>
           </div>
+        )}
 
-          <button
-            className="event-action"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (!phoneOk) return;
-              sendWhatsApp(ev);
-            }}
-            disabled={!phoneOk}
-            style={{
-              padding: "4px 8px",
-              borderRadius: 999,
-              border: `1px solid ${THEME.green}`,
-              background: "#f0fdf4",
-              color: THEME.green,
-              fontSize: 11,
-              fontWeight: 900,
-              cursor: phoneOk ? "pointer" : "not-allowed",
-              opacity: phoneOk ? 1 : 0.5,
-              whiteSpace: "nowrap",
-            }}
-            title={phoneOk ? "Invia promemoria WhatsApp" : "Numero non disponibile"}
-          >
-            💬
-          </button>
-        </div>
+        {short && (
+          <span style={{ fontSize: 10, color: THEME.muted, flexShrink: 0 }}>
+            {fmtTime(ev.start)}
+          </span>
+        )}
       </div>
     );
-  };
+  }, [getEventPosition, touchDraggingId, touchDragY, draggingId, handleEventTouchStart, openEvent, sendWhatsApp]);
 
-  // --- UI ---
+  const isToday = isSameDay(currentDate, new Date());
+
+  /* ─────────────────── RENDER ─────────────── */
   return (
-    <div style={{ minHeight: "100vh", background: THEME.appBg, padding: 16, fontSize: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-        <MobileMenu showMenu={showMenu} setShowMenu={setShowMenu} />
-        <div style={{ fontSize: 16, fontWeight: 900, color: THEME.text }}>{formatFullDate(currentDate)}</div>
-        <Link href="/" style={{ color: THEME.blueDark, fontWeight: 900, textDecoration: "none", fontSize: 14 }}>
-          ← Agenda
-        </Link>
-      </div>
+    <div style={{ minHeight: "100vh", background: THEME.appBg,
+                  paddingBottom: BOTTOM_TAB_H + 16,
+                  fontFamily: "Inter, -apple-system, sans-serif" }}>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 18 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            background: THEME.panelBg,
-            padding: 12,
-            borderRadius: 12,
-            border: `1px solid ${THEME.border}`,
-          }}
-        >
-          <button onClick={goPrev} style={navBtnStyle()}>
-            ◀
-          </button>
-          <button onClick={goToday} style={todayBtnStyle()}>
-            Oggi
-          </button>
-          <button onClick={goNext} style={navBtnStyle()}>
-            ▶
-          </button>
+      {/* ━━━ NAVBAR (identica home) ━━━ */}
+      <header style={{
+        position: "sticky", top: 0, zIndex: 30,
+        background: THEME.gradient,
+        padding: "0 14px", height: 54,
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        boxShadow: "0 2px 12px rgba(13,148,136,0.18)",
+        gap: 10,
+      }}>
+        {/* Logo */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: 7,
+            background: "rgba(255,255,255,0.2)",
+            border: "1.5px solid rgba(255,255,255,0.3)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            color: "#fff", fontWeight: 800, fontSize: 13,
+          }}>F</div>
+          <span style={{ fontWeight: 800, fontSize: 15, color: "#fff",
+                         letterSpacing: 0.3, textTransform: "uppercase" }}>
+            Fisio<span style={{ fontWeight: 700 }}>Hub</span>
+          </span>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-          <StatCard label="Totali" value={String(dayStats.total)} color={THEME.blueDark} />
-          <StatCard label="Eseguiti" value={String(dayStats.done)} color={THEME.green} />
-          <StatCard label="Incasso" value={`€${dayStats.revenue}`} color={THEME.blue} />
+        {/* KPI chips — statistiche del giorno */}
+        {!loading && (
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <span style={{
+              fontSize: 11, fontWeight: 700, color: "#fff",
+              background: "rgba(255,255,255,0.2)", padding: "4px 9px",
+              borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", whiteSpace: "nowrap",
+            }}>✓ {dayStats.done}/{dayStats.total}</span>
+            <span style={{
+              fontSize: 11, fontWeight: 700, color: "#fff",
+              background: "rgba(255,255,255,0.2)", padding: "4px 9px",
+              borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", whiteSpace: "nowrap",
+            }}>€ {dayStats.revenue.toFixed(0)}</span>
+          </div>
+        )}
+
+        {/* Refresh + Avatar */}
+        <div style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }}>
+          <button onClick={() => loadAppointments(currentDate)} aria-label="Aggiorna" style={{
+            width: 30, height: 30, borderRadius: 7,
+            border: "1.5px solid rgba(255,255,255,0.3)",
+            background: "rgba(255,255,255,0.15)",
+            color: "#fff", cursor: "pointer", fontSize: 15,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>↺</button>
+
+          <div ref={userMenuRef} style={{ position: "relative" }}>
+            <button onClick={() => setUserMenuOpen(v => !v)} style={{
+              width: 30, height: 30, borderRadius: 7,
+              border: "1.5px solid rgba(255,255,255,0.35)",
+              background: "rgba(255,255,255,0.2)",
+              color: "#fff", fontWeight: 800, fontSize: 11,
+              cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+            }}>{userInitials}</button>
+            {userMenuOpen && (
+              <div style={{
+                position: "absolute", right: 0, top: "calc(100% + 8px)", width: 190,
+                background: THEME.panelBg, border: `1.5px solid ${THEME.border}`,
+                borderRadius: 12, boxShadow: "0 12px 32px rgba(30,64,175,0.15)",
+                overflow: "hidden", zIndex: 60,
+              }}>
+                <Link href="/settings" onClick={() => setUserMenuOpen(false)} style={{
+                  display: "flex", alignItems: "center", gap: 8, padding: "12px 16px",
+                  color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
+                  borderBottom: `1.5px solid ${THEME.border}`,
+                }}>⚙️ Impostazioni</Link>
+                <button onClick={handleLogout} style={{
+                  width: "100%", display: "flex", alignItems: "center", gap: 8,
+                  padding: "12px 16px", background: "transparent", border: "none",
+                  cursor: "pointer", color: THEME.red, fontWeight: 600, fontSize: 13,
+                }}>⏻ Logout</button>
+              </div>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* ━━━ TAB BAR BOTTOM (identica home) ━━━ */}
+      <nav style={{
+        position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 30,
+        background: THEME.panelBg, borderTop: `1.5px solid ${THEME.border}`,
+        display: "flex", boxShadow: "0 -4px 16px rgba(15,23,42,0.08)",
+        paddingBottom: "env(safe-area-inset-bottom, 0px)",
+      }}>
+        {[
+          { href: "/mobile",          label: "Home",      icon: "⌂" },
+          { href: "/mobile/calendar", label: "Calendario",icon: "▦", active: true },
+          { href: "/mobile/patients", label: "Pazienti",  icon: "◉" },
+          { href: "/mobile/reports",  label: "Report",    icon: "◈" },
+        ].map(item => (
+          <Link key={item.href} href={item.href} style={{
+            flex: 1, display: "flex", flexDirection: "column",
+            alignItems: "center", justifyContent: "center",
+            padding: "10px 4px 9px", textDecoration: "none", gap: 3,
+            position: "relative",
+          }}>
+            <span style={{
+              fontSize: 18, lineHeight: 1,
+              ...(item.active ? {
+                background: THEME.gradient,
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              } : { color: THEME.muted }),
+            }}>{item.icon}</span>
+            <span style={{ fontSize: 10, fontWeight: item.active ? 700 : 600,
+                           color: item.active ? THEME.blue : THEME.muted }}>
+              {item.label}
+            </span>
+            {item.active && (
+              <div style={{
+                position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)",
+                width: 28, height: 2.5, borderRadius: 999, background: THEME.gradient,
+              }} />
+            )}
+          </Link>
+        ))}
+      </nav>
+
+      {/* ━━━ CONTENUTO ━━━ */}
+      <div style={{ padding: "12px 14px 0" }}>
+
+        {/* ── Navigazione data ‹ Oggi › ── */}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
+          <button onClick={goPrev} aria-label="Giorno precedente" style={{
+            padding: "9px 14px", borderRadius: 10, fontSize: 18, flexShrink: 0,
+            border: `1.5px solid ${THEME.border}`, background: THEME.panelBg,
+            color: THEME.text, cursor: "pointer",
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+          }}>‹</button>
+
+          <button onClick={goToday} style={{
+            flex: 1, padding: "9px 12px", borderRadius: 10, fontSize: 13,
+            fontWeight: 700, cursor: "pointer", textAlign: "center",
+            border: isToday ? `2px solid ${THEME.blue}` : `1.5px solid ${THEME.border}`,
+            background: isToday ? "rgba(37,99,235,0.08)" : THEME.panelBg,
+            color: isToday ? THEME.blue : THEME.text,
+          }}>
+            <span style={{ fontWeight: 800 }}>{formatWeekday(currentDate)}</span>
+            <span style={{ fontWeight: 500, opacity: 0.7, marginLeft: 6 }}>{formatDMY(currentDate)}</span>
+          </button>
+
+          <button onClick={goNext} aria-label="Giorno successivo" style={{
+            padding: "9px 14px", borderRadius: 10, fontSize: 18, flexShrink: 0,
+            border: `1.5px solid ${THEME.border}`, background: THEME.panelBg,
+            color: THEME.text, cursor: "pointer",
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+          }}>›</button>
         </div>
 
-        {(loading || busy) && (
-          <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 900 }}>
-            {busy ? "Operazione in corso…" : "Caricamento…"}
+        {/* ── Errore / Loading ── */}
+        {(loading || busy || error) && (
+          <div style={{ marginBottom: 10 }}>
+            {(loading || busy) && !error && (
+              <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 600, padding: "4px 0" }}>
+                {busy ? "Operazione in corso…" : "Caricamento…"}
+              </div>
+            )}
+            {error && (
+              <div style={{ padding: 12, borderRadius: 10,
+                            border: "1.5px solid rgba(220,38,38,0.3)",
+                            background: "rgba(220,38,38,0.06)",
+                            color: "#7f1d1d", fontWeight: 600, fontSize: 13 }}>
+                ⚠️ {error}
+              </div>
+            )}
           </div>
         )}
-        {error && (
-          <div
-            style={{
-              background: "#fff1f2",
-              border: "1px solid #fecdd3",
-              color: "#9f1239",
-              padding: "10px 12px",
-              borderRadius: 10,
-              fontWeight: 900,
-            }}
-          >
-            {error}
-          </div>
-        )}
-      </div>
 
-      <div
-        style={{
-          position: "relative",
+        {/* ── Timeline ── */}
+        <div style={{
           background: THEME.panelBg,
-          border: `1px solid ${THEME.border}`,
-          borderRadius: 12,
+          border: `1.5px solid ${THEME.border}`,
+          borderRadius: 14,
+          boxShadow: "0 2px 8px rgba(15,23,42,0.06)",
           overflow: "hidden",
-          minHeight: 520,
-        }}
-      >
-        <div
-          ref={timelineRef}
-          onDragOver={handleTimelineDragOver}
-          onDrop={handleTimelineDrop}
-          onDragLeave={handleTimelineDragLeave}
-          style={{ position: "relative", height: `${(dayEndHour - dayStartHour) * 60}px` }}
-        >
-          {timeSlots.map((t, idx) => {
-            const hour = t.hour;
+        }}>
+          <div ref={timelineScrollRef}
+            onTouchStart={handleSwipeTouchStart} onTouchEnd={handleSwipeTouchEnd}
+            style={{ overflowY: "auto", maxHeight: "calc(100vh - 210px)" }}>
+            <div ref={timelineRef}
+              onDragOver={handleDragOver} onDrop={handleDrop} onDragLeave={() => setDragOverY(null)}
+              onTouchMove={handleTimelineTouchMove} onTouchEnd={handleTimelineTouchEnd}
+              style={{ position: "relative", height: `${(dayEndHour - dayStartHour) * PX_PER_HOUR}px` }}>
 
-            return (
-              <div key={idx} style={{ height: 60, borderBottom: `1px solid ${THEME.border}`, position: "relative" }}>
-                <div
-                  style={{
-                    position: "absolute",
-                    left: 8,
-                    top: 0,
-                    padding: "4px 8px",
-                    fontSize: 12,
-                    fontWeight: 900,
-                    color: THEME.muted,
-                    background: THEME.panelBg,
-                    zIndex: 2,
-                  }}
-                >
-                  {t.label}
+              {/* Hour rows */}
+              {timeSlots.map((t, i) => (
+                <div key={i} style={{
+                  height: PX_PER_HOUR,
+                  borderBottom: `1px solid ${THEME.border}`,
+                  position: "relative",
+                }}>
+                  <div style={{
+                    position: "absolute", left: 10, top: 5,
+                    fontSize: 10, fontWeight: 600, color: THEME.muted,
+                    letterSpacing: "0.04em", zIndex: 2, lineHeight: 1,
+                  }}>{t.label}</div>
+                  {/* Linea mezzora */}
+                  <div style={{ position: "absolute", left: 52, right: 0, top: PX_PER_HOUR / 2,
+                                height: 1, background: THEME.border, opacity: 0.5, pointerEvents: "none" }} />
+                  {/* Click to create */}
+                  <div onClick={() => openCreate(`${pad2(t.hour)}:00`, toISODateLocal(currentDate))}
+                    style={{ position: "absolute", top: 0, left: 52, right: 8,
+                             height: PX_PER_HOUR / 2, cursor: "pointer", zIndex: 1 }} />
+                  <div onClick={() => openCreate(`${pad2(t.hour)}:30`, toISODateLocal(currentDate))}
+                    style={{ position: "absolute", top: PX_PER_HOUR / 2, left: 52, right: 8,
+                             height: PX_PER_HOUR / 2, cursor: "pointer", zIndex: 1 }} />
                 </div>
+              ))}
 
-                <div
-                  onClick={() => openCreate(`${pad2(hour)}:00`, toISODateLocal(currentDate))}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 60,
-                    right: 8,
-                    height: 30,
-                    borderBottom: `1px solid ${THEME.borderSoft}`,
-                    cursor: "pointer",
-                  }}
-                  title="Nuovo appuntamento"
-                />
-                <div
-                  onClick={() => openCreate(`${pad2(hour)}:30`, toISODateLocal(currentDate))}
-                  style={{ position: "absolute", top: 30, left: 60, right: 8, height: 30, cursor: "pointer" }}
-                  title="Nuovo appuntamento"
-                />
-              </div>
-            );
-          })}
+              {/* Drag indicator — mouse */}
+              {dragOverY !== null && draggingId && (
+                <div style={{
+                  position: "absolute", left: 52, right: 8,
+                  top: clamp(dragOverY, 0, (dayEndHour - dayStartHour) * PX_PER_HOUR),
+                  height: 2, background: THEME.blue, zIndex: 5, pointerEvents: "none",
+                  boxShadow: `0 0 8px ${THEME.blue}80`,
+                }} />
+              )}
+              {/* Drag indicator — touch */}
+              {touchDragY !== null && touchDraggingId && (
+                <div style={{
+                  position: "absolute", left: 52, right: 8,
+                  top: Math.max(0, touchDragY),
+                  height: 2, background: THEME.blue, zIndex: 5, pointerEvents: "none",
+                  boxShadow: `0 0 8px ${THEME.blue}80`,
+                }} />
+              )}
 
-          {dragOverY !== null && draggingId && (
-            <div
-              style={{
-                position: "absolute",
-                left: 60,
-                right: 8,
-                top: Math.max(0, Math.min(dragOverY, (dayEndHour - dayStartHour) * 60)),
-                height: 2,
-                background: THEME.blue,
-                zIndex: 5,
-                pointerEvents: "none",
-                opacity: 0.9,
-              }}
-            />
-          )}
+              {/* Events */}
+              {dayEvents.map(renderEventCard)}
 
-          {dayEvents.map(renderEventCard)}
+              {/* Now line */}
+              {(() => {
+                if (!isSameDay(currentTime, currentDate)) return null;
+                const top = ((currentTime.getHours() - dayStartHour) * 60 + currentTime.getMinutes()) * (PX_PER_HOUR / 60);
+                const max = (dayEndHour - dayStartHour) * PX_PER_HOUR;
+                if (top < 0 || top > max) return null;
+                return (
+                  <div style={{ position: "absolute", left: 0, right: 0, top, height: 2,
+                                background: THEME.red, zIndex: 4, pointerEvents: "none",
+                                boxShadow: `0 0 8px ${THEME.red}60` }}>
+                    <div style={{ position: "absolute", left: 8, top: -4, width: 9, height: 9,
+                                  borderRadius: 99, background: THEME.red,
+                                  boxShadow: `0 0 6px ${THEME.red}` }} />
+                  </div>
+                );
+              })()}
 
-          {(() => {
-            const now = currentTime;
-            if (!isSameDay(now, currentDate)) return null;
-
-            const top = (now.getHours() - dayStartHour) * 60 + now.getMinutes();
-            const max = (dayEndHour - dayStartHour) * 60;
-            if (top < 0 || top > max) return null;
-
-            return (
-              <div
-                style={{
-                  position: "absolute",
-                  left: 0,
-                  right: 0,
-                  top,
-                  height: 2,
-                  background: THEME.red,
-                  zIndex: 4,
-                  pointerEvents: "none",
-                }}
-              >
-                <div style={{ position: "absolute", left: 4, top: -4, width: 8, height: 8, borderRadius: 99, background: THEME.red }} />
-              </div>
-            );
-          })()}
+              {/* Empty state */}
+              {!loading && dayEvents.length === 0 && (
+                <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+                              alignItems: "center", justifyContent: "center", gap: 10, pointerEvents: "none" }}>
+                  <div style={{ fontSize: 36, opacity: 0.3 }}>📅</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: THEME.muted }}>
+                    Nessun appuntamento
+                  </div>
+                  <div style={{ fontSize: 12, color: THEME.muted, opacity: 0.6 }}>
+                    Tocca + per aggiungerne uno
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
+      {/* ━━━ FAB ━━━ */}
       <button
         onClick={() => openCreate(undefined, toISODateLocal(currentDate))}
-        style={{
-          position: "fixed",
-          right: 16,
-          bottom: 16,
-          width: 56,
-          height: 56,
-          borderRadius: 999,
-          border: `2px solid ${THEME.blueDark}`,
-          background: THEME.blue,
-          color: "#fff",
-          fontSize: 26,
-          fontWeight: 900,
-          boxShadow: "0 10px 30px rgba(0,0,0,0.22)",
-          cursor: "pointer",
-          zIndex: 900,
-        }}
         aria-label="Nuovo appuntamento"
-        title="Nuovo appuntamento"
-      >
-        +
-      </button>
+        style={{
+          position: "fixed", right: 18,
+          bottom: `calc(env(safe-area-inset-bottom, 0px) + ${BOTTOM_TAB_H + 16}px)`,
+          width: 52, height: 52, borderRadius: "50%",
+          background: THEME.gradient, color: "#fff",
+          border: "none", cursor: "pointer",
+          fontSize: 26, fontWeight: 300, zIndex: 40,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 4px 20px rgba(13,148,136,0.40)",
+        }}>+</button>
 
-      {/* EDIT MODAL */}
+      {/* ━━━ EDIT MODAL ━━━ */}
       {selectedEvent && (
-        <Modal onClose={() => setSelectedEvent(null)}>
-          <HeaderRow title={selectedEvent.patient_name} subtitle={`${fmtTime(selectedEvent.start)} - ${fmtTime(selectedEvent.end)}`} onClose={() => setSelectedEvent(null)} />
+        <LightModal onClose={() => setSelectedEvent(null)}>
+          <ModalHeader
+            title={selectedEvent.patient_name}
+            subtitle={`${fmtTime(selectedEvent.start)} – ${fmtTime(selectedEvent.end)}`}
+            onClose={() => setSelectedEvent(null)}
+          />
+          <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+            {error && <ErrorBox>{error}</ErrorBox>}
 
-          <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 14 }}>
-            <div>
-              <div style={labelStyle()}>Orario</div>
+            <FG label="Orario">
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                <input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} style={inputStyle()} />
-                <input type="time" value={editTime} onChange={(e) => setEditTime(e.target.value)} style={inputStyle()} />
-                <input
-                  type="number"
-                  min={15}
-                  step={5}
-                  value={editDuration}
-                  onChange={(e) => setEditDuration(Number(e.target.value))}
-                  style={inputStyle()}
-                  placeholder="Durata (min)"
-                />
+                <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} style={inputS()} />
+                <input type="time" value={editTime} onChange={e => setEditTime(e.target.value)} style={inputS()} />
+                <input type="number" min={15} step={5} value={editDuration}
+                  onChange={e => setEditDuration(Number(e.target.value))} style={inputS()} placeholder="Min" />
               </div>
-              <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 800, marginTop: 6 }}>
-                Puoi anche trascinare l'appuntamento sul calendario per spostarlo rapidamente.
-              </div>
-            </div>
+            </FG>
 
-            <div>
-              <div style={labelStyle()}>Stato</div>
-              <select value={editStatus} onChange={(e) => setEditStatus(e.target.value as Status)} style={inputStyle()}>
+            <FG label="Stato">
+              <select value={editStatus} onChange={e => setEditStatus(e.target.value as Status)} style={inputS()}>
                 <option value="booked">Prenotato</option>
                 <option value="confirmed">Confermato</option>
                 <option value="done">Eseguito</option>
                 <option value="not_paid">Non pagata</option>
                 <option value="cancelled">Annullato</option>
               </select>
-            </div>
+            </FG>
 
             {messageTemplates.length > 0 && (
-              <div>
-                <div style={labelStyle()}>Template WhatsApp</div>
-                <select value={selectedTemplateId || ""} onChange={(e) => setSelectedTemplateId(e.target.value)} style={inputStyle()} disabled={loadingTemplates}>
-                  {loadingTemplates ? (
-                    <option value="">Caricamento template...</option>
-                  ) : (
-                    messageTemplates.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.is_default ? "⭐ " : ""}
-                        {t.name}
-                      </option>
-                    ))
-                  )}
+              <FG label="Template WhatsApp">
+                <select value={selectedTemplateId || ""} onChange={e => setSelectedTemplateId(e.target.value)}
+                  style={inputS()} disabled={loadingTemplates}>
+                  {messageTemplates.map(t => (
+                    <option key={t.id} value={t.id}>{t.is_default ? "⭐ " : ""}{t.name}</option>
+                  ))}
                 </select>
+              </FG>
+            )}
+
+            <FG label="Note">
+              <textarea value={editNote} onChange={e => setEditNote(e.target.value)}
+                style={{ ...inputS(), minHeight: 80, resize: "vertical" }} />
+            </FG>
+
+            <FG label="Importo">
+              <input value={editAmount} onChange={e => setEditAmount(e.target.value)}
+                style={inputS()} placeholder="Es. 40" inputMode="decimal" />
+            </FG>
+
+            {/* WA status nel modal */}
+            {selectedEvent.whatsapp_sent_at && (
+              <div style={{ fontSize: 12, fontWeight: 600, color: THEME.green,
+                            padding: "6px 10px", borderRadius: 8,
+                            background: "rgba(22,163,74,0.08)",
+                            border: "1px solid rgba(22,163,74,0.2)" }}>
+                ✓ Promemoria WA inviato il {new Date(selectedEvent.whatsapp_sent_at).toLocaleDateString("it-IT")}
               </div>
             )}
 
-            <div>
-              <div style={labelStyle()}>Note</div>
-              <textarea value={editNote} onChange={(e) => setEditNote(e.target.value)} style={{ ...inputStyle(), minHeight: 90, resize: "vertical" }} />
-            </div>
-
-            <div>
-              <div style={labelStyle()}>Importo</div>
-              <input value={editAmount} onChange={(e) => setEditAmount(e.target.value)} style={inputStyle()} placeholder="Es. 40" inputMode="decimal" />
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 4 }}>
-              <button onClick={saveEvent} style={primaryBtnStyle()} disabled={busy}>
-                💾 Salva
-              </button>
-
-              <button
-                onClick={() => selectedEvent && sendWhatsApp(selectedEvent)}
-                style={secondaryBtnStyle()}
-                disabled={!normalizePhone(selectedEvent.patient_phone)}
-                title={normalizePhone(selectedEvent.patient_phone) ? "Invia promemoria WhatsApp" : "Numero non disponibile"}
-              >
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 4 }}>
+              <LightBtn v="primary" onClick={saveEvent} disabled={busy}>💾 Salva</LightBtn>
+              <LightBtn v="wa"
+                onClick={() => sendWhatsApp(selectedEvent)}
+                disabled={!normalizePhone(selectedEvent.patient_phone)}>
                 💬 WhatsApp
-              </button>
-
-              <button onClick={deleteEvent} style={dangerBtnStyle()} disabled={busy}>
-                🗑 Elimina
-              </button>
-
-              <button onClick={() => setSelectedEvent(null)} style={ghostBtnStyle()}>
-                Chiudi
-              </button>
+              </LightBtn>
+              <LightBtn v="danger" onClick={deleteEvent} disabled={busy}>🗑 Elimina</LightBtn>
+              <LightBtn v="ghost" onClick={() => setSelectedEvent(null)}>Chiudi</LightBtn>
             </div>
           </div>
-        </Modal>
+        </LightModal>
       )}
 
-      {/* CREATE MODAL */}
+      {/* ━━━ CREATE MODAL ━━━ */}
       {createOpen && (
         <CreateModal
-          busy={busy}
-          error={error}
-          onClose={() => setCreateOpen(false)}
-          patientQuery={patientQuery}
-          setPatientQuery={setPatientQuery}
-          patientResults={patientResults}
-          patientLoading={patientLoading}
-          selectedPatient={selectedPatient}
-          setSelectedPatient={setSelectedPatient}
-          quickFirstName={quickFirstName}
-          setQuickFirstName={setQuickFirstName}
-          quickLastName={quickLastName}
-          setQuickLastName={setQuickLastName}
-          quickPhone={quickPhone}
-          setQuickPhone={setQuickPhone}
+          busy={busy} error={error} onClose={() => setCreateOpen(false)}
+          patientQuery={patientQuery} setPatientQuery={setPatientQuery}
+          patientResults={patientResults} patientLoading={patientLoading}
+          selectedPatient={selectedPatient} setSelectedPatient={setSelectedPatient}
+          quickFirstName={quickFirstName} setQuickFirstName={setQuickFirstName}
+          quickLastName={quickLastName}   setQuickLastName={setQuickLastName}
+          quickPhone={quickPhone}         setQuickPhone={setQuickPhone}
           createQuickPatient={createQuickPatient}
-          createDate={createDate}
-          setCreateDate={setCreateDate}
-          createTime={createTime}
-          setCreateTime={setCreateTime}
-          createDuration={createDuration}
-          setCreateDuration={setCreateDuration}
-          createStatus={createStatus}
-          setCreateStatus={setCreateStatus}
-          createLocation={createLocation}
-          setCreateLocation={setCreateLocation}
-          createClinicSite={createClinicSite}
-          setCreateClinicSite={setCreateClinicSite}
-          createDomicileAddress={createDomicileAddress}
-          setCreateDomicileAddress={setCreateDomicileAddress}
-          createAmount={createAmount}
-          setCreateAmount={setCreateAmount}
-          createNote={createNote}
-          setCreateNote={setCreateNote}
+          createDate={createDate}         setCreateDate={setCreateDate}
+          createTime={createTime}         setCreateTime={setCreateTime}
+          createDuration={createDuration} setCreateDuration={setCreateDuration}
+          createStatus={createStatus}     setCreateStatus={setCreateStatus}
+          createLocation={createLocation} setCreateLocation={setCreateLocation}
+          createClinicSite={createClinicSite}           setCreateClinicSite={setCreateClinicSite}
+          createDomicileAddress={createDomicileAddress} setCreateDomicileAddress={setCreateDomicileAddress}
+          createAmount={createAmount}     setCreateAmount={setCreateAmount}
+          createNote={createNote}         setCreateNote={setCreateNote}
           createAppointment={createAppointment}
         />
       )}
@@ -1317,307 +1155,217 @@ function CalendarPageInner() {
   );
 }
 
-/* ----------------- UI helpers + components ----------------- */
+/* ─── Design system (light theme) ────────────────────────────────────── */
 
-function navBtnStyle() {
+function inputS(): React.CSSProperties {
   return {
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: `1px solid ${THEME.border}`,
-    background: THEME.panelSoft,
-    fontWeight: 900,
-    cursor: "pointer",
-  } as const;
-}
-function todayBtnStyle() {
-  return {
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: `1px solid ${THEME.blueDark}`,
-    background: THEME.blue,
-    color: "#fff",
-    fontWeight: 900,
-    cursor: "pointer",
-  } as const;
-}
-function inputStyle() {
-  return {
-    width: "100%",
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: `1px solid ${THEME.border}`,
-    outline: "none",
-    background: "#fff",
-    color: THEME.text,
-    fontWeight: 800,
-    fontSize: 14,
+    width: "100%", padding: "10px 12px", borderRadius: 10,
+    border: `1.5px solid ${THEME.border}`, outline: "none",
+    background: THEME.panelSoft, color: THEME.text,
+    fontWeight: 500, fontSize: 14,
+    fontFamily: "Inter, -apple-system, sans-serif",
     boxSizing: "border-box",
-  } as const;
-}
-function labelStyle() {
-  return { fontSize: 12, color: THEME.muted, fontWeight: 900, marginBottom: 6 } as const;
+  };
 }
 
-function primaryBtnStyle() {
-  return {
-    padding: "12px 12px",
-    borderRadius: 12,
-    border: `1px solid ${THEME.blueDark}`,
-    background: THEME.blue,
-    color: "#fff",
-    fontWeight: 900,
-    cursor: "pointer",
-  } as const;
-}
-function secondaryBtnStyle() {
-  return {
-    padding: "12px 12px",
-    borderRadius: 12,
-    border: `1px solid ${THEME.green}`,
-    background: "#f0fdf4",
-    color: THEME.green,
-    fontWeight: 900,
-    cursor: "pointer",
-  } as const;
-}
-function dangerBtnStyle() {
-  return {
-    padding: "12px 12px",
-    borderRadius: 12,
-    border: `1px solid ${THEME.red}`,
-    background: "#fff1f2",
-    color: THEME.red,
-    fontWeight: 900,
-    cursor: "pointer",
-  } as const;
-}
-function ghostBtnStyle() {
-  return {
-    padding: "12px 12px",
-    borderRadius: 12,
-    border: `1px solid ${THEME.border}`,
-    background: "#fff",
-    color: THEME.text,
-    fontWeight: 900,
-    cursor: "pointer",
-  } as const;
-}
-
-function StatCard({ label, value, color }: { label: string; value: string; color: string }) {
+type BtnV = "primary" | "wa" | "danger" | "ghost";
+function LightBtn({ v, onClick, disabled, children }: { v: BtnV; onClick?: () => void; disabled?: boolean; children: React.ReactNode }) {
+  const map: Record<BtnV, React.CSSProperties> = {
+    primary: { background: THEME.gradient, color: "#fff", border: "none",
+               boxShadow: "0 2px 8px rgba(13,148,136,0.25)" },
+    wa:      { background: "rgba(22,163,74,0.10)", color: THEME.green,
+               border: `1.5px solid rgba(22,163,74,0.3)` },
+    danger:  { background: "rgba(220,38,38,0.08)", color: THEME.red,
+               border: `1.5px solid rgba(220,38,38,0.2)` },
+    ghost:   { background: THEME.panelSoft, color: THEME.muted,
+               border: `1.5px solid ${THEME.border}` },
+  };
   return (
-    <div style={{ background: THEME.panelBg, border: `1px solid ${THEME.border}`, borderRadius: 12, padding: 12 }}>
-      <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 900 }}>{label}</div>
-      <div style={{ marginTop: 6, fontSize: 18, fontWeight: 900, color }}>{value}</div>
+    <button onClick={onClick} disabled={disabled} style={{
+      padding: "11px 14px", borderRadius: 10, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer",
+      fontSize: 13, fontFamily: "Inter, -apple-system, sans-serif",
+      opacity: disabled ? 0.4 : 1, transition: "opacity 0.15s",
+      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+      ...map[v],
+    }}>{children}</button>
+  );
+}
+
+function FG({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, color: THEME.muted, fontWeight: 700, marginBottom: 6,
+                    textTransform: "uppercase", letterSpacing: "0.08em",
+                    fontFamily: "Inter, -apple-system, sans-serif" }}>
+        {label}
+      </div>
+      {children}
     </div>
   );
 }
 
-function Modal({ children, onClose }: { children: any; onClose: () => void }) {
+function ErrorBox({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ background: "rgba(220,38,38,0.06)", border: "1.5px solid rgba(220,38,38,0.3)",
+                  color: "#7f1d1d", padding: "10px 13px", borderRadius: 10, fontSize: 13, fontWeight: 600 }}>
+      ⚠️ {children}
+    </div>
+  );
+}
+
+function LightModal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
     <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 4000 }} />
-      <div
-        style={{
-          position: "fixed",
-          left: "50%",
-          top: "50%",
-          transform: "translate(-50%, -50%)",
-          width: "min(520px, calc(100vw - 24px))",
-          background: "#fff",
-          borderRadius: 14,
-          border: `1px solid ${THEME.border}`,
-          padding: 16,
-          zIndex: 4001,
-          boxShadow: "0 18px 60px rgba(0,0,0,0.35)",
-          maxHeight: "85vh",
-          overflow: "auto",
-        }}
-      >
+      <div onClick={onClose} style={{
+        position: "fixed", inset: 0,
+        background: "rgba(15,23,42,0.4)", zIndex: 4000,
+        backdropFilter: "blur(4px)",
+      }} />
+      <div style={{
+        position: "fixed", left: "50%", top: "50%", transform: "translate(-50%,-50%)",
+        width: "min(520px, calc(100vw - 24px))",
+        background: THEME.panelBg, border: `1.5px solid ${THEME.border}`,
+        borderRadius: 18, padding: 20, zIndex: 4001,
+        boxShadow: "0 24px 64px rgba(15,23,42,0.18)",
+        maxHeight: "85vh", overflowY: "auto",
+        fontFamily: "Inter, -apple-system, sans-serif",
+      }}>
         {children}
       </div>
     </>
   );
 }
 
-function HeaderRow({ title, subtitle, onClose }: { title: string; subtitle?: string; onClose: () => void }) {
+function ModalHeader({ title, subtitle, onClose }: { title: string; subtitle?: string; onClose: () => void }) {
   return (
     <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 16, fontWeight: 900, color: THEME.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
-        {subtitle && <div style={{ marginTop: 4, fontSize: 12, fontWeight: 900, color: THEME.muted }}>{subtitle}</div>}
+        <div style={{ fontSize: 17, fontWeight: 800, color: THEME.text,
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {title}
+        </div>
+        {subtitle && <div style={{ marginTop: 3, fontSize: 12, color: THEME.muted, fontWeight: 600 }}>{subtitle}</div>}
       </div>
-      <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", fontWeight: 900, color: THEME.muted }}>
+      <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22,
+                                         cursor: "pointer", color: THEME.muted, lineHeight: 1, padding: "0 4px" }}>
         ×
       </button>
     </div>
   );
 }
 
-/* ----------------- Create Modal (estratto, stesso stile) ----------------- */
-
-function CreateModal(props: any) {
+/* ─── CreateModal ────────────────────────────────────────────────────── */
+function CreateModal(props: CreateModalProps) {
   const {
-    busy,
-    error,
-    onClose,
-
-    patientQuery,
-    setPatientQuery,
-    patientResults,
-    patientLoading,
-    selectedPatient,
-    setSelectedPatient,
-
-    quickFirstName,
-    setQuickFirstName,
-    quickLastName,
-    setQuickLastName,
-    quickPhone,
-    setQuickPhone,
-    createQuickPatient,
-
-    createDate,
-    setCreateDate,
-    createTime,
-    setCreateTime,
-    createDuration,
-    setCreateDuration,
-    createStatus,
-    setCreateStatus,
-    createLocation,
-    setCreateLocation,
-    createClinicSite,
-    setCreateClinicSite,
-    createDomicileAddress,
-    setCreateDomicileAddress,
-    createAmount,
-    setCreateAmount,
-    createNote,
-    setCreateNote,
-    createAppointment,
+    busy, error, onClose,
+    patientQuery, setPatientQuery, patientResults, patientLoading, selectedPatient, setSelectedPatient,
+    quickFirstName, setQuickFirstName, quickLastName, setQuickLastName, quickPhone, setQuickPhone, createQuickPatient,
+    createDate, setCreateDate, createTime, setCreateTime, createDuration, setCreateDuration,
+    createStatus, setCreateStatus, createLocation, setCreateLocation,
+    createClinicSite, setCreateClinicSite, createDomicileAddress, setCreateDomicileAddress,
+    createAmount, setCreateAmount, createNote, setCreateNote, createAppointment,
   } = props;
 
   return (
-    <Modal onClose={onClose}>
-      <HeaderRow title="Nuovo appuntamento" subtitle={`${createDate} • ${createTime}`} onClose={onClose} />
+    <LightModal onClose={onClose}>
+      <ModalHeader title="Nuovo appuntamento" subtitle={`${createDate} · ${createTime}`} onClose={onClose} />
+      <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+        {error && <ErrorBox>{error}</ErrorBox>}
 
-      <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 14 }}>
-        {error && (
-          <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", color: "#9f1239", padding: "10px 12px", borderRadius: 10, fontWeight: 900 }}>
-            {error}
-          </div>
-        )}
-
-        <div>
-          <div style={labelStyle()}>Paziente</div>
-          <input value={patientQuery} onChange={(e) => setPatientQuery(e.target.value)} style={inputStyle()} placeholder="Cerca per nome/cognome..." />
-          {patientLoading && <div style={{ marginTop: 6, fontSize: 12, color: THEME.muted, fontWeight: 800 }}>Ricerca…</div>}
-          {patientResults?.length > 0 && (
-            <div style={{ marginTop: 8, border: `1px solid ${THEME.border}`, borderRadius: 12, overflow: "hidden" }}>
-              {patientResults.map((p: any) => {
+        <FG label="Paziente">
+          <input value={patientQuery} onChange={e => setPatientQuery(e.target.value)}
+            style={inputS()} placeholder="Cerca per nome/cognome…" />
+          {patientLoading && (
+            <div style={{ marginTop: 6, fontSize: 12, color: THEME.muted, fontWeight: 600 }}>Ricerca…</div>
+          )}
+          {patientResults.length > 0 && (
+            <div style={{ marginTop: 6, border: `1.5px solid ${THEME.border}`,
+                          borderRadius: 10, overflow: "hidden" }}>
+              {patientResults.map(p => {
                 const name = `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim();
                 return (
-                  <button
-                    key={p.id}
-                    onClick={() => setSelectedPatient(p)}
-                    style={{
-                      width: "100%",
-                      textAlign: "left",
-                      padding: "10px 12px",
-                      border: "none",
-                      borderBottom: `1px solid ${THEME.border}`,
-                      background: selectedPatient?.id === p.id ? "#eff6ff" : "#fff",
-                      cursor: "pointer",
-                      fontWeight: 900,
-                    }}
-                  >
-                    {name || "Paziente"} {p.phone ? `• ${p.phone}` : ""}
+                  <button key={p.id} onClick={() => setSelectedPatient(p)} style={{
+                    width: "100%", textAlign: "left", padding: "10px 14px",
+                    border: "none", borderBottom: `1px solid ${THEME.border}`,
+                    background: selectedPatient?.id === p.id ? "rgba(37,99,235,0.08)" : THEME.panelSoft,
+                    cursor: "pointer",
+                    color: selectedPatient?.id === p.id ? THEME.blue : THEME.text,
+                    fontWeight: 600, fontSize: 13,
+                    fontFamily: "Inter, -apple-system, sans-serif",
+                  }}>
+                    {name || "Paziente"}{p.phone ? ` · ${p.phone}` : ""}
                   </button>
                 );
               })}
             </div>
           )}
-        </div>
+          {selectedPatient && (
+            <div style={{ marginTop: 6, padding: "6px 12px",
+                          background: "rgba(37,99,235,0.08)", borderRadius: 8,
+                          fontSize: 13, color: THEME.blue, fontWeight: 700 }}>
+              ✓ {`${selectedPatient.first_name ?? ""} ${selectedPatient.last_name ?? ""}`.trim()}
+            </div>
+          )}
+        </FG>
 
-        <div style={{ borderTop: `1px solid ${THEME.border}`, paddingTop: 12 }}>
-          <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 900, marginBottom: 8 }}>Oppure crea paziente rapido</div>
+        <div style={{ borderTop: `1.5px solid ${THEME.border}`, paddingTop: 14 }}>
+          <div style={{ fontSize: 10, color: THEME.muted, fontWeight: 700, marginBottom: 10,
+                        textTransform: "uppercase", letterSpacing: "0.08em" }}>
+            Oppure crea paziente rapido
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <input value={quickFirstName} onChange={(e) => setQuickFirstName(e.target.value)} style={inputStyle()} placeholder="Nome" />
-            <input value={quickLastName} onChange={(e) => setQuickLastName(e.target.value)} style={inputStyle()} placeholder="Cognome" />
+            <input value={quickFirstName} onChange={e => setQuickFirstName(e.target.value)} style={inputS()} placeholder="Nome" />
+            <input value={quickLastName}  onChange={e => setQuickLastName(e.target.value)}  style={inputS()} placeholder="Cognome" />
           </div>
-          <div style={{ marginTop: 8 }}>
-            <input value={quickPhone} onChange={(e) => setQuickPhone(e.target.value)} style={inputStyle()} placeholder="Telefono (opzionale)" />
+          <input value={quickPhone} onChange={e => setQuickPhone(e.target.value)}
+            style={{ ...inputS(), marginTop: 8 }} placeholder="Telefono (opzionale)" />
+          <div style={{ marginTop: 10 }}>
+            <LightBtn v="primary" onClick={createQuickPatient} disabled={busy}>➕ Crea e seleziona</LightBtn>
           </div>
-          <button onClick={createQuickPatient} style={{ ...primaryBtnStyle(), marginTop: 10 }} disabled={busy}>
-            ➕ Crea e seleziona
-          </button>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-          <div>
-            <div style={labelStyle()}>Data</div>
-            <input type="date" value={createDate} onChange={(e) => setCreateDate(e.target.value)} style={inputStyle()} />
-          </div>
-          <div>
-            <div style={labelStyle()}>Ora</div>
-            <input type="time" value={createTime} onChange={(e) => setCreateTime(e.target.value)} style={inputStyle()} />
-          </div>
-          <div>
-            <div style={labelStyle()}>Durata (min)</div>
-            <input type="number" min={15} step={5} value={createDuration} onChange={(e) => setCreateDuration(Number(e.target.value))} style={inputStyle()} />
-          </div>
+          <FG label="Data"><input type="date" value={createDate} onChange={e => setCreateDate(e.target.value)} style={inputS()} /></FG>
+          <FG label="Ora"><input type="time" value={createTime} onChange={e => setCreateTime(e.target.value)} style={inputS()} /></FG>
+          <FG label="Durata (m)"><input type="number" min={15} step={5} value={createDuration} onChange={e => setCreateDuration(Number(e.target.value))} style={inputS()} /></FG>
         </div>
 
-        <div>
-          <div style={labelStyle()}>Stato</div>
-          <select value={createStatus} onChange={(e) => setCreateStatus(e.target.value as Status)} style={inputStyle()}>
+        <FG label="Stato">
+          <select value={createStatus} onChange={e => setCreateStatus(e.target.value as Status)} style={inputS()}>
             <option value="confirmed">Confermato</option>
             <option value="booked">Prenotato</option>
             <option value="done">Eseguito</option>
             <option value="not_paid">Non pagata</option>
             <option value="cancelled">Annullato</option>
           </select>
-        </div>
+        </FG>
 
-        <div>
-          <div style={labelStyle()}>Luogo</div>
-          <select value={createLocation} onChange={(e) => setCreateLocation(e.target.value as LocationType)} style={inputStyle()}>
+        <FG label="Luogo">
+          <select value={createLocation} onChange={e => setCreateLocation(e.target.value as LocationType)} style={inputS()}>
             <option value="studio">Studio</option>
             <option value="domicile">Domicilio</option>
           </select>
-        </div>
+        </FG>
 
-        {createLocation === "studio" ? (
-          <div>
-            <div style={labelStyle()}>Sede studio</div>
-            <input value={createClinicSite} onChange={(e) => setCreateClinicSite(e.target.value)} style={inputStyle()} placeholder={DEFAULT_CLINIC_SITE} />
-          </div>
-        ) : (
-          <div>
-            <div style={labelStyle()}>Indirizzo domicilio</div>
-            <input value={createDomicileAddress} onChange={(e) => setCreateDomicileAddress(e.target.value)} style={inputStyle()} placeholder="Indirizzo..." />
-          </div>
-        )}
+        {createLocation === "studio"
+          ? <FG label="Sede studio"><input value={createClinicSite} onChange={e => setCreateClinicSite(e.target.value)} style={inputS()} placeholder={DEFAULT_CLINIC} /></FG>
+          : <FG label="Indirizzo domicilio"><input value={createDomicileAddress} onChange={e => setCreateDomicileAddress(e.target.value)} style={inputS()} placeholder="Indirizzo…" /></FG>
+        }
 
-        <div>
-          <div style={labelStyle()}>Importo</div>
-          <input value={createAmount} onChange={(e) => setCreateAmount(e.target.value)} style={inputStyle()} placeholder="Es. 40" inputMode="decimal" />
-        </div>
+        <FG label="Importo">
+          <input value={createAmount} onChange={e => setCreateAmount(e.target.value)}
+            style={inputS()} placeholder="Es. 40" inputMode="decimal" />
+        </FG>
+        <FG label="Note">
+          <textarea value={createNote} onChange={e => setCreateNote(e.target.value)}
+            style={{ ...inputS(), minHeight: 80, resize: "vertical" }} />
+        </FG>
 
-        <div>
-          <div style={labelStyle()}>Note</div>
-          <textarea value={createNote} onChange={(e) => setCreateNote(e.target.value)} style={{ ...inputStyle(), minHeight: 90, resize: "vertical" }} />
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 4 }}>
-          <button onClick={createAppointment} style={primaryBtnStyle()} disabled={busy}>
-            ✅ Crea appuntamento
-          </button>
-          <button onClick={onClose} style={ghostBtnStyle()}>
-            Annulla
-          </button>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <LightBtn v="primary" onClick={createAppointment} disabled={busy}>✅ Crea appuntamento</LightBtn>
+          <LightBtn v="ghost"   onClick={onClose}>Annulla</LightBtn>
         </div>
       </div>
-    </Modal>
+    </LightModal>
   );
 }
