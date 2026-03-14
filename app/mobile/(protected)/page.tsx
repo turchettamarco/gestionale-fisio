@@ -143,6 +143,14 @@ export default function MobileHomePage() {
   const [incassando,  setIncassando]  = useState<string | null>(null);
   const [sendingWA,   setSendingWA]   = useState<string | null>(null);
 
+  // Modal modifica appuntamento
+  const [editAppt,    setEditAppt]    = useState<Appointment | null>(null);
+  const [editStatus,  setEditStatus]  = useState<Status>("booked");
+  const [editAmount,  setEditAmount]  = useState("");
+  const [editDate,    setEditDate]    = useState("");
+  const [editTime,    setEditTime]    = useState("");
+  const [editSaving,  setEditSaving]  = useState(false);
+
   const [userEmail,    setUserEmail]    = useState<string | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -346,46 +354,89 @@ export default function MobileHomePage() {
     setIncassando(null);
   }
 
-  const sendReminder = useCallback(async (appt: Appointment) => {
+  const sendReminder = useCallback((appt: Appointment) => {
     const phone = appt.patients?.phone;
     if (!phone) { alert("Nessun numero registrato."); return; }
-    setSendingWA(appt.id);
 
-    // Carica il template dal DB (o usa il default)
-    const { data: tplData } = await supabase
-      .from("message_templates").select("template").eq("name","Promemoria").maybeSingle();
-    let tpl = `Buongiorno {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore ⏰ {ora}.\n\n📍 {luogo}\n\nCordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
-    if (tplData?.template) tpl = tplData.template;
-
+    // Costruisce il messaggio SINCRONO — nessun await prima di aprire
     const luogo = appt.location === "studio"
       ? (CLINIC_ADDRESSES[appt.clinic_site ?? ""] || appt.clinic_site || "Studio")
       : `Presso il suo domicilio (${appt.domicile_address ?? ""})`;
 
-    const message = tpl
-      .replace(/{nome}/g,          (appt.patients?.first_name ?? "").trim() || "Gentile paziente")
-      .replace(/{data_relativa}/g, formatDateRelative(new Date(appt.start_at)))
-      .replace(/{ora}/g,           fmtTime(appt.start_at))
-      .replace(/{luogo}/g,         luogo);
+    const message =
+      `Buongiorno ${(appt.patients?.first_name ?? "").trim() || "gentile paziente"},\n\n` +
+      `Le ricordiamo il suo appuntamento di ${formatDateRelative(new Date(appt.start_at))} ` +
+      `alle ore ⏰ ${fmtTime(appt.start_at)}.\n\n` +
+      `📍 ${luogo}\n\n` +
+      `Cordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
 
-    // Apre WhatsApp Web direttamente (web.whatsapp.com evita il popup app/web)
-    // Nota: window.open va chiamato dopo il caricamento template perché serve il messaggio compilato.
-    // Per evitare il blocco popup usiamo un link <a> cliccato programmaticamente.
-    const url = `https://web.whatsapp.com/send?phone=${formatPhoneForWA(phone)}&text=${encodeURIComponent(message)}`;
-    const a = document.createElement("a");
-    a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    // Apre WA Web immediatamente — dentro il gestore click sincrono
+    const clean = formatPhoneForWA(phone);
+    const url   = `https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
 
+    // Aggiorna DB in background (non blocca l'apertura)
     const nowIso = new Date().toISOString();
-    await supabase.from("appointments")
-      .update({ whatsapp_sent_at: nowIso, whatsapp_sent: true }).eq("id", appt.id);
-    setTodayAppts(prev => prev.map(a =>
-      a.id === appt.id ? { ...a, whatsapp_sent_at: nowIso } : a
-    ));
-    setSendingWA(null);
+    setSendingWA(appt.id);
+    supabase.from("appointments")
+      .update({ whatsapp_sent_at: nowIso, whatsapp_sent: true }).eq("id", appt.id)
+      .then(() => {
+        setTodayAppts(prev => prev.map(a =>
+          a.id === appt.id ? { ...a, whatsapp_sent_at: nowIso } : a
+        ));
+        setSendingWA(null);
+      });
   }, []);
 
   async function handleLogout() {
     try { await supabase.auth.signOut(); } finally { window.location.href = "/login"; }
+  }
+
+  function openEdit(appt: Appointment) {
+    setEditAppt(appt);
+    setEditStatus(appt.status);
+    setEditAmount(appt.amount !== null ? String(appt.amount) : "");
+    const d = new Date(appt.start_at);
+    setEditDate(toYMD(d));
+    setEditTime(`${pad2(d.getHours())}:${pad2(d.getMinutes())}`);
+  }
+
+  async function saveEdit() {
+    if (!editAppt) return;
+    setEditSaving(true);
+    try {
+      const newStart = new Date(`${editDate}T${editTime}:00`);
+      const origDuration = new Date(editAppt.start_at);
+      // mantieni la durata originale (1h default se non calcolabile)
+      const durMs = 60 * 60 * 1000;
+      const newEnd = new Date(newStart.getTime() + durMs);
+
+      const updates: Record<string, unknown> = {
+        status:   editStatus,
+        start_at: newStart.toISOString(),
+        end_at:   newEnd.toISOString(),
+      };
+      if (editAmount !== "") updates.amount = parseFloat(editAmount) || 0;
+
+      const { error } = await supabase.from("appointments")
+        .update(updates).eq("id", editAppt.id);
+      if (error) throw error;
+
+      // Aggiorna lista locale
+      const updated: Appointment = {
+        ...editAppt,
+        status:   editStatus,
+        start_at: newStart.toISOString(),
+        amount:   editAmount !== "" ? parseFloat(editAmount) || 0 : editAppt.amount,
+      };
+      setTodayAppts(prev => prev.map(a => a.id === editAppt.id ? updated : a));
+      setNextAppts( prev => prev.map(a => a.id === editAppt.id ? updated : a));
+      setEditAppt(null);
+    } catch (e: any) {
+      alert(e?.message ?? "Errore nel salvataggio");
+    } finally {
+      setEditSaving(false);
+    }
   }
 
   // ─── Derived ──────────────────────────────────────────────────────────────
@@ -840,7 +891,10 @@ export default function MobileHomePage() {
                     padding: "11px 13px",
                     opacity: isPastAppt ? 0.65 : 1,
                     transition: "opacity 0.3s",
-                  }}>
+                    cursor: "pointer",
+                  }}
+                  onClick={() => openEdit(a)}
+                  >
 
                     {/* Riga info: orario + nome + status */}
                     <div style={{ display: "flex", justifyContent: "space-between",
@@ -874,7 +928,7 @@ export default function MobileHomePage() {
 
                     {/* ── 3 AZIONI PRINCIPALI ── compatte, in linea */}
                     {!isCancelled && (
-                      <div style={{ marginTop: 9, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <div onClick={e => e.stopPropagation()} style={{ marginTop: 9, display: "flex", gap: 6, flexWrap: "wrap" }}>
 
                         {/* ✓ Eseguito */}
                         <button
@@ -950,7 +1004,7 @@ export default function MobileHomePage() {
 
                     {/* Azioni annullato */}
                     {isCancelled && a.patient_id && (
-                      <div style={{ marginTop: 8 }}>
+                      <div onClick={e => e.stopPropagation()} style={{ marginTop: 8 }}>
                         <button
                           onClick={() => router.push(`/mobile/patients/${a.patient_id}`)}
                           style={btnOutline({ fontSize: 12, padding: "6px 11px" })}
@@ -1155,6 +1209,113 @@ export default function MobileHomePage() {
         )}
 
       </div>
+
+      {/* ━━━ MODAL MODIFICA APPUNTAMENTO ━━━ */}
+      {editAppt && (
+        <>
+          {/* Backdrop */}
+          <div
+            onClick={() => setEditAppt(null)}
+            style={{
+              position: "fixed", inset: 0, zIndex: 50,
+              background: "rgba(15,23,42,0.45)",
+              backdropFilter: "blur(2px)",
+            }}
+          />
+          {/* Sheet */}
+          <div style={{
+            position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 51,
+            background: THEME.panelBg,
+            borderRadius: "18px 18px 0 0",
+            padding: "20px 20px",
+            paddingBottom: "max(24px, env(safe-area-inset-bottom, 24px))",
+            boxShadow: "0 -8px 40px rgba(15,23,42,0.18)",
+            maxHeight: "85vh",
+            overflowY: "auto",
+          }}>
+            {/* Handle */}
+            <div style={{ width: 36, height: 4, borderRadius: 99, background: THEME.border, margin: "0 auto 18px" }}/>
+
+            <div style={{ fontSize: 15, fontWeight: 800, color: THEME.text, marginBottom: 4 }}>
+              Modifica appuntamento
+            </div>
+            <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 20 }}>
+              {fullName(editAppt.patients)} · {fmtTime(editAppt.start_at)}
+            </div>
+
+            {/* Status */}
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Stato</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {(["booked","confirmed","done","not_paid","cancelled"] as Status[]).map(s => (
+                  <button key={s} onClick={() => setEditStatus(s)} style={{
+                    padding: "7px 13px", borderRadius: 8, border: "none", cursor: "pointer",
+                    fontWeight: 700, fontSize: 12,
+                    background: editStatus === s ? statusColor(s) : "rgba(148,163,184,0.12)",
+                    color: editStatus === s ? "#fff" : THEME.muted,
+                  }}>
+                    {statusLabel(s)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Data e ora */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 18 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Data</div>
+                <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} style={{
+                  width: "100%", padding: "10px 12px", borderRadius: 10,
+                  border: `1.5px solid ${THEME.border}`, background: THEME.panelSoft,
+                  fontSize: 14, fontWeight: 600, color: THEME.text, boxSizing: "border-box" as const,
+                }}/>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Orario</div>
+                <input type="time" value={editTime} onChange={e => setEditTime(e.target.value)} style={{
+                  width: "100%", padding: "10px 12px", borderRadius: 10,
+                  border: `1.5px solid ${THEME.border}`, background: THEME.panelSoft,
+                  fontSize: 14, fontWeight: 600, color: THEME.text, boxSizing: "border-box" as const,
+                }}/>
+              </div>
+            </div>
+
+            {/* Importo */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Importo (€)</div>
+              <input
+                type="number" inputMode="decimal" value={editAmount}
+                onChange={e => setEditAmount(e.target.value)}
+                placeholder="es. 40"
+                style={{
+                  width: "100%", padding: "10px 12px", borderRadius: 10,
+                  border: `1.5px solid ${THEME.border}`, background: THEME.panelSoft,
+                  fontSize: 14, fontWeight: 600, color: THEME.text, boxSizing: "border-box" as const,
+                }}
+              />
+            </div>
+
+            {/* Bottoni */}
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setEditAppt(null)} style={{
+                flex: 1, padding: "13px 0", borderRadius: 12,
+                border: `1.5px solid ${THEME.border}`, background: THEME.panelSoft,
+                color: THEME.muted, fontWeight: 700, fontSize: 14, cursor: "pointer",
+              }}>Annulla</button>
+              <button onClick={saveEdit} disabled={editSaving} style={{
+                flex: 2, padding: "13px 0", borderRadius: 12, border: "none",
+                background: THEME.gradient, color: "#fff",
+                fontWeight: 700, fontSize: 14, cursor: "pointer",
+                opacity: editSaving ? 0.6 : 1,
+                boxShadow: "0 2px 8px rgba(13,148,136,0.25)",
+              }}>
+                {editSaving ? "Salvataggio…" : "Salva modifiche"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
     </div>
   );
 }

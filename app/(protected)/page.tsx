@@ -75,7 +75,30 @@ const formatDateRelative = (date: Date) => {
 const money      = (n: number) => (Number.isFinite(n)?n:0).toLocaleString("it-IT",{maximumFractionDigits:0})+"€";
 const sumAmount  = (rows: AppointmentRow[]) => rows.reduce((s,r)=>{ const n=typeof r.amount==="string"?Number(r.amount):r.amount; return s+(Number.isFinite(n as number)?(n as number):0); },0);
 const pctDelta   = (c: number, p: number) => p===0?(c===0?0:100):((c-p)/p)*100;
-const fmtPhone   = (phone: string) => { if(!phone) return ""; let c=phone.trim().replace(/[^\d+]/g,""); if(!c) return ""; if(c.startsWith("00")) c="+"+c.slice(2); if(!c.startsWith("+")&&c.length>=9) c="+39"+c; return c.replace(/\+/g,"").replace(/\s/g,""); };
+// Normalizza qualsiasi numero italiano → stringa di sole cifre con prefisso 39
+// Casi gestiti: +39xxx, 0039xxx, 39xxx (già con prefisso), 3xx (mobile senza prefisso),
+//               0xx (fisso senza prefisso), numeri con spazi/trattini/parentesi
+const fmtPhone = (phone: string): string => {
+  if (!phone) return "";
+  // 1. Rimuovi tutto tranne cifre e +
+  let c = phone.trim().replace(/[\s\-\.\(\)\/]/g, "");
+  // 2. Normalizza 00 → +
+  if (c.startsWith("00")) c = "+" + c.slice(2);
+  // 3. Rimuovi il + per lavorare solo con cifre
+  if (c.startsWith("+")) c = c.slice(1);
+  // 4. Rimuovi caratteri non numerici residui
+  c = c.replace(/\D/g, "");
+  if (!c) return "";
+  // 5. Se inizia già con 39 e ha lunghezza corretta (12 cifre mobile o 11 fisso)
+  if (c.startsWith("39") && (c.length === 12 || c.length === 11)) return c;
+  // 6. Mobile italiano: 3xx → 12 cifre con 39
+  if (c.startsWith("3") && c.length === 10) return "39" + c;
+  // 7. Fisso italiano con 0: 0xx → 11 cifre con 39 (rimuove lo 0)
+  if (c.startsWith("0") && c.length >= 9 && c.length <= 11) return "39" + c;
+  // 8. Fallback: aggiungi 39 se < 11 cifre (numero parziale salvato male)
+  if (c.length <= 10) return "39" + c;
+  return c;
+};
 const pickPatient = (p: AppointmentRow["patients"]) => Array.isArray(p)?(p[0]??null):((p as any)??null);
 const patientName = (p: AppointmentRow["patients"]) => { const pp=pickPatient(p); return `${pp?.last_name||""} ${pp?.first_name||""}`.trim()||"Paziente"; };
 const buildWAMsg  = (a: AppointmentRow) => { const fn=(pickPatient(a.patients)?.first_name||"").trim()||"Cliente"; const luogo=a.location==="studio"?a.clinic_site||"Studio":`Domicilio (${a.domicile_address||"indirizzo da confermare"})`; return `Buongiorno ${fn},\n\nLe ricordiamo il suo appuntamento di ${formatDateRelative(new Date(a.start_at))} alle ore ${fmtTime(a.start_at)}.\n\n📍 ${luogo}\n\nA presto,\nFisioHub - Studi Galileo`; };
@@ -240,7 +263,7 @@ export default function HomePage() {
   const togglePaid=useCallback(async(id:string,isPaid:boolean)=>{ setBusyRow(m=>({...m,[id]:true})); const{error}=await supabase.from("appointments").update({is_paid:isPaid}).eq("id",id); setBusyRow(m=>({...m,[id]:false})); if(error) alert("Errore: "+error.message); else{ fetchAppts(); fetchOpenBalances(); } },[fetchAppts,fetchOpenBalances]);
   const saveNote=useCallback(async(id:string)=>{ setSavingNote(id); const note=(rowNotes[id]||"").trim(); await supabase.from("appointments").update({calendar_note:note||null}).eq("id",id); setSavingNote(null); },[rowNotes]);
   const saveNextTime=useCallback(async()=>{ if(!focusNext||!editDate||!editStart) return; setSavingTime(true); const[y,m,d]=editDate.split("-").map(Number); const[hh,mm]=editStart.split(":").map(Number); const ns=new Date(y,m-1,d,hh,mm,0,0); const ne=new Date(ns.getTime()+parseFloat(editDuration)*3600000); const{error}=await supabase.from("appointments").update({start_at:ns.toISOString(),end_at:ne.toISOString()}).eq("id",focusNext.id); setSavingTime(false); if(error) alert("Errore: "+error.message); else{setEditNextTime(false);fetchAppts();} },[focusNext,editDate,editStart,editDuration,fetchAppts]);
-  const sendWA=useCallback(async(appt:AppointmentRow)=>{ const phone=pickPatient(appt.patients)?.phone||""; const clean=fmtPhone(phone); if(!clean){alert("Numero non valido.");return;} const msg=buildWAMsg(appt); const ok=window.confirm(`Inviare promemoria a ${phone}?\n\n${msg}`); if(!ok) return; await supabase.from("appointments").update({whatsapp_sent_at:new Date().toISOString(),whatsapp_sent:true}).eq("id",appt.id); window.open(`https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(msg)}`,"_blank","noopener,noreferrer"); fetchAppts(); },[fetchAppts]);
+  const sendWA=useCallback(async(appt:AppointmentRow)=>{ const phone=pickPatient(appt.patients)?.phone||""; const clean=fmtPhone(phone); if(!clean){alert("Numero non valido.");return;} const msg=buildWAMsg(appt); await supabase.from("appointments").update({whatsapp_sent_at:new Date().toISOString(),whatsapp_sent:true}).eq("id",appt.id); const a=document.createElement("a");a.href=`https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(msg)}`;a.target="_blank";a.rel="noopener noreferrer";document.body.appendChild(a);a.click();document.body.removeChild(a); fetchAppts(); },[fetchAppts]);
 
   const nextCountdown=useCountdown(focusNext?.start_at??null);
   const headerDate=useMemo(()=>{const s=new Date().toLocaleDateString("it-IT",{weekday:"long",day:"2-digit",month:"long",year:"numeric"});return s.charAt(0).toUpperCase()+s.slice(1);},[]);
