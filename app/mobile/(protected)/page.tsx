@@ -370,9 +370,12 @@ export default function MobileHomePage() {
       `📍 ${luogo}\n\n` +
       `Cordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
 
-    // Apre WA Web immediatamente — dentro il gestore click sincrono
+    // Su mobile apre l'app WA direttamente, su desktop apre WhatsApp Web
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     const clean = formatPhoneForWA(phone);
-    const url   = `https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`;
+    const url = isMobile
+      ? `https://wa.me/${clean}?text=${encodeURIComponent(message)}`
+      : `https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`;
     window.open(url, "_blank", "noopener,noreferrer");
 
     // Aggiorna DB in background (non blocca l'apertura)
