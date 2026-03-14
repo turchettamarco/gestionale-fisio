@@ -23,6 +23,33 @@ type InactivePatientRow = {
   phone: string | null; last_done_at: string; days_since_last: number;
 };
 
+type OpenBalanceRow = {
+  id: string; patient_id: string; patient_name: string;
+  amount: number; start_at: string; days_ago: number;
+};
+
+type BirthdayRow = {
+  patient_id: string; name: string; birth_date: string;
+  age: number; weekday: string; phone: string | null; isToday: boolean;
+};
+
+type FreeSlot = { day: "oggi"|"domani"; time: string; dateYMD: string; };
+
+const WORK_START = 8; const WORK_END = 20;
+const toYMD = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+function computeFreeSlots(dayAppts: AppointmentRow[], dateYMD: string, label: "oggi"|"domani"): FreeSlot[] {
+  // Domenica = 0 → nessuno slot
+  if (new Date(`${dateYMD}T00:00:00`).getDay() === 0) return [];
+  const slots: FreeSlot[] = [];
+  for (let h = WORK_START; h < WORK_END; h++) {
+    const slotStart = `${dateYMD}T${pad2(h)}:00:00`;
+    const slotEnd   = `${dateYMD}T${pad2(h+1)}:00:00`;
+    const occupied  = dayAppts.some(a => a.status !== "cancelled" && a.start_at < slotEnd && a.start_at >= slotStart);
+    if (!occupied) slots.push({ day: label, time: `${pad2(h)}:00`, dateYMD });
+  }
+  return slots;
+}
+
 const THEME = {
   appBg:"#f1f5f9", panelBg:"#ffffff", panelSoft:"#f7f9fd",
   text:"#0f172a", textSoft:"#1e293b", muted:"#334155", border:"#cbd5e1",
@@ -103,6 +130,55 @@ export default function HomePage() {
   const [inactiveLoading,setInactiveLoading]=useState(false);
   const [contactedPatients,setContactedPatients]=useState<Set<string>>(new Set());
 
+  /* ── Saldi aperti ── */
+  const [openBalances,setOpenBalances]=useState<OpenBalanceRow[]>([]);
+  const [loadingBalances,setLoadingBalances]=useState(false);
+  const fetchOpenBalances=useCallback(async()=>{
+    setLoadingBalances(true);
+    try{
+      const{data,error}=await supabase.from("appointments")
+        .select("id,patient_id,amount,start_at,patients:patient_id(first_name,last_name)")
+        .eq("status","done").eq("is_paid",false).not("amount","is",null).gt("amount",0)
+        .order("start_at",{ascending:false}).limit(20);
+      if(error) throw error;
+      const nowMs=Date.now();
+      setOpenBalances((data||[]).map((r:any)=>{
+        const p=Array.isArray(r.patients)?r.patients[0]:r.patients;
+        return{id:r.id,patient_id:r.patient_id,patient_name:`${p?.last_name||""} ${p?.first_name||""}`.trim()||"Paziente",amount:Number(r.amount)||0,start_at:r.start_at,days_ago:Math.floor((nowMs-new Date(r.start_at).getTime())/86400000)};
+      }));
+    }catch(e:any){console.error(e?.message);}
+    finally{setLoadingBalances(false);}
+  },[]);
+  useEffect(()=>{fetchOpenBalances();},[fetchOpenBalances]);
+
+  /* ── Compleanni settimana ── */
+  const [birthdays,setBirthdays]=useState<BirthdayRow[]>([]);
+  const [loadingBirthdays,setLoadingBirthdays]=useState(false);
+  const fetchBirthdays=useCallback(async()=>{
+    setLoadingBirthdays(true);
+    try{
+      const{data,error}=await supabase.from("patients").select("id,first_name,last_name,birth_date,phone").not("birth_date","is",null);
+      if(error) throw error;
+      const now=new Date(); const thisYear=now.getFullYear();
+      const todayMs=startOfDay(now).getTime(); const weekEnd=addDays(startOfDay(now),7).getTime();
+      const gg=["Domenica","Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato"];
+      const result:BirthdayRow[]=[];
+      for(const p of (data||[]) as any[]){
+        if(!p.birth_date) continue;
+        const[y,m,d]=p.birth_date.split("-").map(Number);
+        if(!y||!m||!d) continue;
+        const bd=new Date(thisYear,m-1,d,0,0,0,0);
+        if(bd.getTime()>=todayMs&&bd.getTime()<weekEnd){
+          result.push({patient_id:p.id,name:`${p.last_name||""} ${p.first_name||""}`.trim()||"Paziente",birth_date:p.birth_date,age:thisYear-y,weekday:isSameDay(bd,now)?"Oggi":gg[bd.getDay()],phone:p.phone??null,isToday:isSameDay(bd,now)});
+        }
+      }
+      result.sort((a,b)=>{const[,ma,da]=a.birth_date.split("-").map(Number);const[,mb,db]=b.birth_date.split("-").map(Number);return new Date(thisYear,ma-1,da).getTime()-new Date(thisYear,mb-1,db).getTime();});
+      setBirthdays(result);
+    }catch(e:any){console.error(e?.message);}
+    finally{setLoadingBirthdays(false);}
+  },[]);
+  useEffect(()=>{fetchBirthdays();},[fetchBirthdays]);
+
   const fetchInactive=useCallback(async()=>{ try{ setInactiveLoading(true); const{data,error}=await supabase.from("appointments").select("patient_id,start_at,status,patients:patient_id!inner(first_name,last_name,phone,status)").eq("status","done").order("start_at",{ascending:false}).limit(2000); if(error) throw new Error(error.message); const rows=(data||[]) as any[]; const byP=new Map<string,any>(); for(const r of rows){if(r.patient_id&&!byP.has(r.patient_id)) byP.set(r.patient_id,r);} const nowMs=startOfDay(new Date()).getTime(); const list:InactivePatientRow[]=[]; for(const[pid,r] of byP.entries()){const p=pickPatient(r.patients); const days=Math.floor((nowMs-new Date(r.start_at).getTime())/86400000); if((p?.status||"").toString().toLowerCase()==="inactive") continue; if(days>inactiveThreshold) list.push({patient_id:pid,first_name:p?.first_name||"",last_name:p?.last_name||"",phone:p?.phone??null,last_done_at:r.start_at,days_since_last:days});} list.sort((a,b)=>b.days_since_last-a.days_since_last); setInactivePatients(list.slice(0,12)); }catch(e:any){console.error(e?.message);} finally{setInactiveLoading(false);} },[inactiveThreshold]);
   useEffect(()=>{fetchInactive();},[fetchInactive]);
 
@@ -151,11 +227,17 @@ export default function HomePage() {
 
   const recentPatients=useMemo(()=>{ const u=new Map<string,AppointmentRow>(); appointments.forEach(a=>{if(!u.has(a.patient_id)||new Date(a.start_at)>new Date(u.get(a.patient_id)!.start_at)) u.set(a.patient_id,a);}); return Array.from(u.values()).sort((a,b)=>new Date(b.start_at).getTime()-new Date(a.start_at).getTime()).slice(0,5); },[appointments]);
 
+  /* ── Slot liberi oggi e domani ── */
+  const freeSlots=useMemo(()=>[
+    ...computeFreeSlots(todayAppts,   toYMD(today),    "oggi"),
+    ...computeFreeSlots(tomorrowAppts,toYMD(tomorrow), "domani"),
+  ],[todayAppts,tomorrowAppts,today,tomorrow]);
+
   const groupByDay=(appts:AppointmentRow[])=>{ const map=new Map<string,{dayKey:string;date:Date;items:AppointmentRow[]}>(); for(const a of appts){const d=startOfDay(new Date(a.start_at));const key=d.toISOString().slice(0,10);const ex=map.get(key);if(ex) ex.items.push(a);else map.set(key,{dayKey:key,date:d,items:[a]});} return Array.from(map.values()).sort((x,y)=>x.date.getTime()-y.date.getTime()); };
   const activeBuckets=useMemo(()=>groupByDay(tab==="today"?todayAppts:tab==="next7"?next7Appts:thisWeekAppts),[tab,todayAppts,next7Appts,thisWeekAppts]);
 
   const setStatus=useCallback(async(id:string,next:Status)=>{ setBusyRow(m=>({...m,[id]:true})); const patch:any={status:next}; if(next==="done") patch.is_paid=true; if(next==="not_paid") patch.is_paid=false; if(next==="confirmed"||next==="booked") patch.is_paid=false; const{error}=await supabase.from("appointments").update(patch).eq("id",id); setBusyRow(m=>({...m,[id]:false})); if(error) alert("Errore: "+error.message); else fetchAppts(); },[fetchAppts]);
-  const togglePaid=useCallback(async(id:string,isPaid:boolean)=>{ setBusyRow(m=>({...m,[id]:true})); const{error}=await supabase.from("appointments").update({is_paid:isPaid}).eq("id",id); setBusyRow(m=>({...m,[id]:false})); if(error) alert("Errore: "+error.message); else fetchAppts(); },[fetchAppts]);
+  const togglePaid=useCallback(async(id:string,isPaid:boolean)=>{ setBusyRow(m=>({...m,[id]:true})); const{error}=await supabase.from("appointments").update({is_paid:isPaid}).eq("id",id); setBusyRow(m=>({...m,[id]:false})); if(error) alert("Errore: "+error.message); else{ fetchAppts(); fetchOpenBalances(); } },[fetchAppts,fetchOpenBalances]);
   const saveNote=useCallback(async(id:string)=>{ setSavingNote(id); const note=(rowNotes[id]||"").trim(); await supabase.from("appointments").update({calendar_note:note||null}).eq("id",id); setSavingNote(null); },[rowNotes]);
   const saveNextTime=useCallback(async()=>{ if(!focusNext||!editDate||!editStart) return; setSavingTime(true); const[y,m,d]=editDate.split("-").map(Number); const[hh,mm]=editStart.split(":").map(Number); const ns=new Date(y,m-1,d,hh,mm,0,0); const ne=new Date(ns.getTime()+parseFloat(editDuration)*3600000); const{error}=await supabase.from("appointments").update({start_at:ns.toISOString(),end_at:ne.toISOString()}).eq("id",focusNext.id); setSavingTime(false); if(error) alert("Errore: "+error.message); else{setEditNextTime(false);fetchAppts();} },[focusNext,editDate,editStart,editDuration,fetchAppts]);
   const sendWA=useCallback(async(appt:AppointmentRow)=>{ const phone=pickPatient(appt.patients)?.phone||""; const clean=fmtPhone(phone); if(!clean){alert("Numero non valido.");return;} const msg=buildWAMsg(appt); const ok=window.confirm(`Inviare promemoria a ${phone}?\n\n${msg}`); if(!ok) return; await supabase.from("appointments").update({whatsapp_sent_at:new Date().toISOString(),whatsapp_sent:true}).eq("id",appt.id); window.open(`https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(msg)}`,"_blank","noopener,noreferrer"); fetchAppts(); },[fetchAppts]);
@@ -638,7 +720,114 @@ export default function HomePage() {
               </div>
             </div>
           </div>
-        </div>
+        </div>{/* fine main-cols */}
+
+        {/* ━━━ RIGA INFERIORE: slot liberi · saldi aperti · compleanni ━━━ */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16,alignItems:"start"}}>
+
+          {/* SLOT LIBERI */}
+          <div style={{background:"#fff",borderRadius:12,border:`1px solid ${THEME.border}`,overflow:"hidden"}}>
+            <div style={{padding:"11px 16px",borderBottom:`1px solid ${THEME.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div>
+                <span style={{fontWeight:700,fontSize:12,color:THEME.text}}>Slot liberi</span>
+                <div style={{fontSize:10,color:THEME.muted,marginTop:1}}>oggi e domani · ore 8–20 · escluse domeniche</div>
+              </div>
+              {freeSlots.length>0&&<span style={{fontSize:11,fontWeight:700,color:THEME.blue,background:"rgba(37,99,235,0.08)",padding:"2px 8px",borderRadius:4}}>{freeSlots.length} ore libere</span>}
+            </div>
+            <div style={{padding:"12px 16px"}}>
+              {freeSlots.length===0
+                ?<div style={{color:THEME.muted,fontSize:12,fontWeight:500}}>Nessuno slot disponibile.</div>
+                :(["oggi","domani"] as const).map(label=>{
+                  const slots=freeSlots.filter(s=>s.day===label);
+                  if(!slots.length) return null;
+                  return(
+                    <div key={label} style={{marginBottom:10}}>
+                      <div style={{fontSize:10,fontWeight:700,color:THEME.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:7}}>{label}</div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                        {slots.map(s=>(
+                          <Link key={s.time} href={`/calendar?date=${s.dateYMD}&new=1&time=${s.time.replace(":","")}`}
+                            style={{padding:"5px 11px",borderRadius:7,border:`1px solid ${THEME.border}`,background:THEME.panelSoft,fontSize:12,fontWeight:700,color:THEME.blue,cursor:"pointer",textDecoration:"none"}}>
+                            {s.time}
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })
+              }
+            </div>
+          </div>
+
+          {/* SALDI APERTI */}
+          <div style={{background:"#fff",borderRadius:12,border:`1px solid ${THEME.border}`,overflow:"hidden"}}>
+            <div style={{padding:"11px 16px",borderBottom:`1px solid ${THEME.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div>
+                <span style={{fontWeight:700,fontSize:12,color:THEME.text}}>Saldi aperti</span>
+                <div style={{fontSize:10,color:THEME.muted,marginTop:1}}>eseguito ma non pagato</div>
+              </div>
+              {openBalances.length>0&&(
+                <span style={{fontSize:11,fontWeight:700,color:THEME.red,background:"rgba(220,38,38,0.08)",padding:"2px 8px",borderRadius:4}}>
+                  {openBalances.reduce((s,r)=>s+r.amount,0).toLocaleString("it-IT",{maximumFractionDigits:0})}€
+                </span>
+              )}
+            </div>
+            <div style={{padding:"6px 12px",maxHeight:240,overflowY:"auto"}}>
+              {loadingBalances
+                ?<div style={{color:THEME.muted,fontSize:12,padding:"10px 0"}}>Caricamento…</div>
+                :openBalances.length===0
+                ?<div style={{color:THEME.green,fontSize:12,padding:"12px 2px",fontWeight:600}}>Nessun saldo aperto ✓</div>
+                :openBalances.map((r,i)=>(
+                  <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 4px",borderBottom:i<openBalances.length-1?`1px solid ${THEME.border}`:"none"}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <Link href={`/patients/${r.patient_id}`} style={{fontWeight:600,fontSize:12,color:THEME.text,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.patient_name}</Link>
+                      <div style={{fontSize:10,color:THEME.muted,marginTop:1}}>{r.days_ago===0?"oggi":r.days_ago===1?"ieri":`${r.days_ago}gg fa`} · {fmtDate(r.start_at)}</div>
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3,flexShrink:0}}>
+                      <span style={{fontSize:13,fontWeight:800,color:THEME.red}}>{r.amount.toLocaleString("it-IT",{maximumFractionDigits:0})}€</span>
+                      <button onClick={()=>togglePaid(r.id,true)} style={{padding:"3px 8px",borderRadius:4,border:"none",background:THEME.green,color:"#fff",fontWeight:700,fontSize:10,cursor:"pointer"}}>Incassa</button>
+                    </div>
+                  </div>
+                ))
+              }
+            </div>
+          </div>
+
+          {/* COMPLEANNI */}
+          <div style={{background:"#fff",borderRadius:12,border:`1px solid ${THEME.border}`,overflow:"hidden"}}>
+            <div style={{padding:"11px 16px",borderBottom:`1px solid ${THEME.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <span style={{fontWeight:700,fontSize:12,color:THEME.text}}>🎂 Compleanni</span>
+              <span style={{fontSize:10,color:THEME.muted}}>prossimi 7 giorni</span>
+            </div>
+            <div style={{padding:"6px 12px"}}>
+              {loadingBirthdays
+                ?<div style={{color:THEME.muted,fontSize:12,padding:"10px 0"}}>Caricamento…</div>
+                :birthdays.length===0
+                ?<div style={{color:THEME.muted,fontSize:12,padding:"12px 2px",fontWeight:500}}>Nessun compleanno questa settimana.</div>
+                :birthdays.map((b,i)=>{
+                  const waText=`Caro/a ${b.name.split(" ").pop()}, auguri di buon compleanno! 🎂`;
+                  const waClean=b.phone?fmtPhone(b.phone):null;
+                  return(
+                    <div key={b.patient_id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 4px",borderBottom:i<birthdays.length-1?`1px solid ${THEME.border}`:"none"}}>
+                      <div style={{width:32,height:32,borderRadius:8,flexShrink:0,background:b.isToday?"rgba(249,115,22,0.12)":"rgba(37,99,235,0.07)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🎂</div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <Link href={`/patients/${b.patient_id}`} style={{fontWeight:600,fontSize:12,color:THEME.text,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b.name}</Link>
+                        <div style={{fontSize:10,marginTop:1,display:"flex",gap:5}}>
+                          <span style={{color:b.isToday?THEME.amber:THEME.muted,fontWeight:b.isToday?700:500}}>{b.weekday}</span>
+                          <span style={{color:THEME.muted}}>· {b.age} anni</span>
+                        </div>
+                      </div>
+                      {waClean&&(
+                        <button onClick={()=>window.open(`https://wa.me/${waClean}?text=${encodeURIComponent(waText)}`,"_blank","noopener,noreferrer")} style={{padding:"4px 8px",borderRadius:5,border:"none",background:THEME.green,color:"#fff",fontWeight:700,fontSize:10,cursor:"pointer",flexShrink:0}}>🎉 WA</button>
+                      )}
+                    </div>
+                  );
+                })
+              }
+            </div>
+          </div>
+
+        </div>{/* fine bottom row */}
+
       </div>
     </div>
   );

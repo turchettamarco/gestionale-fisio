@@ -131,7 +131,6 @@ export default function MobileHomePage() {
 
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState("");
-  const [pulling,  setPulling]  = useState(false);
 
   const [todayAppts,      setTodayAppts]      = useState<Appointment[]>([]);
   const [nextAppts,       setNextAppts]       = useState<Appointment[]>([]);
@@ -148,11 +147,13 @@ export default function MobileHomePage() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
-  // Pull-to-refresh
-  const touchStartY = useRef(0);
-  const pullY       = useRef(0);
-  const [pullDist,  setPullDist] = useState(0);
-  const PULL_THRESHOLD = 64;
+  // Pull-to-refresh — FIX: nessun setState nel touchMove
+  const touchStartY  = useRef(0);
+  const pullY        = useRef(0);
+  const isScrolling  = useRef(false);
+  const [pulling,    setPulling]  = useState(false);
+  const [showPull,   setShowPull] = useState(false);
+  const PULL_THRESHOLD = 72;
 
   // Swipe giorno
   const swipeX = useRef<number | null>(null);
@@ -187,28 +188,48 @@ export default function MobileHomePage() {
     swipeX.current = e.touches[0].clientX;
     swipeY.current = e.touches[0].clientY;
     pullY.current = 0;
+    isScrolling.current = false;
   }
   function onTouchMove(e: React.TouchEvent) {
-    const scrollTop = (e.currentTarget as HTMLElement).scrollTop ?? 0;
-    if (scrollTop > 0) return;
     const dy = e.touches[0].clientY - touchStartY.current;
-    if (dy < 0) return;
-    pullY.current = dy;
-    setPullDist(Math.min(dy, PULL_THRESHOLD * 1.4));
+    const dx = e.touches[0].clientX - (swipeX.current ?? 0);
+
+    // Determina al primo movimento significativo se è scroll o gesto orizzontale
+    if (!isScrolling.current && (Math.abs(dy) > 6 || Math.abs(dx) > 6)) {
+      isScrolling.current = Math.abs(dy) > Math.abs(dx);
+    }
+
+    // Pull-to-refresh: solo se in cima, gesto verso il basso e non è scroll orizzontale
+    const scrollTop = (e.currentTarget as HTMLElement).scrollTop ?? 0;
+    if (scrollTop === 0 && dy > 0 && isScrolling.current) {
+      pullY.current = dy;
+      // Aggiorniamo lo state solo quando si attraversa la soglia, non ad ogni pixel
+      if (dy > 20 && !showPull) setShowPull(true);
+      else if (dy <= 20 && showPull) setShowPull(false);
+    }
   }
   async function onTouchEnd(e: React.TouchEvent) {
     if (pullY.current >= PULL_THRESHOLD) {
-      setPulling(true); await loadAll(); setPulling(false);
+      setShowPull(false);
+      setPulling(true);
+      await loadAll();
+      setPulling(false);
+    } else {
+      setShowPull(false);
     }
-    pullY.current = 0; setPullDist(0);
-    if (swipeX.current !== null && swipeY.current !== null) {
+    pullY.current = 0;
+
+    // Swipe orizzontale — solo se NON era uno scroll verticale
+    if (!isScrolling.current && swipeX.current !== null && swipeY.current !== null) {
       const dx = e.changedTouches[0].clientX - swipeX.current;
       const dy = e.changedTouches[0].clientY - swipeY.current;
-      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.8) {
         if (dx < 0) shiftDay(1); else shiftDay(-1);
       }
     }
-    swipeX.current = null; swipeY.current = null;
+    swipeX.current = null;
+    swipeY.current = null;
+    isScrolling.current = false;
   }
 
   // ─── Data ─────────────────────────────────────────────────────────────────
@@ -263,7 +284,8 @@ export default function MobileHomePage() {
         setMonthStats({
           sessions: md.length,
           revenue:  md.filter(r => r.is_paid).reduce((s,r) => s+(r.amount??0), 0),
-          unpaid:   md.filter(r => !r.is_paid).reduce((s,r) => s+(r.amount??0), 0),
+          // FIX: "da incassare" = sedute eseguite non pagate + sedute marcate not_paid
+          unpaid:   md.filter(r => (r.status === "done" || r.status === "not_paid") && !r.is_paid).reduce((s,r) => s+(r.amount??0), 0),
         });
       }
 
@@ -609,13 +631,12 @@ export default function MobileHomePage() {
         style={{ padding: 14, paddingBottom: 100, overflowY: "auto" }}
       >
         {/* Pull-to-refresh */}
-        {pullDist > 10 && (
+        {(showPull || pulling) && (
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "center",
-            height: Math.min(pullDist, PULL_THRESHOLD * 1.4),
-            color: THEME.blue, fontWeight: 700, fontSize: 12,
+            height: 36, color: THEME.blue, fontWeight: 700, fontSize: 12,
           }}>
-            {pulling || pullDist >= PULL_THRESHOLD ? "↺ Rilascia" : "↓ Trascina per aggiornare"}
+            {pulling ? "↺ Aggiornamento…" : "↓ Rilascia per aggiornare"}
           </div>
         )}
 
@@ -1083,14 +1104,17 @@ export default function MobileHomePage() {
         {/* ━━━ ANDAMENTO MESE ━━━ */}
         {monthStats && !loading && (
           <div style={{ ...card, padding: 16, marginTop: 10 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft, marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft, marginBottom: 2 }}>
               📊 {monthLabel} — andamento mese
+            </div>
+            <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 12 }}>
+              Tutte le sedute non annullate del mese
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
               {[
-                { label: "Sedute",       value: String(monthStats.sessions),                      color: THEME.blue  },
-                { label: "Incassato",    value: `€${monthStats.revenue.toFixed(0)}`,              color: THEME.green },
-                { label: "Da incassare", value: `€${monthStats.unpaid.toFixed(0)}`,               color: monthStats.unpaid > 0 ? THEME.amber : THEME.muted },
+                { label: "Sedute",          value: String(monthStats.sessions),           color: THEME.blue  },
+                { label: "Incassato",        value: `€${monthStats.revenue.toFixed(0)}`,  color: THEME.green },
+                { label: "Eseguite non pagate", value: `€${monthStats.unpaid.toFixed(0)}`,color: monthStats.unpaid > 0 ? THEME.amber : THEME.muted },
               ].map(s => (
                 <div key={s.label} style={{
                   textAlign: "center", padding: "12px 6px",
