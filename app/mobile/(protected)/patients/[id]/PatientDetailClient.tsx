@@ -118,7 +118,7 @@ function isImageFile(name: string) {
 function inputS(disabled?: boolean): React.CSSProperties {
   return {
     width:"100%", padding:"10px 12px", borderRadius:10,
-    border:`1.5px solid ${disabled ? THEME.border : THEME.border}`,
+    border:`1.5px solid ${THEME.border}`,
     outline:"none",
     background: disabled ? THEME.appBg : THEME.panelBg,
     color: disabled ? THEME.muted : THEME.text,
@@ -168,7 +168,7 @@ function ErrBox({msg}:{msg:string}) {
   );
 }
 
-/* ─── DocThumbnail — anteprima immagine ──────────────────────────────── */
+/* ─── DocThumbnail ────────────────────────────────────────────────────── */
 function DocThumbnail({doc}:{doc:PatientDoc}) {
   const [url, setUrl] = useState<string|null>(null);
   useEffect(()=>{
@@ -248,8 +248,10 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
     const res = await supabase.from("patients")
       .select("id,first_name,last_name,phone,birth_date,preferred_plan,anamnesis,diagnosis,treatment,prescribed_sessions")
       .eq("id",patientId).single();
-    if (res.error) { setError(res.error.message); setPatient(null); }
-    else {
+    if (res.error) {
+      setError(res.error.message);
+      setPatient(null);
+    } else {
       const p=res.data as Patient;
       setPatient(p);
       setFirstName(p.first_name??""); setLastName(p.last_name??"");
@@ -375,16 +377,13 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
     const done  = appointments.filter(a=>a.status==="done");
     const paid  = done.filter(a=>a.is_paid);
     const unpaid= done.filter(a=>!a.is_paid);
-    const totalRev  = done.reduce((s,a)=>s+(a.amount??0),0);
-    const paidRev   = paid.reduce((s,a)=>s+(a.amount??0),0);
-    const unpaidRev = unpaid.reduce((s,a)=>s+(a.amount??0),0);
     return {
       total: appointments.length,
       done:  done.length,
       unpaid: unpaid.length,
-      totalRevenue: totalRev,
-      paidRevenue:  paidRev,
-      unpaidRevenue:unpaidRev,
+      totalRevenue:  done.reduce((s,a)=>s+(a.amount??0),0),
+      paidRevenue:   paid.reduce((s,a)=>s+(a.amount??0),0),
+      unpaidRevenue: unpaid.reduce((s,a)=>s+(a.amount??0),0),
     };
   },[appointments]);
 
@@ -417,16 +416,31 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
       Caricamento…
     </div>
   );
+
+  /* ── FIX: mostra l'errore reale di Supabase invece del generico "non trovato" ── */
   if(!patient) return(
     <div style={{minHeight:"100vh",background:THEME.appBg,padding:20,
       fontFamily:"Inter,-apple-system,sans-serif"}}>
-      <div style={{color:THEME.red,fontWeight:600,marginBottom:16}}>Paziente non trovato</div>
-      <Link href="/mobile/patients" style={{color:THEME.blue,fontWeight:600}}>← Torna ai pazienti</Link>
+      <div style={{fontWeight:700,fontSize:15,color:THEME.red,marginBottom:8}}>
+        Paziente non trovato
+      </div>
+      {error && (
+        <div style={{
+          marginBottom:16,padding:"10px 14px",borderRadius:10,fontSize:13,
+          background:"rgba(220,38,38,0.06)",border:"1.5px solid rgba(220,38,38,0.25)",
+          color:"#7f1d1d",fontWeight:500,wordBreak:"break-word",
+        }}>
+          {error}
+        </div>
+      )}
+      <Link href="/mobile/patients" style={{color:THEME.blue,fontWeight:600,fontSize:14}}>
+        ← Torna ai pazienti
+      </Link>
     </div>
   );
 
-  const waPhone = patient.phone ? formatPhoneForWA(patient.phone) : null;
-  const age     = calcAge(patient.birth_date);
+  const waPhone    = patient.phone ? formatPhoneForWA(patient.phone) : null;
+  const age        = calcAge(patient.birth_date);
   const prescribed = patient.prescribed_sessions ?? 0;
   const progressPct= prescribed>0 ? Math.min(100, Math.round(apptStats.done/prescribed*100)) : 0;
 
@@ -538,7 +552,6 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
         background:THEME.panelBg,borderBottom:`1.5px solid ${THEME.border}`,padding:"14px 16px",
       }}>
         <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:12}}>
-          {/* Avatar */}
           <div style={{
             width:56,height:56,borderRadius:16,flexShrink:0,
             background:THEME.gradient,display:"flex",alignItems:"center",
@@ -549,12 +562,10 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
             <div style={{fontWeight:800,fontSize:17,color:THEME.text}}>
               {patient.last_name} {patient.first_name}
             </div>
-            {/* Età + piano */}
             <div style={{fontSize:12,color:THEME.muted,marginTop:3,display:"flex",gap:10,flexWrap:"wrap"}}>
               <span>🎂 {ddmmyyyy(patient.birth_date)}{age!==null?` · ${age} anni`:""}</span>
               <span>💳 {patient.preferred_plan==="invoice"?"Fattura":"No fattura"}</span>
             </div>
-            {/* Chips sedute + incasso */}
             <div style={{marginTop:6,display:"flex",gap:6,flexWrap:"wrap"}}>
               <span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:99,
                 background:"rgba(37,99,235,0.08)",color:THEME.blue,border:`1px solid rgba(37,99,235,0.2)`}}>
@@ -759,9 +770,9 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
               boxShadow:"0 1px 4px rgba(15,23,42,0.06)",
             }}>
               {[
-                {label:"Totale sedute", value:String(apptStats.total),      color:THEME.blue},
-                {label:"Incassato",     value:`€${apptStats.paidRevenue.toFixed(0)}`,   color:THEME.green},
-                {label:"Da incassare",  value:`€${apptStats.unpaidRevenue.toFixed(0)}`, color:apptStats.unpaid>0?THEME.amber:THEME.muted},
+                {label:"Totale sedute", value:String(apptStats.total),                              color:THEME.blue},
+                {label:"Incassato",     value:`€${apptStats.paidRevenue.toFixed(0)}`,               color:THEME.green},
+                {label:"Da incassare",  value:`€${apptStats.unpaidRevenue.toFixed(0)}`,             color:apptStats.unpaid>0?THEME.amber:THEME.muted},
               ].map(s=>(
                 <div key={s.label} style={{textAlign:"center"}}>
                   <div style={{fontSize:16,fontWeight:800,color:s.color}}>{s.value}</div>
@@ -805,10 +816,8 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
               background:THEME.panelBg,border:`1.5px solid ${THEME.border}`,
               borderRadius:14,overflow:"hidden",boxShadow:"0 1px 4px rgba(15,23,42,0.06)",
             }}>
-              {/* Header con filtro */}
               <div style={{padding:"12px 16px",borderBottom:`1.5px solid ${THEME.border}`,
                 display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
-                {/* Toggle prossime/passate */}
                 <div style={{display:"flex",borderRadius:9,overflow:"hidden",
                   border:`1.5px solid ${THEME.border}`,flexShrink:0}}>
                   {(["future","past"] as const).map(f=>(
@@ -969,7 +978,6 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
                             borderBottom:i<docsByType[t].length-1?`1px solid ${THEME.border}`:"none",
                             display:"flex",alignItems:"flex-start",gap:12,
                           }}>
-                            {/* Anteprima immagine (solo per immagini) */}
                             <DocThumbnail doc={doc}/>
                             <div style={{flex:1,minWidth:0}}>
                               <div style={{fontSize:13,fontWeight:700,color:THEME.text,marginBottom:3,
