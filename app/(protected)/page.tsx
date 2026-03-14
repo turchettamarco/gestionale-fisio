@@ -29,7 +29,7 @@ type OpenBalanceRow = {
 };
 
 type BirthdayRow = {
-  patient_id: string; name: string; birth_date: string;
+  patient_id: string; name: string; first_name: string; birth_date: string;
   age: number; weekday: string; phone: string | null; isToday: boolean;
 };
 
@@ -169,7 +169,7 @@ export default function HomePage() {
         if(!y||!m||!d) continue;
         const bd=new Date(thisYear,m-1,d,0,0,0,0);
         if(bd.getTime()>=todayMs&&bd.getTime()<weekEnd){
-          result.push({patient_id:p.id,name:`${p.last_name||""} ${p.first_name||""}`.trim()||"Paziente",birth_date:p.birth_date,age:thisYear-y,weekday:isSameDay(bd,now)?"Oggi":gg[bd.getDay()],phone:p.phone??null,isToday:isSameDay(bd,now)});
+          result.push({patient_id:p.id,name:`${p.last_name||""} ${p.first_name||""}`.trim()||"Paziente",first_name:(p.first_name||"").trim()||"Paziente",birth_date:p.birth_date,age:thisYear-y,weekday:isSameDay(bd,now)?"Oggi":gg[bd.getDay()],phone:p.phone??null,isToday:isSameDay(bd,now)});
         }
       }
       result.sort((a,b)=>{const[,ma,da]=a.birth_date.split("-").map(Number);const[,mb,db]=b.birth_date.split("-").map(Number);return new Date(thisYear,ma-1,da).getTime()-new Date(thisYear,mb-1,db).getTime();});
@@ -804,8 +804,8 @@ export default function HomePage() {
                 :birthdays.length===0
                 ?<div style={{color:THEME.muted,fontSize:12,padding:"12px 2px",fontWeight:500}}>Nessun compleanno questa settimana.</div>
                 :birthdays.map((b,i)=>{
-                  const waText=`Caro/a ${b.name.split(" ").pop()}, auguri di buon compleanno! 🎂`;
-                  const waClean=b.phone?fmtPhone(b.phone):null;
+                  const waClean=b.phone?fmtPhone(b.phone):"";
+                  const waText=`Gentile ${b.first_name},\n\nLe auguriamo un felice compleanno!\n\nCordiali saluti,\nDr. Marco Turchetta`;
                   return(
                     <div key={b.patient_id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 4px",borderBottom:i<birthdays.length-1?`1px solid ${THEME.border}`:"none"}}>
                       <div style={{width:32,height:32,borderRadius:8,flexShrink:0,background:b.isToday?"rgba(249,115,22,0.12)":"rgba(37,99,235,0.07)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🎂</div>
@@ -817,7 +817,7 @@ export default function HomePage() {
                         </div>
                       </div>
                       {waClean&&(
-                        <button onClick={()=>window.open(`https://wa.me/${waClean}?text=${encodeURIComponent(waText)}`,"_blank","noopener,noreferrer")} style={{padding:"4px 8px",borderRadius:5,border:"none",background:THEME.green,color:"#fff",fontWeight:700,fontSize:10,cursor:"pointer",flexShrink:0}}>🎉 WA</button>
+                        <button onClick={()=>window.open(`https://web.whatsapp.com/send?phone=${waClean}&text=${encodeURIComponent(waText)}`,"_blank","noopener,noreferrer")} style={{padding:"4px 8px",borderRadius:5,border:"none",background:THEME.green,color:"#fff",fontWeight:700,fontSize:10,cursor:"pointer",flexShrink:0}}>🎉 WA</button>
                       )}
                     </div>
                   );

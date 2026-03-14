@@ -351,6 +351,7 @@ export default function MobileHomePage() {
     if (!phone) { alert("Nessun numero registrato."); return; }
     setSendingWA(appt.id);
 
+    // Carica il template dal DB (o usa il default)
     const { data: tplData } = await supabase
       .from("message_templates").select("template").eq("name","Promemoria").maybeSingle();
     let tpl = `Buongiorno {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore ⏰ {ora}.\n\n📍 {luogo}\n\nCordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
@@ -366,7 +367,13 @@ export default function MobileHomePage() {
       .replace(/{ora}/g,           fmtTime(appt.start_at))
       .replace(/{luogo}/g,         luogo);
 
-    window.open(`https://wa.me/${formatPhoneForWA(phone)}?text=${encodeURIComponent(message)}`, "_blank");
+    // Apre WhatsApp Web direttamente (web.whatsapp.com evita il popup app/web)
+    // Nota: window.open va chiamato dopo il caricamento template perché serve il messaggio compilato.
+    // Per evitare il blocco popup usiamo un link <a> cliccato programmaticamente.
+    const url = `https://web.whatsapp.com/send?phone=${formatPhoneForWA(phone)}&text=${encodeURIComponent(message)}`;
+    const a = document.createElement("a");
+    a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
 
     const nowIso = new Date().toISOString();
     await supabase.from("appointments")
@@ -908,7 +915,7 @@ export default function MobileHomePage() {
                           💰 {incassando === a.id ? "…" : a.is_paid ? "Pagato" : "Incassa"}
                         </button>
 
-                        {/* 💬 WA */}
+                        {/* 💬 WA / Reinvia */}
                         {phone && (
                           <button
                             onClick={() => sendReminder(a)}
@@ -924,10 +931,10 @@ export default function MobileHomePage() {
                               opacity: sendingWA === a.id ? 0.5 : 1,
                             }}
                             title={waSent
-                              ? `Inviato il ${new Date(a.whatsapp_sent_at!).toLocaleDateString("it-IT")} — tocca per reinviare`
+                              ? `Inviato il ${new Date(a.whatsapp_sent_at!).toLocaleDateString("it-IT")} — clicca per reinviare`
                               : "Invia promemoria WhatsApp"}
                           >
-                            💬 {sendingWA === a.id ? "…" : waSent ? "Inviato ↺" : "WA"}
+                            💬 {sendingWA === a.id ? "…" : waSent ? "Rinvia" : "WA"}
                           </button>
                         )}
 
