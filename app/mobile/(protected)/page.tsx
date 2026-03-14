@@ -29,23 +29,25 @@ type Appointment = {
   } | null;
 };
 
+type MonthStats = { sessions: number; revenue: number; unpaid: number; };
+type SuggestedPatient = { id: string; name: string; phone: string | null; lastVisit: string | null; };
+
 // ─── Theme ────────────────────────────────────────────────────────────────────
 
 const THEME = {
-  appBg:      "#f1f5f9",
-  panelBg:    "#ffffff",
-  panelSoft:  "#f7f9fd",
-  text:       "#0f172a",
-  textSoft:   "#1e293b",
-  muted:      "#334155",
-  border:     "#cbd5e1",
-  borderSoft: "#94a3b8",
-  blue:       "#2563eb",
-  green:      "#16a34a",
-  red:        "#dc2626",
-  amber:      "#f97316",
-  gray:       "#94a3b8",
-  gradient:   "linear-gradient(135deg, #0d9488, #2563eb)",
+  appBg:     "#f1f5f9",
+  panelBg:   "#ffffff",
+  panelSoft: "#f7f9fd",
+  text:      "#0f172a",
+  textSoft:  "#1e293b",
+  muted:     "#334155",
+  border:    "#cbd5e1",
+  blue:      "#2563eb",
+  green:     "#16a34a",
+  red:       "#dc2626",
+  amber:     "#f97316",
+  gray:      "#94a3b8",
+  gradient:  "linear-gradient(135deg,#0d9488,#2563eb)",
 };
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
@@ -59,17 +61,15 @@ function statusColor(s: Status): string {
     default:          return THEME.red;
   }
 }
-
 function statusBg(s: Status): string {
   switch (s) {
-    case "done":      return "rgba(22,163,74,0.10)";
-    case "confirmed": return "rgba(37,99,235,0.08)";
-    case "not_paid":  return "rgba(249,115,22,0.10)";
-    case "cancelled": return "rgba(148,163,184,0.08)";
-    default:          return "rgba(220,38,38,0.08)";
+    case "done":      return "rgba(22,163,74,0.09)";
+    case "confirmed": return "rgba(37,99,235,0.07)";
+    case "not_paid":  return "rgba(249,115,22,0.09)";
+    case "cancelled": return "rgba(148,163,184,0.07)";
+    default:          return "rgba(220,38,38,0.07)";
   }
 }
-
 function statusLabel(s: Status): string {
   switch (s) {
     case "confirmed": return "Confermato";
@@ -80,36 +80,14 @@ function statusLabel(s: Status): string {
   }
 }
 
-// ─── WhatsApp ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const CLINIC_ADDRESSES: Record<string, string> = {
   "Studio Pontecorvo": "Pontecorvo, Via Galileo Galilei 5, dietro il Bar Principe",
 };
 
-function formatPhoneForWhatsAppWeb(phone: string): string {
-  if (!phone) return phone;
-  let clean = phone.replace(/[\s\(\)\-\.]/g, "");
-  if (clean.startsWith("0")) clean = "39" + clean.substring(1);
-  if (!clean.startsWith("+")) clean = "+" + clean;
-  return clean;
-}
-
-function formatDateRelative(date: Date): string {
-  const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
-  const domani = new Date(oggi); domani.setDate(oggi.getDate() + 1);
-  const t = new Date(date); t.setHours(0, 0, 0, 0);
-  if (t.getTime() === oggi.getTime())   return "Oggi";
-  if (t.getTime() === domani.getTime()) return "Domani";
-  const gg = ["Domenica","Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato"];
-  const mm = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno",
-              "Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
-  return `${gg[t.getDay()]} ${t.getDate()} ${mm[t.getMonth()]}`;
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 function pad2(n: number) { return String(n).padStart(2, "0"); }
-function toYMD(d: Date)  { return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
+function toYMD(d: Date) { return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
 function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate()+n); return x; }
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
@@ -117,13 +95,29 @@ function fmtTime(iso: string) {
 function fullName(p?: Appointment["patients"]) {
   return `${(p?.last_name ?? "").trim()} ${(p?.first_name ?? "").trim()}`.trim() || "Paziente";
 }
+function formatPhoneForWA(phone: string): string {
+  let c = phone.replace(/[\s\(\)\-\.]/g, "");
+  if (c.startsWith("+")) c = c.substring(1);
+  if (c.startsWith("0")) c = "39" + c.substring(1);
+  if (!c.startsWith("39") && c.length <= 10) c = "39" + c;
+  return c;
+}
+function formatDateRelative(date: Date): string {
+  const oggi = new Date(); oggi.setHours(0,0,0,0);
+  const domani = new Date(oggi); domani.setDate(oggi.getDate()+1);
+  const t = new Date(date); t.setHours(0,0,0,0);
+  if (t.getTime() === oggi.getTime())   return "Oggi";
+  if (t.getTime() === domani.getTime()) return "Domani";
+  const gg = ["Dom","Lun","Mar","Mer","Gio","Ven","Sab"];
+  const mm = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+  return `${gg[t.getDay()]} ${t.getDate()} ${mm[t.getMonth()]}`;
+}
 function sumPaid(appts: Appointment[]) {
-  return appts.reduce((acc, a) => acc + (a.is_paid && typeof a.amount === "number" ? a.amount : 0), 0);
+  return appts.reduce((s, a) => s + (a.is_paid && typeof a.amount === "number" ? a.amount : 0), 0);
 }
 function sumDaIncassare(appts: Appointment[]) {
-  return appts
-    .filter(a => !a.is_paid && a.status !== "cancelled")
-    .reduce((acc, a) => acc + (typeof a.amount === "number" ? a.amount : 0), 0);
+  return appts.filter(a => !a.is_paid && a.status !== "cancelled")
+    .reduce((s, a) => s + (typeof a.amount === "number" ? a.amount : 0), 0);
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -137,39 +131,42 @@ export default function MobileHomePage() {
 
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState("");
-  const [pulling,  setPulling]  = useState(false); // pull-to-refresh visual
+  const [pulling,  setPulling]  = useState(false);
 
-  const [todayAppts,   setTodayAppts]   = useState<Appointment[]>([]);
-  const [nextAppts,    setNextAppts]    = useState<Appointment[]>([]);
-  const [patientCount, setPatientCount] = useState<number | null>(null);
+  const [todayAppts,      setTodayAppts]      = useState<Appointment[]>([]);
+  const [nextAppts,       setNextAppts]       = useState<Appointment[]>([]);
+  const [patientCount,    setPatientCount]    = useState<number | null>(null);
+  const [monthStats,      setMonthStats]      = useState<MonthStats | null>(null);
+  const [suggestedPats,   setSuggestedPats]   = useState<SuggestedPatient[]>([]);
+
+  // Azioni in corso
+  const [markingDone, setMarkingDone] = useState<string | null>(null);
+  const [incassando,  setIncassando]  = useState<string | null>(null);
+  const [sendingWA,   setSendingWA]   = useState<string | null>(null);
 
   const [userEmail,    setUserEmail]    = useState<string | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
-  // Pull-to-refresh state
-  const touchStartY  = useRef<number>(0);
-  const pullY        = useRef<number>(0);
-  const [pullDist,   setPullDist]   = useState(0);
+  // Pull-to-refresh
+  const touchStartY = useRef(0);
+  const pullY       = useRef(0);
+  const [pullDist,  setPullDist] = useState(0);
   const PULL_THRESHOLD = 64;
 
-  // Live clock
+  // Swipe giorno
+  const swipeX = useRef<number | null>(null);
+  const swipeY = useRef<number | null>(null);
+
+  // Clock
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => {
-      nowRef.current = new Date();
-      setTick(x => (x + 1) % 1_000_000);
-    }, 60_000);
+    const t = setInterval(() => { nowRef.current = new Date(); setTick(x => x+1); }, 60_000);
     return () => clearInterval(t);
   }, []);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const { data } = await supabase.auth.getUser();
-        setUserEmail(data?.user?.email ?? null);
-      } catch { /* ignore */ }
-    })();
+    supabase.auth.getUser().then(({ data }) => setUserEmail(data?.user?.email ?? null)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -183,30 +180,35 @@ export default function MobileHomePage() {
 
   useEffect(() => { void loadAll(); }, [dateYMD]); // eslint-disable-line
 
-  // ─── Pull-to-refresh handlers ─────────────────────────────────────────────
+  // ─── Touch handlers ───────────────────────────────────────────────────────
 
   function onTouchStart(e: React.TouchEvent) {
     touchStartY.current = e.touches[0].clientY;
+    swipeX.current = e.touches[0].clientX;
+    swipeY.current = e.touches[0].clientY;
     pullY.current = 0;
   }
-
   function onTouchMove(e: React.TouchEvent) {
     const scrollTop = (e.currentTarget as HTMLElement).scrollTop ?? 0;
-    if (scrollTop > 0) return; // solo se già in cima
+    if (scrollTop > 0) return;
     const dy = e.touches[0].clientY - touchStartY.current;
     if (dy < 0) return;
     pullY.current = dy;
     setPullDist(Math.min(dy, PULL_THRESHOLD * 1.4));
   }
-
-  async function onTouchEnd() {
+  async function onTouchEnd(e: React.TouchEvent) {
     if (pullY.current >= PULL_THRESHOLD) {
-      setPulling(true);
-      await loadAll();
-      setPulling(false);
+      setPulling(true); await loadAll(); setPulling(false);
     }
-    pullY.current = 0;
-    setPullDist(0);
+    pullY.current = 0; setPullDist(0);
+    if (swipeX.current !== null && swipeY.current !== null) {
+      const dx = e.changedTouches[0].clientX - swipeX.current;
+      const dy = e.changedTouches[0].clientY - swipeY.current;
+      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        if (dx < 0) shiftDay(1); else shiftDay(-1);
+      }
+    }
+    swipeX.current = null; swipeY.current = null;
   }
 
   // ─── Data ─────────────────────────────────────────────────────────────────
@@ -214,20 +216,21 @@ export default function MobileHomePage() {
   async function loadAll() {
     setLoading(true); setError("");
     try {
-      const SEL = `id, patient_id, start_at, status, amount, is_paid,
-                   treatment_type, location, clinic_site, domicile_address,
+      const SEL = `id,patient_id,start_at,status,amount,is_paid,
+                   treatment_type,location,clinic_site,domicile_address,
                    whatsapp_sent_at,
-                   patients:patient_id ( first_name, last_name, phone )`;
+                   patients:patient_id(first_name,last_name,phone)`;
 
-      const [dayRes, weekRes] = await Promise.all([
+      const [dayRes, weekRes, pcRes] = await Promise.all([
         supabase.from("appointments").select(SEL)
           .gte("start_at", `${dateYMD}T00:00:00`)
           .lt("start_at",  `${dateYMD}T23:59:59`)
           .order("start_at", { ascending: true }),
         supabase.from("appointments").select(SEL)
-          .gte("start_at", new Date().toISOString())
-          .lt("start_at",  addDays(new Date(), 7).toISOString())
+          .gt("start_at", new Date().toISOString())
+          .lt("start_at", addDays(new Date(), 8).toISOString())
           .order("start_at", { ascending: true }),
+        supabase.from("patients").select("*", { count: "exact", head: true }),
       ]);
 
       if (dayRes.error)  throw dayRes.error;
@@ -236,106 +239,129 @@ export default function MobileHomePage() {
       const map = (a: any): Appointment => {
         const p = Array.isArray(a.patients) ? a.patients[0] : a.patients;
         return {
-          id: a.id, patient_id: a.patient_id ?? null,
-          start_at: a.start_at, status: a.status as Status,
-          amount: a.amount ?? null, is_paid: a.is_paid ?? false,
-          treatment_type: a.treatment_type ?? null,
-          location: (a.location as LocationType) ?? null,
-          clinic_site: a.clinic_site ?? null,
-          domicile_address: a.domicile_address ?? null,
-          whatsapp_sent_at: a.whatsapp_sent_at ?? null,
-          patients: p ?? null,
+          id: a.id, patient_id: a.patient_id ?? null, start_at: a.start_at,
+          status: a.status as Status, amount: a.amount ?? null, is_paid: a.is_paid ?? false,
+          treatment_type: a.treatment_type ?? null, location: a.location ?? null,
+          clinic_site: a.clinic_site ?? null, domicile_address: a.domicile_address ?? null,
+          whatsapp_sent_at: a.whatsapp_sent_at ?? null, patients: p ?? null,
         };
       };
 
       setTodayAppts((dayRes.data  ?? []).map(map));
       setNextAppts( (weekRes.data ?? []).map(map));
-
-      const pcRes = await supabase.from("patients").select("*", { count: "exact", head: true });
       if (!pcRes.error) setPatientCount(pcRes.count ?? null);
+
+      // ── Statistiche mese corrente ──
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const monthEnd   = new Date(now.getFullYear(), now.getMonth()+1, 0, 23, 59, 59).toISOString();
+      const mRes = await supabase.from("appointments")
+        .select("status,amount,is_paid")
+        .gte("start_at", monthStart).lte("start_at", monthEnd).neq("status","cancelled");
+      if (!mRes.error && mRes.data) {
+        const md = mRes.data as { status: string; amount: number|null; is_paid: boolean }[];
+        setMonthStats({
+          sessions: md.length,
+          revenue:  md.filter(r => r.is_paid).reduce((s,r) => s+(r.amount??0), 0),
+          unpaid:   md.filter(r => !r.is_paid).reduce((s,r) => s+(r.amount??0), 0),
+        });
+      }
+
+      // ── Pazienti senza appuntamenti futuri (candidati per richiamare) ──
+      // Prendo i 20 pazienti con ultima seduta più recente, escludo chi ha già un prossimo appt
+      const futurePatientIds = new Set(
+        (weekRes.data ?? []).map((a: any) => a.patient_id).filter(Boolean)
+      );
+      const pastRes = await supabase.from("appointments")
+        .select("patient_id,start_at,patients:patient_id(first_name,last_name,phone)")
+        .eq("status","done")
+        .order("start_at", { ascending: false })
+        .limit(60);
+      if (!pastRes.error && pastRes.data) {
+        const seen = new Set<string>();
+        const suggestions: SuggestedPatient[] = [];
+        for (const a of pastRes.data as any[]) {
+          if (!a.patient_id || seen.has(a.patient_id)) continue;
+          if (futurePatientIds.has(a.patient_id)) continue;
+          seen.add(a.patient_id);
+          const p = Array.isArray(a.patients) ? a.patients[0] : a.patients;
+          const name = p ? `${p.last_name??""} ${p.first_name??""}`.trim() : "Paziente";
+          suggestions.push({ id: a.patient_id, name: name||"Paziente",
+            phone: p?.phone ?? null, lastVisit: a.start_at });
+          if (suggestions.length >= 4) break;
+        }
+        setSuggestedPats(suggestions);
+      }
     } catch (e: any) {
       setError(e?.message ?? "Errore imprevisto");
       setTodayAppts([]); setNextAppts([]);
     } finally { setLoading(false); }
   }
 
-  // ─── WhatsApp ─────────────────────────────────────────────────────────────
+  // ─── Azioni rapide ────────────────────────────────────────────────────────
 
-  const sendReminder = useCallback(async (appt: Appointment) => {
-    const phone = appt.patients?.phone;
-    if (!phone) { alert("Nessun numero registrato per questo paziente."); return; }
-
-    const { data: tplData } = await supabase
-      .from("message_templates").select("template")
-      .eq("name", "Promemoria").maybeSingle();
-
-    let tpl = `Buongiorno {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore ⏰ {ora}.\n\n📍 {luogo}\n\nCordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
-    if (tplData?.template) tpl = tplData.template;
-
-    const cleanPhone   = formatPhoneForWhatsAppWeb(phone);
-    const dataRelativa = formatDateRelative(new Date(appt.start_at));
-    const ora          = fmtTime(appt.start_at);
-    const luogo        = appt.location === "studio"
-      ? (CLINIC_ADDRESSES[appt.clinic_site ?? ""] || appt.clinic_site || "Pontecorvo, Via Galileo Galilei 5, dietro il Bar Principe")
-      : `Presso il suo domicilio (${appt.domicile_address ?? ""})`;
-    const nome = (appt.patients?.first_name ?? "").trim() || "Cliente";
-
-    const message = tpl
-      .replace(/{nome}/g,          nome)
-      .replace(/{data_relativa}/g, dataRelativa)
-      .replace(/{ora}/g,           ora)
-      .replace(/{luogo}/g,         luogo);
-
-    const waUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
-    const ok = window.confirm(`📱 PROMEMORIA WHATSAPP\n\nDestinatario: ${phone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp.`);
-    if (!ok) return;
-
-    const win = window.open(waUrl, "_blank");
-    const nowIso = new Date().toISOString();
-    await supabase.from("appointments")
-      .update({ whatsapp_sent_at: nowIso, whatsapp_sent: true }).eq("id", appt.id);
-    setTodayAppts(prev => prev.map(a => a.id === appt.id ? { ...a, whatsapp_sent_at: nowIso } : a));
-
-    if (!win || win.closed || typeof win.closed === "undefined") {
-      const fb = window.confirm("Il browser ha bloccato WhatsApp.\nOK per redirect, Annulla per copiare il link.");
-      if (fb) window.location.href = waUrl;
-      else alert(`Copia il link:\n\n${waUrl}`);
-    }
-  }, []);
-
-  // ─── Logout ───────────────────────────────────────────────────────────────
-
-  async function handleLogout() {
-    try { await supabase.auth.signOut(); } finally {
-      setUserMenuOpen(false);
-      window.location.href = "/login";
-    }
+  async function handleMarkDone(appt: Appointment) {
+    if (markingDone) return;
+    setMarkingDone(appt.id);
+    const { error } = await supabase.from("appointments")
+      .update({ status: "done" }).eq("id", appt.id);
+    if (!error)
+      setTodayAppts(prev => prev.map(a =>
+        a.id === appt.id ? { ...a, status: "done" as Status } : a
+      ));
+    setMarkingDone(null);
   }
-
-  // ─── Incassa ──────────────────────────────────────────────────────────────
-
-  const [incassando, setIncassando] = useState<string | null>(null);
 
   async function handleIncassa(appt: Appointment) {
     if (incassando) return;
     setIncassando(appt.id);
-    const { error } = await supabase
-      .from("appointments")
-      .update({ is_paid: true, status: "done" })
-      .eq("id", appt.id);
-    if (!error) {
+    const { error } = await supabase.from("appointments")
+      .update({ is_paid: true, status: "done" }).eq("id", appt.id);
+    if (!error)
       setTodayAppts(prev => prev.map(a =>
         a.id === appt.id ? { ...a, is_paid: true, status: "done" as Status } : a
       ));
-    }
     setIncassando(null);
+  }
+
+  const sendReminder = useCallback(async (appt: Appointment) => {
+    const phone = appt.patients?.phone;
+    if (!phone) { alert("Nessun numero registrato."); return; }
+    setSendingWA(appt.id);
+
+    const { data: tplData } = await supabase
+      .from("message_templates").select("template").eq("name","Promemoria").maybeSingle();
+    let tpl = `Buongiorno {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore ⏰ {ora}.\n\n📍 {luogo}\n\nCordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
+    if (tplData?.template) tpl = tplData.template;
+
+    const luogo = appt.location === "studio"
+      ? (CLINIC_ADDRESSES[appt.clinic_site ?? ""] || appt.clinic_site || "Studio")
+      : `Presso il suo domicilio (${appt.domicile_address ?? ""})`;
+
+    const message = tpl
+      .replace(/{nome}/g,          (appt.patients?.first_name ?? "").trim() || "Gentile paziente")
+      .replace(/{data_relativa}/g, formatDateRelative(new Date(appt.start_at)))
+      .replace(/{ora}/g,           fmtTime(appt.start_at))
+      .replace(/{luogo}/g,         luogo);
+
+    window.open(`https://wa.me/${formatPhoneForWA(phone)}?text=${encodeURIComponent(message)}`, "_blank");
+
+    const nowIso = new Date().toISOString();
+    await supabase.from("appointments")
+      .update({ whatsapp_sent_at: nowIso, whatsapp_sent: true }).eq("id", appt.id);
+    setTodayAppts(prev => prev.map(a =>
+      a.id === appt.id ? { ...a, whatsapp_sent_at: nowIso } : a
+    ));
+    setSendingWA(null);
+  }, []);
+
+  async function handleLogout() {
+    try { await supabase.auth.signOut(); } finally { window.location.href = "/login"; }
   }
 
   // ─── Derived ──────────────────────────────────────────────────────────────
 
-  const now    = nowRef.current;
-  const nowISO = now.toISOString();
-
+  const nowISO  = nowRef.current.toISOString();
   const isToday = dateYMD === todayYMD;
   const isPast  = dateYMD < todayYMD;
 
@@ -343,15 +369,14 @@ export default function MobileHomePage() {
     () => todayAppts.filter(a => a.status !== "cancelled").length,
     [todayAppts]
   );
-
   const completate = useMemo(() => {
     if (isToday) return todayAppts.filter(a => a.start_at < nowISO && a.status !== "cancelled").length;
     if (isPast)  return todayAppts.filter(a => a.status !== "cancelled").length;
     return 0;
   }, [todayAppts, nowISO, isToday, isPast, tick]); // eslint-disable-line
 
-  const incasso      = useMemo(() => sumPaid(todayAppts),        [todayAppts]);
-  const daIncassare  = useMemo(() => sumDaIncassare(todayAppts), [todayAppts]);
+  const incasso     = useMemo(() => sumPaid(todayAppts),        [todayAppts]);
+  const daIncassare = useMemo(() => sumDaIncassare(todayAppts), [todayAppts]);
 
   const nextFive = useMemo(() =>
     nextAppts.filter(a => a.start_at >= nowISO && a.status !== "cancelled").slice(0, 5),
@@ -359,32 +384,65 @@ export default function MobileHomePage() {
 
   const kpiNext = nextFive[0] ?? null;
 
+  // Slot liberi nella giornata (ore 8-20, slot da 1h, esclusi quelli occupati)
+  const freeSlots = useMemo(() => {
+    const WORK_START = 8; const WORK_END = 20;
+    const slots: string[] = [];
+    for (let h = WORK_START; h < WORK_END; h++) {
+      const slotISO = `${dateYMD}T${pad2(h)}:00:00`;
+      const slotEnd  = `${dateYMD}T${pad2(h+1)}:00:00`;
+      const occupied = todayAppts.some(a =>
+        a.status !== "cancelled" && a.start_at < slotEnd && a.start_at >= slotISO
+      );
+      if (!occupied) slots.push(`${pad2(h)}:00`);
+    }
+    return slots;
+  }, [todayAppts, dateYMD]);
+
+  const monthLabel = useMemo(() => {
+    const mm = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno",
+                "Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+    return mm[new Date().getMonth()];
+  }, []);
+
+  // Striscia settimanale
+  const weekStrip = useMemo(() => {
+    const days = [];
+    const base = new Date(todayYMD + "T00:00:00");
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(base, i);
+      const ymd = toYMD(d);
+      const cnt = nextAppts.filter(a =>
+        a.start_at.startsWith(ymd) && a.status !== "cancelled"
+      ).length + (i === 0 ? todayAppts.filter(a => a.status !== "cancelled").length : 0);
+      days.push({ ymd, label: ["Dom","Lun","Mar","Mer","Gio","Ven","Sab"][d.getDay()], day: d.getDate(), cnt });
+    }
+    return days;
+  }, [nextAppts, todayAppts, todayYMD]);
+
   const headerDateLabel = useMemo(() => {
     const d = new Date(`${dateYMD}T00:00:00`);
-    const s = d.toLocaleDateString("it-IT", { weekday: "long", day: "2-digit", month: "long" });
-    return s.charAt(0).toUpperCase() + s.slice(1);
+    const gg = ["Dom","Lun","Mar","Mer","Gio","Ven","Sab"];
+    const mm = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+    return `${gg[d.getDay()]} ${d.getDate()} ${mm[d.getMonth()]}`;
   }, [dateYMD]);
 
   const userInitials = useMemo(() => {
     if (!userEmail) return "U";
-    const left  = userEmail.split("@")[0] || "U";
-    const parts = left.replace(/[^a-zA-Z0-9]/g, " ").split(" ").filter(Boolean);
-    return ((parts[0]?.[0] || "U") + (parts[1]?.[0] || "")).toUpperCase().slice(0, 2);
+    const parts = (userEmail.split("@")[0]||"U").replace(/[^a-zA-Z0-9]/g," ").split(" ").filter(Boolean);
+    return ((parts[0]?.[0]||"U")+(parts[1]?.[0]||"")).toUpperCase().slice(0,2);
   }, [userEmail]);
 
   function shiftDay(delta: number) {
-    const d = new Date(`${dateYMD}T00:00:00`);
-    d.setDate(d.getDate() + delta);
+    const d = new Date(`${dateYMD}T00:00:00`); d.setDate(d.getDate()+delta);
     setDateYMD(toYMD(d));
   }
 
   // ─── Style atoms ──────────────────────────────────────────────────────────
 
   const card: React.CSSProperties = {
-    background: THEME.panelBg,
-    border: `1.5px solid ${THEME.border}`,
-    borderRadius: 14,
-    boxShadow: "0 2px 8px rgba(15,23,42,0.06)",
+    background: THEME.panelBg, border: `1.5px solid ${THEME.border}`,
+    borderRadius: 14, boxShadow: "0 2px 8px rgba(15,23,42,0.06)",
   };
 
   function btnGradient(extra?: React.CSSProperties): React.CSSProperties {
@@ -393,11 +451,9 @@ export default function MobileHomePage() {
       padding: "9px 16px", borderRadius: 10, border: "none",
       background: THEME.gradient, color: "#fff",
       fontWeight: 700, fontSize: 13, cursor: "pointer",
-      boxShadow: "0 2px 8px rgba(13,148,136,0.25)",
-      ...extra,
+      boxShadow: "0 2px 8px rgba(13,148,136,0.25)", ...extra,
     };
   }
-
   function btnOutline(extra?: React.CSSProperties): React.CSSProperties {
     return {
       display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
@@ -405,40 +461,34 @@ export default function MobileHomePage() {
       border: `1.5px solid ${THEME.border}`,
       background: THEME.panelBg, color: THEME.text,
       fontWeight: 600, fontSize: 13, cursor: "pointer",
-      ...extra,
+      textDecoration: "none", ...extra,
     };
   }
-
   function btnSoft(extra?: React.CSSProperties): React.CSSProperties {
     return {
       display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
       padding: "8px 14px", borderRadius: 10, border: "none",
       background: "rgba(37,99,235,0.09)", color: THEME.blue,
-      fontWeight: 700, fontSize: 13, cursor: "pointer",
-      ...extra,
+      fontWeight: 700, fontSize: 13, cursor: "pointer", ...extra,
     };
   }
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ minHeight: "100vh", background: THEME.appBg, fontFamily: "Inter, -apple-system, sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: THEME.appBg, fontFamily: "Inter,-apple-system,sans-serif" }}>
 
       {/* ━━━ NAVBAR ━━━ */}
       <header style={{
         position: "sticky", top: 0, zIndex: 30,
-        background: THEME.gradient,
-        padding: "0 14px", height: 54,
+        background: THEME.gradient, padding: "0 14px", height: 54,
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        boxShadow: "0 2px 12px rgba(13,148,136,0.18)",
-        gap: 10,
+        boxShadow: "0 2px 12px rgba(13,148,136,0.18)", gap: 10,
       }}>
-        {/* Logo */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           <div style={{
             width: 28, height: 28, borderRadius: 7,
-            background: "rgba(255,255,255,0.2)",
-            border: "1.5px solid rgba(255,255,255,0.3)",
+            background: "rgba(255,255,255,0.2)", border: "1.5px solid rgba(255,255,255,0.3)",
             display: "flex", alignItems: "center", justifyContent: "center",
             color: "#fff", fontWeight: 800, fontSize: 13,
           }}>F</div>
@@ -450,38 +500,34 @@ export default function MobileHomePage() {
         {/* KPI chips */}
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           {!loading && (
-            <span style={{
-              fontSize: 11, fontWeight: 700, color: "#fff",
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#fff",
               background: "rgba(255,255,255,0.2)", padding: "4px 9px",
-              borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", whiteSpace: "nowrap",
-            }}>✓ {completate}/{totalActive}</span>
+              borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", whiteSpace: "nowrap" }}>
+              ✓ {completate}/{totalActive}
+            </span>
           )}
           {!loading && (
-            <span style={{
-              fontSize: 11, fontWeight: 700, color: "#fff",
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#fff",
               background: "rgba(255,255,255,0.2)", padding: "4px 9px",
-              borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", whiteSpace: "nowrap",
-            }}>€ {incasso.toFixed(0)}</span>
+              borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", whiteSpace: "nowrap" }}>
+              € {incasso.toFixed(0)}
+            </span>
           )}
         </div>
 
-        {/* Refresh + Avatar */}
         <div style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }}>
           <button onClick={loadAll} aria-label="Aggiorna" style={{
             width: 30, height: 30, borderRadius: 7,
-            border: "1.5px solid rgba(255,255,255,0.3)",
-            background: "rgba(255,255,255,0.15)",
+            border: "1.5px solid rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.15)",
             color: "#fff", cursor: "pointer", fontSize: 15,
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>↺</button>
-
           <div ref={userMenuRef} style={{ position: "relative" }}>
             <button onClick={() => setUserMenuOpen(v => !v)} style={{
               width: 30, height: 30, borderRadius: 7,
-              border: "1.5px solid rgba(255,255,255,0.35)",
-              background: "rgba(255,255,255,0.2)",
-              color: "#fff", fontWeight: 800, fontSize: 11,
-              cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+              border: "1.5px solid rgba(255,255,255,0.35)", background: "rgba(255,255,255,0.2)",
+              color: "#fff", fontWeight: 800, fontSize: 11, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
             }}>{userInitials}</button>
             {userMenuOpen && (
               <div style={{
@@ -511,114 +557,131 @@ export default function MobileHomePage() {
         position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 30,
         background: THEME.panelBg, borderTop: `1.5px solid ${THEME.border}`,
         display: "flex", boxShadow: "0 -4px 16px rgba(15,23,42,0.08)",
-        paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        paddingBottom: "env(safe-area-inset-bottom,0px)",
       }}>
         {[
-          { href: "/mobile",          label: "Home",      icon: "⌂",  active: true },
-          { href: "/mobile/calendar", label: "Calendario",icon: "▦" },
-          { href: "/mobile/patients", label: "Pazienti",  icon: "◉" },
-          { href: "/mobile/reports",  label: "Report",    icon: "◈" },
+          { href: "/mobile",          label: "Home",       icon: "⌂",  active: true },
+          { href: "/mobile/calendar", label: "Calendario", icon: "▦" },
+          { href: "/mobile/patients", label: "Pazienti",   icon: "◉" },
+          { href: "/mobile/reports",  label: "Report",     icon: "◈" },
         ].map(item => (
           <Link key={item.href} href={item.href} style={{
-            flex: 1, display: "flex", flexDirection: "column",
-            alignItems: "center", justifyContent: "center",
-            padding: "10px 4px 9px", textDecoration: "none", gap: 3,
-            position: "relative",
+            flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
+            justifyContent: "center", padding: "10px 4px 9px", textDecoration: "none",
+            gap: 3, position: "relative",
           }}>
-            <span style={{
-              fontSize: 18, lineHeight: 1,
-              ...(item.active ? {
-                background: THEME.gradient,
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-              } : { color: THEME.muted }),
-            }}>{item.icon}</span>
-            <span style={{ fontSize: 10, fontWeight: item.active ? 700 : 600,
-                           color: item.active ? THEME.blue : THEME.muted }}>
+            <span style={{ fontSize: 18, lineHeight: 1,
+              ...((item as any).active
+                ? { background: THEME.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }
+                : { color: THEME.muted }) }}>
+              {item.icon}
+            </span>
+            <span style={{ fontSize: 10, fontWeight: (item as any).active ? 700 : 600,
+              color: (item as any).active ? THEME.blue : THEME.muted }}>
               {item.label}
             </span>
-            {item.active && (
-              <div style={{
-                position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)",
-                width: 28, height: 2.5, borderRadius: 999, background: THEME.gradient,
-              }} />
+            {(item as any).active && (
+              <div style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)",
+                width: 28, height: 2.5, borderRadius: 999, background: THEME.gradient }} />
             )}
           </Link>
         ))}
       </nav>
 
-      {/* ━━━ FAB: Nuovo appuntamento ━━━ */}
+      {/* ━━━ FAB ━━━ */}
       <button
-        onClick={() => router.push(`/mobile/calendar?date=${dateYMD}&action=new`)}
+        onClick={() => router.push(`/mobile/calendar?date=${dateYMD}&new=1`)}
         aria-label="Nuovo appuntamento"
         style={{
-          position: "fixed", bottom: "calc(env(safe-area-inset-bottom, 0px) + 68px)", right: 18,
-          zIndex: 40,
-          width: 52, height: 52, borderRadius: "50%",
-          background: THEME.gradient, color: "#fff",
-          border: "none", cursor: "pointer",
-          fontSize: 26, fontWeight: 300,
-          display: "flex", alignItems: "center", justifyContent: "center",
+          position: "fixed", bottom: "calc(env(safe-area-inset-bottom,0px) + 68px)", right: 18,
+          zIndex: 40, width: 52, height: 52, borderRadius: "50%",
+          background: THEME.gradient, color: "#fff", border: "none", cursor: "pointer",
+          fontSize: 26, display: "flex", alignItems: "center", justifyContent: "center",
           boxShadow: "0 4px 20px rgba(13,148,136,0.40)",
         }}
       >+</button>
 
-      {/* ━━━ CONTENUTO (pull-to-refresh wrapper) ━━━ */}
+      {/* ━━━ CONTENUTO ━━━ */}
       <div
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
         style={{ padding: 14, paddingBottom: 100, overflowY: "auto" }}
       >
-        {/* ── Indicatore pull-to-refresh ── */}
+        {/* Pull-to-refresh */}
         {pullDist > 10 && (
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "center",
             height: Math.min(pullDist, PULL_THRESHOLD * 1.4),
             color: THEME.blue, fontWeight: 700, fontSize: 12,
-            transition: "height 0.1s",
           }}>
-            {pulling || pullDist >= PULL_THRESHOLD ? "↺ Rilascia per aggiornare" : "↓ Trascina per aggiornare"}
+            {pulling || pullDist >= PULL_THRESHOLD ? "↺ Rilascia" : "↓ Trascina per aggiornare"}
           </div>
         )}
 
-        {/* ── Navigazione data ‹ Oggi › ── */}
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
-          <button onClick={() => shiftDay(-1)} aria-label="Giorno precedente"
-            style={btnOutline({ padding: "9px 16px", fontSize: 18, flexShrink: 0 })}>‹</button>
+        {/* ── Navigazione data ── */}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+          <button onClick={() => shiftDay(-1)}
+            style={btnOutline({ padding: "9px 14px", fontSize: 18, flexShrink: 0 })}>‹</button>
 
           <button onClick={() => setDateYMD(todayYMD)} style={{
-            flex: 1, padding: "9px 12px", borderRadius: 10, fontSize: 14,
-            fontWeight: 700, cursor: "pointer", textAlign: "center", letterSpacing: -0.2,
+            flex: 1, padding: "9px 8px", borderRadius: 10, fontSize: 13,
+            fontWeight: 700, cursor: "pointer", textAlign: "center",
             border: isToday ? `2px solid ${THEME.blue}` : `1.5px solid ${THEME.border}`,
             background: isToday ? "rgba(37,99,235,0.08)" : THEME.panelBg,
             color: isToday ? THEME.blue : THEME.text,
+            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
           }}>
             {isToday ? "Oggi" : headerDateLabel}
           </button>
 
-          <button onClick={() => shiftDay(1)} aria-label="Giorno successivo"
-            style={btnOutline({ padding: "9px 16px", fontSize: 18, flexShrink: 0 })}>›</button>
+          <button onClick={() => shiftDay(1)}
+            style={btnOutline({ padding: "9px 14px", fontSize: 18, flexShrink: 0 })}>›</button>
 
           <button onClick={() => router.push(`/mobile/calendar?date=${dateYMD}`)}
-            style={btnGradient({ flexShrink: 0, padding: "9px 14px" })} aria-label="Apri calendario">
-            📅
-          </button>
+            style={btnGradient({ flexShrink: 0, padding: "9px 14px" })}>📅</button>
         </div>
 
-        {/* ── Errore ── */}
+        {/* ── Striscia settimanale ── */}
+        <div style={{ ...card, padding: "8px 10px", marginBottom: 10 }}>
+          <div style={{ display: "flex", gap: 2 }}>
+            {weekStrip.map(d => {
+              const sel = d.ymd === dateYMD;
+              const tod = d.ymd === todayYMD;
+              return (
+                <button key={d.ymd} onClick={() => setDateYMD(d.ymd)} style={{
+                  flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
+                  gap: 3, padding: "5px 2px", borderRadius: 8, border: "none",
+                  background: sel ? THEME.gradient : "transparent", cursor: "pointer",
+                }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    color: sel ? "rgba(255,255,255,0.75)" : THEME.muted }}>
+                    {d.label}
+                  </span>
+                  <span style={{ fontSize: 14, fontWeight: 800, lineHeight: 1,
+                    color: sel ? "#fff" : tod ? THEME.blue : THEME.text }}>
+                    {d.day}
+                  </span>
+                  <div style={{ width: 5, height: 5, borderRadius: 99,
+                    background: d.cnt > 0
+                      ? (sel ? "rgba(255,255,255,0.8)" : THEME.blue)
+                      : "transparent" }} />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Errore */}
         {error && (
-          <div style={{
-            marginBottom: 12, padding: 12, borderRadius: 10,
-            border: "1.5px solid rgba(220,38,38,0.3)",
-            background: "rgba(220,38,38,0.06)",
-            color: "#7f1d1d", fontWeight: 600, fontSize: 13,
-          }}>⚠️ {error}</div>
+          <div style={{ marginBottom: 10, padding: 12, borderRadius: 10,
+            border: "1.5px solid rgba(220,38,38,0.3)", background: "rgba(220,38,38,0.06)",
+            color: "#7f1d1d", fontWeight: 600, fontSize: 13 }}>⚠️ {error}</div>
         )}
 
         {/* ── KPI card ── */}
         <div style={{ ...card, padding: 16, marginBottom: 10 }}>
-          {/* Riga numeri */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft }}>Riepilogo</div>
@@ -629,27 +692,26 @@ export default function MobileHomePage() {
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 11, color: THEME.muted, fontWeight: 600,
-                            textTransform: "uppercase", letterSpacing: 0.4 }}>Incassato</div>
+                textTransform: "uppercase", letterSpacing: 0.4 }}>Incassato</div>
               <div style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.1,
-                            color: loading ? THEME.muted : THEME.green }}>
+                color: loading ? THEME.muted : THEME.green }}>
                 {loading ? "—" : `€${incasso.toFixed(0)}`}
               </div>
-              {/* ① Da incassare accanto all'incasso */}
               {!loading && daIncassare > 0 && (
                 <div style={{ fontSize: 11, fontWeight: 700, color: THEME.amber, marginTop: 2 }}>
-                  € {daIncassare.toFixed(0)} da incassare
+                  €{daIncassare.toFixed(0)} da incassare
                 </div>
               )}
             </div>
           </div>
 
-          {/* ② Progress bar sedute */}
+          {/* Progress bar */}
           {!loading && totalActive > 0 && (
             <div style={{ marginTop: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                 <span style={{ fontSize: 12, color: THEME.muted, fontWeight: 600 }}>Sedute completate</span>
                 <span style={{ fontSize: 12, fontWeight: 800,
-                               color: completate === totalActive ? THEME.green : THEME.blue }}>
+                  color: completate === totalActive ? THEME.green : THEME.blue }}>
                   {completate}/{totalActive}
                 </span>
               </div>
@@ -666,17 +728,14 @@ export default function MobileHomePage() {
 
           {/* Prossima seduta */}
           {!loading && kpiNext && (
-            <div style={{
-              marginTop: 14, padding: 12, borderRadius: 10,
-              border: `1.5px solid rgba(37,99,235,0.2)`,
-              background: "rgba(37,99,235,0.04)",
-            }}>
+            <div style={{ marginTop: 14, padding: 12, borderRadius: 10,
+              border: `1.5px solid rgba(37,99,235,0.2)`, background: "rgba(37,99,235,0.04)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: THEME.blue, marginBottom: 3,
-                                textTransform: "uppercase", letterSpacing: 0.4 }}>Prossima seduta</div>
+                    textTransform: "uppercase", letterSpacing: 0.4 }}>Prossima seduta</div>
                   <div style={{ fontWeight: 700, color: THEME.text, fontSize: 14,
-                                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {fmtTime(kpiNext.start_at)} · {fullName(kpiNext.patients)}
                   </div>
                   <div style={{ marginTop: 2, fontSize: 12, color: THEME.muted, fontWeight: 600 }}>
@@ -691,21 +750,16 @@ export default function MobileHomePage() {
               </div>
             </div>
           )}
-
-          {!loading && !kpiNext && isToday && (
-            <div style={{ marginTop: 14, padding: 10, borderRadius: 10,
-                          border: `1.5px dashed ${THEME.border}`, color: THEME.muted,
-                          fontSize: 12, fontWeight: 600 }}>
-              Nessun prossimo appuntamento nei prossimi 7 giorni.
-            </div>
-          )}
         </div>
 
         {/* ── Agenda del giorno ── */}
         <div style={{ ...card, padding: 16, marginBottom: 10 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between",
+            alignItems: "baseline", marginBottom: 12 }}>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft }}>Agenda del giorno</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft }}>
+                Agenda del giorno
+              </div>
               <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 600, marginTop: 2 }}>
                 {headerDateLabel} · {todayAppts.length} appuntamenti
               </div>
@@ -717,24 +771,25 @@ export default function MobileHomePage() {
               Caricamento…
             </div>
           ) : todayAppts.length === 0 ? (
-            /* ⑤ Empty state con CTA */
             <div style={{ padding: 20, borderRadius: 10, border: `1.5px dashed ${THEME.border}`,
-                          textAlign: "center" }}>
+              textAlign: "center" }}>
               <div style={{ color: THEME.muted, fontWeight: 600, fontSize: 13, marginBottom: 12 }}>
                 Nessun appuntamento in questa data.
               </div>
               <button
-                onClick={() => router.push(`/mobile/calendar?date=${dateYMD}&action=new`)}
+                onClick={() => router.push(`/mobile/calendar?date=${dateYMD}&new=1`)}
                 style={btnGradient({ fontSize: 12, padding: "8px 16px" })}
               >+ Nuovo appuntamento</button>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {todayAppts.map(a => {
-                const phone   = a.patients?.phone;
-                const waSent  = !!a.whatsapp_sent_at;
-                // ③ Appuntamenti passati oggi → opacity ridotta
+                const phone      = a.patients?.phone;
+                const waSent     = !!a.whatsapp_sent_at;
                 const isPastAppt = isToday && a.start_at < nowISO;
+                const isDone     = a.status === "done";
+                const isCancelled= a.status === "cancelled";
+                const col        = statusColor(a.status);
 
                 return (
                   <div key={a.id} style={{
@@ -745,93 +800,122 @@ export default function MobileHomePage() {
                     opacity: isPastAppt ? 0.65 : 1,
                     transition: "opacity 0.3s",
                   }}>
-                    {/* Riga principale */}
+
+                    {/* Riga info: orario + nome + status */}
                     <div style={{ display: "flex", justifyContent: "space-between",
-                                  alignItems: "flex-start", gap: 8 }}>
+                      alignItems: "flex-start", gap: 8 }}>
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 700,
-                                      color: isPastAppt ? THEME.muted : THEME.text,
-                                      fontSize: 14, whiteSpace: "nowrap",
-                                      overflow: "hidden", textOverflow: "ellipsis",
-                                      display: "flex", alignItems: "center", gap: 6 }}>
+                        <div style={{ fontWeight: 700, color: isPastAppt ? THEME.muted : THEME.text,
+                          fontSize: 14, whiteSpace: "nowrap", overflow: "hidden",
+                          textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 6 }}>
                           {fmtTime(a.start_at)} · {fullName(a.patients)}
-                          {/* ② Icona pagato */}
-                          {a.is_paid && (
-                            <span title="Pagato" style={{ fontSize: 13, flexShrink: 0 }}>💰</span>
-                          )}
+                          {a.is_paid  && <span style={{ fontSize: 13, flexShrink: 0 }}>💰</span>}
+                          {a.location === "domicile" && <span style={{ fontSize: 13, flexShrink: 0 }}>🏠</span>}
                         </div>
-                        <div style={{ marginTop: 2, fontSize: 12, color: THEME.muted,
-                                      fontWeight: 600, whiteSpace: "nowrap",
-                                      overflow: "hidden", textOverflow: "ellipsis" }}>
+                        <div style={{ marginTop: 2, fontSize: 12, color: THEME.muted, fontWeight: 600,
+                          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                           {a.treatment_type ?? "Seduta"}
                           {typeof a.amount === "number" && a.amount > 0 ? ` · €${a.amount}` : ""}
                           {isPastAppt && (
                             <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700,
-                                           color: THEME.gray, textTransform: "uppercase",
-                                           letterSpacing: 0.3 }}>· passato</span>
+                              color: THEME.gray, textTransform: "uppercase" }}>· passato</span>
                           )}
                         </div>
                       </div>
-                      {/* Chip status */}
-                      <span style={{
-                        padding: "4px 9px", borderRadius: 999,
-                        fontWeight: 700, fontSize: 11,
-                        color: statusColor(a.status),
-                        background: THEME.panelBg,
-                        border: `1.5px solid ${statusColor(a.status)}`,
+                      <span style={{ padding: "4px 9px", borderRadius: 999,
+                        fontWeight: 700, fontSize: 11, color: col,
+                        background: THEME.panelBg, border: `1.5px solid ${col}`,
                         flexShrink: 0, whiteSpace: "nowrap",
-                        opacity: isPastAppt ? 0.6 : 1,
-                      }}>
+                        opacity: isPastAppt ? 0.6 : 1 }}>
                         {statusLabel(a.status)}
                       </span>
                     </div>
 
-                    {/* Azioni */}
-                    <div style={{ marginTop: 9, display: "flex", gap: 7, flexWrap: "wrap" }}>
-                      <button
-                        onClick={() => a.patient_id && router.push(`/mobile/patients/${a.patient_id}`)}
-                        style={btnSoft({ fontSize: 12, padding: "7px 12px" })}
-                      >📄 Scheda</button>
+                    {/* ── 3 AZIONI PRINCIPALI ── compatte, in linea */}
+                    {!isCancelled && (
+                      <div style={{ marginTop: 9, display: "flex", gap: 6, flexWrap: "wrap" }}>
 
-                      {!a.is_paid && a.status !== "cancelled" && (
+                        {/* ✓ Eseguito */}
                         <button
-                          onClick={() => handleIncassa(a)}
-                          disabled={incassando === a.id}
+                          onClick={() => !isDone && handleMarkDone(a)}
+                          disabled={isDone || markingDone === a.id}
                           style={{
-                            display: "inline-flex", alignItems: "center", justifyContent: "center",
-                            gap: 5, padding: "7px 12px", borderRadius: 10, border: "none",
-                            background: incassando === a.id ? THEME.border : "rgba(22,163,74,0.12)",
-                            color: THEME.green, fontWeight: 700, fontSize: 12,
-                            cursor: incassando === a.id ? "not-allowed" : "pointer",
+                            display: "inline-flex", alignItems: "center", gap: 4,
+                            padding: "6px 11px", borderRadius: 8, border: "none",
+                            background: isDone
+                              ? "rgba(22,163,74,0.13)"
+                              : "rgba(22,163,74,0.08)",
+                            color: THEME.green,
+                            fontWeight: 700, fontSize: 12,
+                            cursor: isDone ? "default" : "pointer",
+                            opacity: markingDone === a.id ? 0.5 : 1,
                           }}
-                        >{incassando === a.id ? "…" : "💰 Incassa"}</button>
-                      )}
+                        >
+                          {isDone ? "✅" : "☑️"}
+                          {markingDone === a.id ? "…" : isDone ? "Eseguito" : "Eseguito"}
+                        </button>
 
-                      {phone ? (
-                        <>
-                          <a href={`tel:${formatPhoneForWhatsAppWeb(phone)}`}
-                             style={btnOutline({ fontSize: 12, padding: "7px 12px" })}>
-                            📞 Chiama
-                          </a>
+                        {/* 💰 Incassa */}
+                        <button
+                          onClick={() => !a.is_paid && handleIncassa(a)}
+                          disabled={a.is_paid || incassando === a.id}
+                          style={{
+                            display: "inline-flex", alignItems: "center", gap: 4,
+                            padding: "6px 11px", borderRadius: 8, border: "none",
+                            background: a.is_paid
+                              ? "rgba(22,163,74,0.13)"
+                              : "rgba(249,115,22,0.09)",
+                            color: a.is_paid ? THEME.green : THEME.amber,
+                            fontWeight: 700, fontSize: 12,
+                            cursor: a.is_paid ? "default" : "pointer",
+                            opacity: incassando === a.id ? 0.5 : 1,
+                          }}
+                        >
+                          💰 {incassando === a.id ? "…" : a.is_paid ? "Pagato" : "Incassa"}
+                        </button>
+
+                        {/* 💬 WA */}
+                        {phone && (
                           <button
                             onClick={() => sendReminder(a)}
+                            disabled={sendingWA === a.id}
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: 4,
+                              padding: "6px 11px", borderRadius: 8, border: "none",
+                              background: waSent
+                                ? "rgba(22,163,74,0.08)"
+                                : "rgba(37,99,235,0.08)",
+                              color: waSent ? THEME.green : THEME.blue,
+                              fontWeight: 700, fontSize: 12, cursor: "pointer",
+                              opacity: sendingWA === a.id ? 0.5 : 1,
+                            }}
                             title={waSent
-                              ? `Inviato il ${new Date(a.whatsapp_sent_at!).toLocaleDateString("it-IT")}`
+                              ? `Inviato il ${new Date(a.whatsapp_sent_at!).toLocaleDateString("it-IT")} — tocca per reinviare`
                               : "Invia promemoria WhatsApp"}
-                            style={btnOutline({
-                              fontSize: 12, padding: "7px 12px",
-                              color:       waSent ? THEME.green : THEME.text,
-                              borderColor: waSent ? THEME.green : THEME.border,
-                            })}
-                          >{waSent ? "✓ WA inviato" : "💬 WA"}</button>
-                        </>
-                      ) : (
-                        <span style={{ fontSize: 12, color: THEME.muted,
-                                       fontWeight: 600, padding: "7px 0" }}>
-                          Nessun telefono
-                        </span>
-                      )}
-                    </div>
+                          >
+                            💬 {sendingWA === a.id ? "…" : waSent ? "Inviato ↺" : "WA"}
+                          </button>
+                        )}
+
+                        {/* Scheda — solo icona, non compete */}
+                        {a.patient_id && (
+                          <button
+                            onClick={() => router.push(`/mobile/patients/${a.patient_id}`)}
+                            style={btnOutline({ fontSize: 12, padding: "6px 11px" })}
+                          >📄 Scheda</button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Azioni annullato */}
+                    {isCancelled && a.patient_id && (
+                      <div style={{ marginTop: 8 }}>
+                        <button
+                          onClick={() => router.push(`/mobile/patients/${a.patient_id}`)}
+                          style={btnOutline({ fontSize: 12, padding: "6px 11px" })}
+                        >📄 Scheda</button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -842,9 +926,11 @@ export default function MobileHomePage() {
         {/* ── Prossimi 7 giorni ── */}
         <div style={{ ...card, padding: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between",
-                        alignItems: "baseline", marginBottom: 12 }}>
+            alignItems: "baseline", marginBottom: 12 }}>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft }}>Prossimi appuntamenti</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft }}>
+                Prossimi appuntamenti
+              </div>
               <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 600, marginTop: 2 }}>
                 Prossimi 7 giorni · {nextFive.length} appuntamenti
               </div>
@@ -855,37 +941,42 @@ export default function MobileHomePage() {
             </button>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 6,
-                        maxHeight: 240, overflowY: "auto" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {nextFive.length === 0 ? (
               <div style={{ padding: 14, borderRadius: 10,
-                            border: `1.5px dashed ${THEME.border}`,
-                            color: THEME.muted, fontWeight: 600, fontSize: 13 }}>
+                border: `1.5px dashed ${THEME.border}`, color: THEME.muted,
+                fontWeight: 600, fontSize: 13 }}>
                 Nessun appuntamento imminente.
               </div>
             ) : nextFive.map(a => (
-              <button
-                key={a.id}
+              <button key={a.id}
                 onClick={() => a.patient_id
                   ? router.push(`/mobile/patients/${a.patient_id}`)
                   : router.push(`/mobile/calendar?date=${dateYMD}`)}
                 style={{
                   width: "100%", textAlign: "left", cursor: "pointer",
-                  borderRadius: 10,
-                  border: `1.5px solid ${THEME.border}`,
-                  background: statusBg(a.status),
-                  padding: "10px 13px",
+                  borderRadius: 10, border: `1.5px solid ${THEME.border}`,
+                  background: statusBg(a.status), padding: "10px 13px",
                 }}
               >
-                <div style={{ fontWeight: 700, color: THEME.text, fontSize: 13,
-                              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                              display: "flex", alignItems: "center", gap: 5 }}>
-                  {formatDateRelative(new Date(a.start_at))} · {fmtTime(a.start_at)} · {fullName(a.patients)}
-                  {/* ② Icona pagato anche nei prossimi */}
-                  {a.is_paid && <span style={{ fontSize: 12, flexShrink: 0 }}>💰</span>}
+                <div style={{ display: "flex", justifyContent: "space-between",
+                  alignItems: "center", gap: 8 }}>
+                  <div style={{ fontWeight: 700, color: THEME.text, fontSize: 13,
+                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                    display: "flex", alignItems: "center", gap: 5 }}>
+                    {formatDateRelative(new Date(a.start_at))} · {fmtTime(a.start_at)} · {fullName(a.patients)}
+                    {a.is_paid && <span style={{ fontSize: 12, flexShrink: 0 }}>💰</span>}
+                    {a.location === "domicile" && <span style={{ fontSize: 12, flexShrink: 0 }}>🏠</span>}
+                  </div>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px",
+                    borderRadius: 99, flexShrink: 0, whiteSpace: "nowrap",
+                    color: statusColor(a.status),
+                    background: THEME.panelBg, border: `1px solid ${statusColor(a.status)}30` }}>
+                    {statusLabel(a.status)}
+                  </span>
                 </div>
                 <div style={{ marginTop: 2, fontSize: 12, color: THEME.muted, fontWeight: 600,
-                              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {a.treatment_type ?? "Seduta"}
                   {typeof a.amount === "number" && a.amount > 0 ? ` · €${a.amount}` : ""}
                 </div>
@@ -894,7 +985,132 @@ export default function MobileHomePage() {
           </div>
         </div>
 
-      </div>{/* fine contenuto */}
+        {/* ━━━ SLOT LIBERI + SUGGERIMENTI ━━━ */}
+        {isToday && !loading && freeSlots.length > 0 && (
+          <div style={{ ...card, padding: 16, marginTop: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft, marginBottom: 4 }}>
+              🕐 Slot liberi oggi
+            </div>
+            <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 600, marginBottom: 12 }}>
+              {freeSlots.length} ore disponibili — considera di chiamare qualche paziente
+            </div>
+
+            {/* Slot liberi come pillole */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: suggestedPats.length > 0 ? 14 : 0 }}>
+              {freeSlots.map(slot => (
+                <button
+                  key={slot}
+                  onClick={() => router.push(`/mobile/calendar?date=${dateYMD}&new=1&time=${slot.replace(":","")}`)}
+                  style={{
+                    padding: "5px 12px", borderRadius: 99, fontSize: 12, fontWeight: 700,
+                    border: `1.5px solid ${THEME.border}`, background: THEME.panelSoft,
+                    color: THEME.muted, cursor: "pointer",
+                  }}
+                >
+                  {slot}
+                </button>
+              ))}
+            </div>
+
+            {/* Pazienti suggeriti */}
+            {suggestedPats.length > 0 && (
+              <>
+                <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted,
+                  textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
+                  Pazienti da richiamare
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {suggestedPats.map(p => {
+                    const waPhone = p.phone ? formatPhoneForWA(p.phone) : null;
+                    const daysSince = p.lastVisit
+                      ? Math.round((Date.now() - new Date(p.lastVisit).getTime()) / 86400000)
+                      : null;
+                    return (
+                      <div key={p.id} style={{
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        gap: 10, padding: "10px 12px", borderRadius: 10,
+                        background: THEME.panelSoft, border: `1px solid ${THEME.border}`,
+                      }}>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: THEME.text,
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {p.name}
+                          </div>
+                          {daysSince !== null && (
+                            <div style={{ fontSize: 11, color: THEME.muted, marginTop: 2 }}>
+                              Ultima seduta {daysSince === 0 ? "oggi" : daysSince === 1 ? "ieri" : `${daysSince} giorni fa`}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                          {p.phone && (
+                            <a href={`tel:${p.phone}`} style={{
+                              width: 32, height: 32, borderRadius: 8, fontSize: 15,
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              background: "rgba(37,99,235,0.08)",
+                              border: `1.5px solid rgba(37,99,235,0.2)`,
+                              textDecoration: "none",
+                            }}>📞</a>
+                          )}
+                          {waPhone && (
+                            <a href={`https://wa.me/${waPhone}`} target="_blank" rel="noreferrer"
+                              style={{
+                                width: 32, height: 32, borderRadius: 8, fontSize: 15,
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                background: "rgba(22,163,74,0.08)",
+                                border: `1.5px solid rgba(22,163,74,0.2)`,
+                                textDecoration: "none",
+                              }}>💬</a>
+                          )}
+                          <button
+                            onClick={() => router.push(`/mobile/patients/${p.id}`)}
+                            style={{
+                              width: 32, height: 32, borderRadius: 8, fontSize: 13,
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              background: THEME.panelBg, border: `1.5px solid ${THEME.border}`,
+                              cursor: "pointer",
+                            }}>📄</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ━━━ ANDAMENTO MESE ━━━ */}
+        {monthStats && !loading && (
+          <div style={{ ...card, padding: 16, marginTop: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft, marginBottom: 12 }}>
+              📊 {monthLabel} — andamento mese
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+              {[
+                { label: "Sedute",       value: String(monthStats.sessions),                      color: THEME.blue  },
+                { label: "Incassato",    value: `€${monthStats.revenue.toFixed(0)}`,              color: THEME.green },
+                { label: "Da incassare", value: `€${monthStats.unpaid.toFixed(0)}`,               color: monthStats.unpaid > 0 ? THEME.amber : THEME.muted },
+              ].map(s => (
+                <div key={s.label} style={{
+                  textAlign: "center", padding: "12px 6px",
+                  background: THEME.panelSoft, borderRadius: 10,
+                  border: `1.5px solid ${THEME.border}`,
+                }}>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1 }}>
+                    {s.value}
+                  </div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: THEME.muted, marginTop: 4,
+                    textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                    {s.label}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+      </div>
     </div>
   );
 }
