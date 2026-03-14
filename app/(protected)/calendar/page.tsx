@@ -2306,7 +2306,8 @@ return (
       <style jsx global>{`
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
         * { -webkit-font-smoothing: antialiased; box-sizing: border-box; }
-        body { font-family: 'Outfit', 'Segoe UI', system-ui, sans-serif; margin: 0; background: ${THEME.appBg}; }
+        html { overflow-x: hidden; }
+        body { font-family: 'Outfit', 'Segoe UI', system-ui, sans-serif; margin: 0; background: ${THEME.appBg}; overflow-x: hidden; }
         select, input, textarea, button { font-family: inherit; }
         input:focus, select:focus, textarea:focus {
           border-color: ${THEME.blue} !important;
@@ -3508,7 +3509,7 @@ return (
                 border: `2px solid ${THEME.border}`,
                 borderRadius: 12,
                 minHeight: 600,
-                overflow: "visible",
+                overflow: "clip",
                 boxShadow: "0 2px 12px rgba(30,64,175,0.06)",
                 position: "relative",
               }}
@@ -4291,7 +4292,7 @@ return (
                 border: `2px solid ${THEME.border}`,
                 borderRadius: 12,
                 minHeight: 600,
-                overflow: "visible",
+                overflow: "clip",
                 boxShadow: "0 2px 12px rgba(30,64,175,0.06)",
                 position: "relative",
               }}
