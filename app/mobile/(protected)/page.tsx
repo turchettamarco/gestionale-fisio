@@ -199,8 +199,8 @@ export default function MobileHomePage() {
       isScrolling.current = Math.abs(dy) > Math.abs(dx);
     }
 
-    // Pull-to-refresh: solo se in cima, gesto verso il basso e non è scroll orizzontale
-    const scrollTop = (e.currentTarget as HTMLElement).scrollTop ?? 0;
+    // Pull-to-refresh: solo se in cima alla pagina, gesto verso il basso, non scroll orizzontale
+    const scrollTop = window.scrollY ?? document.documentElement.scrollTop ?? 0;
     if (scrollTop === 0 && dy > 0 && isScrolling.current) {
       pullY.current = dy;
       // Aggiorniamo lo state solo quando si attraversa la soglia, non ad ogni pixel
@@ -498,13 +498,24 @@ export default function MobileHomePage() {
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ minHeight: "100vh", background: THEME.appBg, fontFamily: "Inter,-apple-system,sans-serif" }}>
+    <div style={{ minHeight: "100dvh", background: THEME.appBg, fontFamily: "-apple-system,'SF Pro Text',Inter,sans-serif" }}>
+      <style>{`
+        html, body {
+          overscroll-behavior-y: none;
+          -webkit-overflow-scrolling: touch;
+        }
+        * { -webkit-tap-highlight-color: transparent; }
+      `}</style>
 
       {/* ━━━ NAVBAR ━━━ */}
       <header style={{
         position: "sticky", top: 0, zIndex: 30,
-        background: THEME.gradient, padding: "0 14px", height: 54,
-        display: "flex", alignItems: "center", justifyContent: "space-between",
+        background: THEME.gradient,
+        paddingLeft: 14, paddingRight: 14,
+        paddingTop: "env(safe-area-inset-top, 0px)",
+        height: "calc(54px + env(safe-area-inset-top, 0px))",
+        display: "flex", alignItems: "flex-end", justifyContent: "space-between",
+        paddingBottom: 8,
         boxShadow: "0 2px 12px rgba(13,148,136,0.18)", gap: 10,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
@@ -579,7 +590,9 @@ export default function MobileHomePage() {
         position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 30,
         background: THEME.panelBg, borderTop: `1.5px solid ${THEME.border}`,
         display: "flex", boxShadow: "0 -4px 16px rgba(15,23,42,0.08)",
-        paddingBottom: "env(safe-area-inset-bottom,0px)",
+        paddingBottom: "max(env(safe-area-inset-bottom, 0px), 8px)",
+        paddingLeft: "env(safe-area-inset-left, 0px)",
+        paddingRight: "env(safe-area-inset-right, 0px)",
       }}>
         {[
           { href: "/mobile",          label: "Home",       icon: "⌂",  active: true },
@@ -615,7 +628,7 @@ export default function MobileHomePage() {
         onClick={() => router.push(`/mobile/calendar?date=${dateYMD}&new=1`)}
         aria-label="Nuovo appuntamento"
         style={{
-          position: "fixed", bottom: "calc(env(safe-area-inset-bottom,0px) + 68px)", right: 18,
+          position: "fixed", bottom: "calc(max(env(safe-area-inset-bottom, 0px), 8px) + 60px)", right: 18,
           zIndex: 40, width: 52, height: 52, borderRadius: "50%",
           background: THEME.gradient, color: "#fff", border: "none", cursor: "pointer",
           fontSize: 26, display: "flex", alignItems: "center", justifyContent: "center",
@@ -628,7 +641,7 @@ export default function MobileHomePage() {
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
-        style={{ padding: 14, paddingBottom: 100, overflowY: "auto" }}
+        style={{ padding: 14, paddingBottom: "calc(max(env(safe-area-inset-bottom, 0px), 8px) + 80px)" }}
       >
         {/* Pull-to-refresh */}
         {(showPull || pulling) && (

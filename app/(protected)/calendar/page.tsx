@@ -466,7 +466,7 @@ const userInitials = useMemo(() => {
   const [createDomicileAddress, setCreateDomicileAddress] = useState("");
 
   const [treatmentType, setTreatmentType] = useState<"seduta" | "macchinario">("seduta");
-  const [priceType, setPriceType] = useState<"invoiced" | "cash">("invoiced");
+  const [priceType, setPriceType] = useState<"invoiced" | "cash">("cash"); // default: non fatturato
   const [customAmount, setCustomAmount] = useState<string>("");
   const [useCustomPrice, setUseCustomPrice] = useState(false);
 
@@ -577,7 +577,9 @@ const { data, error } = await supabase
   };
 
   const [printMenuOpen, setPrintMenuOpen] = useState(false);
-const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [filtersPopoverOpen, setFiltersPopoverOpen] = useState(false);
   const printMenuRef = useRef<HTMLDivElement>(null);
 
   // Feature: Ricerca rapida nel calendario
@@ -898,39 +900,79 @@ const [filtersExpanded, setFiltersExpanded] = useState(false);
     return statusColor(event.status);
   }, [eventColors]);
 
-  const getAvailableSlots = useCallback((date: Date) => {
-    const slots = [];
-    
-    for (let hour = 7; hour < 22; hour++) {
-      for (let minute of [0, 30]) {
-        const slotStart = new Date(date);
-        slotStart.setHours(hour, minute, 0, 0);
-        
-        const slotEnd = new Date(slotStart.getTime() + 60 * 60000);
-        
-        const isOccupied = events.some(event => {
-          return (
-            event.start.getDate() === date.getDate() &&
-            event.start.getMonth() === date.getMonth() &&
-            event.start.getFullYear() === date.getFullYear() &&
-            (
-              (event.start >= slotStart && event.start < slotEnd) ||
-              (event.end > slotStart && event.end <= slotEnd) ||
-              (event.start <= slotStart && event.end >= slotEnd)
-            )
-          );
-        });
-        
-        if (!isOccupied) {
-          slots.push({
-            start: slotStart,
-            end: slotEnd,
-            time: `${pad2(hour)}:${pad2(minute)}`
-          });
-        }
+  // Calcola le finestre libere reali (gap tra appuntamenti) per un giorno
+  const getFreeWindows = useCallback((date: Date) => {
+    const DAY_START = 8; // 08:00
+    const DAY_END   = 20; // 20:00
+    const MIN_MINUTES = 30; // finestre più corte di 30min non mostrate
+
+    const dayAppts = events
+      .filter(e =>
+        e.start.getDate() === date.getDate() &&
+        e.start.getMonth() === date.getMonth() &&
+        e.start.getFullYear() === date.getFullYear() &&
+        e.status !== "cancelled"
+      )
+      .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+    const windows: { start: Date; end: Date; minutes: number }[] = [];
+
+    // Costruisci timeline occupata
+    const occupied: { s: number; e: number }[] = dayAppts.map(ev => ({
+      s: ev.start.getHours() * 60 + ev.start.getMinutes(),
+      e: ev.end.getHours() * 60 + ev.end.getMinutes(),
+    }));
+
+    // Merge overlaps
+    occupied.sort((a, b) => a.s - b.s);
+    const merged: { s: number; e: number }[] = [];
+    for (const o of occupied) {
+      if (merged.length && o.s < merged[merged.length - 1].e) {
+        merged[merged.length - 1].e = Math.max(merged[merged.length - 1].e, o.e);
+      } else {
+        merged.push({ ...o });
       }
     }
-    
+
+    // Trova gap
+    let cursor = DAY_START * 60;
+    for (const m of merged) {
+      if (m.s > cursor && m.s - cursor >= MIN_MINUTES) {
+        const s = new Date(date); s.setHours(Math.floor(cursor / 60), cursor % 60, 0, 0);
+        const e = new Date(date); e.setHours(Math.floor(m.s / 60), m.s % 60, 0, 0);
+        windows.push({ start: s, end: e, minutes: m.s - cursor });
+      }
+      cursor = Math.max(cursor, m.e);
+    }
+    // Gap finale
+    const dayEndMin = DAY_END * 60;
+    if (dayEndMin > cursor && dayEndMin - cursor >= MIN_MINUTES) {
+      const s = new Date(date); s.setHours(Math.floor(cursor / 60), cursor % 60, 0, 0);
+      const e = new Date(date); e.setHours(DAY_END, 0, 0, 0);
+      windows.push({ start: s, end: e, minutes: dayEndMin - cursor });
+    }
+
+    return windows;
+  }, [events]);
+
+  const getAvailableSlots = useCallback((date: Date) => {
+    const slots = [];
+    for (let hour = 7; hour < 22; hour++) {
+      for (const minute of [0, 30]) {
+        const slotStart = new Date(date);
+        slotStart.setHours(hour, minute, 0, 0);
+        const slotEnd = new Date(slotStart.getTime() + 60 * 60000);
+        const isOccupied = events.some(event =>
+          event.start.getDate() === date.getDate() &&
+          event.start.getMonth() === date.getMonth() &&
+          event.start.getFullYear() === date.getFullYear() &&
+          ((event.start >= slotStart && event.start < slotEnd) ||
+           (event.end > slotStart && event.end <= slotEnd) ||
+           (event.start <= slotStart && event.end >= slotEnd))
+        );
+        if (!isOccupied) slots.push({ start: slotStart, end: slotEnd, time: `${pad2(hour)}:${pad2(minute)}` });
+      }
+    }
     return slots;
   }, [events]);
 
@@ -2585,8 +2627,82 @@ return (
             style={{ border: "none", background: THEME.panelSoft, cursor: "pointer", color: THEME.text, fontSize: 16, padding: "4px 8px", borderRadius: 6, fontWeight: 700 }}>×</button>
         </div>
 
+        {/* ── Mini-calendario navigazione ── */}
+        {(() => {
+          const mc = currentDate;
+          const year = mc.getFullYear();
+          const month = mc.getMonth();
+          const firstDow = (new Date(year, month, 1).getDay() + 6) % 7; // 0=Lun
+          const daysInMonth = new Date(year, month + 1, 0).getDate();
+          const todayD = new Date(); todayD.setHours(0,0,0,0);
+          const MESI = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+          const GG = ["L","M","M","G","V","S","D"];
+          const cells: (number|null)[] = [...Array(firstDow).fill(null), ...Array.from({length:daysInMonth},(_,i)=>i+1)];
+          while(cells.length % 7 !== 0) cells.push(null);
+          return (
+            <div style={{ marginBottom: 20, background: THEME.panelSoft, borderRadius: 10, border: `1.5px solid ${THEME.border}`, padding: "12px 10px" }}>
+              {/* Header mese */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <button onClick={() => setCurrentDate(d => { const x=new Date(d); x.setMonth(x.getMonth()-1); return x; })}
+                  style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 14, color: THEME.muted, padding: "2px 6px", borderRadius: 4, fontWeight: 700 }}>◀</button>
+                <span style={{ fontSize: 12, fontWeight: 700, color: THEME.text }}>{MESI[month]} {year}</span>
+                <button onClick={() => setCurrentDate(d => { const x=new Date(d); x.setMonth(x.getMonth()+1); return x; })}
+                  style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 14, color: THEME.muted, padding: "2px 6px", borderRadius: 4, fontWeight: 700 }}>▶</button>
+              </div>
+              {/* Intestazioni giorni */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", marginBottom: 4 }}>
+                {GG.map((g,i) => <div key={i} style={{ textAlign: "center", fontSize: 9, fontWeight: 700, color: i >= 5 ? THEME.amber : THEME.muted, padding: "2px 0" }}>{g}</div>)}
+              </div>
+              {/* Celle */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 1 }}>
+                {cells.map((day, idx) => {
+                  if (day === null) return <div key={`mc-e-${idx}`}/>;
+                  const cellDate = new Date(year, month, day); cellDate.setHours(0,0,0,0);
+                  const isToday = cellDate.getTime() === todayD.getTime();
+                  // evidenzia i giorni della settimana corrente in vista week
+                  const weekStart = startOfISOWeekMonday(currentDate); weekStart.setHours(0,0,0,0);
+                  const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate()+5); weekEnd.setHours(23,59,59,999);
+                  const inWeek = viewType === "week" && cellDate >= weekStart && cellDate <= weekEnd;
+                  const isSelected = toDateInputValue(currentDate) === toDateInputValue(cellDate);
+                  // check if day has events
+                  const hasDomicile = events.some(ev => {
+                    const ed = new Date(ev.start); ed.setHours(0,0,0,0);
+                    return ed.getTime()===cellDate.getTime() && ev.location==="domicile" && ev.status!=="cancelled";
+                  });
+                  const hasEvents = events.some(ev => {
+                    const ed = new Date(ev.start); ed.setHours(0,0,0,0);
+                    return ed.getTime()===cellDate.getTime() && ev.status!=="cancelled";
+                  });
+                  return (
+                    <div key={`mc-${idx}`}
+                      onClick={() => setCurrentDate(cellDate)}
+                      style={{
+                        textAlign: "center", fontSize: 10, fontWeight: isToday||isSelected ? 800 : 500,
+                        padding: "3px 1px", borderRadius: 5, cursor: "pointer", position: "relative",
+                        background: isToday ? THEME.blue : isSelected && !isToday ? "rgba(37,99,235,0.12)" : inWeek ? "rgba(37,99,235,0.06)" : "transparent",
+                        color: isToday ? "#fff" : (idx % 7 === 6) ? THEME.amber : THEME.text,
+                        border: isSelected && !isToday ? `1.5px solid ${THEME.blue}` : "1.5px solid transparent",
+                      }}
+                    >
+                      {day}
+                      {hasEvents && !isToday && (
+                        <div style={{ position: "absolute", bottom: 1, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 1 }}>
+                          <div style={{ width: 4, height: 4, borderRadius: "50%", background: hasDomicile ? THEME.amber : THEME.patientsAccent }}/>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <button onClick={() => setCurrentDate(new Date())} style={{ marginTop: 8, width: "100%", padding: "5px", borderRadius: 6, border: `1px solid ${THEME.border}`, background: "transparent", color: THEME.blue, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                Torna a oggi
+              </button>
+            </div>
+          );
+        })()}
+
         {/* Sezione Appuntamenti Imminenti */}
-        <div style={{ marginTop: 24, borderTop: `2px solid ${THEME.blue}`, paddingTop: 20 }}>
+        <div style={{ marginTop: 0, borderTop: `2px solid ${THEME.blue}`, paddingTop: 20 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft, letterSpacing: 0.5, textTransform: "uppercase" }}>
               Prossimi
@@ -2954,147 +3070,94 @@ return (
             </div>
           )}
 
-          <div className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`} style={{ 
-  marginBottom: 12,
-  padding: "16px 18px",
-  background: THEME.panelBg,
-  borderRadius: 10,
-  border: `2px solid ${THEME.border}`
-}}>
-  <div 
-    onClick={() => setFiltersExpanded(!filtersExpanded)}
-    style={{ 
-      fontSize: 13, 
-      fontWeight: 700, 
-      color: THEME.blue, 
-      marginBottom: filtersExpanded ? 14 : 0,
-      cursor: "pointer",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      letterSpacing: 0.5,
-      textTransform: "uppercase",
-    }}
-  >
-    <span>◇ Filtri Avanzati</span>
-    <span style={{ fontSize: 12 }}>{filtersExpanded ? "△" : "▽"}</span>
-  </div>
-  
-  {filtersExpanded && (
-    <>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 4 }}>Luogo📍 </div>
-          <select
-            value={filters.location}
-            onChange={(e) => setFilters(prev => ({ ...prev, location: e.target.value as "all" | "studio" | "domicile" }))}
-            style={{
-              width: "100%",
-              padding: "8px 12px",
-              borderRadius: 6,
-              border: `1px solid ${THEME.borderSoft}`,
-              background: THEME.panelBg,
-              fontSize: 12,
-              fontWeight: 600,
-              color: THEME.text,
-            }}
-          >
-            <option value="all">Tutti i luoghi</option>
-            <option value="studio">Studio</option>
-            <option value="domicile">Domicilio</option>
-          </select>
-        </div>
-        
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 4 }}>Trattamento</div>
-          <select
-            value={filters.treatmentType}
-            onChange={(e) => setFilters(prev => ({ ...prev, treatmentType: e.target.value as "all" | "seduta" | "macchinario" }))}
-            style={{
-              width: "100%",
-              padding: "8px 12px",
-              borderRadius: 6,
-              border: `1px solid ${THEME.borderSoft}`,
-              background: THEME.panelBg,
-              fontSize: 12,
-              fontWeight: 600,
-              color: THEME.text,
-            }}
-          >
-            <option value="all">Tutti i trattamenti</option>
-            <option value="seduta">Seduta</option>
-            <option value="macchinario">Macchinario</option>
-          </select>
-        </div>
-        
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 4 }}>Importo Min</div>
-          <input
-            type="number"
-            value={filters.minAmount}
-            onChange={(e) => setFilters(prev => ({ ...prev, minAmount: e.target.value }))}
-            placeholder="€ Min"
-            style={{
-              width: "100%",
-              padding: "8px 12px",
-              borderRadius: 6,
-              border: `1px solid ${THEME.borderSoft}`,
-              background: THEME.panelBg,
-              fontSize: 12,
-              fontWeight: 600,
-            }}
-          />
-        </div>
-        
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 4 }}>Importo Max</div>
-          <input
-            type="number"
-            value={filters.maxAmount}
-            onChange={(e) => setFilters(prev => ({ ...prev, maxAmount: e.target.value }))}
-            placeholder="€ Max"
-            style={{
-              width: "100%",
-              padding: "8px 12px",
-              borderRadius: 6,
-              border: `1px solid ${THEME.borderSoft}`,
-              background: THEME.panelBg,
-              fontSize: 12,
-              fontWeight: 600,
-            }}
-          />
-        </div>
-      </div>
-      
-      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12, alignItems: "center" }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted }}>
-          {filteredEvents.length} eventi trovati
-        </div>
-        <button
-          onClick={() => setFilters({
-            location: "all",
-            treatmentType: "all",
-            priceType: "all",
-            minAmount: "",
-            maxAmount: "",
-          })}
-          style={{
-            padding: "6px 12px",
-            borderRadius: 6,
-            border: `1px solid ${THEME.borderSoft}`,
-            background: THEME.panelSoft,
-            color: THEME.text,
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: "pointer",
-          }}
-        >
-          Reset Filtri
-        </button>
-      </div>
-    </>
-  )}
-</div>
+          {/* ── FILTRI AVANZATI — popover ── */}
+          {filtersPopoverOpen && (
+            <div className="no-print" style={{ position: "fixed", inset: 0, zIndex: 29 }} onClick={() => setFiltersPopoverOpen(false)}/>
+          )}
+          {filtersPopoverOpen && (
+            <div className="no-print" style={{
+              position: "fixed", top: 70, left: "50%", transform: "translateX(-50%)",
+              zIndex: 30, background: THEME.panelBg, border: `2px solid ${THEME.border}`,
+              borderRadius: 12, padding: "18px 20px", boxShadow: "0 8px 32px rgba(30,64,175,0.14)",
+              width: 540, maxWidth: "96vw",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: THEME.blue }}>⚙ Filtri</span>
+                <button onClick={() => setFiltersPopoverOpen(false)} style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 16, color: THEME.muted, padding: "2px 6px" }}>✕</button>
+              </div>
+
+              {/* Stato */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase" as const, letterSpacing: 0.5, marginBottom: 8 }}>Stato appuntamento</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const }}>
+                  {(["all", "booked", "confirmed", "done", "not_paid", "cancelled"] as const).map(status => (
+                    <button key={status} onClick={() => setStatusFilter(status as Status | "all")} style={{
+                      padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontWeight: 600, fontSize: 11, transition: "all 0.15s",
+                      border: `1px solid ${statusFilter === status ? statusColor(status as Status) : THEME.borderSoft}`,
+                      background: statusFilter === status ? statusColor(status as Status) : THEME.panelBg,
+                      color: statusFilter === status ? "#fff" : THEME.text,
+                    }}>
+                      {status === "all" ? "Tutti" : statusLabel(status as Status)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Luogo + Trattamento */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase" as const, letterSpacing: 0.5, marginBottom: 6 }}>Luogo</div>
+                  <select value={filters.location} onChange={e => setFilters(p => ({ ...p, location: e.target.value as "all"|"studio"|"domicile" }))}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${THEME.borderSoft}`, background: THEME.panelBg, fontSize: 12, fontWeight: 600, color: THEME.text }}>
+                    <option value="all">Tutti i luoghi</option>
+                    <option value="studio">Studio</option>
+                    <option value="domicile">Domicilio</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase" as const, letterSpacing: 0.5, marginBottom: 6 }}>Trattamento</div>
+                  <select value={filters.treatmentType} onChange={e => setFilters(p => ({ ...p, treatmentType: e.target.value as "all"|"seduta"|"macchinario" }))}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${THEME.borderSoft}`, background: THEME.panelBg, fontSize: 12, fontWeight: 600, color: THEME.text }}>
+                    <option value="all">Tutti</option>
+                    <option value="seduta">Seduta</option>
+                    <option value="macchinario">Macchinario</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Slot liberi */}
+              <div style={{ borderTop: `1px solid ${THEME.border}`, paddingTop: 14 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                  <div style={{
+                    width: 36, height: 20, borderRadius: 999,
+                    background: showAvailableOnly ? THEME.green : THEME.borderSoft,
+                    position: "relative", transition: "background 0.2s", flexShrink: 0,
+                  }}>
+                    <div style={{
+                      width: 16, height: 16, borderRadius: "50%", background: "#fff",
+                      position: "absolute", top: 2,
+                      left: showAvailableOnly ? 18 : 2,
+                      transition: "left 0.2s",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                    }}/>
+                    <input type="checkbox" checked={showAvailableOnly} onChange={e => setShowAvailableOnly(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }}/>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: THEME.text }}>Mostra finestre libere</div>
+                    <div style={{ fontSize: 11, color: THEME.muted, marginTop: 2 }}>Evidenzia i gap tra appuntamenti in cui puoi inserirne di nuovi</div>
+                  </div>
+                </label>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 16, alignItems: "center" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted }}>{filteredEvents.length} eventi visibili</div>
+                <button onClick={() => { setFilters({ location: "all", treatmentType: "all", priceType: "all", minAmount: "", maxAmount: "" }); setStatusFilter("all"); setShowAvailableOnly(false); }}
+                  style={{ padding: "6px 14px", borderRadius: 7, border: `1px solid ${THEME.borderSoft}`, background: THEME.panelSoft, color: THEME.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                  Reset tutto
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`} style={{ 
             display: "flex", 
@@ -3268,39 +3331,19 @@ return (
                   ✓ {stats.done}/{stats.total}
                 </div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: THEME.blue, background: "rgba(91,130,168,0.1)", padding: "4px 8px", borderRadius: 6 }}>
-                  💰 €{stats.revenue}
+                  €{stats.revenue}
                 </div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: THEME.amber, background: "rgba(245, 158, 11, 0.1)", padding: "4px 8px", borderRadius: 6 }}>
-                  📊 € {Math.round(weeklyExpectedRevenue).toLocaleString("it-IT")}
+                  € {Math.round(weeklyExpectedRevenue).toLocaleString("it-IT")} prev.
                 </div>
               </div>
-              
-              <button
-                onClick={exportAppointments}
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: 8,
-                  border: `1px solid ${THEME.gray}`,
-                  background: THEME.panelSoft,
-                  color: THEME.text,
-                  cursor: "pointer",
-                  fontWeight: 600,
-                  fontSize: 13,
-                  minWidth: 100,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                }}
-              >
-                ▤ Esporta CSV
-              </button>
 
-              {/* Feature: Ricerca rapida */}
+              {/* Ricerca rapida */}
               <div style={{ position: "relative" }}>
                 <input
                   value={calendarSearch}
                   onChange={(e) => setCalendarSearch(e.target.value)}
-                  placeholder="🔍 Cerca paziente..."
+                  placeholder="Cerca paziente..."
                   style={{
                     padding: "7px 70px 7px 12px",
                     borderRadius: 8,
@@ -3309,96 +3352,79 @@ return (
                     color: THEME.text,
                     fontWeight: 600,
                     fontSize: 12,
-                    width: 200,
+                    width: 180,
                     outline: "none",
                     boxShadow: isSearchActive ? "0 0 8px rgba(245,158,11,0.2)" : "none",
                   }}
                 />
                 {calendarSearch.trim().length >= 2 && (
-                  <div style={{
-                    position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
-                    display: "flex", alignItems: "center", gap: 6,
-                  }}>
-                    <span style={{
-                      fontSize: 10, fontWeight: 800,
-                      color: searchMatchIds.size > 0 ? "#92400e" : THEME.red,
-                      background: searchMatchIds.size > 0 ? "rgba(245,158,11,0.25)" : "rgba(220,38,38,0.1)",
-                      padding: "2px 6px",
-                      borderRadius: 4,
-                    }}>
-                      {searchMatchIds.size}
-                    </span>
-                    <button
-                      onClick={() => setCalendarSearch("")}
-                      style={{
-                        width: 18, height: 18, borderRadius: 4,
-                        border: "none", background: "rgba(107,114,128,0.15)",
-                        color: THEME.muted, cursor: "pointer", fontWeight: 800, fontSize: 11,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        padding: 0,
-                      }}
-                    >✕</button>
+                  <div style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 10, fontWeight: 800, color: searchMatchIds.size > 0 ? "#92400e" : THEME.red, background: searchMatchIds.size > 0 ? "rgba(245,158,11,0.25)" : "rgba(220,38,38,0.1)", padding: "2px 6px", borderRadius: 4 }}>{searchMatchIds.size}</span>
+                    <button onClick={() => setCalendarSearch("")} style={{ width: 18, height: 18, borderRadius: 4, border: "none", background: "rgba(107,114,128,0.15)", color: THEME.muted, cursor: "pointer", fontWeight: 800, fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>✕</button>
                   </div>
                 )}
               </div>
 
-              {/* Feature: Riepilogo giornaliero */}
+              {/* Filtri — bottone che apre il popover */}
               <button
-                onClick={() => setDailySummaryOpen(true)}
+                onClick={() => setFiltersPopoverOpen(v => !v)}
                 style={{
-                  padding: "8px 14px",
-                  borderRadius: 8,
-                  border: `1px solid ${THEME.greenDark}`,
-                  background: "rgba(22,163,74,0.08)",
-                  color: THEME.green,
-                  cursor: "pointer",
-                  fontWeight: 700,
-                  fontSize: 12,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
-                  whiteSpace: "nowrap",
+                  padding: "8px 14px", borderRadius: 8,
+                  border: `1.5px solid ${(filters.location !== "all" || filters.treatmentType !== "all" || filters.minAmount || filters.maxAmount) ? THEME.blue : THEME.border}`,
+                  background: (filters.location !== "all" || filters.treatmentType !== "all" || filters.minAmount || filters.maxAmount) ? "rgba(37,99,235,0.08)" : THEME.panelSoft,
+                  color: (filters.location !== "all" || filters.treatmentType !== "all" || filters.minAmount || filters.maxAmount) ? THEME.blue : THEME.text,
+                  cursor: "pointer", fontWeight: 700, fontSize: 12,
+                  display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap" as const,
                 }}
               >
-                📋 Riepilogo
+                ⚙ Filtri{(filters.location !== "all" || filters.treatmentType !== "all" || filters.minAmount || filters.maxAmount) ? " ●" : ""}
               </button>
 
-              {/* Feature: Bulk paid toggle */}
-              <button
-                onClick={() => { setBulkMode(m => !m); setBulkSelected(new Set()); }}
-                style={{
-                  padding: "8px 14px",
-                  borderRadius: 8,
-                  border: `1px solid ${bulkMode ? THEME.blue : THEME.border}`,
-                  background: bulkMode ? "rgba(37,99,235,0.1)" : THEME.panelSoft,
-                  color: bulkMode ? THEME.blue : THEME.text,
-                  cursor: "pointer",
-                  fontWeight: 700,
-                  fontSize: 12,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {bulkMode ? `✓ ${bulkSelected.size} selez.` : "💰 Bulk pagati"}
-              </button>
-
-              {bulkMode && bulkSelected.size > 0 && (
+              {/* Menu Azioni — raggruppa CSV, Riepilogo, Bulk */}
+              <div style={{ position: "relative" }}>
                 <button
-                  onClick={bulkMarkPaid}
+                  onClick={() => setActionsMenuOpen(v => !v)}
                   style={{
-                    padding: "8px 14px",
-                    borderRadius: 8,
-                    border: "none",
-                    background: THEME.green,
-                    color: "#fff",
-                    cursor: "pointer",
-                    fontWeight: 700,
-                    fontSize: 12,
-                    whiteSpace: "nowrap",
+                    padding: "8px 14px", borderRadius: 8,
+                    border: `1px solid ${THEME.border}`,
+                    background: THEME.panelSoft, color: THEME.text,
+                    cursor: "pointer", fontWeight: 700, fontSize: 12,
+                    display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap" as const,
                   }}
                 >
+                  Azioni {actionsMenuOpen ? "▲" : "▼"}
+                </button>
+                {actionsMenuOpen && (
+                  <>
+                    <div style={{ position: "fixed", inset: 0, zIndex: 9998 }} onClick={() => setActionsMenuOpen(false)}/>
+                    <div style={{
+                      position: "fixed",
+                      top: 120,
+                      right: 28,
+                      background: THEME.panelBg, border: `1.5px solid ${THEME.border}`,
+                      borderRadius: 10, boxShadow: "0 8px 28px rgba(30,64,175,0.18)",
+                      zIndex: 9999, minWidth: 220, overflow: "hidden",
+                    }}>
+                      <button onClick={() => { exportAppointments(); setActionsMenuOpen(false); }}
+                        style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", borderBottom: `1px solid ${THEME.border}`, textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: THEME.text }}>
+                        ▤ Esporta CSV
+                      </button>
+                      <button onClick={() => { setDailySummaryOpen(true); setActionsMenuOpen(false); }}
+                        style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", borderBottom: `1px solid ${THEME.border}`, textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: THEME.text }}>
+                        📋 Riepilogo giornaliero
+                      </button>
+                      <button onClick={() => { setBulkMode(m => !m); setBulkSelected(new Set()); setActionsMenuOpen(false); }}
+                        style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: bulkMode ? THEME.blue : THEME.text }}>
+                        💰 {bulkMode ? `Bulk attivo (${bulkSelected.size})` : "Segna pagati in blocco"}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Bulk confirm — visibile solo se bulk attivo e selezione > 0 */}
+              {bulkMode && bulkSelected.size > 0 && (
+                <button onClick={bulkMarkPaid} style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: THEME.green, color: "#fff", cursor: "pointer", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" as const }}>
                   Segna {bulkSelected.size} pagati
                 </button>
               )}
@@ -3474,54 +3500,6 @@ return (
             </div>
           </div>
 
-          <div className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`} style={{ 
-            display: "flex", 
-            justifyContent: "space-between", 
-            alignItems: "center",
-            marginBottom: 12,
-            padding: "12px 16px",
-            background: THEME.panelSoft,
-            borderRadius: 8,
-            border: `1.5px solid ${THEME.border}`,
-                      }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginRight: 8 }}>
-                FILTRI STATO:
-              </div>
-              {["all", "booked", "confirmed", "done", "not_paid", "cancelled"]
-.map((status) => (
-                <button
-                  key={status}
-                  onClick={() => setStatusFilter(status as Status | "all")}
-                  style={{
-                    padding: "6px 12px",
-                    borderRadius: 6,
-                    border: `1px solid ${statusFilter === status ? statusColor(status as Status) : THEME.borderSoft}`,
-                    background: statusFilter === status ? statusColor(status as Status) : THEME.panelBg,
-                    color: statusFilter === status ? "#fff" : THEME.text,
-                    cursor: "pointer",
-                    fontWeight: 600,
-                    fontSize: 11,
-                    transition: "all 0.2s",
-                  }}
-                >
-                  {status === "all" ? "Tutti" : statusLabel(status as Status)}
-                </button>
-              ))}
-            </div>
-            
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, color: THEME.text }}>
-                <input
-                  type="checkbox"
-                  checked={showAvailableOnly}
-                  onChange={(e) => setShowAvailableOnly(e.target.checked)}
-                  style={{ width: 16, height: 16 }}
-                />
-                Solo slot liberi
-              </label>
-            </div>
-          </div>
 
           {viewType === "week" ? (
             <div
@@ -3602,6 +3580,14 @@ return (
         }}>
           {forecast.totalEvents} appt • {forecast.occupancyRate > 40 ? "ALTA" : forecast.occupancyRate > 20 ? "MEDIA" : "BASSA"}
         </div>
+        {/* Indicatore domicilio nel giorno */}
+        {filteredEvents.some(ev => {
+          const evDate = new Date(ev.start); evDate.setHours(0,0,0,0);
+          const colDate = new Date(day); colDate.setHours(0,0,0,0);
+          return evDate.getTime() === colDate.getTime() && ev.location === "domicile";
+        }) && (
+          <div style={{ fontSize: 9, fontWeight: 700, color: "#fed7aa", marginTop: 2, letterSpacing: 0.3 }}>⌂ domicilio</div>
+        )}
       </div>
     );
   })}
@@ -4025,53 +4011,44 @@ return (
                   })}
                   
                   {showAvailableOnly && weekDays.map((day, dayIndex) => {
-                    const availableSlots = getAvailableSlots(day);
-                    
-                    return availableSlots.map((slot, slotIndex) => {
-                      const { top, height } = getEventPosition(slot.start, slot.end);
-                      
+                    const windows = getFreeWindows(day);
+                    return windows.map((win, wi) => {
+                      const { top, height } = getEventPosition(win.start, win.end);
+                      const hrs = Math.floor(win.minutes / 60);
+                      const mins = win.minutes % 60;
+                      const label = hrs > 0 ? `${hrs}h${mins > 0 ? `${mins}′` : ""}` : `${mins}′`;
                       return (
-                        <div
-                          key={`slot-${dayIndex}-${slotIndex}`}
+                        <div key={`win-${dayIndex}-${wi}`}
                           style={{
                             position: "absolute",
-                            left: `calc(${TIME_COL}px + ${dayIndex} * calc((100% - 80px) / 6))`,
+                            left: `calc(${TIME_COL}px + ${dayIndex} * calc((100% - 80px) / 6) + 2px)`,
                             top: `${top}px`,
-                            width: `calc((100% - ${TIME_COL}px) / 6 - 4px)`,
+                            width: `calc((100% - ${TIME_COL}px) / 6 - 6px)`,
                             height: `${height}px`,
-                            background: "rgba(22, 163, 74, 0.1)",
-                            border: "2px dashed rgba(22, 163, 74, 0.5)",
-                            borderRadius: 8,
+                            background: "rgba(22,163,74,0.07)",
+                            borderLeft: "3px solid rgba(22,163,74,0.5)",
+                            borderRadius: "0 6px 6px 0",
                             cursor: "pointer",
-                            zIndex: 0,
+                            zIndex: 1,
                             display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            transition: "all 0.2s",
+                            flexDirection: "column",
+                            alignItems: "flex-start",
+                            justifyContent: "flex-start",
+                            padding: "4px 6px",
+                            transition: "all 0.15s",
+                            overflow: "hidden",
                           }}
-                          onClick={() => {
-                            const hour = slot.start.getHours();
-                            const minute = slot.start.getMinutes();
-                            handleSlotClick(day, hour, minute);
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.background = "rgba(22, 163, 74, 0.2)";
-                            e.currentTarget.style.border = "2px solid rgba(22, 163, 74, 0.7)";
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = "rgba(22, 163, 74, 0.1)";
-                            e.currentTarget.style.border = "2px dashed rgba(22, 163, 74, 0.5)";
-                          }}
+                          onClick={() => handleSlotClick(day, win.start.getHours(), win.start.getMinutes())}
+                          onMouseEnter={e => { e.currentTarget.style.background = "rgba(22,163,74,0.15)"; e.currentTarget.style.borderLeftColor = THEME.green; }}
+                          onMouseLeave={e => { e.currentTarget.style.background = "rgba(22,163,74,0.07)"; e.currentTarget.style.borderLeftColor = "rgba(22,163,74,0.5)"; }}
+                          title={`Libero ${pad2(win.start.getHours())}:${pad2(win.start.getMinutes())} – ${pad2(win.end.getHours())}:${pad2(win.end.getMinutes())} (${label})`}
                         >
-                          <div style={{ 
-                            fontSize: 11, 
-                            fontWeight: 600, 
-                            color: THEME.green,
-                            textAlign: "center",
-                            opacity: 0.8
-                          }}>
-                            {slot.time}
+                          <div style={{ fontSize: 9, fontWeight: 700, color: THEME.green, lineHeight: 1.3 }}>
+                            {pad2(win.start.getHours())}:{pad2(win.start.getMinutes())}
                           </div>
+                          {height >= 40 && (
+                            <div style={{ fontSize: 9, fontWeight: 600, color: "rgba(22,163,74,0.7)", lineHeight: 1.3 }}>{label} libero</div>
+                          )}
                         </div>
                       );
                     });
@@ -4282,6 +4259,10 @@ return (
                         {dayEvents.length > 10 && (
                           <span style={{ fontSize: 8, fontWeight: 700, color: THEME.muted, paddingLeft: 3 }}>+{dayEvents.length - 10}</span>
                         )}
+                        {/* Indicatore domicilio */}
+                        {dayEvents.some(ev => ev.location === "domicile") && (
+                          <div style={{ marginTop: 2, fontSize: 8, fontWeight: 700, color: THEME.amber, background: "rgba(249,115,22,0.12)", borderRadius: 3, padding: "1px 4px", display: "inline-block" }}>⌂ dom.</div>
+                        )}
                       </div>
                     </div>
                   );
@@ -4467,53 +4448,40 @@ return (
                 })}
 
                 {showAvailableOnly && (() => {
-                  const availableSlots = getAvailableSlots(currentDate);
-                  
-                  return availableSlots.map((slot, index) => {
-                    const { top, height } = getEventPosition(slot.start, slot.end);
-                    
+                  const windows = getFreeWindows(currentDate);
+                  return windows.map((win, wi) => {
+                    const { top, height } = getEventPosition(win.start, win.end);
+                    const hrs = Math.floor(win.minutes / 60);
+                    const mins = win.minutes % 60;
+                    const label = hrs > 0 ? `${hrs}h${mins > 0 ? `${mins}′` : ""}` : `${mins}′`;
                     return (
-                      <div
-                        key={`slot-${index}`}
+                      <div key={`dwin-${wi}`}
                         style={{
                           position: "absolute",
-                          left: `${TIME_COL}px`,
+                          left: `${TIME_COL + 2}px`,
                           top: `${top}px`,
-                          width: `calc(100% - ${TIME_COL + 4}px)`,
+                          width: `calc(100% - ${TIME_COL + 8}px)`,
                           height: `${height}px`,
-                          background: "rgba(22, 163, 74, 0.1)",
-                          border: "2px dashed rgba(22, 163, 74, 0.5)",
-                          borderRadius: 8,
+                          background: "rgba(22,163,74,0.07)",
+                          borderLeft: "3px solid rgba(22,163,74,0.5)",
+                          borderRadius: "0 6px 6px 0",
                           cursor: "pointer",
-                          zIndex: 0,
+                          zIndex: 1,
                           display: "flex",
                           alignItems: "center",
-                          justifyContent: "center",
-                          transition: "all 0.2s",
+                          gap: 8,
+                          padding: "0 10px",
+                          transition: "all 0.15s",
                         }}
-                        onClick={() => {
-                          const hour = slot.start.getHours();
-                          const minute = slot.start.getMinutes();
-                          handleSlotClick(currentDate, hour, minute);
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = "rgba(22, 163, 74, 0.2)";
-                          e.currentTarget.style.border = "2px solid rgba(22, 163, 74, 0.7)";
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = "rgba(22, 163, 74, 0.1)";
-                          e.currentTarget.style.border = "2px dashed rgba(22, 163, 74, 0.5)";
-                        }}
+                        onClick={() => handleSlotClick(currentDate, win.start.getHours(), win.start.getMinutes())}
+                        onMouseEnter={e => { e.currentTarget.style.background = "rgba(22,163,74,0.15)"; e.currentTarget.style.borderLeftColor = THEME.green; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = "rgba(22,163,74,0.07)"; e.currentTarget.style.borderLeftColor = "rgba(22,163,74,0.5)"; }}
+                        title={`Libero ${pad2(win.start.getHours())}:${pad2(win.start.getMinutes())} – ${pad2(win.end.getHours())}:${pad2(win.end.getMinutes())}`}
                       >
-                        <div style={{ 
-                          fontSize: 12, 
-                          fontWeight: 600, 
-                          color: THEME.green,
-                          textAlign: "center"
-                        }}>
-                          <div>🕒 {slot.time}</div>
-                          <div style={{ fontSize: 10, opacity: 0.8 }}>SLOT LIBERO</div>
-                        </div>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: THEME.green }}>
+                          {pad2(win.start.getHours())}:{pad2(win.start.getMinutes())} – {pad2(win.end.getHours())}:{pad2(win.end.getMinutes())}
+                        </span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "rgba(22,163,74,0.7)" }}>{label} libero · clicca per prenotare</span>
                       </div>
                     );
                   });
