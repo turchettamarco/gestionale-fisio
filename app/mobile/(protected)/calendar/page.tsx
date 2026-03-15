@@ -188,6 +188,12 @@ function CalendarPageInner() {
   const timelineRef       = useRef<HTMLDivElement>(null);
   const timelineScrollRef = useRef<HTMLDivElement>(null);
 
+  /* view mode */
+  const [viewMode,       setViewMode]       = useState<"day"|"month">("day");
+  const [monthEvents,    setMonthEvents]    = useState<CalendarEvent[]>([]);
+  const [monthLoading,   setMonthLoading]   = useState(false);
+  const [monthDrawerDay, setMonthDrawerDay] = useState<Date|null>(null);
+
   /* drag mouse */
   const [draggingId, setDraggingId] = useState<string|null>(null);
   const [dragOverY,  setDragOverY]  = useState<number|null>(null);
@@ -310,6 +316,42 @@ function CalendarPageInner() {
 
   useEffect(() => { loadAppointments(currentDate); }, [currentDate, loadAppointments]);
 
+  const loadMonthAppointments = useCallback(async (date: Date) => {
+    setMonthLoading(true);
+    const firstDay = new Date(date.getFullYear(), date.getMonth(), 1);
+    const lastDay  = new Date(date.getFullYear(), date.getMonth()+1, 0, 23, 59, 59, 999);
+    const {data, error:err} = await supabase.from("appointments").select(`
+      id,patient_id,start_at,end_at,status,calendar_note,is_paid,
+      location,clinic_site,domicile_address,
+      amount,treatment_type,price_type,whatsapp_sent_at,
+      patients:patient_id(first_name,last_name,phone)
+    `).gte("start_at", firstDay.toISOString()).lte("start_at", lastDay.toISOString())
+      .order("start_at", {ascending:true});
+    if (!err && data) {
+      const mapped: CalendarEvent[] = data.map((a:any) => {
+        const p = Array.isArray(a.patients)?a.patients[0]:a.patients;
+        const name = p?`${p.last_name??""} ${p.first_name??""}`.trim():"Paziente";
+        return {
+          id:a.id, patient_id:a.patient_id??null,
+          patient_name:name||"Paziente", patient_first_name:p?.first_name??null,
+          patient_phone:p?.phone??null, start:new Date(a.start_at), end:new Date(a.end_at),
+          status:(a.status??"booked") as Status, calendar_note:a.calendar_note??null,
+          is_paid:a.is_paid??false,
+          location:(a.location??null) as LocationType|null, clinic_site:a.clinic_site??null,
+          domicile_address:a.domicile_address??null, amount:a.amount??null,
+          treatment_type:a.treatment_type??null, price_type:a.price_type??null,
+          whatsapp_sent_at:a.whatsapp_sent_at??null,
+        };
+      });
+      setMonthEvents(mapped);
+    }
+    setMonthLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (viewMode === "month") loadMonthAppointments(currentDate);
+  }, [viewMode, currentDate, loadMonthAppointments]);
+
   /* ── URL params ──────────────────────────── */
   const handledNewRef = useRef(false);
   useEffect(() => {
@@ -398,8 +440,20 @@ function CalendarPageInner() {
   }, [userEmail]);
 
   /* ── Navigation ──────────────────────────── */
-  const goPrev  = useCallback(() => setCurrentDate(p=>addDays(p,-1)), []);
-  const goNext  = useCallback(() => setCurrentDate(p=>addDays(p, 1)), []);
+  const goPrev  = useCallback(() => {
+    if (viewMode==="month") {
+      setCurrentDate(p=>{ const d=new Date(p); d.setDate(1); d.setMonth(d.getMonth()-1); return d; });
+    } else {
+      setCurrentDate(p=>addDays(p,-1));
+    }
+  }, [viewMode]);
+  const goNext  = useCallback(() => {
+    if (viewMode==="month") {
+      setCurrentDate(p=>{ const d=new Date(p); d.setDate(1); d.setMonth(d.getMonth()+1); return d; });
+    } else {
+      setCurrentDate(p=>addDays(p, 1));
+    }
+  }, [viewMode]);
   const goToday = useCallback(() => setCurrentDate(new Date()), []);
 
   /* ── Swipe page ──────────────────────────── */
@@ -979,6 +1033,21 @@ function CalendarPageInner() {
       {/* ━━━ CONTENUTO ━━━ */}
       <div style={{padding:"10px 14px 0"}}>
 
+        {/* ─── Toggle Giorno / Mese ─── */}
+        <div style={{display:"flex",gap:0,marginBottom:8,background:THEME.panelBg,
+          border:`1.5px solid ${THEME.border}`,borderRadius:10,overflow:"hidden"}}>
+          <button onClick={()=>setViewMode("day")} style={{
+            flex:1,padding:"9px 0",border:"none",cursor:"pointer",fontWeight:700,fontSize:13,
+            background:viewMode==="day"?"linear-gradient(135deg,#0d9488,#2563eb)":THEME.panelBg,
+            color:viewMode==="day"?"#fff":THEME.muted,
+          }}>Giorno</button>
+          <button onClick={()=>setViewMode("month")} style={{
+            flex:1,padding:"9px 0",border:"none",cursor:"pointer",fontWeight:700,fontSize:13,
+            background:viewMode==="month"?"linear-gradient(135deg,#0d9488,#2563eb)":THEME.panelBg,
+            color:viewMode==="month"?"#fff":THEME.muted,
+          }}>Mese</button>
+        </div>
+
         {/* ─── Barra navigazione data ─── */}
         <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
           <button onClick={goPrev} style={{
@@ -997,13 +1066,24 @@ function CalendarPageInner() {
                 background:isToday?"rgba(37,99,235,0.08)":THEME.panelBg,
                 color:isToday?THEME.blue:THEME.text,
               }}>
-              {isToday&&<span style={{fontSize:10,fontWeight:800,background:THEME.blue,color:"#fff",
-                padding:"1px 6px",borderRadius:99,marginRight:6}}>Oggi</span>}
-              <span style={{fontWeight:800}}>{formatWeekday(currentDate)}</span>
-              <span style={{fontWeight:500,opacity:0.7,marginLeft:6}}>{formatDMY(currentDate)}</span>
-              <span style={{fontSize:11,color:THEME.muted,marginLeft:6}}>📅</span>
+              {viewMode==="month"?(
+                <>
+                  <span style={{fontWeight:800}}>
+                    {["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno",
+                      "Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"][currentDate.getMonth()]}
+                  </span>
+                  <span style={{fontWeight:500,opacity:0.7,marginLeft:6}}>{currentDate.getFullYear()}</span>
+                </>
+              ):(
+                <>
+                  {isToday&&<span style={{fontSize:10,fontWeight:800,background:THEME.blue,color:"#fff",
+                    padding:"1px 6px",borderRadius:99,marginRight:6}}>Oggi</span>}
+                  <span style={{fontWeight:800}}>{formatWeekday(currentDate)}</span>
+                  <span style={{fontWeight:500,opacity:0.7,marginLeft:6}}>{formatDMY(currentDate)}</span>
+                  <span style={{fontSize:11,color:THEME.muted,marginLeft:6}}>📅</span>
+                </>
+              )}
             </button>
-            {/* Input date invisibile per picker nativo */}
             <input
               ref={dateInputRef}
               type="date"
@@ -1025,8 +1105,118 @@ function CalendarPageInner() {
           }}>›</button>
         </div>
 
-        {/* ─── Vista settimanale compatta ─── */}
-        <div style={{
+        {/* ─── Vista mese OPPURE striscia settimanale ─── */}
+        {viewMode==="month" ? (
+          <div style={{background:THEME.panelBg,overflow:"hidden",
+            marginBottom:10,marginLeft:-14,marginRight:-14,
+            borderTop:`1.5px solid ${THEME.border}`,borderBottom:`1.5px solid ${THEME.border}`}}>
+            {/* Intestazioni giorni — Lun–Sab, no Domenica */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",
+              borderBottom:`1px solid ${THEME.border}`,background:THEME.panelSoft}}>
+              {["Lun","Mar","Mer","Gio","Ven","Sab"].map((g,i)=>(
+                <div key={i} style={{textAlign:"center",padding:"7px 0",fontSize:9,fontWeight:700,
+                  color:i===5?THEME.amber:THEME.muted}}>
+                  {g}
+                </div>
+              ))}
+            </div>
+            {/* Celle giorni */}
+            {(()=>{
+              const year  = currentDate.getFullYear();
+              const month = currentDate.getMonth();
+              const firstDow = (new Date(year,month,1).getDay()+6)%7; // 0=Lun, 6=Dom
+              const daysInMonth = new Date(year,month+1,0).getDate();
+              const today = new Date(); today.setHours(0,0,0,0);
+
+              // Costruisci celle solo Lun–Sab (dow 0–5), salta domeniche
+              const cells: (number|null)[] = [];
+              // Offset iniziale senza domeniche (se firstDow=6=Dom, la prima domenica va saltata)
+              const offsetNoDom = firstDow === 6 ? 0 : firstDow; // quante celle vuote Lun-Sab prima del 1°
+              for (let i=0; i<offsetNoDom; i++) cells.push(null);
+              for (let d=1; d<=daysInMonth; d++) {
+                const dow = (new Date(year,month,d).getDay()+6)%7; // 0=Lun,6=Dom
+                if (dow === 6) continue; // salta domeniche
+                cells.push(d);
+              }
+              while(cells.length%6!==0) cells.push(null);
+
+              return (
+                <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)"}}>
+                  {cells.map((day,idx)=>{
+                    if (day===null) return <div key={`e-${idx}`} style={{minHeight:56,
+                      borderRight:idx%6<5?`1px solid ${THEME.border}`:"none",
+                      borderBottom:`1px solid ${THEME.border}`}}/>;
+
+                    const cellDate = new Date(year,month,day);
+                    const isT  = cellDate.getTime()===today.getTime();
+                    const isSel= isSameDay(cellDate,currentDate);
+                    const dow  = (new Date(year,month,day).getDay()+6)%7;
+                    const isSat= dow===5;
+                    const dayEvs = monthEvents
+                      .filter(e=>isSameDay(e.start,cellDate)&&e.status!=="cancelled")
+                      .sort((a,b)=>a.start.getTime()-b.start.getTime());
+                    const hasDom = dayEvs.some(e=>e.location==="domicile");
+
+                    return (
+                      <div key={`d-${day}`}
+                        onClick={()=>{const c=new Date(cellDate);c.setHours(0,0,0,0);setCurrentDate(c);setMonthDrawerDay(c);}}
+                        style={{
+                          minHeight:56,padding:"4px 3px",
+                          borderRight:idx%6<5?`1px solid ${THEME.border}`:"none",
+                          borderBottom:`1px solid ${THEME.border}`,
+                          cursor:"pointer",
+                          background:isSel?"rgba(37,99,235,0.07)":isT?"rgba(37,99,235,0.03)":"transparent",
+                        }}>
+                        {/* Numero giorno — centrato */}
+                        <div style={{display:"flex",justifyContent:"center",alignItems:"center",marginBottom:3}}>
+                          <span style={{
+                            fontSize:11,fontWeight:isT||isSel?800:500,
+                            color:isT?"#fff":isSel?THEME.blue:isSat?THEME.amber:THEME.text,
+                            ...(isT?{background:THEME.blue,borderRadius:"50%",width:18,height:18,
+                              display:"inline-flex",alignItems:"center",justifyContent:"center"}:{}),
+                          }}>{day}</span>
+                          {hasDom&&<span style={{fontSize:7,marginLeft:2}}>🏠</span>}
+                        </div>
+                        {/* Appuntamenti: orario + cognome (cognome = tutto tranne il nome) */}
+                        {dayEvs.length>0&&(
+                          <div style={{display:"flex",flexDirection:"column",gap:1}}>
+                            {dayEvs.slice(0,3).map((ev,i)=>{
+                              // patient_name = "Cognome Nome" → rimuovi first_name per ottenere cognome
+                              const fn = ev.patient_first_name?.trim() ?? "";
+                              const surname = fn
+                                ? ev.patient_name.replace(new RegExp(`\\s*${fn}\\s*$`),"").trim()
+                                : ev.patient_name.split(" ")[0];
+                              const col = statusColor(ev.status);
+                              return (
+                                <div key={i} style={{
+                                  fontSize:8,fontWeight:700,lineHeight:1.3,
+                                  color:col,background:`${col}15`,
+                                  borderRadius:3,padding:"1px 3px",
+                                  overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
+                                }}>
+                                  {fmtTime(ev.start).slice(0,5)} {surname||ev.patient_name}
+                                </div>
+                              );
+                            })}
+                            {dayEvs.length>3&&(
+                              <div style={{fontSize:8,fontWeight:700,color:THEME.muted,paddingLeft:2}}>
+                                +{dayEvs.length-3}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+            {monthLoading&&(
+              <div style={{padding:12,textAlign:"center",fontSize:12,color:THEME.muted}}>Caricamento…</div>
+            )}
+          </div>
+        ) : (
+          <div style={{
           display:"flex",gap:4,marginBottom:10,
           background:THEME.panelBg,borderRadius:12,padding:"8px 8px",
           border:`1.5px solid ${THEME.border}`,
@@ -1058,8 +1248,10 @@ function CalendarPageInner() {
             );
           })}
         </div>
+        )}
 
-        {/* ─── Barra azioni giorno ─── */}
+        {/* ─── Barra azioni giorno (solo in vista giorno) ─── */}
+        {viewMode==="day"&&(
         <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
           {/* Oggi */}
           {!isToday&&(
@@ -1078,6 +1270,7 @@ function CalendarPageInner() {
             </div>
           )}
         </div>
+        )}
 
         {/* ─── Errore / loading ─── */}
         {(loading||busy||error)&&(
@@ -1097,6 +1290,7 @@ function CalendarPageInner() {
           </div>
         )}
 
+        {viewMode==="day"&&(<>
         {/* ─── Legenda swipe ─── */}
         <div style={{display:"flex",gap:10,marginBottom:8,fontSize:10,color:THEME.muted,fontWeight:600}}>
           <span>← scorri card per aprire</span>
@@ -1207,7 +1401,103 @@ function CalendarPageInner() {
             </div>
           </div>
         </div>
+        </>)}
       </div>
+
+      {/* ━━━ DRAWER MESE ━━━ */}
+      {monthDrawerDay&&(
+        <>
+          <div onClick={()=>setMonthDrawerDay(null)} style={{
+            position:"fixed",inset:0,zIndex:50,
+            background:"rgba(15,23,42,0.4)",backdropFilter:"blur(2px)",
+          }}/>
+          <div style={{
+            position:"fixed",bottom:0,left:0,right:0,zIndex:51,
+            background:THEME.panelBg,
+            borderRadius:"18px 18px 0 0",
+            padding:"16px 20px",
+            paddingBottom:`max(20px, env(safe-area-inset-bottom, 20px))`,
+            boxShadow:"0 -8px 40px rgba(15,23,42,0.18)",
+            maxHeight:"70vh",display:"flex",flexDirection:"column",
+          }}>
+            {/* Handle */}
+            <div style={{width:36,height:4,borderRadius:99,background:THEME.border,margin:"0 auto 14px"}}/>
+
+            {/* Header */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:800,color:THEME.text}}>
+                  {formatWeekday(monthDrawerDay)} {monthDrawerDay.getDate()}
+                </div>
+                <div style={{fontSize:12,color:THEME.muted,marginTop:2}}>
+                  {monthEvents.filter(e=>isSameDay(e.start,monthDrawerDay)&&e.status!=="cancelled").length} appuntamenti
+                </div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button
+                  onClick={()=>{setViewMode("day");setMonthDrawerDay(null);}}
+                  style={{padding:"7px 14px",borderRadius:9,border:"none",
+                    background:THEME.gradient,color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer"}}>
+                  Vista giorno →
+                </button>
+                <button
+                  onClick={()=>{openCreate(undefined,toISODateLocal(monthDrawerDay));setMonthDrawerDay(null);}}
+                  style={{width:34,height:34,borderRadius:99,border:"none",
+                    background:"rgba(37,99,235,0.1)",color:THEME.blue,fontWeight:700,fontSize:20,cursor:"pointer",
+                    display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  +
+                </button>
+              </div>
+            </div>
+
+            {/* Lista appuntamenti del giorno */}
+            <div style={{overflowY:"auto",flex:1}}>
+              {(()=>{
+                const dayEvs = monthEvents
+                  .filter(e=>isSameDay(e.start,monthDrawerDay))
+                  .sort((a,b)=>a.start.getTime()-b.start.getTime());
+                if (dayEvs.length===0) return (
+                  <div style={{padding:"24px 0",textAlign:"center",color:THEME.muted,fontSize:13,fontWeight:600}}>
+                    Nessun appuntamento — tocca + per aggiungerne uno
+                  </div>
+                );
+                return dayEvs.map(ev=>{
+                  const col = statusColor(ev.status);
+                  return (
+                    <div key={ev.id}
+                      onClick={()=>{openEvent(ev);setMonthDrawerDay(null);}}
+                      style={{
+                        display:"flex",alignItems:"center",gap:12,
+                        padding:"11px 0",borderBottom:`1px solid ${THEME.border}`,
+                        cursor:"pointer",
+                      }}>
+                      <div style={{width:3,height:40,borderRadius:99,background:col,flexShrink:0}}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:700,color:THEME.text,
+                          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          {ev.patient_name}
+                        </div>
+                        <div style={{fontSize:11,color:THEME.muted,marginTop:2,display:"flex",gap:6}}>
+                          <span>{fmtTime(ev.start)}–{fmtTime(ev.end)}</span>
+                          <span style={{color:col}}>{statusLabel(ev.status)}</span>
+                          {ev.location==="domicile"&&<span>🏠</span>}
+                        </div>
+                      </div>
+                      {typeof ev.amount==="number"&&ev.amount>0&&(
+                        <div style={{fontSize:13,fontWeight:700,
+                          color:ev.is_paid?THEME.green:THEME.amber,flexShrink:0}}>
+                          €{ev.amount}
+                        </div>
+                      )}
+                      <span style={{fontSize:14,color:THEME.muted,flexShrink:0}}>›</span>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ━━━ FAB ━━━ */}
       <button
