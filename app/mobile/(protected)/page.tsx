@@ -467,20 +467,36 @@ export default function MobileHomePage() {
 
   const kpiNext = nextFive[0] ?? null;
 
-  // Slot liberi nella giornata (ore 8-20, slot da 1h, esclusi quelli occupati)
-  const freeSlots = useMemo(() => {
+  // Slot liberi oggi e domani (ore 8-20, slot da 1h)
+  const freeSlotsOggi = useMemo(() => {
     const WORK_START = 8; const WORK_END = 20;
     const slots: string[] = [];
     for (let h = WORK_START; h < WORK_END; h++) {
-      const slotISO = `${dateYMD}T${pad2(h)}:00:00`;
-      const slotEnd  = `${dateYMD}T${pad2(h+1)}:00:00`;
+      const slotISO = `${todayYMD}T${pad2(h)}:00:00`;
+      const slotEnd  = `${todayYMD}T${pad2(h+1)}:00:00`;
       const occupied = todayAppts.some(a =>
         a.status !== "cancelled" && a.start_at < slotEnd && a.start_at >= slotISO
       );
       if (!occupied) slots.push(`${pad2(h)}:00`);
     }
     return slots;
-  }, [todayAppts, dateYMD]);
+  }, [todayAppts, todayYMD]);
+
+  const domaniYMD = useMemo(() => toYMD(addDays(new Date(), 1)), []);
+
+  const freeSlotsDomani = useMemo(() => {
+    const WORK_START = 8; const WORK_END = 20;
+    const slots: string[] = [];
+    for (let h = WORK_START; h < WORK_END; h++) {
+      const slotISO = `${domaniYMD}T${pad2(h)}:00:00`;
+      const slotEnd  = `${domaniYMD}T${pad2(h+1)}:00:00`;
+      const occupied = nextAppts.some(a =>
+        a.status !== "cancelled" && a.start_at < slotEnd && a.start_at >= slotISO
+      );
+      if (!occupied) slots.push(`${pad2(h)}:00`);
+    }
+    return slots;
+  }, [nextAppts, domaniYMD]);
 
   const monthLabel = useMemo(() => {
     const mm = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno",
@@ -1083,32 +1099,58 @@ export default function MobileHomePage() {
           </div>
         </div>
 
-        {/* ━━━ SLOT LIBERI + SUGGERIMENTI ━━━ */}
-        {isToday && !loading && freeSlots.length > 0 && (
+        {/* ━━━ SLOT LIBERI OGGI + DOMANI ━━━ */}
+        {!loading && (freeSlotsOggi.length > 0 || freeSlotsDomani.length > 0) && (
           <div style={{ ...card, padding: 16, marginTop: 10 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft, marginBottom: 4 }}>
-              🕐 Slot liberi oggi
-            </div>
-            <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 600, marginBottom: 12 }}>
-              {freeSlots.length} ore disponibili — considera di chiamare qualche paziente
+            <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft, marginBottom: 12 }}>
+              Ore disponibili
             </div>
 
-            {/* Slot liberi come pillole */}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: suggestedPats.length > 0 ? 14 : 0 }}>
-              {freeSlots.map(slot => (
-                <button
-                  key={slot}
-                  onClick={() => router.push(`/mobile/calendar?date=${dateYMD}&new=1&time=${slot.replace(":","")}`)}
-                  style={{
-                    padding: "5px 12px", borderRadius: 99, fontSize: 12, fontWeight: 700,
-                    border: `1.5px solid ${THEME.border}`, background: THEME.panelSoft,
-                    color: THEME.muted, cursor: "pointer",
-                  }}
-                >
-                  {slot}
-                </button>
-              ))}
-            </div>
+            {/* Oggi */}
+            {freeSlotsOggi.length > 0 && (
+              <div style={{ marginBottom: freeSlotsDomani.length > 0 ? 14 : 0 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: THEME.blue,
+                  textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+                  Oggi · {freeSlotsOggi.length} {freeSlotsOggi.length === 1 ? "ora libera" : "ore libere"}
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {freeSlotsOggi.map(slot => (
+                    <button key={`oggi-${slot}`}
+                      onClick={() => router.push(`/mobile/calendar?date=${todayYMD}&new=1&time=${slot.replace(":","")}`)}
+                      style={{
+                        padding: "5px 12px", borderRadius: 99, fontSize: 12, fontWeight: 700,
+                        border: `1.5px solid ${THEME.blue}`, background: "rgba(37,99,235,0.06)",
+                        color: THEME.blue, cursor: "pointer",
+                      }}>
+                      {slot}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Domani */}
+            {freeSlotsDomani.length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted,
+                  textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+                  Domani · {freeSlotsDomani.length} {freeSlotsDomani.length === 1 ? "ora libera" : "ore libere"}
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {freeSlotsDomani.map(slot => (
+                    <button key={`domani-${slot}`}
+                      onClick={() => router.push(`/mobile/calendar?date=${domaniYMD}&new=1&time=${slot.replace(":","")}`)}
+                      style={{
+                        padding: "5px 12px", borderRadius: 99, fontSize: 12, fontWeight: 700,
+                        border: `1.5px solid ${THEME.border}`, background: THEME.panelSoft,
+                        color: THEME.muted, cursor: "pointer",
+                      }}>
+                      {slot}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Pazienti suggeriti */}
             {suggestedPats.length > 0 && (
