@@ -26,12 +26,6 @@ type InactivePatientRow = {
 type OpenBalanceRow = {
   id: string; patient_id: string; patient_name: string;
   amount: number; start_at: string; days_ago: number;
-  phone: string | null;
-};
-
-type OpenBalanceGroup = {
-  patient_id: string; patient_name: string; phone: string | null;
-  sessions: number; total: number; last_at: string;
 };
 
 type BirthdayRow = {
@@ -162,31 +156,19 @@ export default function HomePage() {
   /* ── Saldi aperti ── */
   const [openBalances,setOpenBalances]=useState<OpenBalanceRow[]>([]);
   const [loadingBalances,setLoadingBalances]=useState(false);
-  const [openBalanceGroups, setOpenBalanceGroups] = useState<OpenBalanceGroup[]>([]);
   const fetchOpenBalances=useCallback(async()=>{
     setLoadingBalances(true);
     try{
       const{data,error}=await supabase.from("appointments")
-        .select("id,patient_id,amount,start_at,patients:patient_id(first_name,last_name,phone)")
-        .in("status",["done","not_paid"]).eq("is_paid",false).not("amount","is",null).gt("amount",0)
-        .order("start_at",{ascending:false}).limit(200);
+        .select("id,patient_id,amount,start_at,patients:patient_id(first_name,last_name)")
+        .eq("status","done").eq("is_paid",false).not("amount","is",null).gt("amount",0)
+        .order("start_at",{ascending:false}).limit(20);
       if(error) throw error;
       const nowMs=Date.now();
-      const rows=(data||[]).map((r:any)=>{
+      setOpenBalances((data||[]).map((r:any)=>{
         const p=Array.isArray(r.patients)?r.patients[0]:r.patients;
-        return{id:r.id,patient_id:r.patient_id,patient_name:`${p?.last_name||""} ${p?.first_name||""}`.trim()||"Paziente",amount:Number(r.amount)||0,start_at:r.start_at,days_ago:Math.floor((nowMs-new Date(r.start_at).getTime())/86400000),phone:p?.phone??null};
-      });
-      setOpenBalances(rows);
-      // Raggruppa per paziente
-      const map=new Map<string,OpenBalanceGroup>();
-      rows.forEach((r:OpenBalanceRow)=>{
-        if(!map.has(r.patient_id)) map.set(r.patient_id,{patient_id:r.patient_id,patient_name:r.patient_name,phone:r.phone,sessions:0,total:0,last_at:r.start_at});
-        const g=map.get(r.patient_id)!;
-        g.sessions++;
-        g.total+=r.amount;
-        if(r.start_at>g.last_at) g.last_at=r.start_at;
-      });
-      setOpenBalanceGroups(Array.from(map.values()).sort((a,b)=>b.total-a.total));
+        return{id:r.id,patient_id:r.patient_id,patient_name:`${p?.last_name||""} ${p?.first_name||""}`.trim()||"Paziente",amount:Number(r.amount)||0,start_at:r.start_at,days_ago:Math.floor((nowMs-new Date(r.start_at).getTime())/86400000)};
+      }));
     }catch(e:any){console.error(e?.message);}
     finally{setLoadingBalances(false);}
   },[]);
@@ -643,15 +625,6 @@ export default function HomePage() {
                                 </div>
                               )}
 
-                              {/* WA rapido — solo se c'è il telefono e non annullato */}
-                              {phone&&a.status!=="cancelled"&&(
-                                <button
-                                  onClick={e=>{e.stopPropagation();sendWA(a);}}
-                                  title={waSent?"Promemoria già inviato — rinvia":"Invia promemoria WhatsApp"}
-                                  style={{width:28,height:28,borderRadius:6,border:"none",background:waSent?"rgba(22,163,74,0.12)":"#25d366",color:waSent?THEME.green:"#fff",fontWeight:700,fontSize:11,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}
-                                >{waSent?"✓":"WA"}</button>
-                              )}
-
                               <span style={{color:THEME.muted,fontSize:10,flexShrink:0,transform:isExp?"rotate(180deg)":"none",transition:"transform 0.15s"}}>▾</span>
                             </div>
 
@@ -812,69 +785,32 @@ export default function HomePage() {
           <div style={{background:"#fff",borderRadius:12,border:`1px solid ${THEME.border}`,overflow:"hidden"}}>
             <div style={{padding:"11px 16px",borderBottom:`1px solid ${THEME.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <div>
-                <span style={{fontWeight:700,fontSize:12,color:THEME.text}}>💰 Saldi aperti</span>
-                <div style={{fontSize:10,color:THEME.muted,marginTop:1}}>sedute eseguite non pagate · raggruppate per paziente</div>
+                <span style={{fontWeight:700,fontSize:12,color:THEME.text}}>Saldi aperti</span>
+                <div style={{fontSize:10,color:THEME.muted,marginTop:1}}>eseguito ma non pagato</div>
               </div>
-              <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                {openBalanceGroups.length>0&&(
-                  <>
-                    <span style={{fontSize:11,fontWeight:700,color:THEME.red,background:"rgba(220,38,38,0.08)",padding:"2px 8px",borderRadius:4}}>
-                      {openBalanceGroups.reduce((s,g)=>s+g.total,0).toLocaleString("it-IT",{maximumFractionDigits:0})}€
-                    </span>
-                    <button
-                      onClick={()=>{
-                        const rows=openBalanceGroups.map(g=>`<tr><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0">${g.patient_name}</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;text-align:center">${g.sessions}</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:700;color:#dc2626">${g.total.toLocaleString("it-IT")}€</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:11px;color:#64748b">${new Date(g.last_at).toLocaleDateString("it-IT")}</td></tr>`).join("");
-                        const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Saldi aperti</title><style>body{font-family:system-ui,sans-serif;padding:32px;color:#0f172a}h2{margin-bottom:4px}p{color:#64748b;font-size:13px;margin:0 0 20px}table{width:100%;border-collapse:collapse;font-size:13px}th{background:#f1f5f9;padding:8px 12px;text-align:left;font-weight:700;font-size:12px}tfoot td{font-weight:800;font-size:14px;padding:10px 12px;border-top:2px solid #0f172a}@media print{button{display:none}}</style></head><body><h2>Saldi Aperti</h2><p>Generato il ${new Date().toLocaleDateString("it-IT")} · ${openBalanceGroups.length} pazienti</p><table><thead><tr><th>Paziente</th><th style="text-align:center">Sedute</th><th style="text-align:right">Totale</th><th>Ultima seduta</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td>TOTALE</td><td style="text-align:center">${openBalanceGroups.reduce((s,g)=>s+g.sessions,0)}</td><td style="text-align:right;color:#dc2626">${openBalanceGroups.reduce((s,g)=>s+g.total,0).toLocaleString("it-IT")}€</td><td></td></tr></tfoot></table><button onclick="window.print()" style="margin-top:24px;padding:10px 24px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🖨 Stampa</button></body></html>`;
-                        const w=window.open("","_blank","width=800,height=600");
-                        if(w){w.document.write(html);w.document.close();}
-                      }}
-                      style={{padding:"3px 10px",borderRadius:5,border:`1px solid ${THEME.border}`,background:"#fff",color:THEME.text,fontWeight:700,fontSize:10,cursor:"pointer"}}
-                    >🖨 Stampa</button>
-                  </>
-                )}
-              </div>
+              {openBalances.length>0&&(
+                <span style={{fontSize:11,fontWeight:700,color:THEME.red,background:"rgba(220,38,38,0.08)",padding:"2px 8px",borderRadius:4}}>
+                  {openBalances.reduce((s,r)=>s+r.amount,0).toLocaleString("it-IT",{maximumFractionDigits:0})}€
+                </span>
+              )}
             </div>
-            <div style={{padding:"6px 12px",maxHeight:280,overflowY:"auto"}}>
+            <div style={{padding:"6px 12px",maxHeight:240,overflowY:"auto"}}>
               {loadingBalances
                 ?<div style={{color:THEME.muted,fontSize:12,padding:"10px 0"}}>Caricamento…</div>
-                :openBalanceGroups.length===0
+                :openBalances.length===0
                 ?<div style={{color:THEME.green,fontSize:12,padding:"12px 2px",fontWeight:600}}>Nessun saldo aperto ✓</div>
-                :openBalanceGroups.map((g,i)=>{
-                  const clean=g.phone?fmtPhone(g.phone):"";
-                  const waMsg=`Gentile ${g.patient_name.split(" ")[1]||g.patient_name},\n\nLe ricordiamo che risultano ${g.sessions} seduta${g.sessions>1?"e":""} non ancora saldate per un totale di ${g.total.toLocaleString("it-IT")}€.\n\nPer qualsiasi informazione siamo a disposizione.\n\nCordiali saluti,\nDr. Marco Turchetta`;
-                  return(
-                    <div key={g.patient_id} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 4px",borderBottom:i<openBalanceGroups.length-1?`1px solid ${THEME.border}`:"none"}}>
-                      {/* Avatar */}
-                      <div style={{width:32,height:32,borderRadius:8,background:"rgba(220,38,38,0.1)",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:12,color:THEME.red,flexShrink:0}}>
-                        {(g.patient_name[0]||"?").toUpperCase()}
-                      </div>
-                      {/* Info */}
-                      <div style={{flex:1,minWidth:0}}>
-                        <Link href={`/patients/${g.patient_id}`} style={{fontWeight:700,fontSize:12,color:THEME.text,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.patient_name}</Link>
-                        <div style={{fontSize:10,color:THEME.muted,marginTop:1,display:"flex",gap:6}}>
-                          <span>{g.sessions} seduta{g.sessions>1?"e":""}</span>
-                          <span>·</span>
-                          <span>ultima {new Date(g.last_at).toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit"})}</span>
-                        </div>
-                      </div>
-                      {/* Totale + azioni */}
-                      <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                        <span style={{fontSize:13,fontWeight:800,color:THEME.red}}>{g.total.toLocaleString("it-IT")}€</span>
-                        {clean&&(
-                          <button
-                            onClick={()=>{const a=document.createElement("a");a.href=`https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(waMsg)}`;a.target="_blank";a.rel="noopener noreferrer";document.body.appendChild(a);a.click();document.body.removeChild(a);}}
-                            style={{padding:"3px 7px",borderRadius:4,border:"none",background:"#25d366",color:"#fff",fontWeight:700,fontSize:10,cursor:"pointer"}}
-                            title="Invia sollecito pagamento su WhatsApp"
-                          >WA</button>
-                        )}
-                        <button
-                          onClick={()=>togglePaid(openBalances.find(r=>r.patient_id===g.patient_id)?.id||"",true)}
-                          style={{padding:"3px 7px",borderRadius:4,border:"none",background:THEME.green,color:"#fff",fontWeight:700,fontSize:10,cursor:"pointer"}}
-                        >Incassa</button>
-                      </div>
+                :openBalances.map((r,i)=>(
+                  <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 4px",borderBottom:i<openBalances.length-1?`1px solid ${THEME.border}`:"none"}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <Link href={`/patients/${r.patient_id}`} style={{fontWeight:600,fontSize:12,color:THEME.text,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.patient_name}</Link>
+                      <div style={{fontSize:10,color:THEME.muted,marginTop:1}}>{r.days_ago===0?"oggi":r.days_ago===1?"ieri":`${r.days_ago}gg fa`} · {fmtDate(r.start_at)}</div>
                     </div>
-                  );
-                })
+                    <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3,flexShrink:0}}>
+                      <span style={{fontSize:13,fontWeight:800,color:THEME.red}}>{r.amount.toLocaleString("it-IT",{maximumFractionDigits:0})}€</span>
+                      <button onClick={()=>togglePaid(r.id,true)} style={{padding:"3px 8px",borderRadius:4,border:"none",background:THEME.green,color:"#fff",fontWeight:700,fontSize:10,cursor:"pointer"}}>Incassa</button>
+                    </div>
+                  </div>
+                ))
               }
             </div>
           </div>

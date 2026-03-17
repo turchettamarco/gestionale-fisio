@@ -112,17 +112,12 @@ function statusColor(status: Status) {
 
 function statusBg(status: Status) {
   switch (status) {
-    case "done":
-      return "rgba(22,163,74,0.18)";
-    case "confirmed":
-      return "rgba(37,99,235,0.14)";
-    case "not_paid":
-      return "rgba(249,115,22,0.14)";
-    case "cancelled":
-      return "rgba(148,163,184,0.12)";
+    case "done":      return "#16a34a";
+    case "confirmed": return "#2563eb";
+    case "not_paid":  return "#f97316";
+    case "cancelled": return "#94a3b8";
     case "booked":
-    default:
-      return "rgba(220,38,38,0.14)";
+    default:          return "#dc2626";
   }
 }
 
@@ -780,14 +775,13 @@ const { data, error } = await supabase
       else if (eventDurationHours === 1.5) setSelectedDuration("1.5");
       else if (eventDurationHours === 2) setSelectedDuration("2");
       
-      const patientFromEvent = patientResults.find(p => 
-        `${p.last_name} ${p.first_name}` === duplicateEvent.patient_name
-      ) || {
+      // Pre-seleziona il paziente direttamente — nessuna ricerca manuale
+      const patientFromEvent = {
         id: duplicateEvent.patient_id,
         first_name: duplicateEvent.patient_first_name || '',
         last_name: duplicateEvent.patient_last_name || '',
+        phone: duplicateEvent.patient_phone || null,
       };
-      
       setSelectedPatient(patientFromEvent);
     } else {
       setDuplicateMode(false);
@@ -1339,8 +1333,177 @@ diagnosis: patient?.diagnosis ?? null,
   }, [events]);
 
   const exportToPDF = useCallback(() => {
-    alert("Funzionalità PDF in sviluppo");
-  }, []);
+    // Raccoglie eventi della settimana corrente (Lun-Sab)
+    const weekStart = startOfISOWeekMonday(currentDate);
+    const days = Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(weekStart); d.setDate(d.getDate() + i); return d;
+    });
+    const GG = ["Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato"];
+    const MESI = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+
+    const statusColors: Record<string, string> = {
+      done: "#16a34a", confirmed: "#2563eb", not_paid: "#f97316",
+      cancelled: "#94a3b8", booked: "#dc2626",
+    };
+    const statusLabels: Record<string, string> = {
+      done: "Eseguito", confirmed: "Confermato", not_paid: "Non pagata",
+      cancelled: "Annullato", booked: "Prenotato",
+    };
+
+    const totalSedute = events.filter(e => e.status !== "cancelled" &&
+      days.some(d => e.start.toDateString() === d.toDateString())).length;
+    const totalIncasso = events.filter(e => e.is_paid &&
+      days.some(d => e.start.toDateString() === d.toDateString()))
+      .reduce((s, e) => s + (e.amount ?? 0), 0);
+    const totalDaIncassare = events.filter(e => !e.is_paid && e.status !== "cancelled" &&
+      days.some(d => e.start.toDateString() === d.toDateString()))
+      .reduce((s, e) => s + (e.amount ?? 0), 0);
+
+    const html = `<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Planning Settimanale — FisioHub</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #f8fafc; color: #0f172a; }
+  @page { size: A4 landscape; margin: 12mm 10mm; }
+  @media print { body { background: white; } .no-print { display: none; } }
+
+  /* Header */
+  .header { background: linear-gradient(135deg, #0d9488, #2563eb); color: white; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; border-radius: 12px; margin-bottom: 12px; }
+  .header-logo { display: flex; align-items: center; gap: 10px; }
+  .logo-box { width: 36px; height: 36px; background: rgba(255,255,255,0.2); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 18px; border: 1.5px solid rgba(255,255,255,0.3); }
+  .logo-text { font-size: 20px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
+  .header-title { text-align: center; }
+  .header-title h1 { font-size: 16px; font-weight: 700; opacity: 0.9; }
+  .header-title p { font-size: 13px; opacity: 0.75; margin-top: 2px; }
+  .header-kpi { display: flex; gap: 16px; }
+  .kpi { text-align: right; }
+  .kpi-label { font-size: 10px; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.5px; }
+  .kpi-value { font-size: 18px; font-weight: 800; }
+
+  /* Griglia giorni */
+  .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+  .day-col { background: white; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden; }
+  .day-header { padding: 8px 10px; background: #f1f5f9; border-bottom: 1px solid #e2e8f0; }
+  .day-name { font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; }
+  .day-date { font-size: 18px; font-weight: 800; color: #0f172a; line-height: 1.1; }
+  .day-date.today { color: #2563eb; }
+  .day-count { font-size: 10px; color: #94a3b8; margin-top: 2px; }
+  .day-body { padding: 6px; display: flex; flex-direction: column; gap: 4px; min-height: 80px; }
+
+  /* Card appuntamento */
+  .appt { border-radius: 6px; padding: 6px 8px; border: 0.5px solid; page-break-inside: avoid; }
+  .appt-time { font-size: 10px; font-weight: 600; margin-bottom: 3px; display: flex; justify-content: space-between; align-items: center; }
+  .appt-name { font-size: 11px; font-weight: 700; color: #0f172a; line-height: 1.25; word-break: break-word; }
+  .appt-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+  .appt-type { font-size: 9px; color: #64748b; }
+  .appt-badge { font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 99px; }
+  .appt-icons { display: flex; gap: 3px; align-items: center; font-size: 11px; }
+  .empty-day { color: #cbd5e1; font-size: 11px; text-align: center; padding: 12px 0; }
+
+  /* Footer */
+  .footer { margin-top: 10px; display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: white; border-radius: 8px; border: 1px solid #e2e8f0; }
+  .footer-left { font-size: 10px; color: #64748b; }
+  .legend { display: flex; gap: 12px; align-items: center; }
+  .legend-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: #475569; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 99px; }
+  .print-btn { display: block; margin: 12px auto; padding: 10px 28px; background: linear-gradient(135deg,#0d9488,#2563eb); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<div class="no-print" style="text-align:center; padding: 12px;">
+  <button class="print-btn" onclick="window.print()">🖨 Stampa / Salva PDF</button>
+</div>
+
+<div class="header">
+  <div class="header-logo">
+    <div class="logo-box">F</div>
+    <div class="logo-text">FisioHub</div>
+  </div>
+  <div class="header-title">
+    <h1>Planning Settimanale</h1>
+    <p>${GG[0]} ${days[0].getDate()} — ${GG[5]} ${days[5].getDate()} ${MESI[days[0].getMonth()]} ${days[0].getFullYear()}</p>
+  </div>
+  <div class="header-kpi">
+    <div class="kpi">
+      <div class="kpi-label">Sedute</div>
+      <div class="kpi-value">${totalSedute}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Incassato</div>
+      <div class="kpi-value">€${totalIncasso}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Da incassare</div>
+      <div class="kpi-value" style="color:#fbbf24">€${totalDaIncassare}</div>
+    </div>
+  </div>
+</div>
+
+<div class="grid">
+${days.map((day, di) => {
+  const isToday = day.toDateString() === new Date().toDateString();
+  const dayEvs = events
+    .filter(e => e.start.toDateString() === day.toDateString() && e.status !== "cancelled")
+    .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+  return `
+  <div class="day-col">
+    <div class="day-header">
+      <div class="day-name">${GG[di]}</div>
+      <div class="day-date ${isToday ? "today" : ""}">${day.getDate()}</div>
+      <div class="day-count">${dayEvs.length > 0 ? `${dayEvs.length} appuntament${dayEvs.length === 1 ? "o" : "i"}` : "Giorno libero"}</div>
+    </div>
+    <div class="day-body">
+      ${dayEvs.length === 0 ? `<div class="empty-day">—</div>` : dayEvs.map(ev => {
+        const col = statusColors[ev.status] ?? "#94a3b8";
+        const bg = col + "14";
+        const bc = col + "40";
+        const label = statusLabels[ev.status] ?? "—";
+        const fmtT = (d: Date) => d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+        return `
+        <div class="appt" style="background:${bg}; border-color:${bc}">
+          <div class="appt-time" style="color:${col}">
+            <span>${fmtT(ev.start)}–${fmtT(ev.end)}</span>
+            <span class="appt-icons">${ev.location === "domicile" ? "🏠" : ""}${ev.is_paid ? "🪙" : ""}</span>
+          </div>
+          <div class="appt-name">${ev.patient_name}${ev.status === "cancelled" ? " (annullato)" : ""}</div>
+          <div class="appt-footer">
+            <span class="appt-type">${ev.treatment_type === "macchinario" ? "Macchinario" : "Seduta"}${ev.amount ? ` · €${ev.amount}` : ""}</span>
+            <span class="appt-badge" style="color:${col}; background:${col}18">${label}</span>
+          </div>
+          ${ev.calendar_note ? `<div style="font-size:9px; color:#64748b; margin-top:3px; font-style:italic">📝 ${ev.calendar_note}</div>` : ""}
+        </div>`;
+      }).join("")}
+    </div>
+  </div>`;
+}).join("")}
+</div>
+
+<div class="footer">
+  <div class="footer-left">
+    Generato da FisioHub · ${new Date().toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })} alle ${new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}
+  </div>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#2563eb"></div>Confermato</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#16a34a"></div>Eseguito</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f97316"></div>Non pagata</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#dc2626"></div>Prenotato</div>
+    <div class="legend-item">🪙 Pagato</div>
+    <div class="legend-item">🏠 Domicilio</div>
+  </div>
+</div>
+
+</body>
+</html>`;
+
+    const win = window.open("", "_blank", "width=1200,height=800");
+    if (win) { win.document.write(html); win.document.close(); }
+  }, [events, currentDate]);
 
   const exportToGoogleCalendar = useCallback(async () => {
     const eventsToExport = filteredEvents.map(event => ({
@@ -1373,22 +1536,27 @@ diagnosis: patient?.diagnosis ?? null,
   }, [filteredEvents]);
 
 function formatPhoneForWhatsAppWeb(phone: string): string {
-  if (!phone) return phone;
-  
-  // Rimuovi spazi, parentesi, trattini, punti
-  let clean = phone.replace(/[\s\(\)\-\.]/g, '');
-  
-  // Se inizia con 0, sostituisci con 39 (per Italia)
-  if (clean.startsWith('0')) {
-    clean = '39' + clean.substring(1);
-  }
-  
-  // Se non inizia con +, aggiungilo
-  if (!clean.startsWith('+')) {
-    clean = '+' + clean;
-  }
-  
-  return clean;
+  if (!phone) return "";
+  // 1. Rimuovi tutto tranne cifre e +
+  let c = phone.trim().replace(/[\s\(\)\-\.\/]/g, "");
+  // 2. 00 → +
+  if (c.startsWith("00")) c = "+" + c.slice(2);
+  // 3. Rimuovi il + per lavorare solo con cifre
+  if (c.startsWith("+")) c = c.slice(1);
+  // 4. Rimuovi eventuali caratteri non numerici residui
+  c = c.replace(/\D/g, "");
+  if (!c) return "";
+  // 5. Già con prefisso 39 e lunghezza corretta → ok
+  if (c.startsWith("39") && (c.length === 12 || c.length === 11)) return "+" + c;
+  // 5b. Doppio 39 (es. 0039 + 39xxx) → togli il primo 39
+  if (c.startsWith("3939") && c.length > 13) c = c.slice(2);
+  // 6. Mobile italiano 3xx (10 cifre) → aggiungi 39
+  if (c.startsWith("3") && c.length === 10) return "+39" + c;
+  // 7. Fisso italiano con 0 (9-11 cifre) → sostituisci 0 con 39
+  if (c.startsWith("0") && c.length >= 9 && c.length <= 11) return "+39" + c.slice(1);
+  // 8. Fallback: aggiungi 39 se sembra un numero italiano incompleto
+  if (c.length <= 10) return "+39" + c;
+  return "+" + c;
 }
 
   const sendReminder = useCallback(async (appointmentId: string, patientPhone?: string, patientFirstName?: string, isConfirmation?: boolean) => {
@@ -1631,13 +1799,13 @@ Fisioterapia e Osteopatia`;
   const monthEvents = useMemo(() => {
     if (viewType !== "month" || monthDays.length === 0) return new Map<string, CalendarEvent[]>();
     const map = new Map<string, CalendarEvent[]>();
-    events.forEach(e => {
+    filteredEvents.forEach(e => {
       const key = `${e.start.getFullYear()}-${e.start.getMonth()}-${e.start.getDate()}`;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(e);
     });
     return map;
-  }, [viewType, events, monthDays]);
+  }, [viewType, filteredEvents, monthDays]);
 
   const goToPreviousMonth = useCallback(() => {
     setCurrentDate(prev => {
@@ -2107,9 +2275,9 @@ window.open(whatsappUrl, '_blank');
   }, [selectedEvent, currentDate, loadAppointments]);
 
   const printCalendar = useCallback(() => {
-    window.print();
+    exportToPDF();
     setPrintMenuOpen(false);
-  }, []);
+  }, [exportToPDF]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -3781,24 +3949,22 @@ return (
                           top: `${top + 1}px`,
                           width: `calc((100% - ${TIME_COL}px) / 6 - 8px)`,
                           height: `${Math.max(height - 2, 28)}px`,
-                          background: isMatch ? "rgba(245,158,11,0.25)" : statusBg(event.status),
-                          color: THEME.text,
-                          borderRadius: 8,
-                          padding: "4px 8px 4px 10px",
+                          background: isMatch ? "#f59e0b" : statusBg(event.status),
+                          color: "#fff",
+                          borderRadius: 6,
+                          padding: "4px 6px",
                           boxSizing: "border-box",
-                          borderTop: isMatch ? `3px solid #f59e0b` : `2px solid ${col}50`,
-                          borderRight: isMatch ? `3px solid #f59e0b` : `2px solid ${col}50`,
-                          borderBottom: isMatch ? `3px solid #f59e0b` : `2px solid ${col}50`,
-                          borderLeft: isMatch ? `6px solid #f59e0b` : `6px solid ${col}`,
+                          border: "none",
                           cursor: "move",
                           zIndex: isMatch ? 10 : 2,
                           overflow: "hidden",
-                          transition: "box-shadow 0.2s, transform 0.15s, opacity 0.3s",
+                          transition: "box-shadow 0.15s, opacity 0.3s",
                           display: "flex",
                           flexDirection: "column",
-                          boxShadow: isMatch ? "0 0 20px rgba(245,158,11,0.6)" : "0 2px 6px rgba(30,64,175,0.08)",
+                          gap: 0,
+                          boxShadow: isMatch ? "0 0 10px rgba(245,158,11,0.3)" : "0 1px 3px rgba(15,23,42,0.06)",
                           fontSize: 11,
-                          transform: isMatch ? "scale(1.04)" : "scale(1)",
+                          transform: isMatch ? "scale(1.02)" : "scale(1)",
                         }}
                         onMouseEnter={(e) => { 
                           if (!isDimmed) {
@@ -3841,172 +4007,70 @@ return (
                           }
                         }}
                       >
-                        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                          <button
-                            title={bulkMode ? "Seleziona per pagamento" : isDone ? "Segna come NON eseguita" : "Segna come ESEGUITA"}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              if (bulkMode) toggleBulkSelect(event.id);
-                              else toggleDoneQuick(event.id, event.status);
-                            }}
-                            style={{
-                              width: 16,
-                              height: 16,
-                              borderRadius: bulkMode ? 3 : 4,
-                              border: `2px solid ${bulkMode ? (bulkSelected.has(event.id) ? THEME.blue : THEME.border) : THEME.border}`,
-                              background: bulkMode ? (bulkSelected.has(event.id) ? THEME.blue : "transparent") : (isDone ? THEME.green : "transparent"),
-                              cursor: "pointer",
-                              flex: "0 0 auto",
-                              marginTop: 2,
-                            }}
-                          />
+                        {(() => {
+                          const cardH = Math.max(height - 2, 28);
+                          const isShort = cardH < 38;
 
-                          <div style={{ minWidth: 0, flex: 1 }}>
-                            <div
-                            title={event.location === "domicile" ? `🏠 ${event.patient_name}` : event.patient_name}
-                            style={{
-                              fontWeight: 600,
-                              lineHeight: 1.12,
-                              fontSize: autoNameFontSize(event.patient_name),
-                              overflow: "hidden",
-                              // massimo 2 righe senza spostare il layout
-                              display: "-webkit-box",
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: "vertical" as any,
-                              maxHeight: 26,
-                              wordBreak: "break-word",
-                            }}
-                          >
-                            <span
-                              title={event.treatment_type === "macchinario" ? "Macchinario" : "Seduta"}
-                              style={{
-                                display: "inline-block",
-                                width: 7,
-                                height: 7,
-                                borderRadius: "50%",
-                                background: TREATMENT_COLORS[event.treatment_type || "seduta"] || TREATMENT_COLORS.seduta,
-                                marginRight: 4,
-                                verticalAlign: "middle",
-                                flexShrink: 0,
-                              }}
-                            />
-                            {event.location === "domicile" ? `🏠 ${event.patient_name}` : event.patient_name}
-                          </div>
-</div>
-                          
-                          {isPaid ? (
-                            <button
-                              title="Pagato — clicca per annullare"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                togglePaidQuick(event.id, true);
-                              }}
-                              style={{
-                                width: 22,
-                                height: 22,
-                                borderRadius: 6,
-                                border: "none",
-                                background: "#16a34a",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                fontSize: 11,
-                                color: "#fff",
-                                flex: "0 0 auto",
-                                cursor: "pointer",
-                                fontWeight: 800,
-                                boxShadow: "0 1px 3px rgba(22,163,74,0.3)",
-                              }}
-                            >
-                              💰
-                            </button>
-                          ) : event.status !== "cancelled" ? (
-                            <button
-                              title="Segna come pagato"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                togglePaidQuick(event.id, false);
-                              }}
-                              style={{
-                                width: 22,
-                                height: 22,
-                                borderRadius: 6,
-                                border: `2px dashed #dc2626`,
-                                background: "rgba(220,38,38,0.06)",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                fontSize: 11,
-                                color: "#dc2626",
-                                flex: "0 0 auto",
-                                cursor: "pointer",
-                                fontWeight: 800,
-                              }}
-                            >
-                              💰
-                            </button>
-                          ) : null}
-
-                          {waSent ? (
-                            <div
-                              title="WhatsApp inviato"
-                              style={{
-                                width: 20,
-                                height: 20,
-                                borderRadius: 6,
-                                border: `1.5px solid ${THEME.border}`,
-                                background: THEME.panelSoft,
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                flex: "0 0 auto",
-                              }}
-                            >
-                              <div style={{ width: 8, height: 8, borderRadius: 999, background: THEME.panelBg }} />
+                          if (isShort) return (
+                            <div style={{ display: "flex", alignItems: "center", gap: 4, overflow: "hidden", height: "100%" }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, color: THEME.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                                {event.patient_name}
+                              </span>
+                              {isPaid && <span style={{ fontSize: 10, flexShrink: 0 }}>🪙</span>}
+                              {isDomicile && <span style={{ fontSize: 10, flexShrink: 0 }}>🏠</span>}
                             </div>
-                          ) : event.status !== "done" && event.status !== "cancelled" && event.patient_phone ? (
-                            <button
-                              title="Invia promemoria WhatsApp"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                sendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined);
-                              }}
-                              style={{
-                                width: 20,
-                                height: 20,
-                                borderRadius: 6,
-                                border: `1.5px solid ${THEME.border}`,
-                                background: "rgba(34, 197, 94, 0.8)",
-                                cursor: "pointer",
-                                flex: "0 0 auto",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                fontSize: 10,
-                                color: "#fff",
-                              }}
-                            >
-                              📱
-                            </button>
-                          ) : null}
-                        </div>
+                          );
 
-                        <div style={{ 
-                          fontSize: 11, 
-                          fontWeight: 700, 
-                          color: THEME.muted,
-                          marginTop: "auto",
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "flex-end"
-                        }}>
-                          <span>{fmtTime(event.start.toISOString())}</span>
-                          <span style={{ color: statusColor(event.status), fontWeight: 700 }}>{statusLabel(event.status)}</span>
-                        </div>
+                          return (
+                            <>
+                              {/* Riga 1: orario + icone azione */}
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 2, flexShrink: 0, marginBottom: 2 }}>
+                                <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.85)", whiteSpace: "nowrap", lineHeight: 1 }}>
+                                  {fmtTime(event.start.toISOString())}
+                                  {isDomicile && " 🏠"}
+                                </span>
+                                <div style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0 }}>
+                                  {/* Pagato */}
+                                  <button
+                                    onClick={e => { e.preventDefault(); e.stopPropagation(); togglePaidQuick(event.id, isPaid); }}
+                                    title={isPaid ? "Pagato — clicca per annullare" : "Segna pagato"}
+                                    style={{ background: isPaid ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.15)", border: `1px solid ${isPaid ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.3)"}`, borderRadius: 4, cursor: "pointer", padding: "0 5px", fontSize: 13, lineHeight: "18px", display: "flex", alignItems: "center", gap: 2, height: 18 }}
+                                  >🪙{isPaid && <span style={{ fontSize: 10, fontWeight: 800, color: "#fff" }}>✓</span>}</button>
+                                  {/* Promemoria */}
+                                  {event.status !== "cancelled" && event.patient_phone && (
+                                    <button
+                                      onClick={e => { e.preventDefault(); e.stopPropagation(); sendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined); }}
+                                      title={waSent ? "Reinvia promemoria" : "Invia promemoria"}
+                                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: 13, lineHeight: 1, opacity: waSent ? 1 : 0.5 }}
+                                    >{waSent ? "🔕" : "🔔"}</button>
+                                  )}
+                                  {/* Eseguito */}
+                                  <button
+                                    onClick={e => { e.preventDefault(); e.stopPropagation(); if (bulkMode) toggleBulkSelect(event.id); else toggleDoneQuick(event.id, event.status); }}
+                                    title={isDone ? "Annulla eseguita" : "Segna eseguita"}
+                                    style={{ width: 16, height: 16, borderRadius: 99, flexShrink: 0, border: `1.5px solid ${isDone ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.5)"}`, background: isDone ? "rgba(255,255,255,0.9)" : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: statusBg(event.status), fontSize: 9, fontWeight: 800 }}
+                                  >{isDone || bulkSelected.has(event.id) ? "✓" : ""}</button>
+                                </div>
+                              </div>
+
+                              {/* Riga 2: nome — subito sotto l'orario */}
+                              <div style={{ fontWeight: 700, fontSize: autoNameFontSize(event.patient_name), color: "#fff", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {event.patient_name}
+                              </div>
+
+                              {/* Riga 3: tipo/importo + badge — in fondo */}
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 3, marginTop: "auto" }}>
+                                <span style={{ fontSize: 9, color: "rgba(255,255,255,0.8)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                  {event.treatment_type === "macchinario" ? "Macch." : "Seduta"}
+                                  {event.amount ? ` · €${event.amount}` : ""}
+                                </span>
+                                <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,0.25)", padding: "1px 5px", borderRadius: 99, whiteSpace: "nowrap", flexShrink: 0 }}>
+                                  {statusLabel(event.status)}
+                                </span>
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
                     );
                   })}
@@ -4239,30 +4303,25 @@ return (
                             }}
                             style={{
                               fontSize: isMatch ? 9.5 : 8.5,
-                              fontWeight: isMatch ? 800 : 600,
-                              color: isMatch ? "#92400e" : statusColor(ev.status),
+                              fontWeight: isMatch ? 800 : 700,
+                              color: isMatch ? "#92400e" : "#fff",
                               overflow: "hidden",
                               whiteSpace: "nowrap",
                               textOverflow: "ellipsis",
-                              padding: isMatch ? "2px 4px" : "1px 3px",
-                              borderRadius: isMatch ? 4 : 2,
-                              background: isMatch ? "rgba(245,158,11,0.35)" : statusBg(ev.status),
-                              lineHeight: 1.25,
-                              borderLeft: isMatch ? `3px solid #f59e0b` : `2px solid ${statusColor(ev.status)}`,
+                              padding: isMatch ? "2px 4px" : "2px 4px",
+                              borderRadius: 3,
+                              background: isMatch ? "rgba(245,158,11,0.35)" : statusColor(ev.status),
+                              lineHeight: 1.3,
                               position: "relative",
                               zIndex: isMatch ? 5 : 0,
                               cursor: "pointer",
                             }}>
-                              {fmtTime(ev.start.toISOString())} {ev.patient_name}
+                              {ev.location === "domicile" && "🏠 "}{fmtTime(ev.start.toISOString())} {ev.patient_name}
                           </div>
                           );
                         })}
                         {dayEvents.length > 10 && (
                           <span style={{ fontSize: 8, fontWeight: 700, color: THEME.muted, paddingLeft: 3 }}>+{dayEvents.length - 10}</span>
-                        )}
-                        {/* Indicatore domicilio */}
-                        {dayEvents.some(ev => ev.location === "domicile") && (
-                          <div style={{ marginTop: 2, fontSize: 8, fontWeight: 700, color: THEME.amber, background: "rgba(249,115,22,0.12)", borderRadius: 3, padding: "1px 4px", display: "inline-block" }}>⌂ dom.</div>
                         )}
                       </div>
                     </div>
@@ -4497,8 +4556,12 @@ return (
                   .map((event) => {
                     const { top, height } = getEventPosition(event.start, event.end);
                     const col = getEventColor(event);
-                    const isDone = event.status === "done";
-                    const isDomicile = event.location === "domicile";
+                    const isDone    = event.status === "done";
+                    const isDomicile= event.location === "domicile";
+                    const isPaid    = !!event.is_paid;
+                    const waSent    = !!event.whatsapp_sent_at;
+                    const isMatch   = searchMatchIds.has(event.id);
+                    const bgCol = isMatch ? "#f59e0b" : col;
 
                     return (
                       <div
@@ -4514,24 +4577,22 @@ return (
                           width: "calc(100% - 88px)",
                           height: `${Math.max(height - 2, 28)}px`,
                           background: statusBg(event.status),
-                          color: THEME.text,
-                          borderRadius: 8,
-                          padding: "6px 10px 6px 12px",
+                          color: "#fff",
+                          borderRadius: 6,
+                          padding: "6px 10px",
                           boxSizing: "border-box",
-                          borderTop: `2px solid ${col}50`,
-                          borderRight: `2px solid ${col}50`,
-                          borderBottom: `2px solid ${col}50`,
-                          borderLeft: `6px solid ${col}`,
+                          border: "none",
                           cursor: "move",
                           zIndex: 2,
                           overflow: "hidden",
-                          transition: "box-shadow 0.2s, transform 0.15s",
+                          transition: "box-shadow 0.15s",
                           display: "flex",
                           flexDirection: "column",
-                          boxShadow: "0 2px 6px rgba(30,64,175,0.08)",
+                          gap: 0,
+                          boxShadow: "0 1px 3px rgba(15,23,42,0.06)",
                         }}
-                        onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 4px 16px rgba(37,99,235,0.15)"; e.currentTarget.style.transform = "scale(1.005)"; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "0 2px 6px rgba(30,64,175,0.08)"; e.currentTarget.style.transform = "scale(1)"; }}
+                        onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 3px 12px rgba(15,23,42,0.12)"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "0 1px 3px rgba(15,23,42,0.06)"; }}
                         onClick={() => {
                           setSelectedEvent({
                             id: event.id,
@@ -4553,174 +4614,43 @@ return (
                           setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
                           setEditTreatmentType((event.treatment_type as "seduta" | "macchinario") || "seduta");
                           setEditPriceType((event.price_type as "invoiced" | "cash") || "invoiced");
-                          
-                          if (event.patient_id) {
-                            loadPatientFromEvent(event.patient_id);
-                          }
+                          if (event.patient_id) { loadPatientFromEvent(event.patient_id); }
                         }}
                       >
-                        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                          <button
-                            title={bulkMode ? "Seleziona per pagamento" : isDone ? "Segna come NON eseguita" : "Segna come ESEGUITA"}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              if (bulkMode) toggleBulkSelect(event.id);
-                              else toggleDoneQuick(event.id, event.status);
-                            }}
-                            style={{
-                              width: 16,
-                              height: 16,
-                              borderRadius: bulkMode ? 3 : 4,
-                              border: `2px solid ${bulkMode ? (bulkSelected.has(event.id) ? THEME.blue : THEME.border) : THEME.border}`,
-                              background: bulkMode ? (bulkSelected.has(event.id) ? THEME.blue : "transparent") : (isDone ? THEME.green : "transparent"),
-                              cursor: "pointer",
-                              flex: "0 0 auto",
-                              marginTop: 2,
-                            }}
-                          />
-
-                          <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ 
-                              fontWeight: 600, 
-                              lineHeight: 1.2, 
-                              fontSize: 12, 
-                              overflow: "visible",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}>
-                              <span
-                                title={event.treatment_type === "macchinario" ? "Macchinario" : "Seduta"}
-                                style={{
-                                  display: "inline-block",
-                                  width: 7,
-                                  height: 7,
-                                  borderRadius: "50%",
-                                  background: TREATMENT_COLORS[event.treatment_type || "seduta"] || TREATMENT_COLORS.seduta,
-                                  marginRight: 4,
-                                  verticalAlign: "middle",
-                                }}
-                              />
-                              {event.location === "domicile" ? `🏠 ${event.patient_name}` : event.patient_name}
-                            </div>
-                            <div style={{ 
-                              fontSize: 11, 
-                              fontWeight: 600, 
-                              color: THEME.muted,
-                              marginTop: 2,
-                            }}>
-                              {fmtTime(event.start.toISOString())} - {fmtTime(event.end.toISOString())}
-                            </div>
-                            {isDomicile && (
-                              <div style={{ 
-                                fontSize: 10, 
-                                fontWeight: 600, 
-                                color: THEME.muted,
-                                marginTop: 2,
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 4
-                              }}>
-                                <span>🏠</span>
-                                <span>DOMICILIO</span>
-                              </div>
+                        {/* Riga 1: orario + icone */}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 4, flexShrink: 0, marginBottom: 2 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.9)", lineHeight: 1 }}>
+                            {fmtTime(event.start.toISOString())}–{fmtTime(event.end.toISOString())}
+                            {isDomicile && " 🏠"}
+                          </span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+                            <button title={isPaid ? "Pagato — annulla" : "Segna pagato"} onClick={e => { e.preventDefault(); e.stopPropagation(); togglePaidQuick(event.id, isPaid); }}
+                              style={{ background: isPaid ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.15)", border: `1px solid ${isPaid ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.3)"}`, borderRadius: 4, cursor: "pointer", padding: "0 6px", fontSize: 14, lineHeight: "20px", display: "flex", alignItems: "center", gap: 2, height: 20 }}>
+                              🪙{isPaid && <span style={{ fontSize: 10, fontWeight: 800, color: "#fff" }}>✓</span>}
+                            </button>
+                            {event.status !== "cancelled" && event.patient_phone && (
+                              <button title={waSent ? "Reinvia" : "Invia promemoria"} onClick={e => { e.preventDefault(); e.stopPropagation(); sendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined); }}
+                                style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: 16, lineHeight: 1, opacity: waSent ? 1 : 0.55 }}>{waSent ? "🔕" : "🔔"}</button>
                             )}
+                            <button title={isDone ? "Annulla eseguita" : "Segna eseguita"} onClick={e => { e.preventDefault(); e.stopPropagation(); if (bulkMode) toggleBulkSelect(event.id); else toggleDoneQuick(event.id, event.status); }}
+                              style={{ width: 20, height: 20, borderRadius: 99, border: `1.5px solid ${isDone ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.5)"}`, background: isDone ? "rgba(255,255,255,0.9)" : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: statusBg(event.status), fontSize: 11, fontWeight: 800 }}
+                            >{isDone || bulkSelected.has(event.id) ? "✓" : ""}</button>
                           </div>
-                          
-                          {event.status !== "done" && event.status !== "cancelled" && event.patient_phone && (
-                            <button
-                              title="Invia promemoria WhatsApp"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                sendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined);
-                              }}
-                              style={{
-                                width: 20,
-                                height: 20,
-                                borderRadius: 4,
-                                border: `1.5px solid ${THEME.border}`,
-                                background: "rgba(34, 197, 94, 0.8)",
-                                cursor: "pointer",
-                                flex: "0 0 auto",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                fontSize: 10,
-                                color: "#fff",
-                              }}
-                            >
-                              📱
-                            </button>
-                          )}
-
-                          {event.is_paid ? (
-                            <button
-                              title="Pagato — clicca per annullare"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                togglePaidQuick(event.id, true);
-                              }}
-                              style={{
-                                width: 22,
-                                height: 22,
-                                borderRadius: 6,
-                                border: "none",
-                                background: "#16a34a",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                fontSize: 11,
-                                color: "#fff",
-                                flex: "0 0 auto",
-                                cursor: "pointer",
-                                fontWeight: 800,
-                                boxShadow: "0 1px 3px rgba(22,163,74,0.3)",
-                              }}
-                            >
-                              💰
-                            </button>
-                          ) : event.status !== "cancelled" ? (
-                            <button
-                              title="Segna come pagato"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                togglePaidQuick(event.id, false);
-                              }}
-                              style={{
-                                width: 22,
-                                height: 22,
-                                borderRadius: 6,
-                                border: `2px dashed #dc2626`,
-                                background: "rgba(220,38,38,0.06)",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                fontSize: 11,
-                                color: "#dc2626",
-                                flex: "0 0 auto",
-                                cursor: "pointer",
-                                fontWeight: 800,
-                              }}
-                            >
-                              💰
-                            </button>
-                          ) : null}
                         </div>
-
-                        <div style={{ 
-                          fontSize: 11, 
-                          fontWeight: 700, 
-                          color: THEME.muted,
-                          marginTop: "auto",
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "flex-end"
-                        }}>
-                          <span>{event.location === "studio" ? event.clinic_site : "Domicilio"}</span>
-                          <span style={{ color: statusColor(event.status), fontWeight: 700 }}>{statusLabel(event.status)}</span>
+                        {/* Riga 2: nome */}
+                        <div style={{ fontWeight: 700, fontSize: 13, color: "#fff", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {event.patient_name}
+                        </div>
+                        {/* Riga 3: tipo + importo + status */}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "auto" }}>
+                          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.8)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {event.treatment_type === "macchinario" ? "Macchinario" : "Seduta"}
+                            {event.amount ? ` · €${event.amount}` : ""}
+                            {isDomicile && event.domicile_address ? ` · ${event.domicile_address}` : ""}
+                          </span>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,0.25)", padding: "1px 8px", borderRadius: 99, whiteSpace: "nowrap", flexShrink: 0, marginLeft: 4 }}>
+                            {statusLabel(event.status)}
+                          </span>
                         </div>
                       </div>
                     );
@@ -5298,8 +5228,9 @@ return (
             <div style={{ marginBottom: 20 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft }}>
-                  Seleziona paziente
+                  {duplicateMode ? "Paziente" : "Seleziona paziente"}
                 </div>
+                {!duplicateMode && (
                 <button
                   onClick={() => setQuickPatientOpen(true)}
                   style={{
@@ -5319,8 +5250,30 @@ return (
                   <span style={{ fontSize: 14 }}>➕</span>
                   Nuovo Paziente Rapido
                 </button>
+                )}
               </div>
 
+              {duplicateMode && selectedPatient ? (
+                /* In modalità duplica: mostra solo la pill del paziente, nessuna ricerca */
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "10px 14px", borderRadius: 8,
+                  background: "rgba(37,99,235,0.07)",
+                  border: `1.5px solid ${THEME.blue}`,
+                }}>
+                  <div style={{ width: 32, height: 32, borderRadius: "50%", background: THEME.blue,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: "#fff", fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
+                    {((selectedPatient.last_name?.[0] ?? "") + (selectedPatient.first_name?.[0] ?? "")).toUpperCase() || "?"}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: THEME.text }}>
+                      {selectedPatient.last_name} {selectedPatient.first_name}
+                    </div>
+                    <div style={{ fontSize: 11, color: THEME.muted, marginTop: 1 }}>Paziente copiato dall'appuntamento originale</div>
+                  </div>
+                </div>
+              ) : (
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
@@ -5337,6 +5290,7 @@ return (
                   fontSize: 13,
                 }}
               />
+              )}
             </div>
 
             {quickPatientOpen && (
@@ -5442,6 +5396,7 @@ return (
               </div>
             )}
 
+            {!duplicateMode && (
             <div style={{ border: `1.5px solid ${THEME.border}`, background: THEME.panelBg, borderRadius: 8, overflow: "hidden" }}>
               <div style={{ padding: 10, fontSize: 13, color: THEME.muted, fontWeight: 600, background: THEME.panelSoft }}>
                 {searching ? "Ricerca in corso..." : `Risultati: ${patientResults.length}`}
@@ -5497,6 +5452,7 @@ return (
                 })}
               </div>
             </div>
+            )}
 
             <div style={{ marginTop: 16, fontSize: 13, color: THEME.muted, fontWeight: 600 }}>
               Selezionato:{" "}
@@ -6455,7 +6411,7 @@ return (
                   style={{
                     display: "flex", alignItems: "center", gap: 8,
                     padding: "8px 10px", borderRadius: 8,
-                    background: statusBg(ev.status),
+                    background: `${statusColor(ev.status)}22`,
                     borderLeft: `4px solid ${statusColor(ev.status)}`,
                     fontSize: 12, fontWeight: 600,
                     cursor: "pointer",
@@ -6553,7 +6509,7 @@ return (
                 <div key={ev.id} style={{
                   display: "flex", alignItems: "center", gap: 10,
                   padding: "8px 10px", borderRadius: 8,
-                  background: statusBg(ev.status),
+                  background: `${statusColor(ev.status)}22`,
                   borderLeft: `4px solid ${statusColor(ev.status)}`,
                   fontSize: 12, fontWeight: 600,
                 }}>
