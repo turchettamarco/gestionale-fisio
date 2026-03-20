@@ -482,9 +482,14 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
       const upRes = await supabase.storage.from("patient_docs").upload(path, f, { upsert: false });
       if (upRes.error) { setError(`Upload fallito (${f.name}): ${upRes.error.message}`); setUploading(false); return; }
       const insRes = await supabase.from(table).insert({
-        patient_id: patientId, doc_type: docType, file_name: f.name, storage_path: path,
+        patient_id: patientId,
+        doc_type: docType,
+        file_name: f.name,
+        storage_path: path,
+        ...(isClinical ? { report_text: null, uploaded_at: new Date().toISOString() } : {}),
       });
       if (insRes.error) {
+        console.error(`Insert in ${table} fallito:`, insRes.error);
         await supabase.storage.from("patient_docs").remove([path]);
         setError(`Errore DB (${f.name}): ${insRes.error.message}`);
         setUploading(false); return;
