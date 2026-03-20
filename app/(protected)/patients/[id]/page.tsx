@@ -828,6 +828,12 @@ export default function PatientDetailPage({
   const [secDocClinici,   setSecDocClinici]   = useState(false);
   const [secTerapie,      setSecTerapie]      = useState(false);
   const [secGDPR,         setSecGDPR]         = useState(false);
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [consentSaving, setConsentSaving] = useState(false);
+  const [consentSaved,  setConsentSaved]  = useState(false);
+  const [consentError,  setConsentError]  = useState("");
+  const sigPrivacyRef  = useRef<HTMLCanvasElement>(null);
+  const sigConsensoRef = useRef<HTMLCanvasElement>(null);
   const [patientStatus,     setPatientStatus]     = useState("active");
   const [acquisitionChannel, setAcquisitionChannel] = useState("");
   const [firstVisitDate,    setFirstVisitDate]    = useState("");
@@ -1175,7 +1181,18 @@ export default function PatientDetailPage({
     setError("");
     const res = await supabase.storage.from("patient_docs").createSignedUrl(doc.storage_path, 60);
     if (res.error || !res.data?.signedUrl) { setError(`Impossibile aprire: ${res.error?.message ?? "signed url missing"}`); return; }
-    window.open(res.data.signedUrl, "_blank", "noopener,noreferrer");
+    const isHtml = doc.file_name?.endsWith(".html") || doc.storage_path?.endsWith(".html");
+    if (isHtml) {
+      // Fetch content and open as proper HTML blob so the browser renders it
+      const resp = await fetch(res.data.signedUrl);
+      const html = await resp.text();
+      const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+      const url  = URL.createObjectURL(blob);
+      const w    = window.open(url, "_blank", "noopener,noreferrer");
+      if (w) setTimeout(() => URL.revokeObjectURL(url), 30000);
+    } else {
+      window.open(res.data.signedUrl, "_blank", "noopener,noreferrer");
+    }
   }
 
   async function deleteDocument(doc: PatientDoc) {
@@ -1313,8 +1330,308 @@ export default function PatientDetailPage({
   const headerName = `${patient.last_name} ${patient.first_name}`.toUpperCase();
 
   // ─── Render ───────────────────────────────────────────────────────────────
+
+  // ─── Utilità consensi ────────────────────────────────────────────────────
+  function initSigCanvas(ref: React.RefObject<HTMLCanvasElement | null>) {
+    const cv = ref.current; if (!cv) return;
+    cv.width = cv.offsetWidth || 500;
+    const ctx = cv.getContext("2d")!;
+    ctx.strokeStyle = "#0f172a"; ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    let drawing = false, lx = 0, ly = 0;
+    const xy = (e: MouseEvent | TouchEvent): [number, number] => {
+      const r = cv.getBoundingClientRect();
+      const s = "touches" in e ? e.touches[0] : e as MouseEvent;
+      return [s.clientX - r.left, s.clientY - r.top];
+    };
+    cv.onmousedown  = (e) => { drawing = true; [lx, ly] = xy(e); ctx.beginPath(); ctx.moveTo(lx, ly); };
+    cv.onmousemove  = (e) => { if (!drawing) return; const [x, y] = xy(e); ctx.lineTo(x, y); ctx.stroke(); lx = x; ly = y; };
+    cv.onmouseup    = () => { drawing = false; };
+    cv.onmouseleave = () => { drawing = false; };
+    cv.addEventListener("touchstart",  (e) => { e.preventDefault(); drawing = true; [lx, ly] = xy(e); ctx.beginPath(); ctx.moveTo(lx, ly); }, { passive: false });
+    cv.addEventListener("touchmove",   (e) => { e.preventDefault(); if (!drawing) return; const [x, y] = xy(e); ctx.lineTo(x, y); ctx.stroke(); lx = x; ly = y; }, { passive: false });
+    cv.addEventListener("touchend",    () => { drawing = false; });
+  }
+  function clearSigCanvas(ref: React.RefObject<HTMLCanvasElement | null>) {
+    const cv = ref.current; if (!cv) return;
+    cv.getContext("2d")!.clearRect(0, 0, cv.width, cv.height);
+  }
+  function isSigEmpty(ref: React.RefObject<HTMLCanvasElement | null>) {
+    const cv = ref.current; if (!cv) return true;
+    return !cv.getContext("2d")!.getImageData(0, 0, cv.width, cv.height).data.some(v => v !== 0);
+  }
+
+  // Dati studio (fissi)
+  const STUDIO_DATA = {
+    nome:  "Dott. Turchetta Marco",
+    titolo: "Fisioterapista",
+    studio: "FisioHub · Studi Galileo",
+    addr:  "Via La Cupa 15, 03037 Pontecorvo (FR)",
+    piva:  "P.IVA 03195120609",
+    email: "turchettamarco@gmail.com",
+  };
+
+  function buildConsentHtml(type: "privacy" | "consenso", sigDataUrl: string | null, p: NonNullable<typeof patient>): string {
+    const nome    = `${p.last_name} ${p.first_name}`.trim();
+    const nascita = ddmmyyyy(p.birth_date);
+    const cf      = p.tax_code ?? "";
+    const citta   = p.residence_city ?? "";
+    const tel     = p.phone ?? "";
+    const oggi    = new Date().toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" });
+    const { nome: dNome, titolo, studio, addr, piva, email } = STUDIO_DATA;
+
+    const css = `
+      @page { size: A4; margin: 18mm 20mm; }
+      @media print { .no-print { display: none !important; } body { margin: 0; } }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: Georgia, serif; font-size: 9.5px; line-height: 1.7; color: #1e293b; background: #fff; padding: 16mm 18mm; }
+      strong { font-weight: 700; }
+      p { margin: 0; }
+      ul { padding-left: 14px; }
+      li { margin-bottom: 2px; }
+      h2 { font-family: Arial, sans-serif; font-size: 9.5px; font-weight: 700; color: #0d9488; text-transform: uppercase; letter-spacing: .6px; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; margin: 10px 0 5px; }
+      .hdr { display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 10px; border-bottom: 2px solid #0d9488; margin-bottom: 14px; }
+      .hdr-left .name { font-size: 14px; font-weight: 800; color: #0d9488; font-family: Arial, sans-serif; }
+      .hdr-left .role { font-size: 10px; color: #334155; font-weight: 600; font-family: Arial, sans-serif; margin-top: 1px; }
+      .hdr-left .contact { font-size: 9px; color: #64748b; font-family: Arial, sans-serif; margin-top: 1px; }
+      .hdr-right { font-size: 9px; color: #94a3b8; font-family: Arial, sans-serif; text-align: right; }
+      .doc-title { text-align: center; margin-bottom: 12px; }
+      .doc-title h1 { font-family: Arial, sans-serif; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: #0f172a; }
+      .doc-title p { font-size: 9px; color: #64748b; font-family: Arial, sans-serif; margin-top: 2px; }
+      table { width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 9px; }
+      th { background: #0d9488; color: #fff; padding: 4px 7px; text-align: left; }
+      td { padding: 4px 7px; border-bottom: 1px solid #e2e8f0; color: #334155; }
+      tr.alt td { background: #f8fafc; }
+      .box-green { background: #f0fdf4; border: 1px solid #86efac; border-radius: 5px; padding: 8px 12px; margin-top: 10px; }
+      .box-warn  { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 5px; padding: 7px 10px; margin: 8px 0; }
+      .box-data  { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; }
+      .data-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; }
+      .field label { font-family: Arial, sans-serif; font-size: 8px; color: #94a3b8; text-transform: uppercase; font-weight: 700; display: block; margin-bottom: 1px; }
+      .field .val { border-bottom: 1px solid #94a3b8; min-height: 17px; font-size: 10px; padding: 1px 2px; }
+      .checks { font-size: 9.5px; line-height: 2; }
+      .firma-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #e2e8f0; }
+      .firma-field label { font-family: Arial, sans-serif; font-size: 8px; color: #94a3b8; text-transform: uppercase; font-weight: 700; display: block; margin-bottom: 3px; }
+      .firma-line { border-bottom: 1px solid #334155; min-height: 22px; }
+      .sig-img { border: 1px solid #e2e8f0; border-radius: 4px; height: 58px; background: #fafafa; margin-top: 10px; }
+      .sig-img img { height: 100%; }
+      .footer { margin-top: 14px; padding-top: 10px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; font-family: Arial, sans-serif; font-size: 8px; color: #94a3b8; }
+      .btn-print { padding: 9px 24px; background: #2563eb; color: #fff; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: Arial, sans-serif; }`;
+
+    const hdr = `<div class="hdr"><div class="hdr-left"><div class="name">${studio}</div><div class="role">${dNome} — ${titolo}</div><div class="contact">${addr} · ${email} · ${piva}</div></div><div class="hdr-right">Data: ${oggi}</div></div>`;
+    const footer = `<div class="footer"><span>${studio} — ${dNome}, ${titolo}</span><span>Generato il ${oggi}</span></div>`;
+    const firmaArea = `
+      <div class="firma-grid">
+        <div><div class="firma-field"><label>Luogo</label><div class="firma-line"></div></div></div>
+        <div><div class="firma-field"><label>Data</label><div class="firma-line" style="font-size:10px;padding-top:2px">${oggi}</div></div></div>
+        <div><div class="firma-field"><label>Firma professionista</label><div class="firma-line"></div></div></div>
+      </div>
+      <div class="firma-field"><label>Firma del paziente</label>
+        <div class="sig-img">${sigDataUrl ? `<img src="${sigDataUrl}" alt="firma"/>` : ""}</div>
+      </div>`;
+
+    if (type === "privacy") {
+      return `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>Informativa Privacy – ${nome}</title><style>${css}</style></head><body>
+<div class="no-print" style="padding:12px 0 16px;text-align:center"><button class="btn-print" onclick="window.print()">🖨 Stampa / Salva PDF</button></div>
+${hdr}
+<div class="doc-title"><h1>Informativa sul trattamento dei dati personali</h1><p>Art. 13 Regolamento UE 2016/679 (GDPR)</p></div>
+<h2>1. Titolare del trattamento</h2>
+<p><strong>${dNome}</strong>, ${titolo} — ${piva}<br>${addr} · ${email}</p>
+<h2>2. Dati personali trattati</h2>
+<ul><li><strong>Dati anagrafici:</strong> nome, cognome, data di nascita, codice fiscale, indirizzo, telefono, e-mail</li><li><strong>Dati di salute (Art. 9 GDPR):</strong> anamnesi, diagnosi, referti, cartella clinica fisioterapica</li><li><strong>Dati amministrativi:</strong> fatturazione e pagamento</li></ul>
+<h2>3. Finalità e basi giuridiche</h2>
+<table><tr><th>Finalità</th><th>Base giuridica</th></tr>
+<tr><td>Erogazione prestazioni fisioterapiche</td><td>Art. 9 par. 2 lett. h GDPR</td></tr>
+<tr class="alt"><td>Adempimenti di legge (fatturazione, SSN)</td><td>Art. 6 par. 1 lett. c GDPR</td></tr>
+<tr><td>Gestione amministrativa e contabile</td><td>Art. 6 par. 1 lett. b GDPR</td></tr>
+<tr class="alt"><td>Promemoria appuntamenti (SMS/WhatsApp)</td><td>Art. 6 par. 1 lett. a GDPR — consenso esplicito</td></tr></table>
+<h2>4. Conservazione</h2>
+<ul><li>Documentazione sanitaria: <strong>10 anni</strong> dalla cessazione del rapporto (D.M. 14/02/1997)</li><li>Documentazione fiscale: <strong>10 anni</strong> dalla data del documento</li><li>I dati non vengono venduti né ceduti a terzi per finalità commerciali</li></ul>
+<h2>5. Diritti dell'interessato (Artt. 15–22 GDPR)</h2>
+<p>Ha diritto di accesso, rettifica, cancellazione, limitazione, portabilità e opposizione. Può proporre reclamo al Garante: www.garanteprivacy.it — Contatto: ${email}</p>
+<div class="box-green">
+<p><strong>Io sottoscritto/a</strong> <span style="border-bottom:1px solid #166534;padding:0 50px">${nome}</span> nato/a il <span style="border-bottom:1px solid #166534;padding:0 25px">${nascita}</span> residente in <span style="border-bottom:1px solid #166534;padding:0 35px">${citta}</span><br>
+dichiaro di aver letto e compreso la presente informativa e <strong>acconsento al trattamento dei dati di salute</strong> per finalità terapeutiche.</p>
+<p style="margin-top:7px">Promemoria via WhatsApp/SMS: <input type="checkbox" checked> <strong>Acconsento</strong> &nbsp;&nbsp;<input type="checkbox"> <strong>Non acconsento</strong></p>
+</div>
+${firmaArea}
+${footer}
+</body></html>`;
+    } else {
+      return `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>Consenso Trattamento – ${nome}</title><style>${css}</style></head><body>
+<div class="no-print" style="padding:12px 0 16px;text-align:center"><button class="btn-print" onclick="window.print()">🖨 Stampa / Salva PDF</button></div>
+${hdr}
+<div class="doc-title"><h1>Consenso informato al trattamento fisioterapico</h1><p>Legge n. 219/2017 · GDPR Reg. UE 2016/679</p></div>
+<div class="box-data">
+<div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Dati del paziente</div>
+<div class="data-grid">
+<div class="field"><label>Cognome e nome</label><div class="val">${nome}</div></div>
+<div class="field"><label>Data di nascita</label><div class="val">${nascita}</div></div>
+<div class="field"><label>Codice fiscale</label><div class="val">${cf}</div></div>
+<div class="field"><label>Città di residenza</label><div class="val">${citta}</div></div>
+<div class="field"><label>Telefono</label><div class="val">${tel}</div></div>
+</div>
+</div>
+<h2>Informazioni ricevute</h2>
+<p>Il <strong>${dNome}</strong>, ${titolo}, mi ha illustrato:</p>
+<ul style="margin-top:4px"><li><strong>Diagnosi e condizione clinica:</strong> natura del problema, cause e evoluzione attesa</li><li><strong>Trattamento proposto:</strong> terapia manuale, esercizio terapeutico, strumentale (ultrasuoni, TENS, TECAR, laser…)</li><li><strong>Benefici attesi</strong> nel breve, medio e lungo termine</li><li><strong>Rischi:</strong> dolore post-seduta, ecchimosi, aggravamento transitorio dei sintomi</li><li><strong>Alternative terapeutiche</strong>, inclusa la non effettuazione del trattamento</li></ul>
+<h2>Dichiarazioni del paziente</h2>
+<div class="checks">
+<div><input type="checkbox" checked> Ho ricevuto e compreso le informazioni e ho potuto porre domande con risposte esaurienti</div>
+<div><input type="checkbox" checked> Non sono a conoscenza di controindicazioni; ho comunicato eventuali condizioni di salute rilevanti</div>
+<div><input type="checkbox" checked> Sono consapevole di poter revocare il presente consenso in qualsiasi momento</div>
+<div><input type="checkbox" checked> Ho ricevuto copia dell'informativa GDPR e ho espresso il relativo consenso</div>
+</div>
+<div class="box-warn"><p style="font-size:9px"><strong>Controindicazioni comunicate:</strong> pace-maker o dispositivi impiantati, gravidanza, neoplasie attive, ferite aperte o infezioni, alterazioni della sensibilità cutanea, flebiti e trombosi in fase acuta.</p></div>
+<div class="box-green"><p style="font-weight:700;margin-bottom:4px">Espressione del consenso</p><p>Lette e comprese le informazioni, <strong>acconsento liberamente</strong> all'esecuzione del trattamento fisioterapico proposto dal <strong>${dNome}</strong>, nelle modalità concordate.</p></div>
+${firmaArea}
+${footer}
+</body></html>`;
+    }
+  }
+
+  // Apri in nuova finestra come HTML renderizzato (Blob URL)
+  function openHtmlInWindow(html: string) {
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url  = URL.createObjectURL(blob);
+    const w    = window.open(url, "_blank", "noopener,noreferrer");
+    if (w) setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
+  // Genera e apri per stampa (firma a mano)
+  function printConsentDoc(type: "privacy" | "consenso") {
+    if (!patient) return;
+    const html = buildConsentHtml(type, null, patient);
+    openHtmlInWindow(html);
+  }
+
+  // Salva su Supabase (con firma digitale embedded)
+  async function saveConsents() {
+    if (!patient) return;
+    if (isSigEmpty(sigPrivacyRef))  { setConsentError("Firma mancante sull'Informativa Privacy."); return; }
+    if (isSigEmpty(sigConsensoRef)) { setConsentError("Firma mancante sul Consenso al trattamento."); return; }
+    setConsentError(""); setConsentSaving(true);
+    const nome = `${patient.last_name} ${patient.first_name}`.trim();
+    const sigP = sigPrivacyRef.current!.toDataURL("image/png");
+    const sigC = sigConsensoRef.current!.toDataURL("image/png");
+    const ts   = Date.now();
+    const docs2 = [
+      { html: buildConsentHtml("privacy",  sigP, patient), docType: "gdpr_informativa_privacy" as DocType, fname: `Privacy_${nome.replace(/ /g,"_")}_${ts}.html` },
+      { html: buildConsentHtml("consenso", sigC, patient), docType: "consenso_trattamento"     as DocType, fname: `Consenso_${nome.replace(/ /g,"_")}_${ts}.html` },
+    ];
+    for (const doc of docs2) {
+      const blob = new Blob([doc.html], { type: "text/html;charset=utf-8" });
+      const path = `${patientId}/${doc.fname}`;
+      const up   = await supabase.storage.from("patient_docs").upload(path, blob, { upsert: false, contentType: "text/html" });
+      if (up.error)  { setConsentError(`Upload fallito: ${up.error.message}`);  setConsentSaving(false); return; }
+      const ins  = await supabase.from("patient_documents").insert({ patient_id: patientId, doc_type: doc.docType, file_name: doc.fname, storage_path: path });
+      if (ins.error) { setConsentError(`Errore DB: ${ins.error.message}`); setConsentSaving(false); return; }
+    }
+    setConsentSaving(false); setConsentSaved(true);
+    await loadDocs();
+    setTimeout(() => { setShowConsentModal(false); setConsentSaved(false); }, 2000);
+  }
   return (
     <div style={{ minHeight: "100vh", background: THEME.appBg, fontFamily: "'Outfit', 'Segoe UI', system-ui, sans-serif" }}>
+
+      {/* ━━━ MODAL CONSENSI ━━━ */}
+      {showConsentModal && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "20px 16px", overflowY: "auto" }}>
+          <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 920, boxShadow: "0 24px 64px rgba(0,0,0,0.3)", marginBottom: 20 }}>
+
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 24px", borderBottom: `1px solid ${THEME.border}` }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 16, color: THEME.text }}>🔏 Genera consensi</div>
+                <div style={{ fontSize: 12, color: THEME.muted, marginTop: 2 }}>Firma entrambi i documenti con Apple Pencil o mouse · vengono salvati automaticamente</div>
+              </div>
+              <button onClick={() => { setShowConsentModal(false); setConsentSaved(false); setConsentError(""); }} style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${THEME.border}`, background: THEME.panelSoft, cursor: "pointer", fontSize: 16, color: THEME.muted }}>✕</button>
+            </div>
+
+            <div style={{ padding: "18px 24px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
+
+              {/* Informativa Privacy */}
+              <div style={{ border: `1.5px solid ${THEME.border}`, borderRadius: 12, overflow: "hidden" }}>
+                <div style={{ background: "linear-gradient(135deg, #0d9488, #0891b2)", padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 13, color: "#fff" }}>1 · Informativa Privacy GDPR</div>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.75)", marginTop: 1 }}>Art. 13 Reg. UE 2016/679</div>
+                  </div>
+                  <button onClick={() => printConsentDoc("privacy")} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.4)", background: "rgba(255,255,255,0.15)", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>🖨 Stampa</button>
+                </div>
+                <div style={{ padding: "12px 14px", maxHeight: 300, overflowY: "auto", fontSize: 10.5, lineHeight: 1.65, color: THEME.text }}>
+                  <p style={{ marginBottom: 6 }}><strong>Titolare:</strong> Dott. Turchetta Marco, Fisioterapista, P.IVA 03195120609, Via La Cupa 15 Pontecorvo FR</p>
+                  <p style={{ marginBottom: 4 }}><strong>Dati trattati:</strong> anagrafici, dati di salute (Art. 9 GDPR), amministrativi.</p>
+                  <p style={{ marginBottom: 4 }}><strong>Finalità:</strong> prestazioni fisioterapiche, obblighi di legge, gestione amministrativa, promemoria appuntamenti (con consenso).</p>
+                  <p style={{ marginBottom: 4 }}><strong>Conservazione:</strong> 10 anni per documentazione sanitaria e fiscale.</p>
+                  <p style={{ marginBottom: 6 }}><strong>Diritti (Artt. 15–22):</strong> accesso, rettifica, cancellazione, limitazione, portabilità, opposizione.</p>
+                  <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 6, padding: "8px 10px" }}>
+                    <p><strong>Io sottoscritto/a</strong> {patient?.last_name} {patient?.first_name} dichiaro di aver letto e compreso l'informativa e <strong>acconsento al trattamento dei dati di salute</strong> per finalità terapeutiche.</p>
+                    <p style={{ marginTop: 5 }}><input type="checkbox" defaultChecked readOnly /> Acconsento ai promemoria WhatsApp/SMS</p>
+                  </div>
+                </div>
+                <div style={{ padding: "12px 14px", borderTop: `1px solid ${THEME.border}`, background: THEME.panelSoft }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5 }}>Firma del paziente</div>
+                  <canvas
+                    ref={el => { if (el && !el.onmousedown) { (sigPrivacyRef as React.MutableRefObject<HTMLCanvasElement>).current = el; setTimeout(() => initSigCanvas(sigPrivacyRef), 80); } }}
+                    height={90}
+                    style={{ display: "block", width: "100%", border: "1.5px dashed #94a3b8", borderRadius: 6, background: "#fff", touchAction: "none", cursor: "crosshair" }}
+                  />
+                  <button onClick={() => clearSigCanvas(sigPrivacyRef)} style={{ marginTop: 5, padding: "3px 10px", borderRadius: 6, border: `1px solid ${THEME.border}`, background: "#fff", color: THEME.muted, fontSize: 11, cursor: "pointer" }}>Cancella</button>
+                </div>
+              </div>
+
+              {/* Consenso trattamento */}
+              <div style={{ border: `1.5px solid ${THEME.border}`, borderRadius: 12, overflow: "hidden" }}>
+                <div style={{ background: "linear-gradient(135deg, #7c3aed, #2563eb)", padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 13, color: "#fff" }}>2 · Consenso al trattamento fisioterapico</div>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.75)", marginTop: 1 }}>Legge n. 219/2017</div>
+                  </div>
+                  <button onClick={() => printConsentDoc("consenso")} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.4)", background: "rgba(255,255,255,0.15)", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>🖨 Stampa</button>
+                </div>
+                <div style={{ padding: "12px 14px", maxHeight: 300, overflowY: "auto", fontSize: 10.5, lineHeight: 1.65, color: THEME.text }}>
+                  <p style={{ marginBottom: 6 }}><strong>Paziente:</strong> {patient?.last_name} {patient?.first_name} · {ddmmyyyy(patient?.birth_date ?? null)} · {patient?.tax_code} · {patient?.residence_city} · {patient?.phone}</p>
+                  <p style={{ marginBottom: 4 }}>Il <strong>Dott. Turchetta Marco</strong> mi ha illustrato: diagnosi, trattamento proposto (terapia manuale, esercizio, strumentale), benefici, rischi (dolore post-seduta, ecchimosi, aggravamento transitorio), alternative terapeutiche.</p>
+                  <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 5, padding: "6px 10px", margin: "6px 0", fontSize: 10 }}>
+                    <strong>Controindicazioni:</strong> pace-maker, gravidanza, neoplasie attive, ferite aperte, flebiti in fase acuta.
+                  </div>
+                  <div style={{ fontSize: 10.5, lineHeight: 2 }}>
+                    <div><input type="checkbox" defaultChecked readOnly /> Ho ricevuto e compreso le informazioni</div>
+                    <div><input type="checkbox" defaultChecked readOnly /> Non sono a conoscenza di controindicazioni</div>
+                    <div><input type="checkbox" defaultChecked readOnly /> Posso revocare il consenso in qualsiasi momento</div>
+                    <div><input type="checkbox" defaultChecked readOnly /> Ho ricevuto copia dell'informativa GDPR</div>
+                  </div>
+                  <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 6, padding: "8px 10px", marginTop: 6 }}>
+                    <p><strong>Acconsento liberamente</strong> all'esecuzione del trattamento fisioterapico nelle modalità concordate.</p>
+                  </div>
+                </div>
+                <div style={{ padding: "12px 14px", borderTop: `1px solid ${THEME.border}`, background: THEME.panelSoft }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5 }}>Firma del paziente</div>
+                  <canvas
+                    ref={el => { if (el && !el.onmousedown) { (sigConsensoRef as React.MutableRefObject<HTMLCanvasElement>).current = el; setTimeout(() => initSigCanvas(sigConsensoRef), 80); } }}
+                    height={90}
+                    style={{ display: "block", width: "100%", border: "1.5px dashed #94a3b8", borderRadius: 6, background: "#fff", touchAction: "none", cursor: "crosshair" }}
+                  />
+                  <button onClick={() => clearSigCanvas(sigConsensoRef)} style={{ marginTop: 5, padding: "3px 10px", borderRadius: 6, border: `1px solid ${THEME.border}`, background: "#fff", color: THEME.muted, fontSize: 11, cursor: "pointer" }}>Cancella</button>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer modal */}
+            <div style={{ padding: "14px 24px 18px", borderTop: `1px solid ${THEME.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div>
+                {consentError && <div style={{ fontSize: 12, color: THEME.red, fontWeight: 600 }}>⚠️ {consentError}</div>}
+                {consentSaved && <div style={{ fontSize: 12, color: THEME.green, fontWeight: 700 }}>✓ Documenti firmati e salvati!</div>}
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={() => { setShowConsentModal(false); setConsentError(""); }} style={{ padding: "10px 18px", borderRadius: 8, border: `1.5px solid ${THEME.border}`, background: "#fff", color: THEME.muted, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Annulla</button>
+                <button onClick={saveConsents} disabled={consentSaving || consentSaved} style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: consentSaved ? THEME.green : "linear-gradient(135deg, #0d9488, #2563eb)", color: "#fff", fontWeight: 700, fontSize: 13, cursor: consentSaving ? "wait" : "pointer", opacity: consentSaving ? 0.7 : 1 }}>
+                  {consentSaving ? "Salvataggio…" : consentSaved ? "✓ Salvati!" : "✓ Conferma firma e salva"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <style jsx global>{`
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
         * { -webkit-font-smoothing: antialiased; box-sizing: border-box; }
@@ -1458,6 +1775,11 @@ export default function PatientDetailPage({
             }}>
               {deletingPatient ? "Elimino…" : "Elimina paziente"}
             </button>
+            <button onClick={() => setShowConsentModal(true)} style={{
+              padding: "9px 16px", borderRadius: 8, border: "none",
+              background: "linear-gradient(135deg, #0d9488, #2563eb)",
+              color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer",
+            }}>🔏 Genera consensi</button>
           </div>
         </div>
 
@@ -1985,7 +2307,7 @@ export default function PatientDetailPage({
           <SecHeader
             icon="🔏"
             title="Documenti GDPR"
-            subtitle="Upload + archivio consensi"
+            subtitle="Genera · stampa · firma · archivia"
             open={secGDPR}
             onToggle={() => setSecGDPR(s => !s)}
             badge={!secGDPR && docs.length > 0
@@ -1996,7 +2318,40 @@ export default function PatientDetailPage({
           />
           {secGDPR && (
           <div style={cardBody}>
-            <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
+
+            {/* Genera e firma digitale */}
+            <div style={{ background: THEME.panelSoft, borderRadius: 10, border: `1px solid ${THEME.border}`, padding: "14px 16px", marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>Genera moduli</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                {/* Informativa Privacy */}
+                <div style={{ border: `1px solid ${THEME.border}`, borderRadius: 8, overflow: "hidden" }}>
+                  <div style={{ background: "linear-gradient(135deg, #0d9488, #0891b2)", padding: "8px 12px" }}>
+                    <div style={{ fontWeight: 700, fontSize: 12, color: "#fff" }}>📄 Informativa Privacy GDPR</div>
+                  </div>
+                  <div style={{ padding: "10px 12px", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button onClick={() => printConsentDoc("privacy")} style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: "#0d9488", color: "#fff", fontWeight: 700, fontSize: 11, cursor: "pointer" }}>🖨 Stampa (firma a mano)</button>
+                    <button onClick={() => setShowConsentModal(true)} style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${THEME.teal}`, background: "#fff", color: THEME.teal, fontWeight: 700, fontSize: 11, cursor: "pointer" }}>✍️ Firma su iPad</button>
+                  </div>
+                </div>
+                {/* Consenso trattamento */}
+                <div style={{ border: `1px solid ${THEME.border}`, borderRadius: 8, overflow: "hidden" }}>
+                  <div style={{ background: "linear-gradient(135deg, #7c3aed, #2563eb)", padding: "8px 12px" }}>
+                    <div style={{ fontWeight: 700, fontSize: 12, color: "#fff" }}>📄 Consenso al trattamento</div>
+                  </div>
+                  <div style={{ padding: "10px 12px", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button onClick={() => printConsentDoc("consenso")} style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: "#7c3aed", color: "#fff", fontWeight: 700, fontSize: 11, cursor: "pointer" }}>🖨 Stampa (firma a mano)</button>
+                    <button onClick={() => setShowConsentModal(true)} style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid #7c3aed`, background: "#fff", color: "#7c3aed", fontWeight: 700, fontSize: 11, cursor: "pointer" }}>✍️ Firma su iPad</button>
+                  </div>
+                </div>
+              </div>
+              <button onClick={() => setShowConsentModal(true)} style={{ width: "100%", padding: "9px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #0d9488, #2563eb)", color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                🔏 Firma entrambi su iPad e salva automaticamente
+              </button>
+            </div>
+
+            {/* Upload manuale */}
+            <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>Carica documento firmato (PDF o immagine)</div>
+            <div style={{ display: "flex", justifyContent:"flex-end", marginBottom: 8 }}>
               {btnOutline(loadingDocs ? "Aggiorno…" : "Aggiorna", loadDocs, THEME.blue, loadingDocs)}
             </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12, marginBottom: 16 }} className="tab-grid-2">
