@@ -9,7 +9,7 @@ type Plan   = "invoice" | "no_invoice";
 // FIX: aggiunto cancelled e not_paid mancanti
 type Status = "booked" | "confirmed" | "done" | "cancelled" | "not_paid";
 type DocType =
-  | "rx" | "rmn" | "tac" | "ecografia" | "elettromiografia"
+  | "rx" | "rm" | "tac" | "ecografia" | "elettromiografia"
   | "prescrizione" | "gdpr_informativa_privacy" | "consenso_trattamento" | "altro";
 
 type Patient = {
@@ -110,7 +110,7 @@ function statusColor(s: Status) {
 }
 function docTypeLabel(t: string) {
   return ({
-    rx: "Rx", rmn: "RMN", tac: "TAC", ecografia: "Ecografia",
+    rx: "Rx", rm: "RMN", tac: "TAC", ecografia: "Ecografia",
     elettromiografia: "Elettromiografia", prescrizione: "Prescrizione",
     gdpr_informativa_privacy: "GDPR Privacy", consenso_trattamento: "Consenso trattamento",
     altro: "Altro",
@@ -118,7 +118,7 @@ function docTypeLabel(t: string) {
 }
 function docTypeHint(t: string) {
   return ({
-    rx: "Radiografie / lastre", rmn: "Risonanza magnetica", tac: "Tomografia computerizzata",
+    rx: "Radiografie / lastre", rm: "Risonanza magnetica", tac: "Tomografia computerizzata",
     ecografia: "Referti ecografici", elettromiografia: "EMG / ENG",
     prescrizione: "Prescrizioni mediche / impegnative",
   } as Record<string, string>)[t] ?? "";
@@ -467,7 +467,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
     setFiles(Array.from(e.target.files ?? []));
   }
-  const CLINICAL_TYPES = ["rx", "rmn", "tac", "ecografia", "elettromiografia", "prescrizione"];
+  const CLINICAL_TYPES = ["rx", "rm", "tac", "ecografia", "elettromiografia", "prescrizione"];
 
   async function uploadDocuments() {
     if (!files.length) { setError("Seleziona almeno un file"); return; }
@@ -567,7 +567,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   }, [docs]);
 
   const orderedDocTypes: string[] = [
-    "rx", "rmn", "tac", "ecografia", "elettromiografia", "prescrizione",
+    "rx", "rm", "tac", "ecografia", "elettromiografia", "prescrizione",
     "gdpr_informativa_privacy", "consenso_trattamento", "altro",
   ];
 
@@ -1179,7 +1179,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
                 <FG label="Tipo documento">
                   <select value={docType} onChange={e => setDocType(e.target.value as DocType)} style={inputS()}>
                     <option value="rx">Rx</option>
-                    <option value="rmn">RMN</option>
+                    <option value="rm">RMN</option>
                     <option value="tac">TAC</option>
                     <option value="ecografia">Ecografia</option>
                     <option value="elettromiografia">Elettromiografia</option>
