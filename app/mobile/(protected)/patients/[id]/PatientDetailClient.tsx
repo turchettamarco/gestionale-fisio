@@ -350,10 +350,16 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
     setLoading(false);
   }
   async function loadDocs() {
-    const res = await supabase.from("patient_documents")
-      .select("*").eq("patient_id", patientId).order("uploaded_at", { ascending: false });
-    if (res.error) setError(res.error.message);
-    else setDocs((res.data ?? []) as PatientDoc[]);
+    // Legge da entrambe le tabelle e le unisce
+    const [resGdpr, resClinical] = await Promise.all([
+      supabase.from("patient_documents").select("*").eq("patient_id", patientId).order("uploaded_at", { ascending: false }),
+      supabase.from("clinical_documents").select("*").eq("patient_id", patientId).order("uploaded_at", { ascending: false }),
+    ]);
+    if (resGdpr.error) setError(resGdpr.error.message);
+    if (resClinical.error) setError(resClinical.error.message);
+    const gdprDocs = (resGdpr.data ?? []) as PatientDoc[];
+    const clinicalDocs = (resClinical.data ?? []) as PatientDoc[];
+    setDocs([...clinicalDocs, ...gdprDocs]);
   }
   async function loadAppointments() {
     const res = await supabase.from("appointments")
@@ -461,9 +467,13 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
     setFiles(Array.from(e.target.files ?? []));
   }
+  const CLINICAL_TYPES = ["rx", "rmn", "tac", "ecografia", "elettromiografia", "prescrizione"];
+
   async function uploadDocuments() {
     if (!files.length) { setError("Seleziona almeno un file"); return; }
     setUploading(true); setError(""); setUploadProgress({ done: 0, total: files.length, current: "" });
+    const isClinical = CLINICAL_TYPES.includes(docType);
+    const table = isClinical ? "clinical_documents" : "patient_documents";
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       setUploadProgress({ done: i, total: files.length, current: f.name });
@@ -471,7 +481,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
       const path = `${patientId}/${docType}/${Date.now()}_${safeName}`;
       const upRes = await supabase.storage.from("patient_docs").upload(path, f, { upsert: false });
       if (upRes.error) { setError(`Upload fallito (${f.name}): ${upRes.error.message}`); setUploading(false); return; }
-      const insRes = await supabase.from("patient_documents").insert({
+      const insRes = await supabase.from(table).insert({
         patient_id: patientId, doc_type: docType, file_name: f.name, storage_path: path,
       });
       if (insRes.error) {
@@ -490,7 +500,9 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   }
   async function deleteDocument(doc: PatientDoc) {
     if (!window.confirm("Eliminare questo documento?")) return;
-    const dbRes = await supabase.from("patient_documents").delete().eq("id", doc.id);
+    const isClinical = CLINICAL_TYPES.includes(doc.doc_type as string);
+    const table = isClinical ? "clinical_documents" : "patient_documents";
+    const dbRes = await supabase.from(table).delete().eq("id", doc.id);
     if (dbRes.error) { setError(`Errore DB: ${dbRes.error.message}`); return; }
     await supabase.storage.from("patient_docs").remove([doc.storage_path]);
     await loadDocs();

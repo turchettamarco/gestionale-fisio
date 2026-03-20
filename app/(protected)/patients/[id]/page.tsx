@@ -4,7 +4,620 @@ import Link from "next/link";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Pain Map ─────────────────────────────────────────────────────────────────
+
+const PAIN_TYPES_PM = [
+  { id:"burning",   label:"Bruciante",  emoji:"🔥", color:"#ef4444" },
+  { id:"throbbing", label:"Pulsante",   emoji:"💗", color:"#f97316" },
+  { id:"dull",      label:"Sordo",      emoji:"🔵", color:"#3b82f6" },
+  { id:"sharp",     label:"Acuto",      emoji:"⚡", color:"#a855f7" },
+  { id:"stiff",     label:"Rigidità",   emoji:"🔒", color:"#64748b" },
+  { id:"numb",      label:"Formicolio", emoji:"〜", color:"#06b6d4" },
+];
+
+const PM_VIEWS = ["front","back","left","right"] as const;
+type PMView = typeof PM_VIEWS[number];
+const PM_VIEW_LABELS: Record<PMView,string> = { front:"Fronte", back:"Retro", left:"Lat. Sx", right:"Lat. Dx" };
+
+const PM_GRID = 60;
+const PM_ROWS = 150;
+
+const PM_ANATOMY: Record<PMView, Array<{n:string;x:number;y:number}>> = {
+  front:[
+    {n:"Testa",x:50,y:9},{n:"Collo",x:50,y:17},{n:"Spalla sin.",x:16,y:24},{n:"Spalla des.",x:84,y:24},
+    {n:"Petto",x:50,y:31},{n:"Addome",x:50,y:47},{n:"Braccio sin.",x:9,y:43},{n:"Braccio des.",x:91,y:43},
+    {n:"Avamb. sin.",x:8,y:63},{n:"Avamb. des.",x:92,y:63},{n:"Coscia sin.",x:32,y:80},{n:"Coscia des.",x:68,y:80},
+    {n:"Gamba sin.",x:33,y:93},{n:"Gamba des.",x:67,y:93},
+  ],
+  back:[
+    {n:"Occipite",x:50,y:9},{n:"Cervicale",x:50,y:17},{n:"Trapezio sin.",x:20,y:24},{n:"Trapezio des.",x:80,y:24},
+    {n:"Dorsale",x:50,y:35},{n:"Lombare",x:50,y:56},{n:"Gluteo sin.",x:34,y:70},{n:"Gluteo des.",x:66,y:70},
+    {n:"Polp. sin.",x:33,y:93},{n:"Polp. des.",x:67,y:93},
+  ],
+  left:[
+    {n:"Testa",x:50,y:9},{n:"Collo",x:50,y:17},{n:"Petto",x:65,y:30},{n:"Schiena",x:28,y:38},
+    {n:"Addome",x:60,y:50},{n:"Anca",x:58,y:67},{n:"Coscia",x:50,y:80},{n:"Gamba",x:45,y:93},
+  ],
+  right:[
+    {n:"Testa",x:50,y:9},{n:"Collo",x:50,y:17},{n:"Petto",x:35,y:30},{n:"Schiena",x:72,y:38},
+    {n:"Addome",x:40,y:50},{n:"Anca",x:42,y:67},{n:"Coscia",x:50,y:80},{n:"Gamba",x:55,y:93},
+  ],
+};
+
+const BodyFrontM = () => (
+  <svg viewBox="0 0 200 500" fill="none" xmlns="http://www.w3.org/2000/svg" style={{width:"100%",height:"100%",display:"block"}}>
+    <ellipse cx="100" cy="38" rx="30" ry="35" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <ellipse cx="86" cy="30" rx="5" ry="7" fill="#fff" stroke="#94a3b8" strokeWidth="1"/>
+    <ellipse cx="114" cy="30" rx="5" ry="7" fill="#fff" stroke="#94a3b8" strokeWidth="1"/>
+    <circle cx="86" cy="30" r="2.5" fill="#475569"/><circle cx="114" cy="30" r="2.5" fill="#475569"/>
+    <path d="M90 50 Q100 58 110 50" stroke="#94a3b8" strokeWidth="1.2" fill="none"/>
+    <rect x="87" y="72" width="26" height="18" rx="5" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <path d="M32 112 Q28 88 87 88 L113 88 Q172 88 168 112 L163 245 Q163 255 100 257 Q37 255 37 245 Z" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <path d="M100 108 L100 250" stroke="#cbd5e1" strokeWidth="0.8" strokeDasharray="4,4"/>
+    <line x1="55" y1="128" x2="145" y2="128" stroke="#cbd5e1" strokeWidth="0.6" strokeDasharray="3,3"/>
+    <ellipse cx="56" cy="106" rx="15" ry="8" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1"/>
+    <ellipse cx="144" cy="106" rx="15" ry="8" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1"/>
+    <path d="M32 112 Q10 128 8 172 Q5 212 16 238 Q20 250 30 248 Q40 246 38 224 L36 168 L42 118 Z" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <path d="M168 112 Q190 128 192 172 Q195 212 184 238 Q180 250 170 248 Q160 246 162 224 L164 168 L158 118 Z" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <ellipse cx="22" cy="260" rx="14" ry="17" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <ellipse cx="178" cy="260" rx="14" ry="17" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <path d="M37 245 Q32 268 34 294 Q38 312 54 318 Q70 324 76 296 L80 258 Z" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <path d="M163 245 Q168 268 166 294 Q162 312 146 318 Q130 324 124 296 L120 258 Z" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <path d="M34 294 Q30 342 32 374 Q34 388 50 392 Q66 396 70 374 L74 300 Z" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <path d="M166 294 Q170 342 168 374 Q166 388 150 392 Q134 396 130 374 L126 300 Z" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <ellipse cx="50" cy="400" rx="20" ry="10" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <ellipse cx="150" cy="400" rx="20" ry="10" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <path d="M32 374 Q28 420 30 448" stroke="#94a3b8" strokeWidth="1.5" fill="none"/>
+    <path d="M168 374 Q172 420 170 448" stroke="#94a3b8" strokeWidth="1.5" fill="none"/>
+    <ellipse cx="42" cy="454" rx="24" ry="10" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <ellipse cx="158" cy="454" rx="24" ry="10" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <ellipse cx="100" cy="192" rx="8" ry="8" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1" opacity="0.6"/>
+  </svg>
+);
+
+const BodyFrontF = () => (
+  <svg viewBox="0 0 200 500" fill="none" xmlns="http://www.w3.org/2000/svg" style={{width:"100%",height:"100%",display:"block"}}>
+    <ellipse cx="100" cy="38" rx="27" ry="35" fill="#fdf4ff" stroke="#c084fc" strokeWidth="1.5"/>
+    <ellipse cx="87" cy="30" rx="4.5" ry="6.5" fill="#fff" stroke="#c084fc" strokeWidth="1"/>
+    <ellipse cx="113" cy="30" rx="4.5" ry="6.5" fill="#fff" stroke="#c084fc" strokeWidth="1"/>
+    <circle cx="87" cy="30" r="2.2" fill="#a78bfa"/><circle cx="113" cy="30" r="2.2" fill="#a78bfa"/>
+    <path d="M91 52 Q100 60 109 52" stroke="#c084fc" strokeWidth="1.2" fill="none"/>
+    <rect x="88" y="72" width="24" height="16" rx="4" fill="#fdf4ff" stroke="#c084fc" strokeWidth="1.5"/>
+    <path d="M40 112 Q36 88 88 88 L112 88 Q164 88 160 112 L156 230 Q148 248 100 252 Q52 248 44 230 Z" fill="#fdf4ff" stroke="#c084fc" strokeWidth="1.5"/>
+    <path d="M100 108 L100 248" stroke="#e9d5ff" strokeWidth="0.8" strokeDasharray="4,4"/>
+    <ellipse cx="62" cy="106" rx="13" ry="7" fill="#f3e8ff" stroke="#c084fc" strokeWidth="1" opacity="0.7"/>
+    <ellipse cx="138" cy="106" rx="13" ry="7" fill="#f3e8ff" stroke="#c084fc" strokeWidth="1" opacity="0.7"/>
+    <ellipse cx="80" cy="155" rx="12" ry="15" fill="#f3e8ff" stroke="#c084fc" strokeWidth="1" opacity="0.8"/>
+    <ellipse cx="120" cy="155" rx="12" ry="15" fill="#f3e8ff" stroke="#c084fc" strokeWidth="1" opacity="0.8"/>
+    <path d="M40 112 Q20 128 18 172 Q15 208 26 234 Q30 246 40 244 Q50 242 48 220 L46 168 L50 118 Z" fill="#fdf4ff" stroke="#c084fc" strokeWidth="1.5"/>
+    <path d="M160 112 Q180 128 182 172 Q185 208 174 234 Q170 246 160 244 Q150 242 152 220 L154 168 L150 118 Z" fill="#fdf4ff" stroke="#c084fc" strokeWidth="1.5"/>
+    <ellipse cx="26" cy="256" rx="13" ry="16" fill="#fdf4ff" stroke="#c084fc" strokeWidth="1.5"/>
+    <ellipse cx="174" cy="256" rx="13" ry="16" fill="#fdf4ff" stroke="#c084fc" strokeWidth="1.5"/>
+    <path d="M44 230 Q38 255 36 278 Q34 305 50 320 Q64 334 80 330 L84 258 Z" fill="#fdf4ff" stroke="#c084fc" strokeWidth="1.5"/>
+    <path d="M156 230 Q162 255 164 278 Q166 305 150 320 Q136 334 120 330 L116 258 Z" fill="#fdf4ff" stroke="#c084fc" strokeWidth="1.5"/>
+    <path d="M36 278 Q30 330 32 362 Q34 378 50 382 Q66 386 70 362 L74 285 Z" fill="#fdf4ff" stroke="#c084fc" strokeWidth="1.5"/>
+    <path d="M164 278 Q170 330 168 362 Q166 378 150 382 Q134 386 130 362 L126 285 Z" fill="#fdf4ff" stroke="#c084fc" strokeWidth="1.5"/>
+    <ellipse cx="50" cy="390" rx="20" ry="10" fill="#fdf4ff" stroke="#c084fc" strokeWidth="1.5"/>
+    <ellipse cx="150" cy="390" rx="20" ry="10" fill="#fdf4ff" stroke="#c084fc" strokeWidth="1.5"/>
+    <path d="M32 362 Q28 415 30 445" stroke="#c084fc" strokeWidth="1.5" fill="none"/>
+    <path d="M168 362 Q172 415 170 445" stroke="#c084fc" strokeWidth="1.5" fill="none"/>
+    <ellipse cx="42" cy="451" rx="24" ry="10" fill="#fdf4ff" stroke="#c084fc" strokeWidth="1.5"/>
+    <ellipse cx="158" cy="451" rx="24" ry="10" fill="#fdf4ff" stroke="#c084fc" strokeWidth="1.5"/>
+  </svg>
+);
+
+const BodyBackM = () => (
+  <svg viewBox="0 0 200 500" fill="none" xmlns="http://www.w3.org/2000/svg" style={{width:"100%",height:"100%",display:"block"}}>
+    <ellipse cx="100" cy="38" rx="30" ry="35" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <rect x="87" y="72" width="26" height="18" rx="5" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <path d="M32 112 Q28 88 87 88 L113 88 Q172 88 168 112 L163 245 Q163 255 100 257 Q37 255 37 245 Z" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <path d="M100 88 L100 250" stroke="#cbd5e1" strokeWidth="1" strokeDasharray="5,4"/>
+    <path d="M52 98 Q44 130 48 160 Q54 172 64 166 Q74 160 70 130 L68 98 Z" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1" opacity="0.7"/>
+    <path d="M148 98 Q156 130 152 160 Q146 172 136 166 Q126 160 130 130 L132 98 Z" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1" opacity="0.7"/>
+    {[118,138,158,178,198,218].map((y,i) => <ellipse key={i} cx="100" cy={y} rx="7" ry="5.5" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="0.8" opacity="0.5"/>)}
+    <path d="M32 112 Q10 128 8 172 Q5 212 16 238 Q20 250 30 248 Q40 246 38 224 L36 168 L42 118 Z" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <path d="M168 112 Q190 128 192 172 Q195 212 184 238 Q180 250 170 248 Q160 246 162 224 L164 168 L158 118 Z" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <ellipse cx="22" cy="260" rx="14" ry="17" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <ellipse cx="178" cy="260" rx="14" ry="17" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <path d="M37 245 Q32 268 34 294 Q38 312 54 318 Q70 324 76 296 L80 258 Z" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <path d="M163 245 Q168 268 166 294 Q162 312 146 318 Q130 324 124 296 L120 258 Z" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <path d="M34 294 Q30 342 32 374 Q34 388 50 392 Q66 396 70 374 L74 300 Z" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <path d="M166 294 Q170 342 168 374 Q166 388 150 392 Q134 396 130 374 L126 300 Z" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <ellipse cx="50" cy="400" rx="20" ry="10" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <ellipse cx="150" cy="400" rx="20" ry="10" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <path d="M32 374 Q28 420 30 448" stroke="#94a3b8" strokeWidth="1.5" fill="none"/>
+    <path d="M168 374 Q172 420 170 448" stroke="#94a3b8" strokeWidth="1.5" fill="none"/>
+    <ellipse cx="42" cy="454" rx="24" ry="10" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+    <ellipse cx="158" cy="454" rx="24" ry="10" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1.5"/>
+  </svg>
+);
+
+const BodySideComp = ({ flip = false, female = false }: {flip?:boolean;female?:boolean}) => {
+  const fill = female ? "#fdf4ff" : "#f1f5f9";
+  const stroke = female ? "#c084fc" : "#94a3b8";
+  return (
+    <svg viewBox="0 0 140 500" fill="none" xmlns="http://www.w3.org/2000/svg"
+      style={{width:"100%",height:"100%",display:"block",transform:flip?"scaleX(-1)":"none"}}>
+      <ellipse cx="68" cy="38" rx="26" ry="33" fill={fill} stroke={stroke} strokeWidth="1.5"/>
+      <ellipse cx="80" cy="30" rx="5" ry="7" fill="#fff" stroke={stroke} strokeWidth="1"/>
+      <circle cx="80" cy="30" r="2.5" fill={female?"#a78bfa":"#475569"}/>
+      <path d="M76 60 Q90 68 88 75" stroke={stroke} strokeWidth="1" fill="none"/>
+      <rect x="60" y="70" width="20" height="16" rx="4" fill={fill} stroke={stroke} strokeWidth="1.5"/>
+      <path d="M28 108 Q26 88 60 86 L80 86 Q112 88 116 108 L114 238 Q114 248 72 250 Q30 248 28 238 Z" fill={fill} stroke={stroke} strokeWidth="1.5"/>
+      <path d="M116 108 Q130 122 132 158 Q134 192 126 220 Q122 236 116 234 Q108 232 110 212 L112 170 L118 114 Z" fill={fill} stroke={stroke} strokeWidth="1.5"/>
+      {female && <ellipse cx="92" cy="145" rx="14" ry="16" fill={fill} stroke={stroke} strokeWidth="1" opacity="0.8"/>}
+      <ellipse cx="120" cy="248" rx="11" ry="14" fill={fill} stroke={stroke} strokeWidth="1.5"/>
+      <path d="M28 238 Q24 258 26 282 Q30 298 44 304 Q58 310 62 284 L64 248 Z" fill={fill} stroke={stroke} strokeWidth="1.5"/>
+      <path d="M26 282 Q22 328 24 360 Q26 374 38 376 Q52 378 56 358 L58 284 Z" fill={fill} stroke={stroke} strokeWidth="1.5"/>
+      <path d="M62 284 Q80 264 96 272 Q110 282 104 308 Q100 324 86 326 Q68 326 62 306 Z" fill={fill} stroke={stroke} strokeWidth="1.5"/>
+      <path d="M90 322 Q92 358 90 382 Q88 394 76 396 Q64 398 62 382 L60 328 Z" fill={fill} stroke={stroke} strokeWidth="1.5"/>
+      <path d="M24 360 Q20 400 22 428" stroke={stroke} strokeWidth="1.5" fill="none"/>
+      <ellipse cx="32" cy="434" rx="18" ry="8" fill={fill} stroke={stroke} strokeWidth="1.5"/>
+      <ellipse cx="76" cy="400" rx="18" ry="8" fill={fill} stroke={stroke} strokeWidth="1.5"/>
+      <path d="M90 382 Q94 410 92 432" stroke={stroke} strokeWidth="1.5" fill="none"/>
+      <ellipse cx="82" cy="438" rx="17" ry="7" fill={fill} stroke={stroke} strokeWidth="1.5"/>
+    </svg>
+  );
+};
+
+type PMZoneData = { painType: string; intensity: number };
+type PMZones = Record<PMView, Record<string, PMZoneData>>;
+type PMArrow = { id: number; view: PMView; x1: number; y1: number; x2: number; y2: number; label: string };
+
+function PainMapCanvasSection({ canvasW, canvasH, zones, view, arrowStart, arrows, showLabels, onMouseDown, onMouseMove, onMouseUp, onMouseLeave }: any) {
+  const paintRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const cv = paintRef.current;
+    if (!cv) return;
+    const ctx = cv.getContext("2d")!;
+    ctx.clearRect(0, 0, canvasW, canvasH);
+    const cw = canvasW / PM_GRID, ch = canvasH / PM_ROWS;
+    Object.entries(zones[view] as Record<string, PMZoneData>).forEach(([key, { painType: pt, intensity: intv }]) => {
+      const [cx, cy] = key.split(",").map(Number);
+      const cfg = PAIN_TYPES_PM.find(p => p.id === pt) || PAIN_TYPES_PM[0];
+      const alpha = intv === 1 ? 0.32 : intv === 2 ? 0.6 : 0.85;
+      ctx.fillStyle = cfg.color + Math.round(alpha * 255).toString(16).padStart(2, "0");
+      ctx.fillRect(cx * cw, cy * ch, cw + 0.8, ch + 0.8);
+    });
+  }, [zones, view, canvasW, canvasH]);
+
+  const vArrows = arrows.filter((a: PMArrow) => a.view === view);
+  const anats = showLabels ? (PM_ANATOMY[view as PMView] || []) : [];
+
+  return (
+    <div style={{ position:"relative", width:canvasW, height:canvasH, flexShrink:0 }}
+      onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseLeave}>
+      <canvas ref={paintRef} width={canvasW} height={canvasH}
+        style={{ position:"absolute", inset:0, zIndex:2, mixBlendMode:"multiply", cursor:"crosshair", userSelect:"none" }}/>
+      {/* Etichette anatomiche */}
+      {anats.map((a: {n:string;x:number;y:number}, i: number) => (
+        <div key={i} style={{ position:"absolute", left:`${a.x}%`, top:`${a.y}%`, transform:"translate(-50%,-50%)",
+          fontSize:9, fontWeight:700, color:"rgba(15,23,42,0.38)", whiteSpace:"nowrap", pointerEvents:"none", zIndex:3 }}>
+          {a.n}
+        </div>
+      ))}
+      {/* SVG frecce irradiazione */}
+      <svg viewBox={`0 0 ${canvasW} ${canvasH}`} style={{ position:"absolute", inset:0, width:canvasW, height:canvasH, zIndex:4, pointerEvents:"none" }}>
+        <defs>
+          <marker id="pmah" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 Z" fill="#1e40af"/>
+          </marker>
+        </defs>
+        {arrowStart && (
+          <circle cx={arrowStart.x * canvasW} cy={arrowStart.y * canvasH} r="7" fill="#f97316" stroke="#fff" strokeWidth="2"/>
+        )}
+        {vArrows.map((a: PMArrow) => {
+          const x1=a.x1*canvasW, y1=a.y1*canvasH, x2=a.x2*canvasW, y2=a.y2*canvasH;
+          const mx=(x1+x2)/2, my=(y1+y2)/2;
+          return (
+            <g key={a.id}>
+              <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#1e40af" strokeWidth="2.2" strokeDasharray="7,4" markerEnd="url(#pmah)" opacity="0.9"/>
+              {a.label && <>
+                <rect x={mx - a.label.length*3.5 - 4} y={my-10} width={a.label.length*7+8} height={15} rx={4} fill="rgba(255,255,255,0.92)"/>
+                <text x={mx} y={my} textAnchor="middle" dominantBaseline="middle" fontSize={9} fontWeight="700" fill="#1e3a8a" fontFamily="system-ui">{a.label}</text>
+              </>}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function PMiniCanvas({ zones, view }: { zones: Record<string,PMZoneData>; view: PMView }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const cv = ref.current; if (!cv) return;
+    const ctx = cv.getContext("2d")!;
+    ctx.clearRect(0,0,40,80);
+    const cw=40/PM_GRID, ch=80/PM_ROWS;
+    Object.entries(zones||{}).forEach(([key,{painType:pt,intensity:intv}]) => {
+      const [cx,cy]=key.split(",").map(Number);
+      const cfg=PAIN_TYPES_PM.find(p=>p.id===pt)||PAIN_TYPES_PM[0];
+      const alpha=intv===1?.35:intv===2?.62:.88;
+      ctx.fillStyle=cfg.color+Math.round(alpha*255).toString(16).padStart(2,"0");
+      ctx.fillRect(cx*cw,cy*ch,cw+.5,ch+.5);
+    });
+  },[zones]);
+  return <canvas ref={ref} width={40} height={80} style={{position:"absolute",inset:0,width:"100%",height:"100%",mixBlendMode:"multiply",borderRadius:4}}/>;
+}
+
+function PainMapSection({ patientName, gender }: { patientName: string; gender?: "M"|"F" }) {
+  const [pmView, setPmView] = useState<PMView>("front");
+  const [pmTool, setPmTool] = useState<"paint"|"erase"|"arrow">("paint");
+  const [pmPainType, setPmPainType] = useState("burning");
+  const [pmIntensity, setPmIntensity] = useState(2);
+  const [pmBrush, setPmBrush] = useState(2);
+  const [pmZones, setPmZones] = useState<PMZones>({ front:{}, back:{}, left:{}, right:{} });
+  const [pmArrows, setPmArrows] = useState<PMArrow[]>([]);
+  const [pmArrowStart, setPmArrowStart] = useState<{x:number;y:number}|null>(null);
+  const [pmShowLabels, setPmShowLabels] = useState(false);
+  const [pmVas, setPmVas] = useState(5);
+  const [pmNotes, setPmNotes] = useState("");
+  const [pmGender, setPmGender] = useState<"M"|"F">(gender ?? "M");
+  const [pmActiveTab, setPmActiveTab] = useState<"map"|"summary">("map");
+  // Undo/Redo
+  const pmHist = useRef<string[]>([JSON.stringify({z:{front:{},back:{},left:{},right:{}},a:[]})]);
+  const pmHidx = useRef(0);
+  const [pmCanUndo, setPmCanUndo] = useState(false);
+  const [pmCanRedo, setPmCanRedo] = useState(false);
+  const isPainting = useRef(false);
+
+  const CW = 200, CH = 500;
+
+  const pmBodyComponents: Record<PMView, React.ReactNode> = {
+    front: pmGender === "F" ? <BodyFrontF/> : <BodyFrontM/>,
+    back:  <BodyBackM/>,
+    left:  <BodySideComp flip={false} female={pmGender==="F"}/>,
+    right: <BodySideComp flip={true} female={pmGender==="F"}/>,
+  };
+
+  const pushHistory = useCallback((z: PMZones, a: PMArrow[]) => {
+    const snap = JSON.stringify({z,a});
+    const h = pmHist.current.slice(0, pmHidx.current+1);
+    h.push(snap);
+    if (h.length > 50) h.shift();
+    pmHist.current = h;
+    pmHidx.current = h.length-1;
+    setPmCanUndo(pmHidx.current > 0);
+    setPmCanRedo(false);
+  }, []);
+
+  const doUndo = () => {
+    if (pmHidx.current <= 0) return;
+    pmHidx.current--;
+    const s = JSON.parse(pmHist.current[pmHidx.current]);
+    setPmZones(s.z); setPmArrows(s.a);
+    setPmCanUndo(pmHidx.current > 0);
+    setPmCanRedo(true);
+  };
+  const doRedo = () => {
+    if (pmHidx.current >= pmHist.current.length-1) return;
+    pmHidx.current++;
+    const s = JSON.parse(pmHist.current[pmHidx.current]);
+    setPmZones(s.z); setPmArrows(s.a);
+    setPmCanUndo(true);
+    setPmCanRedo(pmHidx.current < pmHist.current.length-1);
+  };
+
+  const getPos = useCallback((e: React.MouseEvent, el: HTMLDivElement) => {
+    const r = el.getBoundingClientRect();
+    return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
+  }, []);
+
+  const paintAt = useCallback((px: number, py: number) => {
+    const gx0 = Math.floor(px * PM_GRID), gy0 = Math.floor(py * PM_ROWS);
+    const r = pmBrush;
+    setPmZones(prev => {
+      const vd = { ...prev[pmView] };
+      for (let dx=-r; dx<=r; dx++) for (let dy=-r; dy<=r; dy++) {
+        if (dx*dx+dy*dy > r*r) continue;
+        const gx=gx0+dx, gy=gy0+dy;
+        if (gx<0||gx>=PM_GRID||gy<0||gy>=PM_ROWS) continue;
+        if (pmTool==="erase") delete vd[`${gx},${gy}`];
+        else vd[`${gx},${gy}`] = { painType: pmPainType, intensity: pmIntensity };
+      }
+      return { ...prev, [pmView]: vd };
+    });
+  }, [pmView, pmPainType, pmTool, pmBrush, pmIntensity]);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    const el = e.currentTarget as HTMLDivElement;
+    const {x,y} = getPos(e, el);
+    if (pmTool === "arrow") {
+      if (!pmArrowStart) {
+        setPmArrowStart({x,y});
+      } else {
+        const lbl = prompt("Etichetta irradiazione (es. sciatalgia L5):", "") ?? "";
+        const newArrow: PMArrow = { id: Date.now(), view: pmView, x1: pmArrowStart.x, y1: pmArrowStart.y, x2: x, y2: y, label: lbl };
+        setPmArrows(prev => { const next = [...prev, newArrow]; pushHistory(pmZones, next); return next; });
+        setPmArrowStart(null);
+      }
+      return;
+    }
+    isPainting.current = true;
+    paintAt(x, y);
+  }, [pmTool, pmArrowStart, pmView, pmZones, paintAt, pushHistory, getPos]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isPainting.current || pmTool==="arrow") return;
+    const {x,y} = getPos(e, e.currentTarget as HTMLDivElement);
+    paintAt(x,y);
+  }, [pmTool, paintAt, getPos]);
+
+  const handleMouseUp = useCallback(() => {
+    if (isPainting.current) {
+      isPainting.current = false;
+      setPmZones(prev => { pushHistory(prev, pmArrows); return prev; });
+    }
+  }, [pmArrows, pushHistory]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (isPainting.current) {
+      isPainting.current = false;
+      setPmZones(prev => { pushHistory(prev, pmArrows); return prev; });
+    }
+  }, [pmArrows, pushHistory]);
+
+  const totalCells = Object.values(pmZones).reduce((s,v)=>s+Object.keys(v).length,0);
+  const summaryByType = PAIN_TYPES_PM.map(pt => ({
+    ...pt, cells: Object.values(pmZones).reduce((s,v)=>s+Object.values(v).filter((z:any)=>z.painType===pt.id).length,0)
+  })).filter(p=>p.cells>0);
+
+  const vasColor = pmVas<=3?"#16a34a":pmVas<=6?"#f97316":"#dc2626";
+  const vasLabel = pmVas===0?"Assente":pmVas<=3?"Lieve":pmVas<=6?"Moderato":pmVas<=8?"Severo":"Insopportabile";
+
+  const exportPDF = () => {
+    const by = summaryByType;
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Body Chart – ${patientName}</title>
+    <style>body{font-family:system-ui,sans-serif;padding:40px;color:#0f172a;max-width:800px;margin:0 auto}
+    h1{font-size:22px;font-weight:800;margin-bottom:4px}.sub{color:#64748b;font-size:13px;margin-bottom:24px}
+    .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px}
+    .card{background:#f8fafc;border-radius:10px;padding:14px;border:1px solid #e2e8f0}
+    .lbl{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+    .val{font-size:20px;font-weight:800}.bar{height:7px;background:#e2e8f0;border-radius:4px;overflow:hidden;margin-top:6px}
+    .bf{height:100%;border-radius:4px}table{width:100%;border-collapse:collapse;font-size:13px}
+    td,th{padding:8px 12px;border-bottom:1px solid #e2e8f0}th{background:#f1f5f9;font-size:11px;font-weight:700;text-transform:uppercase}
+    @media print{button{display:none!important}}</style></head><body>
+    <h1>Body Chart – Mappa del Dolore</h1>
+    <div class="sub">Paziente: <strong>${patientName}</strong> &nbsp;·&nbsp; Data: ${new Date().toLocaleDateString("it-IT",{day:"2-digit",month:"long",year:"numeric"})} &nbsp;·&nbsp; FisioHub</div>
+    <div class="g3">
+      <div class="card"><div class="lbl">VAS</div><div class="val" style="color:${vasColor}">${pmVas}/10</div>
+        <div style="font-size:12px;color:${vasColor};font-weight:700">${vasLabel}</div>
+        <div class="bar"><div class="bf" style="width:${pmVas*10}%;background:${vasColor}"></div></div></div>
+      <div class="card"><div class="lbl">Paziente</div><div class="val">${pmGender==="M"?"♂ Uomo":"♀ Donna"}</div></div>
+      <div class="card"><div class="lbl">Zone segnate</div><div class="val" style="color:#2563eb">${totalCells}</div></div>
+    </div>
+    ${by.length>0?`<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:700;margin-bottom:10px">Distribuzione per tipo di dolore</div>
+    ${by.map(p=>`<div style="display:flex;align-items:center;gap:10px;margin-bottom:7px">
+      <div style="width:13px;height:13px;border-radius:3px;background:${p.color};flex-shrink:0"></div>
+      <span style="font-size:12px;font-weight:600;width:100px">${p.emoji} ${p.label}</span>
+      <div class="bar" style="flex:1"><div class="bf" style="width:${totalCells?Math.round(p.cells/totalCells*100):0}%;background:${p.color}"></div></div>
+      <span style="font-size:11px;color:#64748b;width:32px;text-align:right">${totalCells?Math.round(p.cells/totalCells*100):0}%</span></div>`).join("")}</div>`:""}
+    ${pmArrows.length>0?`<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:700;margin-bottom:8px">Irradiazioni</div>
+    <table><thead><tr><th>Vista</th><th>Descrizione</th></tr></thead><tbody>
+    ${pmArrows.map(a=>`<tr><td>${PM_VIEW_LABELS[a.view]}</td><td>${a.label||"—"}</td></tr>`).join("")}</tbody></table></div>`:""}
+    ${pmNotes?`<div><div style="font-size:13px;font-weight:700;margin-bottom:6px">Note cliniche</div>
+    <div style="font-size:13px;color:#334155;line-height:1.7;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">${pmNotes}</div></div>`:""}
+    <div style="margin-top:24px;padding-top:14px;border-top:1px solid #e2e8f0;font-size:10px;color:#94a3b8;display:flex;justify-content:space-between">
+      <span>FisioHub · Body Chart Pro</span><span>Generato: ${new Date().toLocaleString("it-IT")}</span></div>
+    <button onclick="window.print()" style="margin-top:20px;padding:10px 28px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🖨 Stampa referto</button>
+    </body></html>`;
+    const w = window.open("","_blank","width=900,height=700");
+    if (w) { w.document.write(html); w.document.close(); }
+  };
+
+  const btnSm = (label: string, active: boolean, onClick: ()=>void, color="#2563eb") => (
+    <button onClick={onClick} style={{ padding:"5px 12px", borderRadius:7, border:`1.5px solid ${active?color:"#e2e8f0"}`,
+      background:active?color:"#fff", color:active?"#fff":"#475569", fontWeight:700, fontSize:11, cursor:"pointer" }}>
+      {label}
+    </button>
+  );
+
+  return (
+    <section style={{ background:"#fff", borderRadius:14, padding:28, marginBottom:20, border:"1px solid #e2e8f0", boxShadow:"0 1px 4px rgba(15,23,42,0.05), 0 4px 20px rgba(15,23,42,0.04)" }}>
+      {/* Header */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, marginBottom:18 }}>
+        <div>
+          <h2 style={{ margin:0, fontWeight:800, fontSize:17, color:"#1e1b4b" }}>🗺 Body Chart – Mappa del Dolore</h2>
+          <p style={{ margin:"4px 0 0", fontSize:12, color:"#64748b", fontWeight:600 }}>Dipingi le zone dolorose · usa il pennello · aggiungi frecce di irradiazione</p>
+        </div>
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+          <button onClick={doUndo} disabled={!pmCanUndo} style={{ padding:"5px 11px", borderRadius:7, border:"1px solid #e2e8f0", background:"#fff", color: pmCanUndo?"#0f172a":"#cbd5e1", fontWeight:700, fontSize:11, cursor: pmCanUndo?"pointer":"default" }}>↩</button>
+          <button onClick={doRedo} disabled={!pmCanRedo} style={{ padding:"5px 11px", borderRadius:7, border:"1px solid #e2e8f0", background:"#fff", color: pmCanRedo?"#0f172a":"#cbd5e1", fontWeight:700, fontSize:11, cursor: pmCanRedo?"pointer":"default" }}>↪</button>
+          <button onClick={() => { if(confirm("Cancellare tutta la mappa?")) { setPmZones({front:{},back:{},left:{},right:{}}); setPmArrows([]); pushHistory({front:{},back:{},left:{},right:{}},[]);} }} style={{ padding:"5px 12px", borderRadius:7, border:"1px solid #fecaca", background:"#fff5f5", color:"#dc2626", fontWeight:700, fontSize:11, cursor:"pointer" }}>Pulisci</button>
+          <button onClick={exportPDF} style={{ padding:"7px 16px", borderRadius:8, border:"none", background:"linear-gradient(135deg,#7c3aed,#2563eb)", color:"#fff", fontWeight:700, fontSize:12, cursor:"pointer" }}>📄 Referto PDF</button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display:"flex", borderBottom:"1px solid #e2e8f0", marginBottom:16 }}>
+        {([["map","🖌 Mappa"],["summary","📊 Riepilogo"]] as const).map(([k,l])=>(
+          <button key={k} onClick={()=>setPmActiveTab(k)} style={{ padding:"8px 18px", border:"none", background:"transparent", fontWeight:700, fontSize:12, color:pmActiveTab===k?"#7c3aed":"#94a3b8", borderBottom:pmActiveTab===k?"2px solid #7c3aed":"2px solid transparent", cursor:"pointer", marginBottom:-1 }}>{l}</button>
+        ))}
+      </div>
+
+      {pmActiveTab === "map" ? (
+        <div style={{ display:"grid", gridTemplateColumns:"auto 1fr", gap:20, alignItems:"start" }}>
+
+          {/* Colonna sinistra: toolbar + corpo */}
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {/* Vista + genere */}
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
+              <div style={{ display:"flex", border:"1px solid #e2e8f0", borderRadius:8, overflow:"hidden" }}>
+                {PM_VIEWS.map(v=>(
+                  <button key={v} onClick={()=>setPmView(v)} style={{ padding:"5px 12px", border:"none", cursor:"pointer", fontSize:11, fontWeight:700, background:pmView===v?"#7c3aed":"#fff", color:pmView===v?"#fff":"#64748b" }}>{PM_VIEW_LABELS[v]}</button>
+                ))}
+              </div>
+              <div style={{ display:"flex", border:"1px solid #e2e8f0", borderRadius:8, overflow:"hidden" }}>
+                {(["M","F"] as const).map(g=>(
+                  <button key={g} onClick={()=>setPmGender(g)} style={{ padding:"5px 12px", border:"none", cursor:"pointer", fontSize:11, fontWeight:700, background:pmGender===g?"#a855f7":"#fff", color:pmGender===g?"#fff":"#64748b" }}>{g==="M"?"♂ Uomo":"♀ Donna"}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Tool + brush + etichette */}
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
+              {btnSm("🖌 Pennello", pmTool==="paint", ()=>{setPmTool("paint");setPmArrowStart(null);},"#7c3aed")}
+              {btnSm("⬜ Gomma", pmTool==="erase", ()=>{setPmTool("erase");setPmArrowStart(null);},"#64748b")}
+              {btnSm("→ Irradiazione", pmTool==="arrow", ()=>setPmTool("arrow"),"#1e40af")}
+              <div style={{ display:"flex", gap:3, alignItems:"center", marginLeft:4 }}>
+                {[1,2,3,4].map(s=>(
+                  <button key={s} onClick={()=>setPmBrush(s)} style={{ width:s*7+10, height:s*7+10, borderRadius:"50%", border:`2px solid ${pmBrush===s?"#7c3aed":"#e2e8f0"}`, background:pmBrush===s?"#7c3aed":"#f8fafc", cursor:"pointer" }}/>
+                ))}
+              </div>
+              <button onClick={()=>setPmShowLabels(p=>!p)} style={{ padding:"5px 10px", borderRadius:7, border:`1.5px solid ${pmShowLabels?"#7c3aed":"#e2e8f0"}`, background:pmShowLabels?"rgba(124,58,237,0.08)":"#fff", color:pmShowLabels?"#7c3aed":"#64748b", fontWeight:700, fontSize:11, cursor:"pointer" }}>🏷 Etichette</button>
+            </div>
+
+            {/* Tipo dolore */}
+            <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+              {PAIN_TYPES_PM.map(pt=>(
+                <button key={pt.id} onClick={()=>setPmPainType(pt.id)} style={{ padding:"4px 10px", borderRadius:99, border:`2px solid ${pmPainType===pt.id?pt.color:"#e2e8f0"}`, background:pmPainType===pt.id?pt.color+"18":"#fff", color:pmPainType===pt.id?pt.color:"#64748b", fontWeight:700, fontSize:11, cursor:"pointer", transform:pmPainType===pt.id?"scale(1.06)":"scale(1)" }}>
+                  {pt.emoji} {pt.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Intensità */}
+            <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+              <span style={{ fontSize:11, color:"#64748b", fontWeight:700 }}>Intensità:</span>
+              {([["Lieve","#16a34a",1],["Moderato","#f97316",2],["Severo","#dc2626",3]] as [string,string,number][]).map(([l,c,v])=>(
+                <button key={v} onClick={()=>setPmIntensity(v)} style={{ padding:"4px 12px", borderRadius:99, border:`2px solid ${pmIntensity===v?c:"#e2e8f0"}`, background:pmIntensity===v?c+"18":"#fff", color:c, fontWeight:700, fontSize:11, cursor:"pointer" }}>{l}</button>
+              ))}
+            </div>
+
+            {/* Corpo interattivo */}
+            {pmTool==="arrow" && (
+              <div style={{ fontSize:11, color:"#c2410c", fontWeight:700, padding:"6px 10px", background:"#fff7ed", borderRadius:7, border:"1px solid #fed7aa" }}>
+                {pmArrowStart ? "→ Clicca il punto di arrivo" : "→ Clicca il punto di partenza dell'irradiazione"}
+              </div>
+            )}
+            <div style={{ position:"relative", width:CW, height:CH, cursor:pmTool==="erase"?"cell":"crosshair" }}>
+              <div style={{ position:"absolute", inset:0, zIndex:1, pointerEvents:"none" }}>
+                {pmBodyComponents[pmView]}
+              </div>
+              <PainMapCanvasSection
+                canvasW={CW} canvasH={CH}
+                zones={pmZones} view={pmView}
+                arrowStart={pmArrowStart} arrows={pmArrows}
+                showLabels={pmShowLabels}
+                onMouseDown={handleMouseDown} onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp} onMouseLeave={handleMouseLeave}
+              />
+            </div>
+          </div>
+
+          {/* Pannello destra */}
+          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+
+            {/* Preview 4 viste */}
+            <div style={{ background:"#f8fafc", borderRadius:10, border:"1px solid #e2e8f0", padding:"12px 14px" }}>
+              <div style={{ fontSize:11, fontWeight:700, color:"#0f172a", marginBottom:8 }}>Vista globale</div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
+                {PM_VIEWS.map(v=>(
+                  <button key={v} onClick={()=>setPmView(v)} style={{ background:pmView===v?"rgba(124,58,237,0.07)":"#fff", border:`1.5px solid ${pmView===v?"#7c3aed":"#e2e8f0"}`, borderRadius:8, padding:"6px 4px", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
+                    <div style={{ width:40, height:80, position:"relative" }}>
+                      <div style={{ position:"absolute", inset:0, pointerEvents:"none" }}>{pmBodyComponents[v]}</div>
+                      <PMiniCanvas zones={pmZones[v]} view={v}/>
+                    </div>
+                    <span style={{ fontSize:9, fontWeight:700, color:pmView===v?"#7c3aed":"#64748b" }}>{PM_VIEW_LABELS[v]}</span>
+                    <span style={{ fontSize:9, color:"#94a3b8" }}>{Object.keys(pmZones[v]).length}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* VAS */}
+            <div style={{ background:"#f8fafc", borderRadius:10, border:"1px solid #e2e8f0", padding:"12px 14px" }}>
+              <div style={{ fontSize:11, fontWeight:700, color:"#0f172a", marginBottom:6 }}>VAS – Scala del dolore</div>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}>
+                <span style={{ fontSize:10, color:"#94a3b8" }}>0</span>
+                <div style={{ textAlign:"center" }}>
+                  <span style={{ fontSize:24, fontWeight:900, color:vasColor }}>{pmVas}</span>
+                  <div style={{ fontSize:10, fontWeight:700, color:vasColor }}>{vasLabel}</div>
+                </div>
+                <span style={{ fontSize:10, color:"#94a3b8" }}>10</span>
+              </div>
+              <input type="range" min="0" max="10" step="1" value={pmVas} onChange={e=>setPmVas(+e.target.value)} style={{ width:"100%", accentColor:vasColor }}/>
+            </div>
+
+            {/* Irradiazioni */}
+            {pmArrows.length > 0 && (
+              <div style={{ background:"#f8fafc", borderRadius:10, border:"1px solid #e2e8f0", padding:"12px 14px" }}>
+                <div style={{ fontSize:11, fontWeight:700, color:"#0f172a", marginBottom:8 }}>Irradiazioni ({pmArrows.length})</div>
+                {pmArrows.map((a,i)=>(
+                  <div key={a.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"4px 8px", background:"#fff", borderRadius:6, border:"1px solid #e2e8f0", marginBottom:4 }}>
+                    <span style={{ fontSize:11, color:"#334155" }}>{a.label||`Irradiazione ${i+1}`} <span style={{ color:"#94a3b8" }}>({PM_VIEW_LABELS[a.view]})</span></span>
+                    <button onClick={()=>setPmArrows(prev=>{const n=prev.filter(x=>x.id!==a.id);pushHistory(pmZones,n);return n;})} style={{ border:"none", background:"none", cursor:"pointer", color:"#dc2626", fontSize:14, padding:"0 2px" }}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Legenda */}
+            <div style={{ background:"#f8fafc", borderRadius:10, border:"1px solid #e2e8f0", padding:"12px 14px" }}>
+              <div style={{ fontSize:11, fontWeight:700, color:"#0f172a", marginBottom:8 }}>Legenda</div>
+              {PAIN_TYPES_PM.map(pt=>(
+                <div key={pt.id} style={{ display:"flex", alignItems:"center", gap:7, marginBottom:5 }}>
+                  <div style={{ width:12, height:12, borderRadius:3, background:pt.color+"99", border:`2px solid ${pt.color}`, flexShrink:0 }}/>
+                  <span style={{ fontSize:11, fontWeight:600, color:"#334155" }}>{pt.emoji} {pt.label}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Note */}
+            <div style={{ background:"#f8fafc", borderRadius:10, border:"1px solid #e2e8f0", padding:"12px 14px" }}>
+              <div style={{ fontSize:11, fontWeight:700, color:"#0f172a", marginBottom:6 }}>Note cliniche</div>
+              <textarea value={pmNotes} onChange={e=>setPmNotes(e.target.value)} placeholder="Tipo di dolore, quando compare, irradiazione, aggravanti/allevianti, durata..." rows={4}
+                style={{ width:"100%", border:"1px solid #e2e8f0", borderRadius:8, padding:"8px 10px", fontSize:12, resize:"vertical", outline:"none", color:"#0f172a", boxSizing:"border-box", fontFamily:"inherit", background:"#fff" }}/>
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* Summary */
+        <div style={{ maxWidth:680 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:20 }}>
+            {[{l:"VAS",v:`${pmVas}/10`,c:vasColor},{l:"Tipo dominante",v:summaryByType[0]?`${summaryByType[0].emoji} ${summaryByType[0].label}`:"—",c:"#0f172a"},{l:"Zone affette",v:`${totalCells}`,c:"#7c3aed"}].map(k=>(
+              <div key={k.l} style={{ background:"#f8fafc", borderRadius:10, padding:"12px 14px", border:"1px solid #e2e8f0" }}>
+                <div style={{ fontSize:10, color:"#94a3b8", fontWeight:700, textTransform:"uppercase", letterSpacing:0.5, marginBottom:4 }}>{k.l}</div>
+                <div style={{ fontSize:18, fontWeight:800, color:k.c }}>{k.v}</div>
+              </div>
+            ))}
+          </div>
+          {summaryByType.length > 0 && (
+            <div style={{ background:"#f8fafc", borderRadius:10, padding:"14px", border:"1px solid #e2e8f0", marginBottom:16 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:"#0f172a", marginBottom:10 }}>Distribuzione per tipo</div>
+              {summaryByType.map(pt=>(
+                <div key={pt.id} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+                  <span style={{ fontSize:13 }}>{pt.emoji}</span>
+                  <span style={{ fontSize:11, fontWeight:600, color:"#334155", width:88 }}>{pt.label}</span>
+                  <div style={{ flex:1, height:7, background:"#e2e8f0", borderRadius:4, overflow:"hidden" }}>
+                    <div style={{ height:"100%", width:`${Math.round(pt.cells/totalCells*100)}%`, background:pt.color, borderRadius:4 }}/>
+                  </div>
+                  <span style={{ fontSize:10, color:"#94a3b8", fontWeight:700, width:36, textAlign:"right" }}>{Math.round(pt.cells/totalCells*100)}%</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {pmNotes && (
+            <div style={{ background:"#f8fafc", borderRadius:10, padding:"14px", border:"1px solid #e2e8f0" }}>
+              <div style={{ fontSize:11, fontWeight:700, color:"#94a3b8", textTransform:"uppercase", letterSpacing:0.5, marginBottom:6 }}>Note cliniche</div>
+              <div style={{ fontSize:13, color:"#334155", lineHeight:1.6 }}>{pmNotes}</div>
+            </div>
+          )}
+          {totalCells===0 && !pmNotes && (
+            <div style={{ textAlign:"center", padding:"40px 0", color:"#94a3b8", fontSize:13 }}>Nessuna zona segnata.</div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ─── Fine Pain Map ─────────────────────────────────────────────────────────────
+
+
 type Plan   = "invoice" | "no_invoice";
 type Status = "booked" | "confirmed" | "done";
 
@@ -208,6 +821,13 @@ export default function PatientDetailPage({
   // V2 fields
   const [showV2Clinical,    setShowV2Clinical]    = useState(true);
   const [showV2Business,    setShowV2Business]    = useState(true);
+
+  // Sezioni collassabili — tutte chiuse di default tranne anagrafica
+  const [secClinica,      setSecClinica]      = useState(false);
+  const [secBodyChart,    setSecBodyChart]    = useState(false);
+  const [secDocClinici,   setSecDocClinici]   = useState(false);
+  const [secTerapie,      setSecTerapie]      = useState(false);
+  const [secGDPR,         setSecGDPR]         = useState(false);
   const [patientStatus,     setPatientStatus]     = useState("active");
   const [acquisitionChannel, setAcquisitionChannel] = useState("");
   const [firstVisitDate,    setFirstVisitDate]    = useState("");
@@ -600,16 +1220,40 @@ export default function PatientDetailPage({
   };
 
   const cardStyle: React.CSSProperties = {
-    background: THEME.panelBg, borderRadius: 12,
-    padding: 24, marginBottom: 16,
-    border: `1.5px solid ${THEME.border}`,
-    boxShadow: "0 2px 12px rgba(15,23,42,0.06)",
+    background: THEME.panelBg, borderRadius: 14,
+    padding: 0, marginBottom: 12,
+    border: `1px solid ${THEME.border}`,
+    boxShadow: "0 1px 3px rgba(15,23,42,0.04)",
+    overflow: "hidden",
   };
+
+  const cardBody = { padding: "20px 24px" };
 
   const sectionHeaderStyle: React.CSSProperties = {
     display: "flex", justifyContent: "space-between",
     alignItems: "flex-start", gap: 12, marginBottom: 20,
   };
+
+  const SecHeader = ({ icon, title, subtitle, open, onToggle, extra, badge }: {
+    icon:string; title:string; subtitle:string; open:boolean; onToggle:()=>void; extra?:React.ReactNode; badge?:React.ReactNode;
+  }) => (
+    <div onClick={onToggle} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"14px 22px", cursor:"pointer", userSelect:"none" as const, borderBottom: open ? `1px solid ${THEME.border}` : "none", background: open ? "#fff" : "#f9fafb", transition:"background .12s" }}>
+      <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+        <div style={{ width:34, height:34, borderRadius:9, background:"rgba(15,23,42,0.05)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:17, flexShrink:0 }}>{icon}</div>
+        <div>
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <span style={{ fontWeight:800, fontSize:14, color:THEME.text }}>{title}</span>
+            {badge}
+          </div>
+          {!open && subtitle && <div style={{ fontSize:11, color:THEME.muted, fontWeight:600, marginTop:1 }}>{subtitle}</div>}
+        </div>
+      </div>
+      <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+        {extra}
+        <div style={{ width:22, height:22, borderRadius:6, border:`1px solid ${THEME.border}`, background:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, color:THEME.muted, fontWeight:700, flexShrink:0 }}>{open?"−":"+"}</div>
+      </div>
+    </div>
+  );
 
   const labelStyle: React.CSSProperties = {
     display: "block", fontSize: 11, fontWeight: 700,
@@ -829,43 +1473,73 @@ export default function PatientDetailPage({
         )}
 
         {/* ── KPI ─────────────────────────────────────────────────────────── */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 16 }} className="tab-grid-2">
-          {[
-            { label: "Sedute totali",    value: String(therapiesCount),                          color: THEME.blue },
-            { label: "Eseguite",         value: String(doneCount),                               color: THEME.green },
-            { label: "Eseguite e pagate",value: String(paidCount),                               color: THEME.teal },
-            { label: "Ultima seduta",    value: lastTherapy ? formatDateTimeIT(lastTherapy) : "—", color: THEME.muted },
-          ].map(k => (
-            <div key={k.label} style={{
-              ...cardStyle, marginBottom: 0, padding: 18,
-              borderLeft: `4px solid ${k.color}`,
-            }}>
-              <div style={{ fontSize: 11, color: THEME.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{k.label}</div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: THEME.text }}>{k.value}</div>
+        <div style={{
+          background: "linear-gradient(135deg, #0c4a6e 0%, #0d9488 60%, #0f766e 100%)",
+          borderRadius: 14, marginBottom: 16, overflow: "hidden",
+          border: "1px solid rgba(255,255,255,0.08)",
+        }}>
+          <div style={{ display: "flex", flexWrap: "wrap" }} className="tab-grid-2">
+            {[
+              {
+                label: "Sedute totali",
+                value: String(therapiesCount),
+                sub: therapiesCount > 0 ? `${Math.round((doneCount/therapiesCount)*100)}% completate` : "nessuna seduta",
+                highlight: false,
+              },
+              {
+                label: "Eseguite",
+                value: `${doneCount}/${therapiesCount}`,
+                sub: doneCount === therapiesCount && therapiesCount > 0 ? "tutte eseguite ✓" : `${therapiesCount - doneCount} rimaste`,
+                highlight: doneCount === therapiesCount && therapiesCount > 0,
+              },
+              {
+                label: "Eseguite e pagate",
+                value: String(paidCount),
+                sub: doneCount > 0 ? `${Math.round((paidCount/doneCount)*100)}% saldate` : "—",
+                highlight: paidCount === doneCount && doneCount > 0,
+              },
+              {
+                label: "Ultima seduta",
+                value: lastTherapy ? formatDateTimeIT(lastTherapy).split(" ")[0] : "—",
+                sub: lastTherapy ? formatDateTimeIT(lastTherapy).split(" ").slice(1).join(" ") : "nessuna seduta",
+                highlight: false,
+              },
+            ].map((k, i) => (
+              <div key={k.label} style={{
+                flex: "1 1 160px", minWidth: 0,
+                padding: "18px 22px 20px",
+                borderRight: i < 3 ? "1px solid rgba(255,255,255,0.10)" : "none",
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(255,255,255,0.55)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>{k.label}</div>
+                <div style={{ fontSize: 26, fontWeight: 800, color: k.highlight ? "#86efac" : "#fff", lineHeight: 1, marginBottom: 4, letterSpacing: -0.5 }}>{k.value}</div>
+                <div style={{ fontSize: 12, color: k.highlight ? "#86efac" : "rgba(255,255,255,0.5)", fontWeight: 500 }}>{k.sub}</div>
+              </div>
+            ))}
+          </div>
+          {/* Progress bar completamento */}
+          {therapiesCount > 0 && (
+            <div style={{ height: 3, background: "rgba(255,255,255,0.10)", overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${Math.round((doneCount/therapiesCount)*100)}%`, background: "rgba(134,239,172,0.75)", transition: "width 0.5s ease" }}/>
             </div>
-          ))}
+          )}
         </div>
 
         {/* ── ANAGRAFICA ───────────────────────────────────────────────────── */}
-        <section style={{ ...cardStyle, borderLeft: `4px solid ${THEME.teal}` }}>
-          <div style={sectionHeaderStyle}>
-            <div>
-              <h2 style={{ margin: 0, fontWeight: 800, fontSize: 17, color: THEME.blueDark }}>Anagrafica</h2>
-              <p style={{ margin: "4px 0 0", fontSize: 12, color: THEME.muted, fontWeight: 600 }}>
-                {demoEditMode ? "Modalità modifica attiva." : "Bloccata. Premi Modifica per cambiare i dati."}
-              </p>
+        <section style={cardStyle}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"14px 22px", borderBottom:`1px solid ${THEME.border}`, background:"#fff" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <div style={{ width:34, height:34, borderRadius:9, background:"rgba(13,148,136,0.08)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:17 }}>👤</div>
+              <div>
+                <span style={{ fontWeight:800, fontSize:14, color:THEME.text }}>Anagrafica</span>
+                <div style={{ fontSize:11, color:THEME.muted, fontWeight:600, marginTop:1 }}>{demoEditMode ? "Modalità modifica attiva" : "Clicca Modifica per cambiare i dati"}</div>
+              </div>
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {!demoEditMode ? (
-                btnOutline("Modifica", () => setDemoEditMode(true), THEME.teal)
-              ) : (
-                <>
-                  {btnOutline("Annulla", () => { resetDemographics(); setDemoEditMode(false); })}
-                  {btnPrimary(savingDemo ? "Salvataggio…" : "Salva anagrafica", saveDemographics, savingDemo || !demoDirty)}
-                </>
-              )}
+            <div style={{ display:"flex", gap:8 }}>
+              {!demoEditMode ? btnOutline("Modifica", () => setDemoEditMode(true), THEME.teal)
+                : <>{btnOutline("Annulla", () => { resetDemographics(); setDemoEditMode(false); })}{btnPrimary(savingDemo ? "Salvataggio…" : "Salva", saveDemographics, savingDemo || !demoDirty)}</>}
             </div>
           </div>
+          <div style={cardBody}>
 
           {/* Campi base */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }} className="tab-grid-2">
@@ -1027,22 +1701,16 @@ export default function PatientDetailPage({
               Questi campi si salvano con il bottone "Salva anagrafica".
             </p>
           </div>
+          </div>
         </section>
 
         {/* ── CLINICA ──────────────────────────────────────────────────────── */}
-        <section style={{ ...cardStyle, borderLeft: `4px solid ${THEME.blue}` }}>
-          <div style={sectionHeaderStyle}>
-            <div>
-              <h2 style={{ margin: 0, fontWeight: 800, fontSize: 17, color: THEME.blueDark }}>Clinica</h2>
-              <p style={{ margin: "4px 0 0", fontSize: 12, color: THEME.muted, fontWeight: 600 }}>Anamnesi · Diagnosi · Trattamento</p>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              {btnOutline("Ripristina", resetClinical, THEME.muted, !clinicalDirty)}
-              {btnPrimary(savingClinical ? "Salvataggio…" : "Salva clinica", saveClinical, savingClinical || !clinicalDirty)}
-            </div>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+        <section style={cardStyle}>
+          <SecHeader icon="🩺" title="Clinica" subtitle="Anamnesi · Diagnosi · Trattamento" open={secClinica} onToggle={()=>setSecClinica(s=>!s)}
+            extra={<div style={{display:"flex",gap:8}} onClick={e=>e.stopPropagation()}>{btnOutline("Ripristina",resetClinical,THEME.muted,!clinicalDirty)}{btnPrimary(savingClinical?"Salvataggio…":"Salva",saveClinical,savingClinical||!clinicalDirty)}</div>}
+          />
+          {secClinica && (
+          <div style={cardBody}>
             <div style={{ background: THEME.panelSoft, border: `1.5px solid ${THEME.border}`, borderRadius: 10, padding: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>🧩 Anamnesi</div>
               <textarea value={anamnesis} onChange={e => setAnamnesis(e.target.value)} rows={8} style={{ ...textareaStyle, marginTop: 0 }} placeholder="Storia del problema, red flags, farmaci, obiettivi…" />
@@ -1051,7 +1719,6 @@ export default function PatientDetailPage({
               <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>🧠 Diagnosi / ipotesi clinica</div>
               <textarea value={diagnosis} onChange={e => setDiagnosis(e.target.value)} rows={8} style={{ ...textareaStyle, marginTop: 0 }} placeholder="Diagnosi medica, ragionamento clinico, test positivi/negativi…" />
             </div>
-          </div>
 
           {/* Diario sedute */}
           <button type="button" onClick={() => setShowTreatmentDiary(s => !s)} style={{
@@ -1121,23 +1788,30 @@ export default function PatientDetailPage({
             <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
               📌 Piano trattamento (generale)
             </div>
-            <textarea value={treatment} onChange={e => setTreatment(e.target.value)} rows={5} style={textareaStyle} placeholder="Il piano generale: frequenza, progressione, obiettivi a 2-4-6 settimane…" />
+            <textarea value={treatment} onChange={e => setTreatment(e.target.value)} rows={5} style={textareaStyle} placeholder="Il piano generale: frequenza, progressione, obiettivi a 2-4 settimane…" />
           </div>
+          </div>
+          )}
+        </section>
+
+        {/* ── BODY CHART ───────────────────────────────────────────────────── */}
+        <section style={cardStyle}>
+          <SecHeader icon="🗺" title="Body Chart — Mappa del Dolore" subtitle="Dipingi le zone dolorose · irradiazioni · referto PDF" open={secBodyChart} onToggle={()=>setSecBodyChart(s=>!s)}/>
+          {secBodyChart && (
+            <div style={cardBody}>
+              <PainMapSection patientName={patient ? `${patient.last_name} ${patient.first_name}`.trim() : "Paziente"}/>
+            </div>
+          )}
         </section>
 
         {/* ── DOCUMENTI CLINICI ─────────────────────────────────────────────── */}
-        <section style={{ ...cardStyle, borderLeft: `4px solid ${THEME.teal}` }}>
-          <div style={sectionHeaderStyle}>
-            <div>
-              <h2 style={{ margin: 0, fontWeight: 800, fontSize: 17, color: THEME.blueDark }}>Documenti Clinici</h2>
-              <p style={{ margin: "4px 0 0", fontSize: 12, color: THEME.muted, fontWeight: 600 }}>
-                Solo file (immagini/PDF). Il referto scritto si carica come scansione.
-              </p>
-            </div>
-            {btnOutline(loadingClinicalDocs ? "Aggiorno…" : "Aggiorna", loadClinicalDocs, THEME.blue, loadingClinicalDocs)}
-          </div>
-
-          {/* Uploader */}
+        <section style={cardStyle}>
+          <SecHeader icon="📋" title="Documenti Clinici" subtitle={`${clinicalDocs.length} documenti · immagini e PDF`} open={secDocClinici} onToggle={()=>setSecDocClinici(s=>!s)}
+            badge={clinicalDocs.length>0?<span style={{fontSize:11,fontWeight:700,color:THEME.blue,background:"rgba(37,99,235,0.1)",padding:"2px 8px",borderRadius:99}}>{clinicalDocs.length}</span>:undefined}
+            extra={<div onClick={e=>e.stopPropagation()}>{btnOutline(loadingClinicalDocs?"Aggiorno…":"Aggiorna",loadClinicalDocs,THEME.blue,loadingClinicalDocs)}</div>}
+          />
+          {secDocClinici && (
+          <div style={cardBody}>
           <div style={{ border: `1.5px solid ${THEME.border}`, borderRadius: 10, padding: 16, background: THEME.panelSoft, marginBottom: 16 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
               <div>
@@ -1200,19 +1874,30 @@ export default function PatientDetailPage({
               ))}
             </div>
           )}
+          </div>
+          )}
         </section>
 
         {/* ── TERAPIE + PAGAMENTO ───────────────────────────────────────────── */}
-        <section style={{ ...cardStyle, borderLeft: `4px solid ${THEME.green}` }}>
-          <div style={sectionHeaderStyle}>
-            <div>
-              <h2 style={{ margin: 0, fontWeight: 800, fontSize: 17, color: THEME.blueDark }}>Terapie fatte</h2>
-              <p style={{ margin: "4px 0 0", fontSize: 12, color: THEME.muted, fontWeight: 600 }}>
-                Stato e pagamento per ogni seduta.
-              </p>
+        <section style={{ ...cardStyle }}>
+          <SecHeader
+            icon="📅"
+            title="Terapie fatte"
+            subtitle="Stato e pagamento per ogni seduta"
+            open={secTerapie}
+            onToggle={() => setSecTerapie(s => !s)}
+            extra={!secTerapie && btnOutline(loadingAppts ? "Aggiorno…" : "Aggiorna", loadAppointments, THEME.blue, loadingAppts)}
+            badge={!secTerapie && appointments.length > 0
+              ? <span style={{ background:"rgba(22,163,74,0.1)", color:THEME.teal, fontWeight:800, fontSize:12, borderRadius:99, padding:"2px 10px", border:"1px solid rgba(22,163,74,0.2)" }}>
+                  {appointments.filter(a=>a.status==="done").length} sedute
+                </span>
+              : undefined}
+          />
+          {secTerapie && (
+          <div style={cardBody}>
+            <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
+              {btnOutline(loadingAppts ? "Aggiorno…" : "Aggiorna", loadAppointments, THEME.blue, loadingAppts)}
             </div>
-            {btnOutline(loadingAppts ? "Aggiorno…" : "Aggiorna", loadAppointments, THEME.blue, loadingAppts)}
-          </div>
 
           {appointments.length === 0 && !loadingAppts ? (
             <div style={{ fontSize: 13, color: THEME.muted, fontWeight: 600 }}>Nessuna seduta trovata.</div>
@@ -1291,19 +1976,29 @@ export default function PatientDetailPage({
           <p style={{ margin: "10px 0 0", fontSize: 11, color: THEME.muted, fontWeight: 600 }}>
             Nota: "Annullato" mantiene lo storico · se una seduta torna da "Eseguita" a un altro stato, il pagamento viene azzerato.
           </p>
+          </div>
+          )}
         </section>
 
         {/* ── GDPR ──────────────────────────────────────────────────────────── */}
-        <section style={{ ...cardStyle, borderLeft: `4px solid ${THEME.amber}` }}>
-          <div style={sectionHeaderStyle}>
-            <div>
-              <h2 style={{ margin: 0, fontWeight: 800, fontSize: 17, color: THEME.blueDark }}>Documenti GDPR</h2>
-              <p style={{ margin: "4px 0 0", fontSize: 12, color: THEME.muted, fontWeight: 600 }}>Upload + archivio consensi.</p>
+        <section style={{ ...cardStyle }}>
+          <SecHeader
+            icon="🔏"
+            title="Documenti GDPR"
+            subtitle="Upload + archivio consensi"
+            open={secGDPR}
+            onToggle={() => setSecGDPR(s => !s)}
+            badge={!secGDPR && docs.length > 0
+              ? <span style={{ background:"rgba(249,115,22,0.1)", color:THEME.amber, fontWeight:800, fontSize:12, borderRadius:99, padding:"2px 10px", border:"1px solid rgba(249,115,22,0.2)" }}>
+                  {docs.length} doc
+                </span>
+              : undefined}
+          />
+          {secGDPR && (
+          <div style={cardBody}>
+            <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
+              {btnOutline(loadingDocs ? "Aggiorno…" : "Aggiorna", loadDocs, THEME.blue, loadingDocs)}
             </div>
-            {btnOutline(loadingDocs ? "Aggiorno…" : "Aggiorna", loadDocs, THEME.blue, loadingDocs)}
-          </div>
-
-          {/* Upload form */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12, marginBottom: 16 }} className="tab-grid-2">
             <div>
               <label style={labelStyle}>Tipo documento</label>
@@ -1354,6 +2049,8 @@ export default function PatientDetailPage({
                 </tbody>
               </table>
             </div>
+          )}
+          </div>
           )}
         </section>
 
