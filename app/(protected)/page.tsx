@@ -220,6 +220,52 @@ export default function HomePage() {
   },[]);
   useEffect(()=>{fetchBirthdays();},[fetchBirthdays]);
 
+  // Prenotazioni web
+  const fetchWebBookings = useCallback(async () => {
+    const { data } = await supabase
+      .from("booking_requests")
+      .select("*")
+      .in("status", ["pending","confirmed","cancelled"])
+      .order("created_at", { ascending: false })
+      .limit(30);
+    setWebBookings((data ?? []) as WebBooking[]);
+  }, []);
+  useEffect(()=>{ void fetchWebBookings(); },[fetchWebBookings]);
+
+  async function confirmWebBooking(req: WebBooking) {
+    setWebBookingActionId(req.id);
+    const timeStr = req.requested_time.slice(0,5);
+    const [th,tm] = timeStr.split(":").map(Number);
+    const [dy,dm,dd] = req.requested_date.split("-").map(Number);
+    const startDt = new Date(dy, dm-1, dd, th, tm, 0, 0);
+    const endDt   = new Date(startDt.getTime() + Number(req.service_duration)*60000);
+    const isHome  = req.service_name.toLowerCase().includes("domicil");
+    const note    = `[WEB|${req.patient_name}|${req.patient_phone}] ${req.service_name}`;
+    await supabase.from("booking_requests").update({ status:"confirmed" }).eq("id", req.id);
+    await supabase.from("appointments").insert({
+      start_at:  startDt.toISOString(),
+      end_at:    endDt.toISOString(),
+      status:    "booked",
+      is_paid:   false,
+      location:  isHome ? "domicile" : "studio",
+      clinic_site: isHome ? null : "Studio Pontecorvo",
+      domicile_address: isHome ? (req.notes ?? "da definire") : null,
+      calendar_note: note,
+    });
+    setWebBookingActionId(null);
+    setWebPopup(null);
+    await fetchWebBookings();
+    await fetchAppts();
+  }
+
+  async function rejectWebBooking(id: string) {
+    setWebBookingActionId(id);
+    await supabase.from("booking_requests").update({ status:"cancelled" }).eq("id", id);
+    setWebBookingActionId(null);
+    setWebPopup(null);
+    await fetchWebBookings();
+  }
+
   const fetchInactive=useCallback(async()=>{ try{ setInactiveLoading(true); const{data,error}=await supabase.from("appointments").select("patient_id,start_at,status,patients:patient_id!inner(first_name,last_name,phone,status)").eq("status","done").order("start_at",{ascending:false}).limit(2000); if(error) throw new Error(error.message); const rows=(data||[]) as any[]; const byP=new Map<string,any>(); for(const r of rows){if(r.patient_id&&!byP.has(r.patient_id)) byP.set(r.patient_id,r);} const nowMs=startOfDay(new Date()).getTime(); const list:InactivePatientRow[]=[]; for(const[pid,r] of byP.entries()){const p=pickPatient(r.patients); const days=Math.floor((nowMs-new Date(r.start_at).getTime())/86400000); if((p?.status||"").toString().toLowerCase()==="inactive") continue; if(days>inactiveThreshold) list.push({patient_id:pid,first_name:p?.first_name||"",last_name:p?.last_name||"",phone:p?.phone??null,last_done_at:r.start_at,days_since_last:days});} list.sort((a,b)=>b.days_since_last-a.days_since_last); setInactivePatients(list.slice(0,12)); }catch(e:any){console.error(e?.message);} finally{setInactiveLoading(false);} },[inactiveThreshold]);
   useEffect(()=>{fetchInactive();},[fetchInactive]);
 
@@ -244,6 +290,24 @@ export default function HomePage() {
   const [savingTime,setSavingTime]=useState(false);
 
   const [tab,setTab]=useState<"today"|"next7"|"thisWeek">("today");
+
+  // ── Prenotazioni web ──────────────────────────────────────────────────────
+  type WebBooking = {
+    id: string;
+    service_name: string;
+    service_duration: number;
+    requested_date: string;
+    requested_time: string;
+    patient_name: string;
+    patient_phone: string;
+    patient_email: string | null;
+    notes: string | null;
+    status: "pending" | "confirmed" | "cancelled";
+    created_at: string;
+  };
+  const [webBookings, setWebBookings] = useState<WebBooking[]>([]);
+  const [webBookingActionId, setWebBookingActionId] = useState<string|null>(null);
+  const [webPopup, setWebPopup] = useState<WebBooking|null>(null);
 
   const filtered=useMemo(()=>{ const q=debounced.trim().toLowerCase(); if(!q) return appointments; return appointments.filter(a=>patientName(a.patients).toLowerCase().includes(q)); },[appointments,debounced]);
   const todayAppts=useMemo(()=>filtered.filter(a=>isSameDay(new Date(a.start_at),today)),[filtered,today]);
@@ -434,6 +498,103 @@ export default function HomePage() {
       )}
 
       {err&&<div style={{margin:"12px 28px 0",padding:"10px 14px",borderRadius:8,background:"rgba(220,38,38,0.06)",border:"1px solid rgba(220,38,38,0.18)",color:THEME.red,fontWeight:600,fontSize:13}}>{err}</div>}
+
+      {/* ━━━ ALERT PRENOTAZIONI WEB ━━━ */}
+      {webBookings.filter(b=>b.status==="pending").length>0&&(
+        <div style={{background:"linear-gradient(135deg,#7c3aed,#2563eb)",padding:"10px 28px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+          <span style={{fontSize:16}}>🌐</span>
+          <span style={{fontWeight:700,fontSize:13,color:"#fff",flex:1}}>
+            {webBookings.filter(b=>b.status==="pending").length} nuova prenotazione dal sito in attesa di conferma
+          </span>
+          {webBookings.filter(b=>b.status==="pending").slice(0,2).map(b=>(
+            <button key={b.id} onClick={()=>setWebPopup(b)} style={{padding:"6px 14px",borderRadius:6,border:"1px solid rgba(255,255,255,0.4)",background:"rgba(255,255,255,0.2)",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer"}}>
+              {b.patient_name} — {b.requested_date.slice(5).replace("-","/")} {b.requested_time.slice(0,5)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ━━━ POPUP DETTAGLIO PRENOTAZIONE WEB ━━━ */}
+      {webPopup&&(
+        <div style={{position:"fixed",inset:0,zIndex:200,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+          <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:420,boxShadow:"0 24px 64px rgba(0,0,0,0.25)",overflow:"hidden"}}>
+            {/* Header popup */}
+            <div style={{background:"linear-gradient(135deg,#7c3aed,#2563eb)",padding:"16px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div>
+                <div style={{fontWeight:800,fontSize:15,color:"#fff"}}>🌐 Prenotazione dal sito</div>
+                <div style={{fontSize:11,color:"rgba(255,255,255,0.7)",marginTop:2}}>Richiesta ricevuta il {new Date(webPopup.created_at).toLocaleDateString("it-IT",{day:"2-digit",month:"short",year:"numeric"})}</div>
+              </div>
+              <button onClick={()=>setWebPopup(null)} style={{background:"rgba(255,255,255,0.2)",border:"none",borderRadius:8,width:30,height:30,color:"#fff",fontSize:16,cursor:"pointer"}}>✕</button>
+            </div>
+            {/* Body popup */}
+            <div style={{padding:"18px 20px"}}>
+              {/* Nome e telefono */}
+              <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:16,padding:"12px 14px",background:"#f8fafc",borderRadius:10,border:"1px solid #e2e8f0"}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"linear-gradient(135deg,#7c3aed,#2563eb)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",fontWeight:800,flexShrink:0}}>
+                  {webPopup.patient_name.charAt(0).toUpperCase()}
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:800,fontSize:15,color:THEME.text}}>{webPopup.patient_name}</div>
+                  <a href={`tel:${webPopup.patient_phone}`} style={{fontSize:13,color:THEME.teal,fontWeight:700,textDecoration:"none"}}>📞 {webPopup.patient_phone}</a>
+                  {webPopup.patient_email&&<div style={{fontSize:11,color:THEME.muted,marginTop:1}}>{webPopup.patient_email}</div>}
+                </div>
+                <a href={`https://wa.me/${webPopup.patient_phone.replace(/\D/g,"")}`} target="_blank" rel="noopener noreferrer"
+                  style={{padding:"8px 14px",borderRadius:8,background:"#25d366",color:"#fff",fontWeight:700,fontSize:12,textDecoration:"none"}}>WA</a>
+              </div>
+              {/* Dettagli appuntamento */}
+              {[
+                {l:"Servizio", v:webPopup.service_name},
+                {l:"Data",     v:new Date(webPopup.requested_date+"T12:00:00").toLocaleDateString("it-IT",{weekday:"long",day:"2-digit",month:"long",year:"numeric"})},
+                {l:"Ora",      v:webPopup.requested_time.slice(0,5)},
+                {l:"Durata",   v:`${webPopup.service_duration} minuti`},
+              ].map(r=>(
+                <div key={r.l} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid #f1f5f9"}}>
+                  <span style={{fontSize:12,color:THEME.muted}}>{r.l}</span>
+                  <span style={{fontSize:13,fontWeight:700,color:THEME.text}}>{r.v}</span>
+                </div>
+              ))}
+              {webPopup.notes&&(
+                <div style={{marginTop:10,padding:"8px 12px",background:"#fffbeb",borderRadius:7,border:"1px solid #fde68a",fontSize:12,color:"#92400e",fontStyle:"italic"}}>
+                  📝 "{webPopup.notes}"
+                </div>
+              )}
+              {/* Badge stato */}
+              <div style={{marginTop:12,display:"flex",justifyContent:"center"}}>
+                {webPopup.status==="pending"&&<span style={{fontSize:11,fontWeight:700,color:"#c2410c",background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:99,padding:"3px 12px"}}>In attesa di conferma</span>}
+                {webPopup.status==="confirmed"&&<span style={{fontSize:11,fontWeight:700,color:"#15803d",background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:99,padding:"3px 12px"}}>Confermata</span>}
+                {webPopup.status==="cancelled"&&<span style={{fontSize:11,fontWeight:700,color:"#dc2626",background:"#fff5f5",border:"1px solid #fecaca",borderRadius:99,padding:"3px 12px"}}>Annullata</span>}
+              </div>
+            </div>
+            {/* Footer popup — azioni */}
+            <div style={{padding:"12px 20px 18px",borderTop:"1px solid #f1f5f9",display:"flex",gap:10}}>
+              {webPopup.status==="pending"&&(
+                <>
+                  <button onClick={()=>confirmWebBooking(webPopup)} disabled={!!webBookingActionId}
+                    style={{flex:2,padding:"11px",border:"none",borderRadius:10,background:"linear-gradient(135deg,#0d9488,#2563eb)",color:"#fff",fontWeight:800,fontSize:13,cursor:"pointer",opacity:webBookingActionId?0.6:1}}>
+                    {webBookingActionId?"Confermo…":"✓ Conferma e crea appuntamento"}
+                  </button>
+                  <button onClick={()=>rejectWebBooking(webPopup.id)} disabled={!!webBookingActionId}
+                    style={{flex:1,padding:"11px",border:"1.5px solid #fecaca",borderRadius:10,background:"#fff5f5",color:"#dc2626",fontWeight:700,fontSize:13,cursor:"pointer",opacity:webBookingActionId?0.6:1}}>
+                    ✕ Rifiuta
+                  </button>
+                </>
+              )}
+              {webPopup.status==="confirmed"&&(
+                <button onClick={()=>rejectWebBooking(webPopup.id)} disabled={!!webBookingActionId}
+                  style={{flex:1,padding:"11px",border:"1.5px solid #fecaca",borderRadius:10,background:"#fff5f5",color:"#dc2626",fontWeight:700,fontSize:13,cursor:"pointer"}}>
+                  ✕ Annulla prenotazione
+                </button>
+              )}
+              {webPopup.status==="cancelled"&&(
+                <button onClick={()=>confirmWebBooking(webPopup)} disabled={!!webBookingActionId}
+                  style={{flex:1,padding:"11px",border:"none",borderRadius:10,background:THEME.teal,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>
+                  ↩ Riconferma
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ━━━ CONTENT ━━━ */}
       <div style={{padding:"20px 24px 32px"}}>
@@ -694,7 +855,61 @@ export default function HomePage() {
           {/* ── DESTRA: insight ── */}
           <div className="col-right">
 
-            {/* Statistiche settimana */}
+            {/* ── PRENOTAZIONI WEB ── */}
+            <div style={{background:"#fff",borderRadius:12,border:`1px solid ${THEME.border}`,overflow:"hidden",marginBottom:12}}>
+              <div style={{background:"linear-gradient(135deg,#7c3aed,#2563eb)",padding:"11px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontWeight:700,fontSize:12,color:"#fff"}}>🌐 Prenotazioni dal sito</span>
+                  {webBookings.filter(b=>b.status==="pending").length>0&&(
+                    <span style={{fontSize:10,fontWeight:800,color:"#7c3aed",background:"#facc15",borderRadius:99,padding:"1px 7px"}}>{webBookings.filter(b=>b.status==="pending").length}</span>
+                  )}
+                </div>
+                <button onClick={()=>void fetchWebBookings()} style={{background:"rgba(255,255,255,0.15)",border:"none",borderRadius:5,padding:"3px 8px",color:"#fff",fontSize:10,fontWeight:700,cursor:"pointer"}}>↻</button>
+              </div>
+              {webBookings.length===0?(
+                <div style={{padding:"20px 16px",textAlign:"center",fontSize:12,color:THEME.muted}}>Nessuna prenotazione ricevuta</div>
+              ):(
+                <div style={{maxHeight:320,overflowY:"auto"}}>
+                  {webBookings.map(b=>{
+                    const isPending   = b.status==="pending";
+                    const isConfirmed = b.status==="confirmed";
+                    const badgeStyle:React.CSSProperties = isPending
+                      ? {background:"#fff7ed",color:"#c2410c",border:"1px solid #fed7aa"}
+                      : isConfirmed
+                      ? {background:"#f0fdf4",color:"#15803d",border:"1px solid #bbf7d0"}
+                      : {background:"#f8fafc",color:"#94a3b8",border:"1px solid #e2e8f0"};
+                    const badgeLabel = isPending?"In attesa":isConfirmed?"Confermata":"Annullata";
+                    const dateStr = new Date(b.requested_date+"T12:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"short"});
+                    return(
+                      <div key={b.id} onClick={()=>setWebPopup(b)} style={{padding:"10px 14px",borderBottom:`1px solid ${THEME.border}`,cursor:"pointer",opacity:b.status==="cancelled"?0.6:1}}
+                        onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"}
+                        onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                          <div style={{fontWeight:700,fontSize:12,color:THEME.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{b.patient_name}</div>
+                          <div style={{fontSize:11,fontWeight:700,color:THEME.teal,flexShrink:0,marginLeft:8}}>{dateStr} {b.requested_time.slice(0,5)}</div>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <span style={{fontSize:10,color:THEME.muted,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b.service_name}</span>
+                          <span style={{fontSize:9,fontWeight:700,borderRadius:99,padding:"1px 7px",...badgeStyle}}>{badgeLabel}</span>
+                        </div>
+                        {isPending&&(
+                          <div style={{display:"flex",gap:6,marginTop:7}}>
+                            <button onClick={e=>{e.stopPropagation();confirmWebBooking(b);}} disabled={!!webBookingActionId}
+                              style={{flex:1,padding:"5px",border:"none",borderRadius:6,background:THEME.teal,color:"#fff",fontWeight:700,fontSize:10,cursor:"pointer",opacity:webBookingActionId?0.6:1}}>
+                              ✓ Conferma
+                            </button>
+                            <a href={`tel:${b.patient_phone}`} onClick={e=>e.stopPropagation()}
+                              style={{flex:1,padding:"5px",border:`1px solid ${THEME.border}`,borderRadius:6,background:"#fff",color:THEME.text,fontWeight:700,fontSize:10,cursor:"pointer",textDecoration:"none",textAlign:"center"}}>
+                              📞 {b.patient_phone}
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
             <div style={{background:"#fff",borderRadius:12,border:`1px solid ${THEME.border}`,overflow:"hidden",marginBottom:12}}>
               <div style={{padding:"11px 16px",borderBottom:`1px solid ${THEME.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                 <span style={{fontWeight:700,fontSize:12,color:THEME.text}}>Settimana</span>

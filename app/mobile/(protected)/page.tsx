@@ -29,8 +29,7 @@ type Appointment = {
   } | null;
 };
 
-type MonthStats = { sessions: number; revenue: number; unpaid: number; };
-type SuggestedPatient = { id: string; name: string; phone: string | null; lastVisit: string | null; };
+type PatientOption = { id: string; label: string; phone: string | null; firstName: string };
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 
@@ -52,33 +51,13 @@ const THEME = {
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
-function statusColor(s: Status): string {
-  switch (s) {
-    case "done":      return THEME.green;
-    case "confirmed": return THEME.blue;
-    case "not_paid":  return THEME.amber;
-    case "cancelled": return THEME.gray;
-    default:          return THEME.red;
-  }
-}
-function statusBg(s: Status): string {
-  switch (s) {
-    case "done":      return "rgba(22,163,74,0.09)";
-    case "confirmed": return "rgba(37,99,235,0.07)";
-    case "not_paid":  return "rgba(249,115,22,0.09)";
-    case "cancelled": return "rgba(148,163,184,0.07)";
-    default:          return "rgba(220,38,38,0.07)";
-  }
-}
-function statusLabel(s: Status): string {
-  switch (s) {
-    case "confirmed": return "Confermato";
-    case "done":      return "Eseguito";
-    case "not_paid":  return "Non pagata";
-    case "cancelled": return "Annullato";
-    default:          return "Prenotato";
-  }
-}
+const STATUS_MAP: Record<Status, { color: string; bg: string; label: string }> = {
+  booked:    { color: THEME.red,   bg: "rgba(220,38,38,0.07)",   label: "Prenotato" },
+  confirmed: { color: THEME.blue,  bg: "rgba(37,99,235,0.07)",   label: "Confermato" },
+  done:      { color: THEME.green, bg: "rgba(22,163,74,0.09)",   label: "Eseguito" },
+  not_paid:  { color: THEME.amber, bg: "rgba(249,115,22,0.09)",  label: "Non pagata" },
+  cancelled: { color: THEME.gray,  bg: "rgba(148,163,184,0.07)", label: "Annullato" },
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -89,6 +68,7 @@ const CLINIC_ADDRESSES: Record<string, string> = {
 function pad2(n: number) { return String(n).padStart(2, "0"); }
 function toYMD(d: Date) { return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
 function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate()+n); return x; }
+
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
 }
@@ -112,13 +92,15 @@ function formatDateRelative(date: Date): string {
   const mm = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
   return `${gg[t.getDay()]} ${t.getDate()} ${mm[t.getMonth()]}`;
 }
-function sumPaid(appts: Appointment[]) {
-  return appts.reduce((s, a) => s + (a.is_paid && typeof a.amount === "number" ? a.amount : 0), 0);
-}
-function sumDaIncassare(appts: Appointment[]) {
-  return appts.filter(a => !a.is_paid && a.status !== "cancelled")
-    .reduce((s, a) => s + (typeof a.amount === "number" ? a.amount : 0), 0);
-}
+
+// ─── Work hours for quick-add ─────────────────────────────────────────────────
+
+const WORK_HOURS = Array.from({ length: 24 }, (_, i) => {
+  const h = 8 + Math.floor(i / 2);
+  const m = (i % 2) * 30;
+  if (h > 19) return null;
+  return `${pad2(h)}:${pad2(m)}`;
+}).filter(Boolean) as string[];
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -129,45 +111,65 @@ export default function MobileHomePage() {
   const todayYMD = useMemo(() => toYMD(new Date()), []);
   const [dateYMD, setDateYMD] = useState(todayYMD);
 
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState("");
+  const [loading, setLoading]  = useState(true);
+  const [error,   setError]    = useState("");
 
-  const [todayAppts,      setTodayAppts]      = useState<Appointment[]>([]);
-  const [nextAppts,       setNextAppts]       = useState<Appointment[]>([]);
-  const [patientCount,    setPatientCount]    = useState<number | null>(null);
-  const [monthStats,      setMonthStats]      = useState<MonthStats | null>(null);
-  const [suggestedPats,   setSuggestedPats]   = useState<SuggestedPatient[]>([]);
+  const [dayAppts,  setDayAppts]  = useState<Appointment[]>([]);
+  const [weekAppts, setWeekAppts] = useState<Appointment[]>([]);
 
-  // Azioni in corso
+  // Actions in progress
   const [markingDone, setMarkingDone] = useState<string | null>(null);
   const [incassando,  setIncassando]  = useState<string | null>(null);
+  const [notPaying,   setNotPaying]   = useState<string | null>(null);
   const [sendingWA,   setSendingWA]   = useState<string | null>(null);
 
-  // Modal modifica appuntamento
-  const [editAppt,    setEditAppt]    = useState<Appointment | null>(null);
-  const [editStatus,  setEditStatus]  = useState<Status>("booked");
-  const [editAmount,  setEditAmount]  = useState("");
-  const [editDate,    setEditDate]    = useState("");
-  const [editTime,    setEditTime]    = useState("");
-  const [editSaving,  setEditSaving]  = useState(false);
+  // Expanded appointment card (tap to reveal actions)
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // Edit modal
+  const [editAppt,   setEditAppt]   = useState<Appointment | null>(null);
+  const [editStatus, setEditStatus] = useState<Status>("booked");
+  const [editAmount, setEditAmount] = useState("");
+  const [editDate,   setEditDate]   = useState("");
+  const [editTime,   setEditTime]   = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+
+  // Quick-add
+  const [quickAddOpen,    setQuickAddOpen]    = useState(false);
+  const [qaTime,          setQaTime]          = useState("");
+  const [qaPatientSearch, setQaPatientSearch] = useState("");
+  const [qaPatientId,     setQaPatientId]     = useState<string | null>(null);
+  const [qaPatientLabel,  setQaPatientLabel]  = useState("");
+  const [qaPatientPhone,  setQaPatientPhone]  = useState<string | null>(null);
+  const [qaPatientFirst,  setQaPatientFirst]  = useState("");
+  const [qaResults,       setQaResults]       = useState<PatientOption[]>([]);
+  const [qaSearching,     setQaSearching]     = useState(false);
+  const [qaSaving,        setQaSaving]        = useState(false);
+  const qaSearchTimer     = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // New patient inline
+  const [qaNewMode,   setQaNewMode]   = useState(false);
+  const [qaNewFirst,  setQaNewFirst]  = useState("");
+  const [qaNewLast,   setQaNewLast]   = useState("");
+  const [qaNewPhone,  setQaNewPhone]  = useState("");
+
+  // User
   const [userEmail,    setUserEmail]    = useState<string | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
-  // Pull-to-refresh — FIX: nessun setState nel touchMove
-  const touchStartY  = useRef(0);
-  const pullY        = useRef(0);
-  const isScrolling  = useRef(false);
-  const [pulling,    setPulling]  = useState(false);
-  const [showPull,   setShowPull] = useState(false);
-  const PULL_THRESHOLD = 72;
-
-  // Swipe giorno
+  // Swipe
   const swipeX = useRef<number | null>(null);
   const swipeY = useRef<number | null>(null);
+  const touchStartY = useRef(0);
+  const isScrolling = useRef(false);
 
-  // Clock
+  // Pull-to-refresh
+  const pullY = useRef(0);
+  const [pulling, setPulling]  = useState(false);
+  const [showPull, setShowPull] = useState(false);
+  const PULL_THRESHOLD = 72;
+
+  // Clock (1 min tick)
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => { nowRef.current = new Date(); setTick(x => x+1); }, 60_000);
@@ -198,24 +200,21 @@ export default function MobileHomePage() {
     pullY.current = 0;
     isScrolling.current = false;
   }
+
   function onTouchMove(e: React.TouchEvent) {
     const dy = e.touches[0].clientY - touchStartY.current;
     const dx = e.touches[0].clientX - (swipeX.current ?? 0);
-
-    // Determina al primo movimento significativo se è scroll o gesto orizzontale
     if (!isScrolling.current && (Math.abs(dy) > 6 || Math.abs(dx) > 6)) {
       isScrolling.current = Math.abs(dy) > Math.abs(dx);
     }
-
-    // Pull-to-refresh: solo se in cima alla pagina, gesto verso il basso, non scroll orizzontale
     const scrollTop = window.scrollY ?? document.documentElement.scrollTop ?? 0;
     if (scrollTop === 0 && dy > 0 && isScrolling.current) {
       pullY.current = dy;
-      // Aggiorniamo lo state solo quando si attraversa la soglia, non ad ogni pixel
       if (dy > 20 && !showPull) setShowPull(true);
       else if (dy <= 20 && showPull) setShowPull(false);
     }
   }
+
   async function onTouchEnd(e: React.TouchEvent) {
     if (pullY.current >= PULL_THRESHOLD) {
       setShowPull(false);
@@ -227,7 +226,6 @@ export default function MobileHomePage() {
     }
     pullY.current = 0;
 
-    // Swipe orizzontale — solo se NON era uno scroll verticale
     if (!isScrolling.current && swipeX.current !== null && swipeY.current !== null) {
       const dx = e.changedTouches[0].clientX - swipeX.current;
       const dy = e.changedTouches[0].clientY - swipeY.current;
@@ -250,16 +248,15 @@ export default function MobileHomePage() {
                    whatsapp_sent_at,
                    patients:patient_id(first_name,last_name,phone)`;
 
-      const [dayRes, weekRes, pcRes] = await Promise.all([
+      const [dayRes, weekRes] = await Promise.all([
         supabase.from("appointments").select(SEL)
           .gte("start_at", `${dateYMD}T00:00:00`)
           .lt("start_at",  `${dateYMD}T23:59:59`)
           .order("start_at", { ascending: true }),
         supabase.from("appointments").select(SEL)
-          .gt("start_at", new Date().toISOString())
+          .gte("start_at", `${todayYMD}T00:00:00`)
           .lt("start_at", addDays(new Date(), 8).toISOString())
           .order("start_at", { ascending: true }),
-        supabase.from("patients").select("*", { count: "exact", head: true }),
       ]);
 
       if (dayRes.error)  throw dayRes.error;
@@ -276,69 +273,28 @@ export default function MobileHomePage() {
         };
       };
 
-      setTodayAppts((dayRes.data  ?? []).map(map));
-      setNextAppts( (weekRes.data ?? []).map(map));
-      if (!pcRes.error) setPatientCount(pcRes.count ?? null);
-
-      // ── Statistiche mese corrente ──
-      const now = new Date();
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-      const monthEnd   = new Date(now.getFullYear(), now.getMonth()+1, 0, 23, 59, 59).toISOString();
-      const mRes = await supabase.from("appointments")
-        .select("status,amount,is_paid")
-        .gte("start_at", monthStart).lte("start_at", monthEnd).neq("status","cancelled");
-      if (!mRes.error && mRes.data) {
-        const md = mRes.data as { status: string; amount: number|null; is_paid: boolean }[];
-        setMonthStats({
-          sessions: md.length,
-          revenue:  md.filter(r => r.is_paid).reduce((s,r) => s+(r.amount??0), 0),
-          // FIX: "da incassare" = sedute eseguite non pagate + sedute marcate not_paid
-          unpaid:   md.filter(r => (r.status === "done" || r.status === "not_paid") && !r.is_paid).reduce((s,r) => s+(r.amount??0), 0),
-        });
-      }
-
-      // ── Pazienti senza appuntamenti futuri (candidati per richiamare) ──
-      // Prendo i 20 pazienti con ultima seduta più recente, escludo chi ha già un prossimo appt
-      const futurePatientIds = new Set(
-        (weekRes.data ?? []).map((a: any) => a.patient_id).filter(Boolean)
-      );
-      const pastRes = await supabase.from("appointments")
-        .select("patient_id,start_at,patients:patient_id(first_name,last_name,phone)")
-        .eq("status","done")
-        .order("start_at", { ascending: false })
-        .limit(60);
-      if (!pastRes.error && pastRes.data) {
-        const seen = new Set<string>();
-        const suggestions: SuggestedPatient[] = [];
-        for (const a of pastRes.data as any[]) {
-          if (!a.patient_id || seen.has(a.patient_id)) continue;
-          if (futurePatientIds.has(a.patient_id)) continue;
-          seen.add(a.patient_id);
-          const p = Array.isArray(a.patients) ? a.patients[0] : a.patients;
-          const name = p ? `${p.last_name??""} ${p.first_name??""}`.trim() : "Paziente";
-          suggestions.push({ id: a.patient_id, name: name||"Paziente",
-            phone: p?.phone ?? null, lastVisit: a.start_at });
-          if (suggestions.length >= 4) break;
-        }
-        setSuggestedPats(suggestions);
-      }
+      setDayAppts((dayRes.data ?? []).map(map));
+      setWeekAppts((weekRes.data ?? []).map(map));
     } catch (e: any) {
       setError(e?.message ?? "Errore imprevisto");
-      setTodayAppts([]); setNextAppts([]);
+      setDayAppts([]); setWeekAppts([]);
     } finally { setLoading(false); }
   }
 
-  // ─── Azioni rapide ────────────────────────────────────────────────────────
+  // ─── Quick actions ────────────────────────────────────────────────────────
 
   async function handleMarkDone(appt: Appointment) {
     if (markingDone) return;
     setMarkingDone(appt.id);
     const { error } = await supabase.from("appointments")
-      .update({ status: "done" }).eq("id", appt.id);
-    if (!error)
-      setTodayAppts(prev => prev.map(a =>
-        a.id === appt.id ? { ...a, status: "done" as Status } : a
-      ));
+      .update({ status: "done", is_paid: true }).eq("id", appt.id);
+    if (!error) {
+      const updater = (prev: Appointment[]) => prev.map(a =>
+        a.id === appt.id ? { ...a, status: "done" as Status, is_paid: true } : a
+      );
+      setDayAppts(updater);
+      setWeekAppts(updater);
+    }
     setMarkingDone(null);
   }
 
@@ -347,18 +303,35 @@ export default function MobileHomePage() {
     setIncassando(appt.id);
     const { error } = await supabase.from("appointments")
       .update({ is_paid: true, status: "done" }).eq("id", appt.id);
-    if (!error)
-      setTodayAppts(prev => prev.map(a =>
+    if (!error) {
+      const updater = (prev: Appointment[]) => prev.map(a =>
         a.id === appt.id ? { ...a, is_paid: true, status: "done" as Status } : a
-      ));
+      );
+      setDayAppts(updater);
+      setWeekAppts(updater);
+    }
     setIncassando(null);
+  }
+
+  async function handleNotPaid(appt: Appointment) {
+    if (notPaying) return;
+    setNotPaying(appt.id);
+    const { error } = await supabase.from("appointments")
+      .update({ status: "not_paid", is_paid: false }).eq("id", appt.id);
+    if (!error) {
+      const updater = (prev: Appointment[]) => prev.map(a =>
+        a.id === appt.id ? { ...a, status: "not_paid" as Status, is_paid: false } : a
+      );
+      setDayAppts(updater);
+      setWeekAppts(updater);
+    }
+    setNotPaying(null);
   }
 
   const sendReminder = useCallback((appt: Appointment) => {
     const phone = appt.patients?.phone;
     if (!phone) { alert("Nessun numero registrato."); return; }
 
-    // Costruisce il messaggio SINCRONO — nessun await prima di aprire
     const luogo = appt.location === "studio"
       ? (CLINIC_ADDRESSES[appt.clinic_site ?? ""] || appt.clinic_site || "Studio")
       : `Presso il suo domicilio (${appt.domicile_address ?? ""})`;
@@ -370,7 +343,6 @@ export default function MobileHomePage() {
       `📍 ${luogo}\n\n` +
       `Cordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
 
-    // Su mobile apre l'app WA direttamente, su desktop apre WhatsApp Web
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     const clean = formatPhoneForWA(phone);
     const url = isMobile
@@ -378,22 +350,21 @@ export default function MobileHomePage() {
       : `https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`;
     window.open(url, "_blank", "noopener,noreferrer");
 
-    // Aggiorna DB in background (non blocca l'apertura)
     const nowIso = new Date().toISOString();
     setSendingWA(appt.id);
     supabase.from("appointments")
       .update({ whatsapp_sent_at: nowIso, whatsapp_sent: true }).eq("id", appt.id)
       .then(() => {
-        setTodayAppts(prev => prev.map(a =>
+        const updater = (prev: Appointment[]) => prev.map(a =>
           a.id === appt.id ? { ...a, whatsapp_sent_at: nowIso } : a
-        ));
+        );
+        setDayAppts(updater);
+        setWeekAppts(updater);
         setSendingWA(null);
       });
   }, []);
 
-  async function handleLogout() {
-    try { await supabase.auth.signOut(); } finally { window.location.href = "/login"; }
-  }
+  // ─── Edit modal ───────────────────────────────────────────────────────────
 
   function openEdit(appt: Appointment) {
     setEditAppt(appt);
@@ -409,10 +380,7 @@ export default function MobileHomePage() {
     setEditSaving(true);
     try {
       const newStart = new Date(`${editDate}T${editTime}:00`);
-      const origDuration = new Date(editAppt.start_at);
-      // mantieni la durata originale (1h default se non calcolabile)
-      const durMs = 60 * 60 * 1000;
-      const newEnd = new Date(newStart.getTime() + durMs);
+      const newEnd = new Date(newStart.getTime() + 60 * 60 * 1000);
 
       const updates: Record<string, unknown> = {
         status:   editStatus,
@@ -425,15 +393,14 @@ export default function MobileHomePage() {
         .update(updates).eq("id", editAppt.id);
       if (error) throw error;
 
-      // Aggiorna lista locale
       const updated: Appointment = {
         ...editAppt,
         status:   editStatus,
         start_at: newStart.toISOString(),
         amount:   editAmount !== "" ? parseFloat(editAmount) || 0 : editAppt.amount,
       };
-      setTodayAppts(prev => prev.map(a => a.id === editAppt.id ? updated : a));
-      setNextAppts( prev => prev.map(a => a.id === editAppt.id ? updated : a));
+      setDayAppts(prev => prev.map(a => a.id === editAppt.id ? updated : a));
+      setWeekAppts(prev => prev.map(a => a.id === editAppt.id ? updated : a));
       setEditAppt(null);
     } catch (e: any) {
       alert(e?.message ?? "Errore nel salvataggio");
@@ -442,88 +409,210 @@ export default function MobileHomePage() {
     }
   }
 
+  // ─── Quick-add ────────────────────────────────────────────────────────────
+
+  function openQuickAdd() {
+    // Default to next available half-hour
+    const now = new Date();
+    const nextH = now.getHours();
+    const nextM = now.getMinutes() < 30 ? 30 : 0;
+    const h = nextM === 0 ? nextH + 1 : nextH;
+    setQaTime(h >= 8 && h < 20 ? `${pad2(h)}:${pad2(nextM)}` : "09:00");
+    setQaPatientSearch("");
+    setQaPatientId(null);
+    setQaPatientLabel("");
+    setQaPatientPhone(null);
+    setQaPatientFirst("");
+    setQaResults([]);
+    setQaSaving(false);
+    setQaNewMode(false);
+    setQaNewFirst("");
+    setQaNewLast("");
+    setQaNewPhone("");
+    setQuickAddOpen(true);
+  }
+
+  function searchPatients(query: string) {
+    setQaPatientSearch(query);
+    setQaPatientId(null);
+    setQaPatientLabel("");
+    setQaPatientPhone(null);
+    setQaPatientFirst("");
+    setQaNewMode(false);
+    if (qaSearchTimer.current) clearTimeout(qaSearchTimer.current);
+    if (query.length < 2) { setQaResults([]); return; }
+
+    setQaSearching(true);
+    qaSearchTimer.current = setTimeout(async () => {
+      try {
+        const words = query.trim().split(/\s+/).filter(w => w.length >= 2);
+        // Search broadly with first word, then filter client-side with all words
+        const searchWord = words[0];
+        const { data } = await supabase.from("patients")
+          .select("id,first_name,last_name,phone")
+          .or(`last_name.ilike.%${searchWord}%,first_name.ilike.%${searchWord}%`)
+          .limit(20);
+        if (data) {
+          let results = data.map((p: any) => ({
+            id: p.id,
+            label: `${(p.last_name ?? "").trim()} ${(p.first_name ?? "").trim()}`.trim() || "Paziente",
+            phone: p.phone,
+            firstName: (p.first_name ?? "").trim(),
+          }));
+          // Filter with all words (matches name or surname in any order)
+          if (words.length > 1) {
+            results = results.filter(p => {
+              const full = p.label.toLowerCase();
+              return words.every(w => full.includes(w.toLowerCase()));
+            });
+          }
+          setQaResults(results.slice(0, 6));
+        }
+      } catch {} finally { setQaSearching(false); }
+    }, 280);
+  }
+
+  function selectPatient(p: PatientOption) {
+    setQaPatientId(p.id);
+    setQaPatientLabel(p.label);
+    setQaPatientPhone(p.phone);
+    setQaPatientFirst(p.firstName);
+    setQaPatientSearch(p.label);
+    setQaResults([]);
+  }
+
+  async function saveQuickAdd() {
+    if (!qaTime) return;
+    setQaSaving(true);
+    try {
+      let patientId = qaPatientId;
+      let patientPhone = qaPatientPhone;
+      let patientFirst = qaPatientFirst;
+
+      // Create new patient if in new mode
+      if (qaNewMode) {
+        if (!qaNewFirst.trim() || !qaNewLast.trim()) {
+          alert("Inserisci nome e cognome del paziente.");
+          setQaSaving(false);
+          return;
+        }
+        const { data: newPat, error: patErr } = await supabase.from("patients")
+          .insert({
+            first_name: qaNewFirst.trim(),
+            last_name: qaNewLast.trim(),
+            phone: qaNewPhone.trim() || null,
+          })
+          .select("id")
+          .single();
+        if (patErr) throw patErr;
+        patientId = newPat.id;
+        patientPhone = qaNewPhone.trim() || null;
+        patientFirst = qaNewFirst.trim();
+      }
+
+      if (!patientId) {
+        alert("Seleziona o crea un paziente.");
+        setQaSaving(false);
+        return;
+      }
+
+      const startDate = new Date(`${dateYMD}T${qaTime}:00`);
+      const startISO = startDate.toISOString();
+      const endISO   = new Date(startDate.getTime() + 3600000).toISOString();
+
+      const { error } = await supabase.from("appointments").insert({
+        patient_id: patientId,
+        start_at: startISO,
+        end_at: endISO,
+        status: "confirmed",
+        location: "studio",
+        clinic_site: "Studio Pontecorvo",
+      });
+      if (error) throw error;
+
+      // Auto-send WhatsApp confirmation
+      if (patientPhone) {
+        const patientName = patientFirst || "gentile paziente";
+        const luogo = CLINIC_ADDRESSES["Studio Pontecorvo"] || "Studio Pontecorvo";
+        const confMsg =
+          `Buongiorno ${patientName},\n\n` +
+          `Le confermiamo il suo appuntamento di ${formatDateRelative(startDate)} ` +
+          `alle ore ⏰ ${qaTime}.\n\n` +
+          `📍 ${luogo}\n\n` +
+          `Per qualsiasi necessità non esiti a contattarci.\n\n` +
+          `Cordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
+
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        const clean = formatPhoneForWA(patientPhone);
+        const url = isMobile
+          ? `https://wa.me/${clean}?text=${encodeURIComponent(confMsg)}`
+          : `https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(confMsg)}`;
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+
+      setQuickAddOpen(false);
+      await loadAll();
+    } catch (e: any) {
+      alert(e?.message ?? "Errore nella creazione");
+    } finally { setQaSaving(false); }
+  }
+
+  // ─── Auth ─────────────────────────────────────────────────────────────────
+
+  async function handleLogout() {
+    try { await supabase.auth.signOut(); } finally { window.location.href = "/login"; }
+  }
+
   // ─── Derived ──────────────────────────────────────────────────────────────
 
   const nowISO  = nowRef.current.toISOString();
   const isToday = dateYMD === todayYMD;
-  const isPast  = dateYMD < todayYMD;
 
-  const totalActive = useMemo(
-    () => todayAppts.filter(a => a.status !== "cancelled").length,
-    [todayAppts]
+  const activeAppts = useMemo(
+    () => dayAppts.filter(a => a.status !== "cancelled"),
+    [dayAppts]
   );
-  const completate = useMemo(() => {
-    if (isToday) return todayAppts.filter(a => a.start_at < nowISO && a.status !== "cancelled").length;
-    if (isPast)  return todayAppts.filter(a => a.status !== "cancelled").length;
-    return 0;
-  }, [todayAppts, nowISO, isToday, isPast, tick]); // eslint-disable-line
 
-  const incasso     = useMemo(() => sumPaid(todayAppts),        [todayAppts]);
-  const daIncassare = useMemo(() => sumDaIncassare(todayAppts), [todayAppts]);
+  const incasso = useMemo(
+    () => activeAppts.reduce((s, a) => s + (a.is_paid && typeof a.amount === "number" ? a.amount : 0), 0),
+    [activeAppts]
+  );
 
-  const nextFive = useMemo(() =>
-    nextAppts.filter(a => a.start_at >= nowISO && a.status !== "cancelled").slice(0, 5),
-  [nextAppts, nowISO, tick]); // eslint-disable-line
+  const daIncassare = useMemo(
+    () => activeAppts.filter(a => !a.is_paid).reduce((s, a) => s + (typeof a.amount === "number" ? a.amount : 0), 0),
+    [activeAppts]
+  );
 
-  const kpiNext = nextFive[0] ?? null;
+  const incassoAtteso = useMemo(
+    () => activeAppts.reduce((s, a) => s + (typeof a.amount === "number" ? a.amount : 0), 0),
+    [activeAppts]
+  );
 
-  // Slot liberi oggi e domani (ore 8-20, slot da 1h)
-  const freeSlotsOggi = useMemo(() => {
-    const WORK_START = 8; const WORK_END = 20;
-    const slots: string[] = [];
-    for (let h = WORK_START; h < WORK_END; h++) {
-      const slotISO = `${todayYMD}T${pad2(h)}:00:00`;
-      const slotEnd  = `${todayYMD}T${pad2(h+1)}:00:00`;
-      const occupied = todayAppts.some(a =>
-        a.status !== "cancelled" && a.start_at < slotEnd && a.start_at >= slotISO
-      );
-      if (!occupied) slots.push(`${pad2(h)}:00`);
-    }
-    return slots;
-  }, [todayAppts, todayYMD]);
-
-  const domaniYMD = useMemo(() => toYMD(addDays(new Date(), 1)), []);
-
-  const freeSlotsDomani = useMemo(() => {
-    const WORK_START = 8; const WORK_END = 20;
-    const slots: string[] = [];
-    for (let h = WORK_START; h < WORK_END; h++) {
-      const slotISO = `${domaniYMD}T${pad2(h)}:00:00`;
-      const slotEnd  = `${domaniYMD}T${pad2(h+1)}:00:00`;
-      const occupied = nextAppts.some(a =>
-        a.status !== "cancelled" && a.start_at < slotEnd && a.start_at >= slotISO
-      );
-      if (!occupied) slots.push(`${pad2(h)}:00`);
-    }
-    return slots;
-  }, [nextAppts, domaniYMD]);
-
-  const monthLabel = useMemo(() => {
-    const mm = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno",
-                "Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
-    return mm[new Date().getMonth()];
-  }, []);
-
-  // Striscia settimanale
+  // Week strip: 7 days from today
   const weekStrip = useMemo(() => {
     const days = [];
     const base = new Date(todayYMD + "T00:00:00");
     for (let i = 0; i < 7; i++) {
       const d = addDays(base, i);
       const ymd = toYMD(d);
-      const cnt = nextAppts.filter(a =>
+      const cnt = weekAppts.filter(a =>
         a.start_at.startsWith(ymd) && a.status !== "cancelled"
-      ).length + (i === 0 ? todayAppts.filter(a => a.status !== "cancelled").length : 0);
-      days.push({ ymd, label: ["Dom","Lun","Mar","Mer","Gio","Ven","Sab"][d.getDay()], day: d.getDate(), cnt });
+      ).length;
+      days.push({
+        ymd,
+        label: ["Dom","Lun","Mar","Mer","Gio","Ven","Sab"][d.getDay()],
+        day: d.getDate(),
+        cnt,
+      });
     }
     return days;
-  }, [nextAppts, todayAppts, todayYMD]);
+  }, [weekAppts, todayYMD]);
 
   const headerDateLabel = useMemo(() => {
     const d = new Date(`${dateYMD}T00:00:00`);
-    const gg = ["Dom","Lun","Mar","Mer","Gio","Ven","Sab"];
-    const mm = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
-    return `${gg[d.getDay()]} ${d.getDate()} ${mm[d.getMonth()]}`;
+    const mm = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno",
+                "Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+    return `${d.getDate()} ${mm[d.getMonth()]}`;
   }, [dateYMD]);
 
   const userInitials = useMemo(() => {
@@ -537,139 +626,139 @@ export default function MobileHomePage() {
     setDateYMD(toYMD(d));
   }
 
-  // ─── Style atoms ──────────────────────────────────────────────────────────
-
-  const card: React.CSSProperties = {
-    background: THEME.panelBg, border: `1.5px solid ${THEME.border}`,
-    borderRadius: 14, boxShadow: "0 2px 8px rgba(15,23,42,0.06)",
-  };
-
-  function btnGradient(extra?: React.CSSProperties): React.CSSProperties {
-    return {
-      display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-      padding: "9px 16px", borderRadius: 10, border: "none",
-      background: THEME.gradient, color: "#fff",
-      fontWeight: 700, fontSize: 13, cursor: "pointer",
-      boxShadow: "0 2px 8px rgba(13,148,136,0.25)", ...extra,
-    };
-  }
-  function btnOutline(extra?: React.CSSProperties): React.CSSProperties {
-    return {
-      display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-      padding: "8px 14px", borderRadius: 10,
-      border: `1.5px solid ${THEME.border}`,
-      background: THEME.panelBg, color: THEME.text,
-      fontWeight: 600, fontSize: 13, cursor: "pointer",
-      textDecoration: "none", ...extra,
-    };
-  }
-  function btnSoft(extra?: React.CSSProperties): React.CSSProperties {
-    return {
-      display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-      padding: "8px 14px", borderRadius: 10, border: "none",
-      background: "rgba(37,99,235,0.09)", color: THEME.blue,
-      fontWeight: 700, fontSize: 13, cursor: "pointer", ...extra,
-    };
-  }
-
   // ─── Render ───────────────────────────────────────────────────────────────
 
+  const card: React.CSSProperties = {
+    background: THEME.panelBg,
+    border: `1px solid ${THEME.border}`,
+    borderRadius: 14,
+    boxShadow: "0 1px 4px rgba(15,23,42,0.05)",
+  };
+
   return (
-    <div style={{ minHeight: "100dvh", background: THEME.appBg, fontFamily: "-apple-system,'SF Pro Text',Inter,sans-serif" }}>
+    <div style={{
+      minHeight: "100dvh", background: THEME.appBg,
+      fontFamily: "-apple-system,'SF Pro Text',Inter,sans-serif",
+    }}>
       <style>{`
-        html, body {
-          overscroll-behavior-y: none;
-          -webkit-overflow-scrolling: touch;
-        }
-        * { -webkit-tap-highlight-color: transparent; }
+        html, body { overscroll-behavior-y: none; -webkit-overflow-scrolling: touch; }
+        * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
 
-      {/* ━━━ NAVBAR ━━━ */}
+      {/* ━━━ HEADER ━━━ */}
       <header style={{
         position: "sticky", top: 0, zIndex: 30,
         background: THEME.gradient,
-        paddingLeft: 14, paddingRight: 14,
+        padding: "0 16px",
         paddingTop: "env(safe-area-inset-top, 0px)",
-        height: "calc(54px + env(safe-area-inset-top, 0px))",
-        display: "flex", alignItems: "flex-end", justifyContent: "space-between",
-        paddingBottom: 8,
-        boxShadow: "0 2px 12px rgba(13,148,136,0.18)", gap: 10,
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          <div style={{
-            width: 28, height: 28, borderRadius: 7,
-            background: "rgba(255,255,255,0.2)", border: "1.5px solid rgba(255,255,255,0.3)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            color: "#fff", fontWeight: 800, fontSize: 13,
-          }}>F</div>
-          <span style={{ fontWeight: 800, fontSize: 15, color: "#fff", letterSpacing: 0.3, textTransform: "uppercase" }}>
-            Fisio<span style={{ fontWeight: 700 }}>Hub</span>
-          </span>
-        </div>
-
-        {/* KPI chips */}
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          {!loading && (
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#fff",
-              background: "rgba(255,255,255,0.2)", padding: "4px 9px",
-              borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", whiteSpace: "nowrap" }}>
-              ✓ {completate}/{totalActive}
-            </span>
-          )}
-          {!loading && (
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#fff",
-              background: "rgba(255,255,255,0.2)", padding: "4px 9px",
-              borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", whiteSpace: "nowrap" }}>
-              € {incasso.toFixed(0)}
-            </span>
-          )}
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }}>
-          <button onClick={loadAll} aria-label="Aggiorna" style={{
-            width: 30, height: 30, borderRadius: 7,
-            border: "1.5px solid rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.15)",
-            color: "#fff", cursor: "pointer", fontSize: 15,
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>↺</button>
-          <div ref={userMenuRef} style={{ position: "relative" }}>
-            <button onClick={() => setUserMenuOpen(v => !v)} style={{
-              width: 30, height: 30, borderRadius: 7,
-              border: "1.5px solid rgba(255,255,255,0.35)", background: "rgba(255,255,255,0.2)",
-              color: "#fff", fontWeight: 800, fontSize: 11, cursor: "pointer",
+        {/* Top row: logo + user */}
+        <div style={{
+          height: 48, display: "flex", alignItems: "center",
+          justifyContent: "space-between",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{
+              width: 26, height: 26, borderRadius: 7,
+              background: "rgba(255,255,255,0.18)",
+              border: "1.5px solid rgba(255,255,255,0.25)",
               display: "flex", alignItems: "center", justifyContent: "center",
-            }}>{userInitials}</button>
-            {userMenuOpen && (
-              <div style={{
-                position: "absolute", right: 0, top: "calc(100% + 8px)", width: 190,
-                background: THEME.panelBg, border: `1.5px solid ${THEME.border}`,
-                borderRadius: 12, boxShadow: "0 12px 32px rgba(30,64,175,0.15)",
-                overflow: "hidden", zIndex: 60,
-              }}>
-                <Link href="/settings" onClick={() => setUserMenuOpen(false)} style={{
-                  display: "flex", alignItems: "center", gap: 8, padding: "12px 16px",
-                  color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
-                  borderBottom: `1.5px solid ${THEME.border}`,
-                }}>⚙️ Impostazioni</Link>
-                <button onClick={handleLogout} style={{
-                  width: "100%", display: "flex", alignItems: "center", gap: 8,
-                  padding: "12px 16px", background: "transparent", border: "none",
-                  cursor: "pointer", color: THEME.red, fontWeight: 600, fontSize: 13,
-                }}>⏻ Logout</button>
-              </div>
-            )}
+              color: "#fff", fontWeight: 800, fontSize: 12,
+            }}>F</div>
+            <span style={{
+              fontWeight: 800, fontSize: 14, color: "#fff",
+              letterSpacing: 0.5, textTransform: "uppercase",
+            }}>
+              Fisio<span style={{ fontWeight: 600, opacity: 0.85 }}>Hub</span>
+            </span>
           </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {/* Refresh */}
+            <button onClick={loadAll} aria-label="Aggiorna" style={{
+              width: 30, height: 30, borderRadius: 8,
+              border: "1.5px solid rgba(255,255,255,0.25)", background: "rgba(255,255,255,0.12)",
+              color: "#fff", cursor: "pointer", fontSize: 14,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>↺</button>
+
+            {/* User menu */}
+            <div ref={userMenuRef} style={{ position: "relative" }}>
+              <button onClick={() => setUserMenuOpen(v => !v)} style={{
+                width: 30, height: 30, borderRadius: 8,
+                border: "1.5px solid rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.18)",
+                color: "#fff", fontWeight: 800, fontSize: 11, cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>{userInitials}</button>
+              {userMenuOpen && (
+                <div style={{
+                  position: "absolute", right: 0, top: "calc(100% + 6px)", width: 180,
+                  background: THEME.panelBg, border: `1px solid ${THEME.border}`,
+                  borderRadius: 12, boxShadow: "0 8px 24px rgba(15,23,42,0.15)",
+                  overflow: "hidden", zIndex: 60,
+                }}>
+                  <Link href="/settings" onClick={() => setUserMenuOpen(false)} style={{
+                    display: "flex", alignItems: "center", gap: 8, padding: "11px 14px",
+                    color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
+                    borderBottom: `1px solid ${THEME.border}`,
+                  }}>Impostazioni</Link>
+                  <button onClick={handleLogout} style={{
+                    width: "100%", display: "flex", alignItems: "center", gap: 8,
+                    padding: "11px 14px", background: "transparent", border: "none",
+                    cursor: "pointer", color: THEME.red, fontWeight: 600, fontSize: 13,
+                  }}>Logout</button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Week strip — inside header for compactness */}
+        <div style={{
+          display: "flex", gap: 2, paddingBottom: 10, paddingTop: 2,
+        }}>
+          {weekStrip.map(d => {
+            const sel = d.ymd === dateYMD;
+            const tod = d.ymd === todayYMD && !sel;
+            return (
+              <button key={d.ymd} onClick={() => setDateYMD(d.ymd)} style={{
+                flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
+                gap: 2, padding: "5px 0", borderRadius: 10, border: "none",
+                background: sel ? "rgba(255,255,255,0.22)" : "transparent",
+                cursor: "pointer", transition: "background 0.15s",
+              }}>
+                <span style={{
+                  fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  color: sel ? "#fff" : "rgba(255,255,255,0.55)",
+                }}>{d.label}</span>
+                <span style={{
+                  fontSize: 15, fontWeight: 800, lineHeight: 1,
+                  color: sel ? "#fff" : tod ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.65)",
+                }}>{d.day}</span>
+                {d.cnt > 0 && (
+                  <span style={{
+                    fontSize: 8, fontWeight: 800, lineHeight: 1,
+                    color: sel ? "#fff" : "rgba(255,255,255,0.5)",
+                    marginTop: 1,
+                  }}>{d.cnt}</span>
+                )}
+                {d.cnt === 0 && <span style={{ fontSize: 8, lineHeight: 1, marginTop: 1, opacity: 0 }}>0</span>}
+              </button>
+            );
+          })}
         </div>
       </header>
 
-      {/* ━━━ TAB BAR BOTTOM ━━━ */}
+      {/* ━━━ BOTTOM TAB BAR ━━━ */}
       <nav style={{
         position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 30,
-        background: THEME.panelBg, borderTop: `1.5px solid ${THEME.border}`,
-        display: "flex", boxShadow: "0 -4px 16px rgba(15,23,42,0.08)",
-        paddingBottom: "max(env(safe-area-inset-bottom, 0px), 8px)",
-        paddingLeft: "env(safe-area-inset-left, 0px)",
-        paddingRight: "env(safe-area-inset-right, 0px)",
+        background: THEME.panelBg, borderTop: `1px solid ${THEME.border}`,
+        display: "flex", boxShadow: "0 -2px 12px rgba(15,23,42,0.06)",
+        paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)",
       }}>
         {[
           { href: "/mobile",          label: "Home",       icon: "⌂",  active: true },
@@ -679,355 +768,344 @@ export default function MobileHomePage() {
         ].map(item => (
           <Link key={item.href} href={item.href} style={{
             flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
-            justifyContent: "center", padding: "10px 4px 9px", textDecoration: "none",
-            gap: 3, position: "relative",
+            justifyContent: "center", padding: "8px 4px 6px", textDecoration: "none", gap: 2,
           }}>
-            <span style={{ fontSize: 18, lineHeight: 1,
+            <span style={{
+              fontSize: 18, lineHeight: 1,
               ...((item as any).active
                 ? { background: THEME.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }
-                : { color: THEME.muted }) }}>
-              {item.icon}
-            </span>
-            <span style={{ fontSize: 10, fontWeight: (item as any).active ? 700 : 600,
-              color: (item as any).active ? THEME.blue : THEME.muted }}>
-              {item.label}
-            </span>
-            {(item as any).active && (
-              <div style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)",
-                width: 28, height: 2.5, borderRadius: 999, background: THEME.gradient }} />
-            )}
+                : { color: THEME.gray }),
+            }}>{item.icon}</span>
+            <span style={{
+              fontSize: 10, fontWeight: (item as any).active ? 700 : 500,
+              color: (item as any).active ? THEME.blue : THEME.gray,
+            }}>{item.label}</span>
           </Link>
         ))}
       </nav>
 
       {/* ━━━ FAB ━━━ */}
       <button
-        onClick={() => router.push(`/mobile/calendar?date=${dateYMD}&new=1`)}
+        onClick={openQuickAdd}
         aria-label="Nuovo appuntamento"
         style={{
-          position: "fixed", bottom: "calc(max(env(safe-area-inset-bottom, 0px), 8px) + 60px)", right: 18,
-          zIndex: 40, width: 52, height: 52, borderRadius: "50%",
+          position: "fixed",
+          bottom: "calc(max(env(safe-area-inset-bottom, 0px), 6px) + 56px)",
+          right: 16, zIndex: 40,
+          width: 50, height: 50, borderRadius: "50%",
           background: THEME.gradient, color: "#fff", border: "none", cursor: "pointer",
-          fontSize: 26, display: "flex", alignItems: "center", justifyContent: "center",
-          boxShadow: "0 4px 20px rgba(13,148,136,0.40)",
+          fontSize: 24, display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 4px 16px rgba(13,148,136,0.35)",
         }}
       >+</button>
 
-      {/* ━━━ CONTENUTO ━━━ */}
+      {/* ━━━ MAIN CONTENT ━━━ */}
       <div
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
-        style={{ padding: 14, paddingBottom: "calc(max(env(safe-area-inset-bottom, 0px), 8px) + 80px)" }}
+        style={{
+          padding: "12px 14px",
+          paddingBottom: "calc(max(env(safe-area-inset-bottom, 0px), 6px) + 80px)",
+        }}
       >
         {/* Pull-to-refresh */}
         {(showPull || pulling) && (
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "center",
-            height: 36, color: THEME.blue, fontWeight: 700, fontSize: 12,
+            height: 32, color: THEME.blue, fontWeight: 700, fontSize: 12,
           }}>
             {pulling ? "↺ Aggiornamento…" : "↓ Rilascia per aggiornare"}
           </div>
         )}
 
-        {/* ── Navigazione data ── */}
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
-          <button onClick={() => shiftDay(-1)}
-            style={btnOutline({ padding: "9px 14px", fontSize: 18, flexShrink: 0 })}>‹</button>
-
-          <button onClick={() => setDateYMD(todayYMD)} style={{
-            flex: 1, padding: "9px 8px", borderRadius: 10, fontSize: 13,
-            fontWeight: 700, cursor: "pointer", textAlign: "center",
-            border: isToday ? `2px solid ${THEME.blue}` : `1.5px solid ${THEME.border}`,
-            background: isToday ? "rgba(37,99,235,0.08)" : THEME.panelBg,
-            color: isToday ? THEME.blue : THEME.text,
-            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+        {/* ── Date header + KPI ── */}
+        <div style={{ marginBottom: 12 }}>
+          <div style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            marginBottom: 10,
           }}>
-            {isToday ? "Oggi" : headerDateLabel}
-          </button>
-
-          <button onClick={() => shiftDay(1)}
-            style={btnOutline({ padding: "9px 14px", fontSize: 18, flexShrink: 0 })}>›</button>
-
-          <button onClick={() => router.push(`/mobile/calendar?date=${dateYMD}`)}
-            style={btnGradient({ flexShrink: 0, padding: "9px 14px" })}>📅</button>
-        </div>
-
-        {/* ── Striscia settimanale ── */}
-        <div style={{ ...card, padding: "8px 10px", marginBottom: 10 }}>
-          <div style={{ display: "flex", gap: 2 }}>
-            {weekStrip.map(d => {
-              const sel = d.ymd === dateYMD;
-              const tod = d.ymd === todayYMD;
-              return (
-                <button key={d.ymd} onClick={() => setDateYMD(d.ymd)} style={{
-                  flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
-                  gap: 3, padding: "5px 2px", borderRadius: 8, border: "none",
-                  background: sel ? THEME.gradient : "transparent", cursor: "pointer",
-                }}>
-                  <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase",
-                    letterSpacing: "0.04em",
-                    color: sel ? "rgba(255,255,255,0.75)" : THEME.muted }}>
-                    {d.label}
-                  </span>
-                  <span style={{ fontSize: 14, fontWeight: 800, lineHeight: 1,
-                    color: sel ? "#fff" : tod ? THEME.blue : THEME.text }}>
-                    {d.day}
-                  </span>
-                  <div style={{ width: 5, height: 5, borderRadius: 99,
-                    background: d.cnt > 0
-                      ? (sel ? "rgba(255,255,255,0.8)" : THEME.blue)
-                      : "transparent" }} />
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Errore */}
-        {error && (
-          <div style={{ marginBottom: 10, padding: 12, borderRadius: 10,
-            border: "1.5px solid rgba(220,38,38,0.3)", background: "rgba(220,38,38,0.06)",
-            color: "#7f1d1d", fontWeight: 600, fontSize: 13 }}>⚠️ {error}</div>
-        )}
-
-        {/* ── KPI card ── */}
-        <div style={{ ...card, padding: 16, marginBottom: 10 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft }}>Riepilogo</div>
-              <div style={{ marginTop: 3, fontSize: 12, color: THEME.muted, fontWeight: 600 }}>
-                {loading ? "—" : `${totalActive} sedute`}
-                {patientCount !== null ? ` · ${patientCount} pazienti` : ""}
+              <div style={{ fontSize: 18, fontWeight: 800, color: THEME.text, lineHeight: 1.1 }}>
+                {isToday ? "Oggi" : headerDateLabel}
+              </div>
+              <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 600, marginTop: 2 }}>
+                {loading ? "…" : `${activeAppts.length} sedute`}
+                {!isToday && ` · ${headerDateLabel}`}
               </div>
             </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 11, color: THEME.muted, fontWeight: 600,
-                textTransform: "uppercase", letterSpacing: 0.4 }}>Incassato</div>
-              <div style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.1,
-                color: loading ? THEME.muted : THEME.green }}>
-                {loading ? "—" : `€${incasso.toFixed(0)}`}
+          </div>
+
+          {/* Prospetto incasso giorno */}
+          {!loading && activeAppts.length > 0 && (
+            <div style={{
+              display: "flex", gap: 6,
+            }}>
+              <div style={{
+                flex: 1, padding: "8px 10px", borderRadius: 10,
+                background: THEME.panelBg, border: `1px solid ${THEME.border}`,
+                textAlign: "center",
+              }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: THEME.text, lineHeight: 1 }}>
+                  €{incassoAtteso.toFixed(0)}
+                </div>
+                <div style={{ fontSize: 9, fontWeight: 700, color: THEME.muted, marginTop: 3,
+                  textTransform: "uppercase", letterSpacing: "0.05em" }}>Atteso</div>
               </div>
-              {!loading && daIncassare > 0 && (
-                <div style={{ fontSize: 11, fontWeight: 700, color: THEME.amber, marginTop: 2 }}>
-                  €{daIncassare.toFixed(0)} da incassare
+              <div style={{
+                flex: 1, padding: "8px 10px", borderRadius: 10,
+                background: "rgba(22,163,74,0.06)", border: `1px solid rgba(22,163,74,0.15)`,
+                textAlign: "center",
+              }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: THEME.green, lineHeight: 1 }}>
+                  €{incasso.toFixed(0)}
+                </div>
+                <div style={{ fontSize: 9, fontWeight: 700, color: THEME.green, marginTop: 3,
+                  textTransform: "uppercase", letterSpacing: "0.05em", opacity: 0.7 }}>Incassato</div>
+              </div>
+              {daIncassare > 0 && (
+                <div style={{
+                  flex: 1, padding: "8px 10px", borderRadius: 10,
+                  background: "rgba(249,115,22,0.06)", border: `1px solid rgba(249,115,22,0.15)`,
+                  textAlign: "center",
+                }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: THEME.amber, lineHeight: 1 }}>
+                    €{daIncassare.toFixed(0)}
+                  </div>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: THEME.amber, marginTop: 3,
+                    textTransform: "uppercase", letterSpacing: "0.05em", opacity: 0.7 }}>Da incassare</div>
                 </div>
               )}
             </div>
-          </div>
-
-          {/* Progress bar */}
-          {!loading && totalActive > 0 && (
-            <div style={{ marginTop: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                <span style={{ fontSize: 12, color: THEME.muted, fontWeight: 600 }}>Sedute completate</span>
-                <span style={{ fontSize: 12, fontWeight: 800,
-                  color: completate === totalActive ? THEME.green : THEME.blue }}>
-                  {completate}/{totalActive}
-                </span>
-              </div>
-              <div style={{ height: 6, borderRadius: 999, background: THEME.border, overflow: "hidden" }}>
-                <div style={{
-                  height: "100%", borderRadius: 999,
-                  width: `${Math.round((completate / totalActive) * 100)}%`,
-                  background: completate === totalActive ? THEME.green : THEME.gradient,
-                  transition: "width 0.5s ease",
-                }} />
-              </div>
-            </div>
-          )}
-
-          {/* Prossima seduta */}
-          {!loading && kpiNext && (
-            <div style={{ marginTop: 14, padding: 12, borderRadius: 10,
-              border: `1.5px solid rgba(37,99,235,0.2)`, background: "rgba(37,99,235,0.04)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: THEME.blue, marginBottom: 3,
-                    textTransform: "uppercase", letterSpacing: 0.4 }}>Prossima seduta</div>
-                  <div style={{ fontWeight: 700, color: THEME.text, fontSize: 14,
-                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {fmtTime(kpiNext.start_at)} · {fullName(kpiNext.patients)}
-                  </div>
-                  <div style={{ marginTop: 2, fontSize: 12, color: THEME.muted, fontWeight: 600 }}>
-                    {kpiNext.treatment_type ?? "Seduta"}
-                    {typeof kpiNext.amount === "number" && kpiNext.amount > 0 ? ` · €${kpiNext.amount}` : ""}
-                  </div>
-                </div>
-                <button
-                  onClick={() => kpiNext.patient_id && router.push(`/mobile/patients/${kpiNext.patient_id}`)}
-                  style={btnGradient({ flexShrink: 0, fontSize: 12, padding: "8px 14px" })}
-                >Apri →</button>
-              </div>
-            </div>
           )}
         </div>
 
-        {/* ── Agenda del giorno ── */}
-        <div style={{ ...card, padding: 16, marginBottom: 10 }}>
-          <div style={{ display: "flex", justifyContent: "space-between",
-            alignItems: "baseline", marginBottom: 12 }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft }}>
-                Agenda del giorno
-              </div>
-              <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 600, marginTop: 2 }}>
-                {headerDateLabel} · {todayAppts.length} appuntamenti
-              </div>
-            </div>
-          </div>
+        {/* Error */}
+        {error && (
+          <div style={{
+            marginBottom: 10, padding: 10, borderRadius: 10,
+            border: "1px solid rgba(220,38,38,0.25)", background: "rgba(220,38,38,0.05)",
+            color: "#7f1d1d", fontWeight: 600, fontSize: 13,
+          }}>{error}</div>
+        )}
 
+        {/* ━━━ AGENDA ━━━ */}
+        <div style={{ ...card, padding: "12px 14px" }}>
           {loading ? (
-            <div style={{ padding: "14px 0", color: THEME.muted, fontWeight: 600, fontSize: 13 }}>
-              Caricamento…
+            <div style={{
+              padding: "24px 0", textAlign: "center",
+              color: THEME.muted, fontWeight: 600, fontSize: 13,
+            }}>
+              <span style={{ display: "inline-block", animation: "spin 0.8s linear infinite" }}>↺</span>
+              {" "}Caricamento…
             </div>
-          ) : todayAppts.length === 0 ? (
-            <div style={{ padding: 20, borderRadius: 10, border: `1.5px dashed ${THEME.border}`,
-              textAlign: "center" }}>
-              <div style={{ color: THEME.muted, fontWeight: 600, fontSize: 13, marginBottom: 12 }}>
-                Nessun appuntamento in questa data.
+          ) : dayAppts.length === 0 ? (
+            <div style={{
+              padding: "28px 16px", textAlign: "center",
+              border: `1.5px dashed ${THEME.border}`, borderRadius: 10,
+            }}>
+              <div style={{ color: THEME.muted, fontWeight: 600, fontSize: 14, marginBottom: 12 }}>
+                Nessun appuntamento
               </div>
-              <button
-                onClick={() => router.push(`/mobile/calendar?date=${dateYMD}&new=1`)}
-                style={btnGradient({ fontSize: 12, padding: "8px 16px" })}
-              >+ Nuovo appuntamento</button>
+              <button onClick={openQuickAdd} style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "10px 20px", borderRadius: 10, border: "none",
+                background: THEME.gradient, color: "#fff",
+                fontWeight: 700, fontSize: 13, cursor: "pointer",
+              }}>+ Aggiungi</button>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {todayAppts.map(a => {
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              {dayAppts.map((a, idx) => {
                 const phone      = a.patients?.phone;
-                const waSent     = !!a.whatsapp_sent_at;
                 const isPastAppt = isToday && a.start_at < nowISO;
                 const isDone     = a.status === "done";
-                const isCancelled= a.status === "cancelled";
-                const col        = statusColor(a.status);
+                const isCancelled = a.status === "cancelled";
+                const isNotPaid  = a.status === "not_paid";
+                const st         = STATUS_MAP[a.status];
+                const isExpanded = expandedId === a.id;
+
+                // Micro-button style helper
+                const microBtn = (bg: string, color: string, active: boolean): React.CSSProperties => ({
+                  width: 28, height: 28, borderRadius: 6, border: "none",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 12, cursor: active ? "default" : "pointer",
+                  background: bg, color,
+                  opacity: active ? 1 : 0.85, flexShrink: 0,
+                });
 
                 return (
-                  <div key={a.id} style={{
-                    borderRadius: 10,
-                    border: `1.5px solid ${isPastAppt ? "transparent" : THEME.border}`,
-                    background: isPastAppt ? THEME.panelSoft : statusBg(a.status),
-                    padding: "11px 13px",
-                    opacity: isPastAppt ? 0.65 : 1,
-                    transition: "opacity 0.3s",
-                    cursor: "pointer",
-                  }}
-                  onClick={() => openEdit(a)}
+                  <div
+                    key={a.id}
+                    style={{
+                      borderRadius: 8, padding: "7px 8px 7px 8px",
+                      background: THEME.panelBg,
+                      border: `1px solid ${THEME.border}`,
+                      opacity: isCancelled ? 0.45 : isPastAppt ? 0.6 : 1,
+                      cursor: "pointer",
+                      transition: "opacity 0.15s",
+                      animation: `fadeIn 0.15s ease ${idx * 0.02}s both`,
+                    }}
+                    onClick={() => setExpandedId(isExpanded ? null : a.id)}
                   >
-
-                    {/* Riga info: orario + nome + status */}
-                    <div style={{ display: "flex", justifyContent: "space-between",
-                      alignItems: "flex-start", gap: 8 }}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 700, color: isPastAppt ? THEME.muted : THEME.text,
-                          fontSize: 14, whiteSpace: "nowrap", overflow: "hidden",
-                          textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 6 }}>
-                          {fmtTime(a.start_at)} · {fullName(a.patients)}
-                          {a.is_paid  && <span style={{ fontSize: 13, flexShrink: 0 }}>💰</span>}
-                          {a.location === "domicile" && <span style={{ fontSize: 13, flexShrink: 0 }}>🏠</span>}
+                    {/* ── Main row: info + micro actions ── */}
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 6,
+                    }}>
+                      {/* Time + Name + Treatment */}
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{
+                          display: "flex", alignItems: "center", gap: 5,
+                          fontSize: 13, fontWeight: 600, color: isPastAppt ? THEME.muted : THEME.text,
+                          lineHeight: 1.3,
+                        }}>
+                          <span style={{
+                            width: 6, height: 6, borderRadius: 99,
+                            background: st.color, flexShrink: 0,
+                          }} />
+                          <span style={{
+                            fontVariantNumeric: "tabular-nums", fontWeight: 800,
+                            fontSize: 12, color: isPastAppt ? THEME.gray : THEME.text, flexShrink: 0,
+                          }}>{fmtTime(a.start_at)}</span>
+                          {phone ? (
+                            <a href={`tel:${phone}`}
+                              onClick={e => e.stopPropagation()}
+                              style={{
+                                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                                textDecoration: "none", color: "inherit",
+                                WebkitTapHighlightColor: "transparent",
+                              }}>{fullName(a.patients)}</a>
+                          ) : (
+                            <span style={{
+                              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                            }}>{fullName(a.patients)}</span>
+                          )}
+                          {a.is_paid && <span style={{ fontSize: 10, flexShrink: 0, opacity: 0.7 }}>💰</span>}
+                          {a.location === "domicile" && <span style={{ fontSize: 10, flexShrink: 0, opacity: 0.7 }}>🏠</span>}
+                          <span style={{
+                            fontSize: 11, color: THEME.gray, fontWeight: 500, flexShrink: 0,
+                          }}>
+                            {typeof a.amount === "number" && a.amount > 0 ? `€${a.amount}` : ""}
+                          </span>
                         </div>
-                        <div style={{ marginTop: 2, fontSize: 12, color: THEME.muted, fontWeight: 600,
-                          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {a.treatment_type ?? "Seduta"}
-                          {typeof a.amount === "number" && a.amount > 0 ? ` · €${a.amount}` : ""}
-                          {isPastAppt && (
-                            <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700,
-                              color: THEME.gray, textTransform: "uppercase" }}>· passato</span>
+                      </div>
+
+                      {/* ── Micro action buttons ── */}
+                      {!isCancelled && (
+                        <div onClick={e => e.stopPropagation()} style={{
+                          display: "flex", gap: 4, flexShrink: 0,
+                        }}>
+                          {/* ✓ Eseguito */}
+                          <button
+                            onClick={() => !isDone && handleMarkDone(a)}
+                            disabled={isDone || markingDone === a.id}
+                            title={isDone ? "Eseguito" : "Segna eseguito"}
+                            style={microBtn(
+                              isDone ? "rgba(22,163,74,0.15)" : "rgba(22,163,74,0.07)",
+                              THEME.green, isDone,
+                            )}
+                          >{markingDone === a.id ? "…" : "✓"}</button>
+
+                          {/* ! Non pagata */}
+                          <button
+                            onClick={() => !isNotPaid && handleNotPaid(a)}
+                            disabled={isNotPaid || notPaying === a.id}
+                            title={isNotPaid ? "Non pagata" : "Segna non pagata"}
+                            style={microBtn(
+                              isNotPaid ? "rgba(249,115,22,0.15)" : "rgba(249,115,22,0.07)",
+                              THEME.amber, isNotPaid,
+                            )}
+                          >{notPaying === a.id ? "…" : "!"}</button>
+
+                          {/* 💬 WA */}
+                          {phone && (
+                            <button
+                              onClick={() => sendReminder(a)}
+                              disabled={sendingWA === a.id}
+                              title={a.whatsapp_sent_at ? "Rinvia WA" : "Invia WA"}
+                              style={microBtn(
+                                a.whatsapp_sent_at ? "rgba(22,163,74,0.1)" : "rgba(37,99,235,0.07)",
+                                a.whatsapp_sent_at ? THEME.green : THEME.blue, false,
+                              )}
+                            >{sendingWA === a.id ? "…" : "💬"}</button>
                           )}
                         </div>
-                      </div>
-                      <span style={{ padding: "4px 9px", borderRadius: 999,
-                        fontWeight: 700, fontSize: 11, color: col,
-                        background: THEME.panelBg, border: `1.5px solid ${col}`,
-                        flexShrink: 0, whiteSpace: "nowrap",
-                        opacity: isPastAppt ? 0.6 : 1 }}>
-                        {statusLabel(a.status)}
-                      </span>
+                      )}
                     </div>
 
-                    {/* ── 3 AZIONI PRINCIPALI ── compatte, in linea */}
-                    {!isCancelled && (
-                      <div onClick={e => e.stopPropagation()} style={{ marginTop: 9, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {/* ── Expanded details + secondary actions ── */}
+                    {isExpanded && (
+                      <div
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                          marginTop: 6, paddingTop: 6,
+                          borderTop: `1px solid ${THEME.border}`,
+                          animation: "fadeIn 0.12s ease",
+                        }}
+                      >
+                        {/* Detail line */}
+                        <div style={{
+                          fontSize: 11, color: THEME.muted, fontWeight: 500, marginBottom: 6,
+                        }}>
+                          {a.treatment_type ?? "Seduta"}
+                          {typeof a.amount === "number" && a.amount > 0 ? ` · €${a.amount}` : ""}
+                          {` · ${st.label}`}
+                        </div>
 
-                        {/* ✓ Eseguito */}
-                        <button
-                          onClick={() => !isDone && handleMarkDone(a)}
-                          disabled={isDone || markingDone === a.id}
-                          style={{
-                            display: "inline-flex", alignItems: "center", gap: 4,
-                            padding: "6px 11px", borderRadius: 8, border: "none",
-                            background: isDone
-                              ? "rgba(22,163,74,0.13)"
-                              : "rgba(22,163,74,0.08)",
-                            color: THEME.green,
-                            fontWeight: 700, fontSize: 12,
-                            cursor: isDone ? "default" : "pointer",
-                            opacity: markingDone === a.id ? 0.5 : 1,
-                          }}
-                        >
-                          {isDone ? "✅" : "☑️"}
-                          {markingDone === a.id ? "…" : isDone ? "Eseguito" : "Eseguito"}
-                        </button>
+                        {!isCancelled && (
+                          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                            {/* Incassa */}
+                            <button
+                              onClick={() => !a.is_paid && handleIncassa(a)}
+                              disabled={a.is_paid || incassando === a.id}
+                              style={{
+                                display: "inline-flex", alignItems: "center", gap: 3,
+                                padding: "5px 9px", borderRadius: 6, border: "none",
+                                background: a.is_paid ? "rgba(22,163,74,0.12)" : "rgba(22,163,74,0.06)",
+                                color: THEME.green, fontWeight: 700, fontSize: 11,
+                                cursor: a.is_paid ? "default" : "pointer",
+                                opacity: incassando === a.id ? 0.5 : 1,
+                              }}
+                            >{a.is_paid ? "✓ Pagato" : incassando === a.id ? "…" : "€ Incassa"}</button>
 
-                        {/* 💰 Incassa */}
-                        <button
-                          onClick={() => !a.is_paid && handleIncassa(a)}
-                          disabled={a.is_paid || incassando === a.id}
-                          style={{
-                            display: "inline-flex", alignItems: "center", gap: 4,
-                            padding: "6px 11px", borderRadius: 8, border: "none",
-                            background: a.is_paid
-                              ? "rgba(22,163,74,0.13)"
-                              : "rgba(249,115,22,0.09)",
-                            color: a.is_paid ? THEME.green : THEME.amber,
-                            fontWeight: 700, fontSize: 12,
-                            cursor: a.is_paid ? "default" : "pointer",
-                            opacity: incassando === a.id ? 0.5 : 1,
-                          }}
-                        >
-                          💰 {incassando === a.id ? "…" : a.is_paid ? "Pagato" : "Incassa"}
-                        </button>
+                            {a.patient_id && (
+                              <button
+                                onClick={() => router.push(`/mobile/patients/${a.patient_id}`)}
+                                style={{
+                                  display: "inline-flex", alignItems: "center",
+                                  padding: "5px 9px", borderRadius: 6,
+                                  border: `1px solid ${THEME.border}`,
+                                  background: THEME.panelBg, color: THEME.text,
+                                  fontWeight: 600, fontSize: 11, cursor: "pointer",
+                                }}
+                              >Scheda</button>
+                            )}
 
-                        {/* 💬 WA / Reinvia */}
-                        {phone && (
-                          <button
-                            onClick={() => sendReminder(a)}
-                            disabled={sendingWA === a.id}
-                            style={{
-                              display: "inline-flex", alignItems: "center", gap: 4,
-                              padding: "6px 11px", borderRadius: 8, border: "none",
-                              background: waSent
-                                ? "rgba(22,163,74,0.08)"
-                                : "rgba(37,99,235,0.08)",
-                              color: waSent ? THEME.green : THEME.blue,
-                              fontWeight: 700, fontSize: 12, cursor: "pointer",
-                              opacity: sendingWA === a.id ? 0.5 : 1,
-                            }}
-                            title={waSent
-                              ? `Inviato il ${new Date(a.whatsapp_sent_at!).toLocaleDateString("it-IT")} — clicca per reinviare`
-                              : "Invia promemoria WhatsApp"}
-                          >
-                            💬 {sendingWA === a.id ? "…" : waSent ? "Rinvia" : "WA"}
-                          </button>
+                            <button
+                              onClick={() => openEdit(a)}
+                              style={{
+                                display: "inline-flex", alignItems: "center",
+                                padding: "5px 9px", borderRadius: 6,
+                                border: `1px solid ${THEME.border}`,
+                                background: THEME.panelBg, color: THEME.muted,
+                                fontWeight: 600, fontSize: 11, cursor: "pointer",
+                              }}
+                            >Modifica</button>
+                          </div>
                         )}
 
-                        {/* Scheda — solo icona, non compete */}
-                        {a.patient_id && (
+                        {isCancelled && a.patient_id && (
                           <button
                             onClick={() => router.push(`/mobile/patients/${a.patient_id}`)}
-                            style={btnOutline({ fontSize: 12, padding: "6px 11px" })}
-                          >📄 Scheda</button>
+                            style={{
+                              display: "inline-flex", alignItems: "center",
+                              padding: "5px 9px", borderRadius: 6,
+                              border: `1px solid ${THEME.border}`,
+                              background: THEME.panelBg, color: THEME.text,
+                              fontWeight: 600, fontSize: 11, cursor: "pointer",
+                            }}
+                          >Scheda paziente</button>
                         )}
-                      </div>
-                    )}
-
-                    {/* Azioni annullato */}
-                    {isCancelled && a.patient_id && (
-                      <div onClick={e => e.stopPropagation()} style={{ marginTop: 8 }}>
-                        <button
-                          onClick={() => router.push(`/mobile/patients/${a.patient_id}`)}
-                          style={btnOutline({ fontSize: 12, padding: "6px 11px" })}
-                        >📄 Scheda</button>
                       </div>
                     )}
                   </div>
@@ -1037,322 +1115,439 @@ export default function MobileHomePage() {
           )}
         </div>
 
-        {/* ── Prossimi 7 giorni ── */}
-        <div style={{ ...card, padding: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between",
-            alignItems: "baseline", marginBottom: 12 }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft }}>
-                Prossimi appuntamenti
-              </div>
-              <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 600, marginTop: 2 }}>
-                Prossimi 7 giorni · {nextFive.length} appuntamenti
-              </div>
-            </div>
-            <button onClick={() => router.push(`/mobile/calendar?date=${dateYMD}`)}
-              style={btnSoft({ fontSize: 12, padding: "7px 12px" })}>
-              Vedi tutto →
-            </button>
-          </div>
+        {/* ━━━ PROSSIMI GIORNI ━━━ */}
+        {!loading && (() => {
+          // Group upcoming appointments by day (exclude today, exclude cancelled)
+          const upcoming = weekAppts.filter(a =>
+            !a.start_at.startsWith(dateYMD) &&
+            a.start_at > nowISO &&
+            a.status !== "cancelled"
+          );
+          if (upcoming.length === 0) return null;
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {nextFive.length === 0 ? (
-              <div style={{ padding: 14, borderRadius: 10,
-                border: `1.5px dashed ${THEME.border}`, color: THEME.muted,
-                fontWeight: 600, fontSize: 13 }}>
-                Nessun appuntamento imminente.
+          const grouped: Record<string, Appointment[]> = {};
+          for (const a of upcoming) {
+            const key = a.start_at.slice(0, 10);
+            if (!grouped[key]) grouped[key] = [];
+            grouped[key].push(a);
+          }
+          const sortedDays = Object.keys(grouped).sort();
+
+          return (
+            <div style={{ ...card, padding: "12px 14px", marginTop: 10 }}>
+              <div style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                marginBottom: 10,
+              }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft }}>
+                  Prossimi giorni
+                </span>
+                <button
+                  onClick={() => router.push(`/mobile/calendar?date=${dateYMD}`)}
+                  style={{
+                    padding: "5px 10px", borderRadius: 8, border: "none",
+                    background: "rgba(37,99,235,0.08)", color: THEME.blue,
+                    fontWeight: 700, fontSize: 12, cursor: "pointer",
+                  }}
+                >Calendario →</button>
               </div>
-            ) : nextFive.map(a => (
-              <button key={a.id}
-                onClick={() => a.patient_id
-                  ? router.push(`/mobile/patients/${a.patient_id}`)
-                  : router.push(`/mobile/calendar?date=${dateYMD}`)}
-                style={{
-                  width: "100%", textAlign: "left", cursor: "pointer",
-                  borderRadius: 10, border: `1.5px solid ${THEME.border}`,
-                  background: statusBg(a.status), padding: "10px 13px",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between",
-                  alignItems: "center", gap: 8 }}>
-                  <div style={{ fontWeight: 700, color: THEME.text, fontSize: 13,
-                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                    display: "flex", alignItems: "center", gap: 5 }}>
-                    {formatDateRelative(new Date(a.start_at))} · {fmtTime(a.start_at)} · {fullName(a.patients)}
-                    {a.is_paid && <span style={{ fontSize: 12, flexShrink: 0 }}>💰</span>}
-                    {a.location === "domicile" && <span style={{ fontSize: 12, flexShrink: 0 }}>🏠</span>}
-                  </div>
-                  <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px",
-                    borderRadius: 99, flexShrink: 0, whiteSpace: "nowrap",
-                    color: statusColor(a.status),
-                    background: THEME.panelBg, border: `1px solid ${statusColor(a.status)}30` }}>
-                    {statusLabel(a.status)}
-                  </span>
-                </div>
-                <div style={{ marginTop: 2, fontSize: 12, color: THEME.muted, fontWeight: 600,
-                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {a.treatment_type ?? "Seduta"}
-                  {typeof a.amount === "number" && a.amount > 0 ? ` · €${a.amount}` : ""}
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
 
-        {/* ━━━ SLOT LIBERI OGGI + DOMANI ━━━ */}
-        {!loading && (freeSlotsOggi.length > 0 || freeSlotsDomani.length > 0) && (
-          <div style={{ ...card, padding: 16, marginTop: 10 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft, marginBottom: 12 }}>
-              Ore disponibili
-            </div>
-
-            {/* Oggi */}
-            {freeSlotsOggi.length > 0 && (
-              <div style={{ marginBottom: freeSlotsDomani.length > 0 ? 14 : 0 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: THEME.blue,
-                  textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
-                  Oggi · {freeSlotsOggi.length} {freeSlotsOggi.length === 1 ? "ora libera" : "ore libere"}
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {freeSlotsOggi.map(slot => (
-                    <button key={`oggi-${slot}`}
-                      onClick={() => router.push(`/mobile/calendar?date=${todayYMD}&new=1&time=${slot.replace(":","")}`)}
-                      style={{
-                        padding: "5px 12px", borderRadius: 99, fontSize: 12, fontWeight: 700,
-                        border: `1.5px solid ${THEME.blue}`, background: "rgba(37,99,235,0.06)",
-                        color: THEME.blue, cursor: "pointer",
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {sortedDays.map(dayKey => {
+                  const appts = grouped[dayKey];
+                  const dayDate = new Date(`${dayKey}T00:00:00`);
+                  return (
+                    <div key={dayKey}>
+                      <div style={{
+                        fontSize: 11, fontWeight: 700, color: THEME.muted,
+                        textTransform: "uppercase", letterSpacing: "0.06em",
+                        marginBottom: 6,
                       }}>
-                      {slot}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Domani */}
-            {freeSlotsDomani.length > 0 && (
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted,
-                  textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
-                  Domani · {freeSlotsDomani.length} {freeSlotsDomani.length === 1 ? "ora libera" : "ore libere"}
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {freeSlotsDomani.map(slot => (
-                    <button key={`domani-${slot}`}
-                      onClick={() => router.push(`/mobile/calendar?date=${domaniYMD}&new=1&time=${slot.replace(":","")}`)}
-                      style={{
-                        padding: "5px 12px", borderRadius: 99, fontSize: 12, fontWeight: 700,
-                        border: `1.5px solid ${THEME.border}`, background: THEME.panelSoft,
-                        color: THEME.muted, cursor: "pointer",
-                      }}>
-                      {slot}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Pazienti suggeriti */}
-            {suggestedPats.length > 0 && (
-              <>
-                <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted,
-                  textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
-                  Pazienti da richiamare
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {suggestedPats.map(p => {
-                    const waPhone = p.phone ? formatPhoneForWA(p.phone) : null;
-                    const daysSince = p.lastVisit
-                      ? Math.round((Date.now() - new Date(p.lastVisit).getTime()) / 86400000)
-                      : null;
-                    return (
-                      <div key={p.id} style={{
-                        display: "flex", alignItems: "center", justifyContent: "space-between",
-                        gap: 10, padding: "10px 12px", borderRadius: 10,
-                        background: THEME.panelSoft, border: `1px solid ${THEME.border}`,
-                      }}>
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: THEME.text,
-                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {p.name}
-                          </div>
-                          {daysSince !== null && (
-                            <div style={{ fontSize: 11, color: THEME.muted, marginTop: 2 }}>
-                              Ultima seduta {daysSince === 0 ? "oggi" : daysSince === 1 ? "ieri" : `${daysSince} giorni fa`}
-                            </div>
-                          )}
-                        </div>
-                        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                          {p.phone && (
-                            <a href={`tel:${p.phone}`} style={{
-                              width: 32, height: 32, borderRadius: 8, fontSize: 15,
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                              background: "rgba(37,99,235,0.08)",
-                              border: `1.5px solid rgba(37,99,235,0.2)`,
-                              textDecoration: "none",
-                            }}>📞</a>
-                          )}
-                          {waPhone && (
-                            <a href={`https://wa.me/${waPhone}`} target="_blank" rel="noreferrer"
-                              style={{
-                                width: 32, height: 32, borderRadius: 8, fontSize: 15,
-                                display: "flex", alignItems: "center", justifyContent: "center",
-                                background: "rgba(22,163,74,0.08)",
-                                border: `1.5px solid rgba(22,163,74,0.2)`,
-                                textDecoration: "none",
-                              }}>💬</a>
-                          )}
-                          <button
-                            onClick={() => router.push(`/mobile/patients/${p.id}`)}
-                            style={{
-                              width: 32, height: 32, borderRadius: 8, fontSize: 13,
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                              background: THEME.panelBg, border: `1.5px solid ${THEME.border}`,
-                              cursor: "pointer",
-                            }}>📄</button>
-                        </div>
+                        {formatDateRelative(dayDate)} · {appts.length} {appts.length === 1 ? "seduta" : "sedute"}
                       </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* ━━━ ANDAMENTO MESE ━━━ */}
-        {monthStats && !loading && (
-          <div style={{ ...card, padding: 16, marginTop: 10 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft, marginBottom: 2 }}>
-              📊 {monthLabel} — andamento mese
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {appts.map(a => {
+                          const st = STATUS_MAP[a.status];
+                          const upPhone = a.patients?.phone;
+                          return (
+                            <div
+                              key={a.id}
+                              style={{
+                                width: "100%", textAlign: "left",
+                                borderRadius: 8, border: `1px solid ${THEME.border}`,
+                                background: THEME.panelSoft, padding: "8px 10px",
+                              }}
+                            >
+                              <div
+                                onClick={() => setDateYMD(dayKey)}
+                                style={{
+                                  display: "flex", justifyContent: "space-between",
+                                  alignItems: "center", gap: 8, cursor: "pointer",
+                                }}
+                              >
+                                <div style={{
+                                  display: "flex", alignItems: "center", gap: 6,
+                                  fontWeight: 600, color: THEME.text, fontSize: 13,
+                                  minWidth: 0,
+                                }}>
+                                  <span style={{
+                                    fontWeight: 800, color: st.color, fontSize: 12,
+                                    fontVariantNumeric: "tabular-nums", flexShrink: 0,
+                                  }}>{fmtTime(a.start_at)}</span>
+                                  {upPhone ? (
+                                    <a href={`tel:${upPhone}`}
+                                      onClick={e => e.stopPropagation()}
+                                      style={{
+                                        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                                        textDecoration: "none", color: "inherit",
+                                      }}>{fullName(a.patients)}</a>
+                                  ) : (
+                                    <span style={{
+                                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                                    }}>{fullName(a.patients)}</span>
+                                  )}
+                                </div>
+                                <span style={{
+                                  fontSize: 9, fontWeight: 700, color: st.color,
+                                  padding: "2px 6px", borderRadius: 4,
+                                  background: `${st.color}12`,
+                                  flexShrink: 0,
+                                }}>{st.label}</span>
+                              </div>
+                              {/* WA remind */}
+                              {upPhone && (
+                                <div style={{ marginTop: 6, display: "flex", gap: 5 }}>
+                                  <button
+                                    onClick={() => sendReminder(a)}
+                                    style={{
+                                      display: "inline-flex", alignItems: "center", gap: 3,
+                                      padding: "5px 9px", borderRadius: 6, border: "none",
+                                      background: a.whatsapp_sent_at ? "rgba(22,163,74,0.07)" : "rgba(37,99,235,0.07)",
+                                      color: a.whatsapp_sent_at ? THEME.green : THEME.blue,
+                                      fontWeight: 700, fontSize: 11, cursor: "pointer",
+                                    }}
+                                  >
+                                    💬 Invia promemoria
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-            <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 12 }}>
-              Tutte le sedute non annullate del mese
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-              {[
-                { label: "Sedute",          value: String(monthStats.sessions),           color: THEME.blue  },
-                { label: "Incassato",        value: `€${monthStats.revenue.toFixed(0)}`,  color: THEME.green },
-                { label: "Eseguite non pagate", value: `€${monthStats.unpaid.toFixed(0)}`,color: monthStats.unpaid > 0 ? THEME.amber : THEME.muted },
-              ].map(s => (
-                <div key={s.label} style={{
-                  textAlign: "center", padding: "12px 6px",
-                  background: THEME.panelSoft, borderRadius: 10,
-                  border: `1.5px solid ${THEME.border}`,
-                }}>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1 }}>
-                    {s.value}
-                  </div>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: THEME.muted, marginTop: 4,
-                    textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                    {s.label}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
+          );
+        })()}
       </div>
 
-      {/* ━━━ MODAL MODIFICA APPUNTAMENTO ━━━ */}
+      {/* ━━━ QUICK-ADD BOTTOM SHEET ━━━ */}
+      {quickAddOpen && (
+        <>
+          <div
+            onClick={() => setQuickAddOpen(false)}
+            style={{
+              position: "fixed", inset: 0, zIndex: 50,
+              background: "rgba(15,23,42,0.4)",
+              backdropFilter: "blur(2px)",
+            }}
+          />
+          <div style={{
+            position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 51,
+            background: THEME.panelBg, borderRadius: "16px 16px 0 0",
+            padding: "16px 18px",
+            paddingBottom: "max(20px, env(safe-area-inset-bottom, 20px))",
+            boxShadow: "0 -6px 32px rgba(15,23,42,0.15)",
+            animation: "slideUp 0.25s ease",
+            maxHeight: "88vh", overflowY: "auto",
+          }}>
+            {/* Handle */}
+            <div style={{ width: 32, height: 3.5, borderRadius: 99, background: THEME.border, margin: "0 auto 14px" }}/>
+
+            <div style={{ fontSize: 15, fontWeight: 800, color: THEME.text, marginBottom: 2 }}>
+              Nuovo appuntamento
+            </div>
+            <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 16 }}>
+              {isToday ? "Oggi" : headerDateLabel}
+            </div>
+
+            {/* Time picker */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{
+                fontSize: 11, fontWeight: 700, color: THEME.muted,
+                textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6,
+              }}>Orario</div>
+              <div style={{
+                display: "flex", gap: 5, flexWrap: "wrap",
+              }}>
+                {WORK_HOURS.map(h => (
+                  <button key={h} onClick={() => setQaTime(h)} style={{
+                    padding: "6px 11px", borderRadius: 7, fontSize: 13, fontWeight: 700,
+                    border: qaTime === h ? `2px solid ${THEME.blue}` : `1px solid ${THEME.border}`,
+                    background: qaTime === h ? "rgba(37,99,235,0.08)" : THEME.panelSoft,
+                    color: qaTime === h ? THEME.blue : THEME.text,
+                    cursor: "pointer",
+                  }}>{h}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Patient search / new patient */}
+            <div style={{ marginBottom: 18 }}>
+              <div style={{
+                fontSize: 11, fontWeight: 700, color: THEME.muted,
+                textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6,
+              }}>Paziente</div>
+
+              {!qaNewMode ? (
+                <>
+                  <input
+                    type="text"
+                    value={qaPatientSearch}
+                    onChange={e => searchPatients(e.target.value)}
+                    placeholder="Cerca per nome o cognome…"
+                    style={{
+                      width: "100%", padding: "10px 12px", borderRadius: 10,
+                      border: `1.5px solid ${qaPatientId ? THEME.green : THEME.border}`,
+                      background: qaPatientId ? "rgba(22,163,74,0.04)" : THEME.panelSoft,
+                      fontSize: 14, fontWeight: 600, color: THEME.text,
+                    }}
+                  />
+                  {qaPatientId && (
+                    <div style={{ marginTop: 4, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 12, color: THEME.green, fontWeight: 700 }}>✓ {qaPatientLabel}</span>
+                      <button onClick={() => { setQaPatientId(null); setQaPatientLabel(""); setQaPatientSearch(""); }}
+                        style={{ fontSize: 11, color: THEME.muted, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>
+                        Cambia
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Results dropdown */}
+                  {qaResults.length > 0 && !qaPatientId && (
+                    <div style={{
+                      marginTop: 4, borderRadius: 10, overflow: "hidden",
+                      border: `1px solid ${THEME.border}`, background: THEME.panelBg,
+                      boxShadow: "0 4px 12px rgba(15,23,42,0.1)",
+                    }}>
+                      {qaResults.map(p => (
+                        <button key={p.id} onClick={() => selectPatient(p)} style={{
+                          width: "100%", display: "flex", justifyContent: "space-between",
+                          padding: "10px 12px", border: "none", borderBottom: `1px solid ${THEME.border}`,
+                          background: "transparent", cursor: "pointer", textAlign: "left",
+                        }}>
+                          <span style={{ fontWeight: 700, fontSize: 13, color: THEME.text }}>{p.label}</span>
+                          {p.phone && (
+                            <span style={{ fontSize: 11, color: THEME.muted }}>{p.phone}</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {qaSearching && (
+                    <div style={{ marginTop: 4, fontSize: 12, color: THEME.muted }}>Ricerca…</div>
+                  )}
+
+                  {/* New patient link */}
+                  {!qaPatientId && (
+                    <button
+                      onClick={() => setQaNewMode(true)}
+                      style={{
+                        marginTop: 6, padding: 0, border: "none", background: "none",
+                        color: THEME.blue, fontWeight: 700, fontSize: 12,
+                        cursor: "pointer",
+                      }}
+                    >+ Nuovo paziente</button>
+                  )}
+                </>
+              ) : (
+                /* ── New patient form ── */
+                <div style={{
+                  padding: "10px 12px", borderRadius: 10,
+                  border: `1px solid ${THEME.blue}40`, background: "rgba(37,99,235,0.03)",
+                }}>
+                  <div style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    marginBottom: 10,
+                  }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: THEME.blue }}>Nuovo paziente</span>
+                    <button onClick={() => setQaNewMode(false)} style={{
+                      fontSize: 11, color: THEME.muted, background: "none", border: "none",
+                      cursor: "pointer", fontWeight: 600,
+                    }}>← Cerca esistente</button>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                    <input
+                      type="text" value={qaNewLast}
+                      onChange={e => setQaNewLast(e.target.value)}
+                      placeholder="Cognome *"
+                      style={{
+                        flex: 1, padding: "9px 10px", borderRadius: 8,
+                        border: `1px solid ${THEME.border}`, background: THEME.panelBg,
+                        fontSize: 13, fontWeight: 600, color: THEME.text,
+                      }}
+                    />
+                    <input
+                      type="text" value={qaNewFirst}
+                      onChange={e => setQaNewFirst(e.target.value)}
+                      placeholder="Nome *"
+                      style={{
+                        flex: 1, padding: "9px 10px", borderRadius: 8,
+                        border: `1px solid ${THEME.border}`, background: THEME.panelBg,
+                        fontSize: 13, fontWeight: 600, color: THEME.text,
+                      }}
+                    />
+                  </div>
+                  <input
+                    type="tel" value={qaNewPhone}
+                    onChange={e => setQaNewPhone(e.target.value)}
+                    placeholder="Telefono (per WA conferma)"
+                    style={{
+                      width: "100%", padding: "9px 10px", borderRadius: 8,
+                      border: `1px solid ${THEME.border}`, background: THEME.panelBg,
+                      fontSize: 13, fontWeight: 600, color: THEME.text,
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            {(() => {
+              const canSave = qaTime && (qaPatientId || (qaNewMode && qaNewFirst.trim() && qaNewLast.trim()));
+              return (
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button onClick={() => setQuickAddOpen(false)} style={{
+                    flex: 1, padding: "12px 0", borderRadius: 12,
+                    border: `1px solid ${THEME.border}`, background: THEME.panelSoft,
+                    color: THEME.muted, fontWeight: 700, fontSize: 14, cursor: "pointer",
+                  }}>Annulla</button>
+                  <button
+                    onClick={saveQuickAdd}
+                    disabled={!canSave || qaSaving}
+                    style={{
+                      flex: 2, padding: "12px 0", borderRadius: 12, border: "none",
+                      background: !canSave ? THEME.border : THEME.gradient,
+                      color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer",
+                      opacity: qaSaving ? 0.6 : 1,
+                    }}
+                  >
+                    {qaSaving ? "Salvataggio…" : "Crea appuntamento"}
+                  </button>
+                </div>
+              );
+            })()}
+
+            {/* Link to full calendar for more options */}
+            <button
+              onClick={() => { setQuickAddOpen(false); router.push(`/mobile/calendar?date=${dateYMD}&new=1`); }}
+              style={{
+                width: "100%", marginTop: 10, padding: "8px 0",
+                border: "none", background: "transparent",
+                color: THEME.blue, fontWeight: 600, fontSize: 12,
+                cursor: "pointer", textAlign: "center",
+              }}
+            >Opzioni avanzate → Calendario</button>
+          </div>
+        </>
+      )}
+
+      {/* ━━━ EDIT MODAL ━━━ */}
       {editAppt && (
         <>
-          {/* Backdrop */}
           <div
             onClick={() => setEditAppt(null)}
             style={{
               position: "fixed", inset: 0, zIndex: 50,
-              background: "rgba(15,23,42,0.45)",
+              background: "rgba(15,23,42,0.4)",
               backdropFilter: "blur(2px)",
             }}
           />
-          {/* Sheet */}
           <div style={{
             position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 51,
-            background: THEME.panelBg,
-            borderRadius: "18px 18px 0 0",
-            padding: "20px 20px",
-            paddingBottom: "max(24px, env(safe-area-inset-bottom, 24px))",
-            boxShadow: "0 -8px 40px rgba(15,23,42,0.18)",
-            maxHeight: "85vh",
-            overflowY: "auto",
+            background: THEME.panelBg, borderRadius: "16px 16px 0 0",
+            padding: "16px 18px",
+            paddingBottom: "max(20px, env(safe-area-inset-bottom, 20px))",
+            boxShadow: "0 -6px 32px rgba(15,23,42,0.15)",
+            maxHeight: "85vh", overflowY: "auto",
+            animation: "slideUp 0.25s ease",
           }}>
-            {/* Handle */}
-            <div style={{ width: 36, height: 4, borderRadius: 99, background: THEME.border, margin: "0 auto 18px" }}/>
+            <div style={{ width: 32, height: 3.5, borderRadius: 99, background: THEME.border, margin: "0 auto 14px" }}/>
 
-            <div style={{ fontSize: 15, fontWeight: 800, color: THEME.text, marginBottom: 4 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: THEME.text, marginBottom: 2 }}>
               Modifica appuntamento
             </div>
-            <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 20 }}>
+            <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 16 }}>
               {fullName(editAppt.patients)} · {fmtTime(editAppt.start_at)}
             </div>
 
             {/* Status */}
-            <div style={{ marginBottom: 18 }}>
+            <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Stato</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {(["booked","confirmed","done","not_paid","cancelled"] as Status[]).map(s => (
                   <button key={s} onClick={() => setEditStatus(s)} style={{
-                    padding: "7px 13px", borderRadius: 8, border: "none", cursor: "pointer",
+                    padding: "7px 12px", borderRadius: 8, border: "none", cursor: "pointer",
                     fontWeight: 700, fontSize: 12,
-                    background: editStatus === s ? statusColor(s) : "rgba(148,163,184,0.12)",
+                    background: editStatus === s ? STATUS_MAP[s].color : "rgba(148,163,184,0.1)",
                     color: editStatus === s ? "#fff" : THEME.muted,
                   }}>
-                    {statusLabel(s)}
+                    {STATUS_MAP[s].label}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Data e ora */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 18 }}>
+            {/* Date + Time */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Data</div>
                 <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} style={{
-                  width: "100%", padding: "10px 12px", borderRadius: 10,
+                  width: "100%", padding: "9px 10px", borderRadius: 10,
                   border: `1.5px solid ${THEME.border}`, background: THEME.panelSoft,
-                  fontSize: 14, fontWeight: 600, color: THEME.text, boxSizing: "border-box" as const,
+                  fontSize: 14, fontWeight: 600, color: THEME.text,
                 }}/>
               </div>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Orario</div>
                 <input type="time" value={editTime} onChange={e => setEditTime(e.target.value)} style={{
-                  width: "100%", padding: "10px 12px", borderRadius: 10,
+                  width: "100%", padding: "9px 10px", borderRadius: 10,
                   border: `1.5px solid ${THEME.border}`, background: THEME.panelSoft,
-                  fontSize: 14, fontWeight: 600, color: THEME.text, boxSizing: "border-box" as const,
+                  fontSize: 14, fontWeight: 600, color: THEME.text,
                 }}/>
               </div>
             </div>
 
-            {/* Importo */}
-            <div style={{ marginBottom: 24 }}>
+            {/* Amount */}
+            <div style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Importo (€)</div>
               <input
                 type="number" inputMode="decimal" value={editAmount}
                 onChange={e => setEditAmount(e.target.value)}
                 placeholder="es. 40"
                 style={{
-                  width: "100%", padding: "10px 12px", borderRadius: 10,
+                  width: "100%", padding: "9px 10px", borderRadius: 10,
                   border: `1.5px solid ${THEME.border}`, background: THEME.panelSoft,
-                  fontSize: 14, fontWeight: 600, color: THEME.text, boxSizing: "border-box" as const,
+                  fontSize: 14, fontWeight: 600, color: THEME.text,
                 }}
               />
             </div>
 
-            {/* Bottoni */}
+            {/* Buttons */}
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => setEditAppt(null)} style={{
-                flex: 1, padding: "13px 0", borderRadius: 12,
-                border: `1.5px solid ${THEME.border}`, background: THEME.panelSoft,
+                flex: 1, padding: "12px 0", borderRadius: 12,
+                border: `1px solid ${THEME.border}`, background: THEME.panelSoft,
                 color: THEME.muted, fontWeight: 700, fontSize: 14, cursor: "pointer",
               }}>Annulla</button>
               <button onClick={saveEdit} disabled={editSaving} style={{
-                flex: 2, padding: "13px 0", borderRadius: 12, border: "none",
+                flex: 2, padding: "12px 0", borderRadius: 12, border: "none",
                 background: THEME.gradient, color: "#fff",
                 fontWeight: 700, fontSize: 14, cursor: "pointer",
                 opacity: editSaving ? 0.6 : 1,
-                boxShadow: "0 2px 8px rgba(13,148,136,0.25)",
               }}>
                 {editSaving ? "Salvataggio…" : "Salva modifiche"}
               </button>
@@ -1360,7 +1555,6 @@ export default function MobileHomePage() {
           </div>
         </>
       )}
-
     </div>
   );
 }

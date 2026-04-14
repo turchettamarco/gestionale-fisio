@@ -9,6 +9,20 @@ import { useSearchParams } from "next/navigation";
 
 type Status = "booked" | "confirmed" | "done" | "cancelled" | "not_paid";
 
+type BookingRequest = {
+  id: string;
+  service_name: string;
+  service_duration: number;
+  requested_date: string;
+  requested_time: string;
+  patient_name: string;
+  patient_phone: string;
+  patient_email: string | null;
+  notes: string | null;
+  status: "pending" | "confirmed" | "cancelled";
+  created_at: string;
+};
+
 type LocationType = "studio" | "domicile";
 
 type AppointmentRow = {
@@ -93,6 +107,10 @@ const THEME = {
 };
 
 const DEFAULT_CLINIC_SITE = "Studio Pontecorvo";
+
+// ── Google Review ──────────────────────────────────────────
+// Sostituire con il link reale della pagina Google Business
+const GOOGLE_REVIEW_LINK = "https://g.page/r/INSERISCI-QUI-IL-TUO-LINK/review";
 
 function statusColor(status: Status) {
   switch (status) {
@@ -642,6 +660,10 @@ const { data, error } = await supabase
   const sidebarRef = useRef<HTMLDivElement>(null);
   const monthClickTimer = useRef<any>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [bookingRequests, setBookingRequests] = useState<BookingRequest[]>([]);
+  const [bookingPanel, setBookingPanel] = useState(false);
+  const [bookingLoading, setBookingLoading] = useState(false);
+  const [bookingActionId, setBookingActionId] = useState<string | null>(null);
 
   
   // Sidebar behavior: overlay on mobile, "push content" on desktop
@@ -1208,7 +1230,17 @@ const mapped = (data ?? []).map(
     }
   ) => {
     const patient = Array.isArray(a.patients) ? a.patients[0] : a.patients;
-const name = patient ? `${patient.last_name ?? ""} ${patient.first_name ?? ""}`.trim() : "Paziente";
+
+    // Se non c'è paziente (prenotazione web), estrai nome dal calendar_note
+    // Formato: "[WEB|Nome Cognome|Telefono] Servizio..."
+    let name = patient
+      ? `${patient.last_name ?? ""} ${patient.first_name ?? ""}`.trim()
+      : "Paziente";
+
+    if (!patient && a.calendar_note) {
+      const match = (a.calendar_note as string).match(/^\[WEB\|([^|]+)\|/);
+      if (match && match[1]) name = match[1].trim();
+    }
 
 
     return {
@@ -1505,6 +1537,88 @@ ${days.map((day, di) => {
     if (win) { win.document.write(html); win.document.close(); }
   }, [events, currentDate]);
 
+  // ─── Booking requests ────────────────────────────────────────────────────
+  const loadBookingRequests = useCallback(async () => {
+    setBookingLoading(true);
+    const { data } = await supabase
+      .from("booking_requests")
+      .select("*")
+      .in("status", ["pending", "confirmed", "cancelled"])
+      .order("created_at", { ascending: false })
+      .limit(50);
+    setBookingRequests(data ?? []);
+    setBookingLoading(false);
+  }, []);
+
+  useEffect(() => { void loadBookingRequests(); }, [loadBookingRequests]);
+
+  async function confirmBooking(req: BookingRequest) {
+    setBookingActionId(req.id);
+    try {
+      // 1. Aggiorna stato in booking_requests
+      const { error: updErr } = await supabase
+        .from("booking_requests")
+        .update({ status: "confirmed" })
+        .eq("id", req.id);
+      if (updErr) { alert("Errore aggiornamento: " + updErr.message); return; }
+
+      // 2. Crea appuntamento — stesso metodo usato dal form del calendario
+      const timeStr = req.requested_time.slice(0, 5); // "HH:MM"
+      const [th, tm] = timeStr.split(":").map(Number);
+      const [dy, dm, dd] = req.requested_date.split("-").map(Number);
+
+      // Costruisce data locale (come fa il form normale del calendario)
+      const startDt = new Date(dy, dm - 1, dd);
+      startDt.setHours(th, tm, 0, 0);
+      if (isNaN(startDt.getTime())) { alert("Data non valida"); return; }
+
+      const durationMin = Number(req.service_duration);
+      const endDt = new Date(startDt.getTime() + durationMin * 60 * 1000);
+
+      // toISOString() converte in UTC — uguale a come funzionano tutti gli altri appuntamenti
+      const startAt = startDt.toISOString();
+      const endAt   = endDt.toISOString();
+
+      console.log("[booking] start:", startAt, "end:", endAt, "durata:", durationMin, "min");
+
+      const note = `[WEB|${req.patient_name}|${req.patient_phone}] ${req.service_name}${req.notes ? ` - ${req.notes}` : ""}`;
+
+      // Determina location in base al servizio
+      const isHome = req.service_name.toLowerCase().includes("domicil");
+      const locationVal = isHome ? "domicile" : "studio";
+
+      const { error: insErr } = await supabase.from("appointments").insert({
+        start_at:         startAt,
+        end_at:           endAt,
+        status:           "booked",
+        is_paid:          false,
+        location:         locationVal,
+        clinic_site:      isHome ? null : DEFAULT_CLINIC_SITE,
+        domicile_address: isHome ? (req.notes ?? "da definire") : null,
+        calendar_note:    note,
+      });
+      if (insErr) { alert("Errore creazione appuntamento: " + insErr.message); return; }
+
+      await loadBookingRequests();
+      // Ricarica il calendario sulla settimana corrente
+      const startOfWeek = new Date(currentDate);
+      startOfWeek.setDate(currentDate.getDate() - ((currentDate.getDay() + 6) % 7));
+      startOfWeek.setHours(0,0,0,0);
+      const endOfWeek = addDays(startOfWeek, 6);
+      endOfWeek.setHours(23,59,59,999);
+      await loadAppointments(startOfWeek, endOfWeek);
+    } finally {
+      setBookingActionId(null);
+    }
+  }
+
+  async function rejectBooking(id: string) {
+    setBookingActionId(id);
+    await supabase.from("booking_requests").update({ status: "cancelled" }).eq("id", id);
+    await loadBookingRequests();
+    setBookingActionId(null);
+  }
+
   const exportToGoogleCalendar = useCallback(async () => {
     const eventsToExport = filteredEvents.map(event => ({
       summary: `${event.location === "domicile" ? `🏠 ${event.patient_name}` : event.patient_name} - ${statusLabel(event.status)}`,
@@ -1661,7 +1775,39 @@ Fisioterapia e Osteopatia`;
     
   }, [events]);
 
-  // Feature: Segna pagato in blocco
+  // ── Chiedi Recensione Google via WhatsApp ──────────────────
+  const sendGoogleReview = useCallback(async (patientPhone?: string, patientFirstName?: string) => {
+    if (!patientPhone) {
+      alert("Nessun telefono registrato per questo paziente");
+      return;
+    }
+
+    const nomePaziente = (patientFirstName && patientFirstName.trim()) ? patientFirstName.trim() : "Cliente";
+    const cleanPhone = formatPhoneForWhatsAppWeb(patientPhone);
+
+    const message = `Buongiorno ${nomePaziente},\n\nGrazie per aver scelto il nostro studio! 🙏\n\nSe è rimasto/a soddisfatto/a del trattamento, le saremmo molto grati se potesse lasciarci una breve recensione su Google:\n\n${GOOGLE_REVIEW_LINK}\n\nLa sua opinione ci aiuta a migliorare e a farci conoscere.\n\nGrazie di cuore,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
+
+    const confirmText = `⭐ RICHIESTA RECENSIONE GOOGLE\n\nDestinatario: ${patientPhone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp e inviare.`;
+
+    const confirm = window.confirm(confirmText);
+    if (!confirm) return;
+
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMessage}`;
+
+    const newWindow = window.open(whatsappUrl, '_blank');
+
+    if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+      const manualOpen = window.confirm(
+        `Il browser ha bloccato l'apertura automatica di WhatsApp.\n\nURL: ${whatsappUrl}\n\nClicca OK per provare ad aprire, oppure Annulla per copiare il link.`
+      );
+      if (manualOpen) {
+        window.location.href = whatsappUrl;
+      } else {
+        alert(`Copia questo link e aprilo manualmente:\n\n${whatsappUrl}`);
+      }
+    }
+  }, []);
   const toggleBulkSelect = useCallback((id: string) => {
     setBulkSelected(prev => {
       const next = new Set(prev);
@@ -2739,6 +2885,26 @@ return (
           }}>
             {sidebarOpen ? "✕" : "☰"} Oggi
           </button>
+          {/* Notification bell — richieste dal sito */}
+          <button onClick={() => setBookingPanel(v => !v)} style={{
+            position: "relative", width: 32, height: 32, borderRadius: 8,
+            border: "1.5px solid rgba(255,255,255,0.3)",
+            background: bookingPanel ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.12)",
+            color: "#fff", cursor: "pointer", fontSize: 16,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            🔔
+            {bookingRequests.filter(r => r.status === "pending").length > 0 && (
+              <span style={{
+                position: "absolute", top: -4, right: -4,
+                width: 16, height: 16, borderRadius: "50%",
+                background: "#f97316", color: "#fff",
+                fontSize: 9, fontWeight: 800,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                border: "2px solid #fff",
+              }}>{bookingRequests.filter(r => r.status === "pending").length}</span>
+            )}
+          </button>
           <div ref={userMenuRef} style={{ position: "relative" }}>
             <button type="button" onClick={() => setUserMenuOpen(v => !v)} style={{
               width: 32, height: 32, borderRadius: 8, border: "2px solid rgba(255,255,255,0.35)", cursor: "pointer",
@@ -2767,6 +2933,137 @@ return (
           </div>
         </div>
       </header>
+
+      {/* ━━━ PANNELLO PRENOTAZIONI DAL SITO ━━━ */}
+      {bookingPanel && (
+        <>
+          <div onClick={() => setBookingPanel(false)} style={{ position: "fixed", inset: 0, zIndex: 48, background: "rgba(0,0,0,0.3)" }} />
+          <div style={{
+            position: "fixed", top: 66, right: 16, zIndex: 49,
+            width: 380, maxHeight: "80vh", overflowY: "auto",
+            background: "#fff", borderRadius: 14,
+            border: "1.5px solid #e2e8f0",
+            boxShadow: "0 16px 48px rgba(0,0,0,0.18)",
+          }}>
+            {/* Header pannello */}
+            <div style={{ padding: "14px 18px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 14, color: "#0f172a" }}>Prenotazioni dal sito</div>
+                <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>
+                  {bookingRequests.filter(r => r.status === "pending").length} in attesa · {bookingRequests.length} totali
+                </div>
+              </div>
+              <button onClick={() => setBookingPanel(false)} style={{ border: "none", background: "none", fontSize: 18, cursor: "pointer", color: "#94a3b8" }}>✕</button>
+            </div>
+
+            {bookingLoading && <div style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Caricamento…</div>}
+
+            {!bookingLoading && bookingRequests.length === 0 && (
+              <div style={{ padding: 32, textAlign: "center" }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>🎉</div>
+                <div style={{ fontSize: 13, color: "#64748b" }}>Nessuna prenotazione ricevuta</div>
+              </div>
+            )}
+
+            {bookingRequests.map(req => {
+              const isActing = bookingActionId === req.id;
+              const isPending   = req.status === "pending";
+              const isConfirmed = req.status === "confirmed";
+              const isCancelled = req.status === "cancelled";
+              const dateStr = new Date(req.requested_date + "T12:00:00").toLocaleDateString("it-IT", { weekday: "short", day: "2-digit", month: "short" });
+              const statusBadge = isPending
+                ? { bg: "#fff7ed", color: "#c2410c", border: "#fed7aa", label: "In attesa" }
+                : isConfirmed
+                ? { bg: "#f0fdf4", color: "#15803d", border: "#bbf7d0", label: "Confermata" }
+                : { bg: "#fff5f5", color: "#dc2626", border: "#fecaca", label: "Annullata" };
+              return (
+                <div key={req.id} style={{ padding: "14px 18px", borderBottom: "1px solid #f1f5f9" }}>
+                  {/* Nome + data */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: "#0f172a" }}>{req.patient_name}</div>
+                      <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>{req.patient_phone}</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#0d9488" }}>{dateStr}</div>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: "#0f172a" }}>{req.requested_time.slice(0,5)}</div>
+                    </div>
+                  </div>
+                  {/* Servizio + badge stato */}
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
+                    <div style={{ fontSize: 11, background: "#f0fdfa", borderRadius: 6, padding: "3px 8px", color: "#0d9488", fontWeight: 700 }}>
+                      {req.service_name} · {req.service_duration} min
+                    </div>
+                    <div style={{ fontSize: 10, background: statusBadge.bg, borderRadius: 99, padding: "2px 8px", color: statusBadge.color, fontWeight: 700, border: `1px solid ${statusBadge.border}` }}>
+                      {statusBadge.label}
+                    </div>
+                  </div>
+                  {/* Note */}
+                  {req.notes && (
+                    <div style={{ fontSize: 11, color: "#64748b", fontStyle: "italic", marginBottom: 8 }}>"{req.notes}"</div>
+                  )}
+                  {/* ── Azioni in attesa ── */}
+                  {isPending && (
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={() => confirmBooking(req)} disabled={isActing}
+                        style={{ flex: 1, padding: "7px 0", border: "none", borderRadius: 7, background: "#0d9488", color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: isActing ? 0.6 : 1 }}>
+                        {isActing ? "…" : "✓ Conferma"}
+                      </button>
+                      <button onClick={() => rejectBooking(req.id)} disabled={isActing}
+                        style={{ flex: 1, padding: "7px 0", border: "1.5px solid #fecaca", borderRadius: 7, background: "#fff5f5", color: "#dc2626", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: isActing ? 0.6 : 1 }}>
+                        {isActing ? "…" : "✕ Annulla"}
+                      </button>
+                    </div>
+                  )}
+                  {/* ── Azioni confermata ── */}
+                  {isConfirmed && (
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={() => rejectBooking(req.id)} disabled={isActing}
+                        style={{ flex: 1, padding: "7px 0", border: "1.5px solid #fecaca", borderRadius: 7, background: "#fff5f5", color: "#dc2626", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: isActing ? 0.6 : 1 }}>
+                        {isActing ? "…" : "✕ Annulla"}
+                      </button>
+                      <button onClick={async () => {
+                        setBookingActionId(req.id);
+                        await supabase.from("booking_requests").update({ status: "pending" }).eq("id", req.id);
+                        await loadBookingRequests();
+                        setBookingActionId(null);
+                      }} disabled={isActing}
+                        style={{ flex: 1, padding: "7px 0", border: "1.5px solid #e2e8f0", borderRadius: 7, background: "#f8fafc", color: "#64748b", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: isActing ? 0.6 : 1 }}>
+                        {isActing ? "…" : "↩ Riapri"}
+                      </button>
+                    </div>
+                  )}
+                  {/* ── Azioni annullata ── */}
+                  {isCancelled && (
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={() => confirmBooking(req)} disabled={isActing}
+                        style={{ flex: 1, padding: "7px 0", border: "none", borderRadius: 7, background: "#0d9488", color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: isActing ? 0.6 : 1 }}>
+                        {isActing ? "…" : "✓ Riconferma"}
+                      </button>
+                      <button onClick={async () => {
+                        setBookingActionId(req.id);
+                        await supabase.from("booking_requests").update({ status: "pending" }).eq("id", req.id);
+                        await loadBookingRequests();
+                        setBookingActionId(null);
+                      }} disabled={isActing}
+                        style={{ flex: 1, padding: "7px 0", border: "1.5px solid #e2e8f0", borderRadius: 7, background: "#f8fafc", color: "#64748b", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: isActing ? 0.6 : 1 }}>
+                        {isActing ? "…" : "↩ Riapri"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Footer refresh */}
+            <div style={{ padding: "10px 18px", borderTop: "1px solid #f1f5f9" }}>
+              <button onClick={loadBookingRequests} style={{ width: "100%", padding: "7px", border: "1px solid #e2e8f0", borderRadius: 7, background: "#fff", color: "#64748b", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                ↻ Aggiorna
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ━━━ RIGHT PANEL: Today's appointments (replaces left sidebar) ━━━ */}
       {sidebarOpen && !isDesktop && (
@@ -3955,6 +4252,7 @@ return (
                           padding: "4px 6px",
                           boxSizing: "border-box",
                           border: "none",
+                          borderLeft: event.calendar_note?.startsWith("[WEB|") ? "4px solid #facc15" : "none",
                           cursor: "move",
                           zIndex: isMatch ? 10 : 2,
                           overflow: "hidden",
@@ -4055,6 +4353,7 @@ return (
 
                               {/* Riga 2: nome — subito sotto l'orario */}
                               <div style={{ fontWeight: 700, fontSize: autoNameFontSize(event.patient_name), color: "#fff", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {event.calendar_note?.startsWith("[WEB|") && <span style={{ fontSize: 8, background: "rgba(255,255,255,0.25)", borderRadius: 3, padding: "1px 3px", marginRight: 3, fontWeight: 700, verticalAlign: "middle" }}>WEB</span>}
                                 {event.patient_name}
                               </div>
 
@@ -4582,6 +4881,7 @@ return (
                           padding: "6px 10px",
                           boxSizing: "border-box",
                           border: "none",
+                          borderLeft: event.calendar_note?.startsWith("[WEB|") ? "4px solid #facc15" : "none",
                           cursor: "move",
                           zIndex: 2,
                           overflow: "hidden",
@@ -4639,6 +4939,7 @@ return (
                         </div>
                         {/* Riga 2: nome */}
                         <div style={{ fontWeight: 700, fontSize: 13, color: "#fff", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {event.calendar_note?.startsWith("[WEB|") && <span style={{ fontSize: 8, background: "rgba(255,255,255,0.25)", borderRadius: 3, padding: "1px 3px", marginRight: 3, fontWeight: 700, verticalAlign: "middle" }}>WEB</span>}
                           {event.patient_name}
                         </div>
                         {/* Riga 3: tipo + importo + status */}
@@ -6085,6 +6386,49 @@ return (
               </div>
             </div>
 
+            {/* Chiedi Recensione Google – visibile solo se stato = Eseguito */}
+            {editStatus === "done" && (() => {
+              const ev = events.find(e => e.id === selectedEvent.id);
+              const hasPhone = !!ev?.patient_phone;
+              return (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft, marginBottom: 8 }}>
+                    Recensione Google
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (ev) sendGoogleReview(ev.patient_phone ?? undefined, ev.patient_first_name ?? undefined);
+                    }}
+                    disabled={!hasPhone}
+                    style={{
+                      width: "100%",
+                      padding: "12px",
+                      borderRadius: 8,
+                      border: `1px solid ${THEME.patientsAccent}`,
+                      background: THEME.patientsAccent,
+                      color: "#fff",
+                      cursor: hasPhone ? "pointer" : "not-allowed",
+                      fontWeight: 600,
+                      fontSize: 13,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      opacity: hasPhone ? 1 : 0.6,
+                    }}
+                  >
+                    <span>⭐</span>
+                    Chiedi recensione Google
+                  </button>
+                  {!hasPhone && (
+                    <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4, fontWeight: 600 }}>
+                      Nessun numero di telefono disponibile
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: THEME.textSoft, marginBottom: 20 }}>
               Nota
               <textarea
@@ -6418,7 +6762,10 @@ return (
                   }}
                 >
                   <span style={{ color: THEME.muted, minWidth: 40 }}>{fmtTime(ev.start.toISOString())}</span>
-                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.patient_name}</span>
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {ev.calendar_note?.startsWith("[WEB|") && <span style={{ fontSize: 8, background: statusColor(ev.status), color: "#fff", borderRadius: 3, padding: "1px 3px", marginRight: 3, fontWeight: 700, verticalAlign: "middle" }}>WEB</span>}
+                    {ev.patient_name}
+                  </span>
                   <span style={{ fontSize: 10, fontWeight: 700, color: statusColor(ev.status) }}>{statusLabel(ev.status)}</span>
                   <span>{ev.is_paid ? "💰" : ""}</span>
                 </div>
