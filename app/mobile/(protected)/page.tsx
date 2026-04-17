@@ -191,7 +191,25 @@ export default function MobileHomePage() {
 
   useEffect(() => { void loadAll(); }, [dateYMD]); // eslint-disable-line
 
-  // ─── Touch handlers ───────────────────────────────────────────────────────
+  // ── Noleggio in scadenza ────────────────────────────────────────────────
+  const [noleggioExpiring, setNoleggioExpiring] = useState<{id:string;patient_name:string;end_date:string;device_name:string;days_remaining:number}[]>([]);
+  const [noleggioWarningDays, setNoleggioWarningDays] = useState(3);
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const{data:cfg}=await supabase.from("noleggio_settings").select("warning_days").maybeSingle();
+        const wd=cfg?.warning_days??3; setNoleggioWarningDays(wd);
+        const{data}=await supabase.from("noleggios").select("id,patient_name,end_date,device_name").eq("is_returned",false).order("end_date",{ascending:true});
+        const today=new Date(); today.setHours(0,0,0,0);
+        const exp=(data||[]).map((n:any)=>{
+          const end=new Date(n.end_date+"T00:00:00");
+          const dr=Math.ceil((end.getTime()-today.getTime())/86400000);
+          return{...n,days_remaining:dr};
+        }).filter((n:any)=>n.days_remaining<=wd);
+        setNoleggioExpiring(exp);
+      }catch(e){console.error(e);}
+    })();
+  },[]);
 
   function onTouchStart(e: React.TouchEvent) {
     touchStartY.current = e.touches[0].clientY;
@@ -765,6 +783,8 @@ export default function MobileHomePage() {
           { href: "/mobile/calendar", label: "Calendario", icon: "▦" },
           { href: "/mobile/patients", label: "Pazienti",   icon: "◉" },
           { href: "/mobile/reports",  label: "Report",     icon: "◈" },
+          { href: "/noleggio",        label: "Noleggio",   icon: "🔌" },
+          { href: "/mobile/settings", label: "Impost.",    icon: "⚙" },
         ].map(item => (
           <Link key={item.href} href={item.href} style={{
             flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
@@ -887,6 +907,36 @@ export default function MobileHomePage() {
             border: "1px solid rgba(220,38,38,0.25)", background: "rgba(220,38,38,0.05)",
             color: "#7f1d1d", fontWeight: 600, fontSize: 13,
           }}>{error}</div>
+        )}
+
+        {/* ━━━ NOLEGGIO IN SCADENZA (mobile) ━━━ */}
+        {noleggioExpiring.length > 0 && (
+          <div style={{ marginBottom: 12, background: "#fff", borderRadius: 12, border: `1px solid ${THEME.border}`, overflow: "hidden" }}>
+            <div style={{ padding: "10px 14px", borderBottom: `1px solid ${THEME.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontWeight: 700, fontSize: 12, color: THEME.text }}>🔌 Noleggi in scadenza</span>
+              <a href="/noleggio" style={{ fontSize: 11, color: THEME.blue, fontWeight: 700, textDecoration: "none" }}>Gestisci →</a>
+            </div>
+            <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
+              {noleggioExpiring.map(n => {
+                const expired = n.days_remaining < 0;
+                const urgent = n.days_remaining === 0;
+                const col = expired || urgent ? "#dc2626" : "#f97316";
+                const bg = expired || urgent ? "rgba(220,38,38,0.05)" : "rgba(249,115,22,0.05)";
+                return (
+                  <div key={n.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, background: bg, border: `1px solid ${col}22` }}>
+                    <span style={{ fontSize: 14, flexShrink: 0 }}>{expired ? "⛔" : urgent ? "🚨" : "⏳"}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: THEME.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.patient_name}</div>
+                      <div style={{ fontSize: 11, color: THEME.muted }}>{n.device_name}</div>
+                    </div>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: col, flexShrink: 0 }}>
+                      {expired ? `${Math.abs(n.days_remaining)}gg fa` : urgent ? "Oggi" : `${n.days_remaining}gg`}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
 
         {/* ━━━ AGENDA ━━━ */}

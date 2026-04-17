@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import Link from "next/link";
@@ -131,8 +131,12 @@ export default function ReportsPage(){
 
   const baseDate=useMemo(()=>{const[y,m,d]=dateStr.split("-").map(Number);return new Date(y,m-1,d);},[dateStr]);
 
+  // ref per annullare chiamate in corso se period/date cambiano prima che finiscano
+  const loadIdRef = useRef(0);
+
   // ─── Load ──────────────────────────────────────────────────────────────────
   async function loadData(){
+    const currentId = ++loadIdRef.current;
     setLoading(true);setError(null);
     try{
       const{from,to}=getRange(period,baseDate);
@@ -327,11 +331,89 @@ export default function ReportsPage(){
         setBestDay(["Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato","Domenica"][best]);
       }
 
-    }catch(e:any){setError(e.message||"Errore");}
-    finally{setLoading(false);}
+    }catch(e:any){
+      if(loadIdRef.current === currentId) setError(e.message||"Errore");
+    }
+    finally{if(loadIdRef.current === currentId) setLoading(false);}
   }
 
   useEffect(()=>{loadData();},[period,dateStr]); // eslint-disable-line
+
+  // ─── Export completo per commercialista (apre in Excel con BOM UTF-8) ─────
+  const [exporting, setExporting] = useState(false);
+  async function exportCSVFull(){
+    setExporting(true);
+    try{
+      const{from,to}=getRange(period,baseDate);
+      const fs=from.toISOString(),ts=to.toISOString();
+
+      const{data,error}=await supabase
+        .from("appointments")
+        .select("start_at,end_at,status,location,clinic_site,domicile_address,treatment_type,price_type,amount,is_paid,calendar_note,patients:patient_id(first_name,last_name,phone)")
+        .gte("start_at",fs).lte("start_at",ts)
+        .order("start_at",{ascending:true});
+      if(error) throw new Error(error.message);
+
+      // Mappa status → label leggibile
+      const statusLabel:Record<string,string>={done:"Eseguito",confirmed:"Confermato",booked:"Prenotato",cancelled:"Annullato",not_paid:"Non pagato"};
+
+      // Intestazioni (separatore punto e virgola — standard Excel italiano)
+      const headers=["Data","Ora inizio","Ora fine","Cognome","Nome","Telefono","Stato","Tipo trattamento","Fatturazione","Sede","Indirizzo domicilio","Importo (€)","Pagato","Note"];
+
+      // Righe
+      const rows=(data||[]).map((r:any)=>{
+        const p=Array.isArray(r.patients)?r.patients[0]:r.patients;
+        const d=new Date(r.start_at);
+        const dend=r.end_at?new Date(r.end_at):null;
+        const importo=r.amount!=null?Number(r.amount).toFixed(2).replace(".",","):"";
+        const treatment=r.treatment_type==="seduta"?"Seduta":r.treatment_type==="macchinario"?"Macchinario":(r.treatment_type||"");
+        const priceLabel=r.price_type==="invoiced"?"Con ricevuta":r.price_type==="cash"?"Contanti":"";
+        const sede=r.location==="studio"?(r.clinic_site||"Studio"):"Domicilio";
+        const indirizzo=r.location==="domicile"?(r.domicile_address||""):"";
+        const pagato=r.is_paid?"Sì":"No";
+        const note=(r.calendar_note||"").replace(/[\r\n;"]/g," ").trim();
+        return [
+          d.toLocaleDateString("it-IT"),
+          d.toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}),
+          dend?dend.toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}):"",
+          (p?.last_name||"").toUpperCase(),
+          (p?.first_name||"").toUpperCase(),
+          p?.phone||"",
+          statusLabel[r.status]||r.status,
+          treatment,
+          priceLabel,
+          sede,
+          indirizzo,
+          importo,
+          pagato,
+          note,
+        ];
+      });
+
+      // Escape dei campi: se contiene ; o " o newline → circonda con virgolette e raddoppia "
+      const esc=(v:string)=>{const s=String(v??"");return /[;"\n\r]/.test(s)?`"${s.replace(/"/g,'""')}"`:s;};
+      const csvLines=[headers.map(esc).join(";"), ...rows.map(r=>r.map(esc).join(";"))];
+      // BOM UTF-8 per Excel
+      const csv="\uFEFF"+csvLines.join("\r\n");
+      const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
+
+      // Nome file: fisiohub_YYYY-MM.csv per il mese, fisiohub_YYYY-MM-DD.csv altrimenti
+      const ymd=toYMD(baseDate);
+      const fileLabel=period==="month"?ymd.slice(0,7):ymd;
+      const filename=`fisiohub_${fileLabel}.csv`;
+
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=url;a.download=filename;
+      document.body.appendChild(a);a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }catch(e:any){
+      alert("Errore export: "+(e?.message||"sconosciuto"));
+    }finally{
+      setExporting(false);
+    }
+  }
 
   // ─── Derived ───────────────────────────────────────────────────────────────
   const delta=prevRev!=null&&prevRev>0?Math.round(((revenue-prevRev)/prevRev)*100):null;
@@ -398,7 +480,7 @@ export default function ReportsPage(){
             <span style={{fontWeight:700,fontSize:14,color:"#fff",letterSpacing:0.5,textTransform:"uppercase" as const}}>Fisio<span style={{fontWeight:800}}>Hub</span></span>
           </div>
           <nav style={{display:"flex",gap:2}}>
-            {[{href:"/",l:"Home"},{href:"/calendar",l:"Calendario"},{href:"/reports",l:"Report",a:true},{href:"/patients",l:"Pazienti"}].map((item,i)=>(
+            {[{href:"/",l:"Home"},{href:"/calendar",l:"Calendario"},{href:"/reports",l:"Report",a:true},{href:"/noleggio",l:"Noleggio"},{href:"/patients",l:"Pazienti"}].map((item,i)=>(
               <Link key={`nav-${i}`} href={item.href} style={{padding:"5px 11px",borderRadius:7,fontSize:12,fontWeight:700,background:(item as any).a?"rgba(255,255,255,0.22)":"transparent",color:(item as any).a?"#fff":"rgba(255,255,255,0.8)"}}>{item.l}</Link>
             ))}
           </nav>
@@ -418,7 +500,7 @@ export default function ReportsPage(){
 
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           {!loading&&<><span style={{fontSize:11,fontWeight:700,color:"#fff",background:"rgba(255,255,255,0.2)",padding:"4px 10px",borderRadius:6,border:"1px solid rgba(255,255,255,0.15)",whiteSpace:"nowrap"}}>{euro.format(revenue)}</span>{unpaidTot>0&&<span style={{fontSize:11,fontWeight:700,color:"#fff",background:"rgba(220,38,38,0.35)",padding:"4px 10px",borderRadius:6,border:"1px solid rgba(255,255,255,0.15)",whiteSpace:"nowrap"}}>{euro.format(unpaidTot)}</span>}</>}
-          <button onClick={()=>exportCSV(paidRows,unpaidRows,periodLabel())} style={{padding:"5px 12px",borderRadius:7,border:"1.5px solid rgba(255,255,255,0.35)",background:"rgba(255,255,255,0.18)",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:12,whiteSpace:"nowrap" as const}}>↓ CSV</button>
+          <button onClick={()=>exportCSVFull()} disabled={exporting} style={{padding:"5px 12px",borderRadius:7,border:"1.5px solid rgba(255,255,255,0.35)",background:"rgba(255,255,255,0.18)",color:"#fff",cursor:exporting?"wait":"pointer",fontWeight:700,fontSize:12,whiteSpace:"nowrap" as const,opacity:exporting?0.6:1}}>{exporting?"…":"↓ Excel"}</button>
           <div style={{position:"relative"}}>
             <button onClick={()=>setShowUnpaidDD(v=>!v)} style={{padding:"5px 12px",borderRadius:7,border:"1.5px solid rgba(220,38,38,0.5)",background:"rgba(220,38,38,0.3)",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:12,display:"flex",alignItems:"center",gap:5}}>
               Stampa non pagati {showUnpaidDD?"▲":"▼"}
@@ -857,11 +939,11 @@ export default function ReportsPage(){
             {/* Export CSV */}
             <div style={{...card,padding:"18px 22px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <div>
-                <div style={{fontSize:13,fontWeight:700,color:T.text}}>Export dati</div>
-                <div style={{fontSize:11,color:T.muted,marginTop:2}}>Scarica tutte le transazioni del periodo in formato CSV per Excel o commercialista</div>
+                <div style={{fontSize:13,fontWeight:700,color:T.text}}>Export dati per commercialista</div>
+                <div style={{fontSize:11,color:T.muted,marginTop:2}}>Tutti gli appuntamenti del periodo: paziente, importo, stato, tipo, sede — pronto da aprire in Excel</div>
               </div>
-              <button onClick={()=>exportCSV(paidRows,unpaidRows,periodLabel())} style={{padding:"10px 20px",borderRadius:9,border:"none",background:T.teal,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:8,flexShrink:0,whiteSpace:"nowrap" as const,boxShadow:"0 2px 8px rgba(13,148,136,0.25)"}}>
-                ↓ Scarica CSV
+              <button onClick={()=>exportCSVFull()} disabled={exporting} style={{padding:"10px 20px",borderRadius:9,border:"none",background:T.teal,color:"#fff",fontWeight:700,fontSize:13,cursor:exporting?"wait":"pointer",display:"flex",alignItems:"center",gap:8,flexShrink:0,whiteSpace:"nowrap" as const,boxShadow:"0 2px 8px rgba(13,148,136,0.25)",opacity:exporting?0.6:1}}>
+                {exporting?"Download in corso…":"↓ Scarica per Excel"}
               </button>
             </div>
           </div>

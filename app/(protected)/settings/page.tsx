@@ -39,14 +39,48 @@ type PracticeSettingsRow = {
   address: string | null;
   pec_email: string | null;
   phone: string | null;
+  google_review_link: string | null;
   standard_invoice: number | null;
   standard_cash: number | null;
   machine_invoice: number | null;
   machine_cash: number | null;
+  laser_invoice: number | null;
+  laser_cash: number | null;
+  tecar_invoice: number | null;
+  tecar_cash: number | null;
+  onde_urto_invoice: number | null;
+  onde_urto_cash: number | null;
+  tens_invoice: number | null;
+  tens_cash: number | null;
   auto_apply_prices: boolean | null;
+  // Durate per tipo trattamento (minuti)
+  duration_seduta: number | null;
+  duration_macchinario: number | null;
+  duration_laser: number | null;
+  duration_tecar: number | null;
+  duration_onde_urto: number | null;
+  duration_tens: number | null;
+  // Messaggi automatici
+  welcome_message: string | null;
+  booking_confirm_message: string | null;
+  // Gestione
+  monthly_revenue_goal: number | null;
+  inactive_threshold_days: number | null;
+  reminder_hours_before: number | null;
   created_at?: string;
   updated_at?: string;
 };
+
+type WorkingHourRow = {
+  day_of_week: number;  // 0=Dom, 1=Lun, ..., 6=Sab
+  open_time: string;    // "HH:MM"
+  close_time: string;
+  is_open: boolean;
+};
+
+const DAY_LABELS = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
+// Ordine di visualizzazione: Lun → Dom (ISO)
+const DAY_ORDER_ISO = [1, 2, 3, 4, 5, 6, 0];
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
 function toMoneyString(n: number | null | undefined, fallback: string) {
@@ -115,7 +149,13 @@ export default function SettingsPage() {
   // Section open/close
   const [showPractice,  setShowPractice]  = useState(true);
   const [showPrices,    setShowPrices]    = useState(true);
+  const [showHours,     setShowHours]     = useState(true);
   const [showTemplates, setShowTemplates] = useState(true);
+
+  // Working hours state — 7 righe (1 per giorno della settimana, 0-6)
+  const [workingHours, setWorkingHours] = useState<WorkingHourRow[]>([]);
+  const [loadingHours, setLoadingHours] = useState(true);
+  const [savingHours, setSavingHours]   = useState(false);
 
   // Practice fields
   const [practiceName,   setPracticeName]   = useState("");
@@ -125,20 +165,272 @@ export default function SettingsPage() {
   const [pecEmail,       setPecEmail]       = useState("");
   const [phone,          setPhone]          = useState("");
 
+  // Google Review
+  const [googleReviewLink, setGoogleReviewLink] = useState("");
+
   // Price fields
   const [standardInvoice, setStandardInvoice] = useState("40.00");
   const [standardCash,    setStandardCash]    = useState("35.00");
   const [machineInvoice,  setMachineInvoice]  = useState("25.00");
   const [machineCash,     setMachineCash]     = useState("20.00");
+  const [laserInvoice,    setLaserInvoice]    = useState("30.00");
+  const [laserCash,       setLaserCash]       = useState("25.00");
+  const [tecarInvoice,    setTecarInvoice]    = useState("30.00");
+  const [tecarCash,       setTecarCash]       = useState("25.00");
+  const [ondeUrtoInvoice, setOndeUrtoInvoice] = useState("40.00");
+  const [ondeUrtoCash,    setOndeUrtoCash]    = useState("35.00");
+  const [tensInvoice,     setTensInvoice]     = useState("20.00");
+  const [tensCash,        setTensCash]        = useState("15.00");
   const [autoApplyPrices, setAutoApplyPrices] = useState(true);
+
+  // Durate per tipo trattamento (minuti)
+  const [durSeduta,    setDurSeduta]    = useState("60");
+  const [durMacchina,  setDurMacchina]  = useState("30");
+  const [durLaser,     setDurLaser]     = useState("20");
+  const [durTecar,     setDurTecar]     = useState("30");
+  const [durOndeUrto,  setDurOndeUrto]  = useState("15");
+  const [durTens,      setDurTens]      = useState("20");
+
+  // Messaggi automatici
+  const [welcomeMsg,      setWelcomeMsg]      = useState("");
+  const [bookingConfirmMsg, setBookingConfirmMsg] = useState("");
+
+  // Gestione
+  const [monthlyGoal,      setMonthlyGoal]      = useState("2000");
+  const [inactiveThresh,   setInactiveThresh]   = useState("45");
+  const [reminderHours,    setReminderHours]    = useState("24");
+
+  // Sezioni accordion
+  const [showDurations,  setShowDurations]  = useState(false);
+  const [showBooking,    setShowBooking]    = useState(false);
+  const [showGestione,   setShowGestione]   = useState(false);
+  const [showPassword,   setShowPassword]   = useState(false);
+  const [showBackup,     setShowBackup]     = useState(false);
+
+  // Cambio password
+  const [pwCurrent,  setPwCurrent]  = useState("");
+  const [pwNew,      setPwNew]      = useState("");
+  const [pwConfirm,  setPwConfirm]  = useState("");
+  const [pwSaving,   setPwSaving]   = useState(false);
+  const [pwError,    setPwError]    = useState("");
+  const [pwSuccess,  setPwSuccess]  = useState("");
+
+  // Servizi prenotabili
+  const [showServices,   setShowServices]   = useState(false);
+  const [services,       setServices]       = useState<{id:string;name:string;duration:number;price:number}[]>([]);
+  const [loadingServices,setLoadingServices] = useState(false);
+  const [newSvcName,     setNewSvcName]     = useState("");
+  const [newSvcDuration, setNewSvcDuration] = useState("60");
+  const [newSvcPrice,    setNewSvcPrice]    = useState("40");
+  const [savingSvc,      setSavingSvc]      = useState(false);
+
+  // Giorni di blocco
+  const [showBlockDays,  setShowBlockDays]  = useState(false);
+  const [blockDays,      setBlockDays]      = useState<{id:string;date:string;label:string}[]>([]);
+  const [loadingBlock,   setLoadingBlock]   = useState(false);
+  const [newBlockDate,   setNewBlockDate]   = useState("");
+  const [newBlockLabel,  setNewBlockLabel]  = useState("");
+  const [savingBlock,    setSavingBlock]    = useState(false);
 
   useEffect(() => {
     void (async () => {
       setError("");
-      await Promise.all([loadPracticeSettings(), loadTemplates()]);
+      await Promise.all([loadPracticeSettings(), loadTemplates(), loadWorkingHours(), loadServices(), loadBlockDays()]);
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Working hours: load / save ────────────────────────────────────────────
+  async function loadWorkingHours() {
+    setLoadingHours(true);
+    try {
+      const { data, error } = await supabase
+        .from("working_hours")
+        .select("day_of_week, open_time, close_time, is_open")
+        .order("day_of_week", { ascending: true });
+      if (error) throw new Error(error.message);
+
+      // Costruisce sempre 7 righe (0-6), riempiendo con default se mancano
+      const byDay = new Map<number, WorkingHourRow>();
+      (data || []).forEach((r: any) => {
+        byDay.set(r.day_of_week, {
+          day_of_week: r.day_of_week,
+          open_time: (r.open_time || "09:00").slice(0, 5),
+          close_time: (r.close_time || "19:00").slice(0, 5),
+          is_open: r.is_open ?? true,
+        });
+      });
+
+      const complete: WorkingHourRow[] = [];
+      for (let d = 0; d < 7; d++) {
+        complete.push(byDay.get(d) ?? {
+          day_of_week: d,
+          open_time: "09:00",
+          close_time: "19:00",
+          is_open: d !== 0, // di default Domenica chiusa
+        });
+      }
+      setWorkingHours(complete);
+    } catch (e: any) {
+      console.warn("Errore caricamento orari:", e?.message);
+      // Fallback a valori di default
+      const fallback: WorkingHourRow[] = [];
+      for (let d = 0; d < 7; d++) {
+        fallback.push({ day_of_week: d, open_time: "09:00", close_time: "19:00", is_open: d !== 0 });
+      }
+      setWorkingHours(fallback);
+    } finally {
+      setLoadingHours(false);
+    }
+  }
+
+  async function saveWorkingHours() {
+    setSavingHours(true);
+    setError("");
+    try {
+      // Valida: se is_open, open_time deve essere < close_time
+      for (const r of workingHours) {
+        if (r.is_open && r.open_time >= r.close_time) {
+          throw new Error(`${DAY_LABELS[r.day_of_week]}: l'ora di apertura deve essere precedente alla chiusura.`);
+        }
+      }
+      const payload = workingHours.map(r => ({
+        day_of_week: r.day_of_week,
+        open_time: r.open_time,
+        close_time: r.close_time,
+        is_open: r.is_open,
+      }));
+      const { error } = await supabase
+        .from("working_hours")
+        .upsert(payload, { onConflict: "day_of_week" });
+      if (error) throw new Error(error.message);
+      flashSuccess("Orari salvati.");
+    } catch (e: any) {
+      setError(e?.message ?? "Errore nel salvataggio degli orari.");
+    } finally {
+      setSavingHours(false);
+    }
+  }
+
+  function updateHour(day: number, patch: Partial<WorkingHourRow>) {
+    setWorkingHours(prev => prev.map(r => r.day_of_week === day ? { ...r, ...patch } : r));
+  }
+
+  // ── Servizi prenotabili ──────────────────────────────────────────────────
+  async function loadServices() {
+    setLoadingServices(true);
+    try {
+      const { data } = await supabase.from("booking_services").select("*").order("name");
+      setServices((data || []) as any[]);
+    } catch(e) { console.warn(e); }
+    finally { setLoadingServices(false); }
+  }
+  async function addService() {
+    if (!newSvcName.trim()) return;
+    setSavingSvc(true);
+    try {
+      await supabase.from("booking_services").insert({ name: newSvcName.trim(), duration: parseInt(newSvcDuration)||60, price: parseFloat(newSvcPrice)||40 });
+      setNewSvcName(""); setNewSvcDuration("60"); setNewSvcPrice("40");
+      await loadServices();
+    } catch(e:any) { setError(e?.message||"Errore"); }
+    finally { setSavingSvc(false); }
+  }
+  async function deleteService(id: string) {
+    if (!confirm("Eliminare questo servizio?")) return;
+    await supabase.from("booking_services").delete().eq("id", id);
+    await loadServices();
+  }
+
+  // ── Giorni di blocco ─────────────────────────────────────────────────────
+  async function loadBlockDays() {
+    setLoadingBlock(true);
+    try {
+      const { data } = await supabase.from("blocked_days").select("*").order("date");
+      setBlockDays((data || []) as any[]);
+    } catch(e) { console.warn(e); }
+    finally { setLoadingBlock(false); }
+  }
+  async function addBlockDay() {
+    if (!newBlockDate) return;
+    setSavingBlock(true);
+    try {
+      await supabase.from("blocked_days").insert({ date: newBlockDate, label: newBlockLabel.trim() || "Chiuso" });
+      setNewBlockDate(""); setNewBlockLabel("");
+      await loadBlockDays();
+    } catch(e:any) { setError(e?.message||"Errore"); }
+    finally { setSavingBlock(false); }
+  }
+  async function deleteBlockDay(id: string) {
+    await supabase.from("blocked_days").delete().eq("id", id);
+    await loadBlockDays();
+  }
+
+  // ── Cambio password ───────────────────────────────────────────────────────
+  async function changePassword() {
+    setPwError(""); setPwSuccess("");
+    if (!pwNew.trim()) { setPwError("Inserisci la nuova password."); return; }
+    if (pwNew.length < 8) { setPwError("La password deve essere di almeno 8 caratteri."); return; }
+    if (pwNew !== pwConfirm) { setPwError("Le password non coincidono."); return; }
+    setPwSaving(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: pwNew });
+      if (error) throw new Error(error.message);
+      setPwSuccess("Password aggiornata con successo.");
+      setPwCurrent(""); setPwNew(""); setPwConfirm("");
+    } catch(e:any) { setPwError(e?.message||"Errore aggiornamento password."); }
+    finally { setPwSaving(false); }
+  }
+
+  // ── Backup dati ───────────────────────────────────────────────────────────
+  const [exportingBackup, setExportingBackup] = useState(false);
+  async function exportBackup() {
+    setExportingBackup(true);
+    try {
+      const [{ data: pts }, { data: appts }, { data: nols }] = await Promise.all([
+        supabase.from("patients").select("*").order("last_name"),
+        supabase.from("appointments").select("*,patients:patient_id(first_name,last_name)").order("start_at", { ascending: false }),
+        supabase.from("noleggios").select("*").order("created_at", { ascending: false }),
+      ]);
+      const esc = (v: any) => { const s = String(v ?? ""); if (s.indexOf(";") >= 0 || s.indexOf('"'  ) >= 0 || s.indexOf("\n") >= 0 || s.indexOf("\r") >= 0) return `"${s.replace(/"/g, '""'  )}"`;  return s; };
+
+      const bom = "﻿";
+
+      // Pazienti
+      const ptHeaders = ["ID","Cognome","Nome","Telefono","Data nascita","Codice fiscale","Indirizzo","Piano fatturazione","Creato il"];
+      const ptRows = (pts||[]).map((p:any) => [p.id,p.last_name,p.first_name,p.phone,p.birth_date,p.tax_code,p.res_city,p.preferred_plan,p.created_at?.slice(0,10)].map(esc).join(";"));
+      const ptCsv = bom + [ptHeaders.map(esc).join(";"), ...ptRows].join("\r\n");
+
+      // Appuntamenti
+      const apHeaders = ["Data","Ora","Cognome","Nome","Stato","Tipo","Importo","Pagato","Sede","Fatturazione"];
+      const apRows = (appts||[]).map((a:any) => {
+        const p = Array.isArray(a.patients) ? a.patients[0] : a.patients;
+        return [a.start_at?.slice(0,10),a.start_at?.slice(11,16),p?.last_name,p?.first_name,a.status,a.treatment_type,a.amount,a.is_paid?"Si":"No",a.clinic_site||a.location,a.price_type].map(esc).join(";");
+      });
+      const apCsv = bom + [apHeaders.map(esc).join(";"), ...apRows].join("\r\n");
+
+      // Noleggii
+      const nlHeaders = ["Paziente","Dispositivo","Data inizio","Data fine","Prezzo/gg","Totale","Pagato","Reso"];
+      const nlRows = (nols||[]).map((n:any) => [n.patient_name,n.device_name,n.start_date,n.end_date,n.price_per_day,n.total_amount,n.is_paid?"Si":"No",n.is_returned?"Si":"No"].map(esc).join(";"));
+      const nlCsv = bom + [nlHeaders.map(esc).join(";"), ...nlRows].join("\r\n");
+
+      const timestamp = new Date().toISOString().slice(0,10);
+      [
+        { data: ptCsv, name: `fisiohub_pazienti_${timestamp}.csv` },
+        { data: apCsv, name: `fisiohub_appuntamenti_${timestamp}.csv` },
+        { data: nlCsv, name: `fisiohub_noleggii_${timestamp}.csv` },
+      ].forEach(({ data, name }) => {
+        const blob = new Blob([data], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = name;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      });
+      flashSuccess("Backup scaricato: 3 file CSV (pazienti, appuntamenti, noleggii).");
+    } catch(e:any) { setError(e?.message||"Errore durante il backup."); }
+    finally { setExportingBackup(false); }
+  }
 
   function flashSuccess(msg: string) {
     setSuccess(msg);
@@ -160,7 +452,7 @@ export default function SettingsPage() {
       const uid = await requireUserId();
       const { data, error } = await supabase
         .from("practice_settings")
-        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, standard_invoice, standard_cash, machine_invoice, machine_cash, auto_apply_prices")
+        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices")
         .eq("owner_id", uid)
         .maybeSingle();
       if (error) throw new Error(error.message);
@@ -169,7 +461,7 @@ export default function SettingsPage() {
         if (uErr) throw new Error(uErr.message);
         const u = uData?.user;
         const fullName = ((u?.user_metadata?.full_name || u?.user_metadata?.name || [u?.user_metadata?.first_name, u?.user_metadata?.last_name].filter(Boolean).join(" ") || u?.email || "Titolare") + "").trim() || "Titolare";
-        const seed: PracticeSettingsRow = { owner_id: uid, practice_name: "FisioHub", owner_full_name: fullName, vat_number: "", address: "", pec_email: "", phone: "", standard_invoice: 40, standard_cash: 35, machine_invoice: 25, machine_cash: 20, auto_apply_prices: true };
+        const seed: PracticeSettingsRow = { owner_id: uid, practice_name: "FisioHub", owner_full_name: fullName, vat_number: "", address: "", pec_email: "", phone: "", google_review_link: "", standard_invoice: 40, standard_cash: 35, machine_invoice: 25, machine_cash: 20, laser_invoice: 30, laser_cash: 25, tecar_invoice: 30, tecar_cash: 25, onde_urto_invoice: 40, onde_urto_cash: 35, tens_invoice: 20, tens_cash: 15, duration_seduta: 60, duration_macchinario: 30, duration_laser: 20, duration_tecar: 30, duration_onde_urto: 15, duration_tens: 20, welcome_message: null, booking_confirm_message: null, monthly_revenue_goal: 2000, inactive_threshold_days: 45, reminder_hours_before: 24, auto_apply_prices: true };
         const { error: upsertErr } = await supabase.from("practice_settings").upsert(seed, { onConflict: "owner_id" });
         if (upsertErr) throw new Error(upsertErr.message);
         return await loadPracticeSettings();
@@ -180,11 +472,31 @@ export default function SettingsPage() {
       setAddress(data.address ?? "");
       setPecEmail(data.pec_email ?? "");
       setPhone(data.phone ?? "");
+      setGoogleReviewLink(data.google_review_link ?? "");
       setStandardInvoice(toMoneyString(data.standard_invoice, "40.00"));
       setStandardCash(toMoneyString(data.standard_cash, "35.00"));
       setMachineInvoice(toMoneyString(data.machine_invoice, "25.00"));
       setMachineCash(toMoneyString(data.machine_cash, "20.00"));
+      setLaserInvoice(toMoneyString((data as any).laser_invoice, "30.00"));
+      setLaserCash(toMoneyString((data as any).laser_cash, "25.00"));
+      setTecarInvoice(toMoneyString((data as any).tecar_invoice, "30.00"));
+      setTecarCash(toMoneyString((data as any).tecar_cash, "25.00"));
+      setOndeUrtoInvoice(toMoneyString((data as any).onde_urto_invoice, "40.00"));
+      setOndeUrtoCash(toMoneyString((data as any).onde_urto_cash, "35.00"));
+      setTensInvoice(toMoneyString((data as any).tens_invoice, "20.00"));
+      setTensCash(toMoneyString((data as any).tens_cash, "15.00"));
       setAutoApplyPrices(data.auto_apply_prices ?? true);
+      setDurSeduta(String((data as any).duration_seduta ?? 60));
+      setDurMacchina(String((data as any).duration_macchinario ?? 30));
+      setDurLaser(String((data as any).duration_laser ?? 20));
+      setDurTecar(String((data as any).duration_tecar ?? 30));
+      setDurOndeUrto(String((data as any).duration_onde_urto ?? 15));
+      setDurTens(String((data as any).duration_tens ?? 20));
+      setWelcomeMsg((data as any).welcome_message ?? "");
+      setBookingConfirmMsg((data as any).booking_confirm_message ?? "");
+      setMonthlyGoal(String((data as any).monthly_revenue_goal ?? 2000));
+      setInactiveThresh(String((data as any).inactive_threshold_days ?? 45));
+      setReminderHours(String((data as any).reminder_hours_before ?? 24));
     } catch (e: any) {
       setError(e?.message ?? "Errore nel caricamento impostazioni.");
     } finally {
@@ -205,11 +517,31 @@ export default function SettingsPage() {
         address:         address.trim() || "",
         pec_email:       pecEmail.trim() || "",
         phone:           phone.trim() || "",
+        google_review_link: googleReviewLink.trim() || "",
         standard_invoice: toNumberSafe(standardInvoice, 40),
         standard_cash:    toNumberSafe(standardCash, 35),
         machine_invoice:  toNumberSafe(machineInvoice, 25),
         machine_cash:     toNumberSafe(machineCash, 20),
+        laser_invoice:    toNumberSafe(laserInvoice, 30),
+        laser_cash:       toNumberSafe(laserCash, 25),
+        tecar_invoice:    toNumberSafe(tecarInvoice, 30),
+        tecar_cash:       toNumberSafe(tecarCash, 25),
+        onde_urto_invoice:toNumberSafe(ondeUrtoInvoice, 40),
+        onde_urto_cash:   toNumberSafe(ondeUrtoCash, 35),
+        tens_invoice:     toNumberSafe(tensInvoice, 20),
+        tens_cash:        toNumberSafe(tensCash, 15),
         auto_apply_prices: autoApplyPrices,
+        duration_seduta:       parseInt(durSeduta) || 60,
+        duration_macchinario:  parseInt(durMacchina) || 30,
+        duration_laser:        parseInt(durLaser) || 20,
+        duration_tecar:        parseInt(durTecar) || 30,
+        duration_onde_urto:    parseInt(durOndeUrto) || 15,
+        duration_tens:         parseInt(durTens) || 20,
+        welcome_message:       welcomeMsg.trim() || null,
+        booking_confirm_message: bookingConfirmMsg.trim() || null,
+        monthly_revenue_goal:  parseFloat(monthlyGoal) || 2000,
+        inactive_threshold_days: parseInt(inactiveThresh) || 45,
+        reminder_hours_before: parseInt(reminderHours) || 24,
       };
       const { error } = await supabase.from("practice_settings").upsert(payload, { onConflict: "owner_id" });
       if (error) throw new Error(error.message);
@@ -356,6 +688,7 @@ export default function SettingsPage() {
               { href:"/calendar", label:"Calendario",    active:false },
               { href:"/reports",  label:"Report",        active:false },
               { href:"/patients", label:"Pazienti",      active:false },
+              { href:"/noleggio",  label:"Noleggio",      active:false },
               { href:"/settings", label:"Impostazioni",  active:true  },
             ] as const).map(item => (
               <Link key={item.href} href={item.href} style={{ padding:"6px 12px", borderRadius:8, fontSize:12, fontWeight:700, background:item.active?"rgba(255,255,255,0.2)":"transparent", color:item.active?"#fff":"rgba(255,255,255,0.8)", letterSpacing:0.3 }}>
@@ -429,6 +762,25 @@ export default function SettingsPage() {
                   <label style={labelStyle}>Indirizzo</label>
                   <input value={address} onChange={e => setAddress(e.target.value)} style={inputStyle} />
                 </div>
+                <div style={{ gridColumn:"1 / -1" }}>
+                  <label style={labelStyle}>Link Google Review (per richiesta recensioni WA)</label>
+                  <input
+                    value={googleReviewLink}
+                    onChange={e => setGoogleReviewLink(e.target.value)}
+                    placeholder="https://g.page/r/..."
+                    style={inputStyle}
+                  />
+                  {googleReviewLink && (
+                    <div style={{ marginTop:6, fontSize:11, color:THEME.teal, fontWeight:600 }}>
+                      ✓ Link configurato — verrà usato nei messaggi WhatsApp di richiesta recensione
+                    </div>
+                  )}
+                  {!googleReviewLink && (
+                    <div style={{ marginTop:6, fontSize:11, color:THEME.amber, fontWeight:600 }}>
+                      ⚠ Link non configurato — il bottone recensione nel calendario non funzionerà correttamente
+                    </div>
+                  )}
+                </div>
               </div>
               <div style={{ display:"flex", justifyContent:"flex-end", gap:8 }}>
                 {btnOutline("Ricarica", () => void loadPracticeSettings(), THEME.muted, loadingPractice || savingPractice)}
@@ -452,38 +804,46 @@ export default function SettingsPage() {
 
           {showPrices && (
             <div style={{ padding:"20px", opacity:loadingPractice ? 0.7 : 1 }}>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
+              <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
                 {[
-                  { title:"Seduta Standard",   subtitle:"Trattamento completo",  iv:standardInvoice, setIv:setStandardInvoice, cv:standardCash, setCv:setStandardCash, accentColor:THEME.blue },
-                  { title:"Solo Macchinario",  subtitle:"Terapia strumentale",   iv:machineInvoice,  setIv:setMachineInvoice,  cv:machineCash,  setCv:setMachineCash,  accentColor:THEME.teal },
+                  { title:"Seduta",       subtitle:"Trattamento manuale completo",  iv:standardInvoice, setIv:setStandardInvoice, cv:standardCash,    setCv:setStandardCash,    color:"#0d9488" },
+                  { title:"Macchinario",  subtitle:"Terapia strumentale generica",  iv:machineInvoice,  setIv:setMachineInvoice,  cv:machineCash,     setCv:setMachineCash,     color:"#2563eb" },
+                  { title:"Laser",        subtitle:"Terapia laser",                 iv:laserInvoice,    setIv:setLaserInvoice,    cv:laserCash,       setCv:setLaserCash,       color:"#d97706" },
+                  { title:"Tecar",        subtitle:"Tecarterapia",                  iv:tecarInvoice,    setIv:setTecarInvoice,    cv:tecarCash,       setCv:setTecarCash,       color:"#ea580c" },
+                  { title:"Onde d'urto",  subtitle:"Terapia onde d'urto",           iv:ondeUrtoInvoice, setIv:setOndeUrtoInvoice, cv:ondeUrtoCash,    setCv:setOndeUrtoCash,    color:"#7c3aed" },
+                  { title:"TENS",         subtitle:"Elettrostimolazione TENS",      iv:tensInvoice,     setIv:setTensInvoice,     cv:tensCash,        setCv:setTensCash,        color:"#059669" },
                 ].map(pc => (
-                  <div key={pc.title} style={{ padding:18, borderRadius:10, border:`1px solid ${THEME.border}`, background:THEME.panelSoft }}>
-                    <div style={{ marginBottom:16 }}>
-                      <div style={{ fontWeight:700, fontSize:14, color:THEME.text }}>{pc.title}</div>
-                      <div style={{ fontSize:12, color:THEME.muted, marginTop:2 }}>{pc.subtitle}</div>
+                  <div key={pc.title} style={{ padding:14, borderRadius:10, border:`2px solid ${pc.color}22`, background:`${pc.color}08`, display:"flex", alignItems:"center", gap:16 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, minWidth:140 }}>
+                      <div style={{ width:10, height:10, borderRadius:"50%", background:pc.color, flexShrink:0 }}/>
+                      <div>
+                        <div style={{ fontWeight:700, fontSize:14, color:pc.color }}>{pc.title}</div>
+                        <div style={{ fontSize:11, color:THEME.muted }}>{pc.subtitle}</div>
+                      </div>
                     </div>
-                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, flex:1 }}>
                       <div>
                         <label style={labelStyle}>Con ricevuta</label>
-                        <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:5 }}>
                           <span style={{ fontSize:13, fontWeight:700, color:THEME.muted }}>€</span>
-                          <input value={pc.iv} onChange={e => pc.setIv(validatePrice(e.target.value))} style={{ ...inputStyle, textAlign:"right", fontWeight:700, fontSize:15 }} />
+                          <input value={pc.iv} onChange={e => pc.setIv(validatePrice(e.target.value))} style={{ ...inputStyle, textAlign:"right", fontWeight:700, fontSize:14, padding:"7px 10px" }} />
                         </div>
                       </div>
                       <div>
                         <label style={labelStyle}>In contanti</label>
-                        <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:5 }}>
                           <span style={{ fontSize:13, fontWeight:700, color:THEME.muted }}>€</span>
-                          <input value={pc.cv} onChange={e => pc.setCv(validatePrice(e.target.value))} style={{ ...inputStyle, textAlign:"right", fontWeight:700, fontSize:15 }} />
+                          <input value={pc.cv} onChange={e => pc.setCv(validatePrice(e.target.value))} style={{ ...inputStyle, textAlign:"right", fontWeight:700, fontSize:14, padding:"7px 10px" }} />
                         </div>
                       </div>
                     </div>
                   </div>
                 ))}
+
               </div>
 
               <div style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"14px 16px", borderRadius:8, border:`1px solid ${THEME.border}`, background:"#fff", marginBottom:20 }}>
-                <input type="checkbox" id="auto-apply" checked={autoApplyPrices} onChange={e => setAutoApplyPrices(e.target.checked)} style={{ width:16, height:16, marginTop:2, cursor:"pointer", accentColor:THEME.teal }} />
+                <input type="checkbox" id="auto-apply" checked={autoApplyPrices} onChange={e => setAutoApplyPrices(e.target.checked)} style={{ width:16, height:16, marginTop:2, cursor:"pointer", color:"#2563eb" }} />
                 <label htmlFor="auto-apply" style={{ cursor:"pointer" }}>
                   <div style={{ fontSize:13, fontWeight:700, color:THEME.text }}>Applica automaticamente nei nuovi appuntamenti</div>
                   <div style={{ fontSize:12, color:THEME.muted, marginTop:3 }}>Se disattivato, selezioni il prezzo manualmente per ogni appuntamento.</div>
@@ -493,6 +853,85 @@ export default function SettingsPage() {
               <div style={{ display:"flex", justifyContent:"flex-end", gap:8 }}>
                 {btnOutline("Ricarica", () => void loadPracticeSettings(), THEME.muted, loadingPractice || savingPractice)}
                 {btnPrimary(savingPractice ? "Salvataggio…" : "Salva tariffe", () => void savePracticeSettings(), loadingPractice || savingPractice)}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── SEZIONE ORARI DI LAVORO ────────────────────────────────────── */}
+        <div style={cardStyle}>
+          <div style={sectionHead} onClick={() => setShowHours(!showHours)}>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15, color:THEME.text }}>Orari di Lavoro</div>
+              <div style={{ fontSize:12, color:THEME.muted, marginTop:2 }}>
+                {loadingHours ? "Caricamento…" : `Usati dal sistema di prenotazione online — ${workingHours.filter(h=>h.is_open).length} giorni aperti`}
+              </div>
+            </div>
+            <span style={{ color:THEME.muted, fontSize:12, transform:showHours?"rotate(180deg)":"none", transition:"transform 0.2s" }}>▾</span>
+          </div>
+
+          {showHours && (
+            <div style={{ padding:"20px", opacity: loadingHours ? 0.6 : 1 }}>
+
+              <div style={{ fontSize:12, color:THEME.muted, marginBottom:14, lineHeight:1.5 }}>
+                Questi orari determinano gli slot disponibili per la <strong>prenotazione online</strong> dal sito pubblico.
+                Disattiva un giorno per non accettare prenotazioni automatiche in quella giornata.
+              </div>
+
+              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                {DAY_ORDER_ISO.map(dayNum => {
+                  const h = workingHours.find(w => w.day_of_week === dayNum);
+                  if (!h) return null;
+                  return (
+                    <div key={dayNum} style={{
+                      display:"grid",
+                      gridTemplateColumns:"110px 80px 1fr 1fr",
+                      gap:12,
+                      alignItems:"center",
+                      padding:"10px 14px",
+                      borderRadius:8,
+                      border:`1px solid ${THEME.border}`,
+                      background: h.is_open ? "#fff" : THEME.panelSoft,
+                      opacity: h.is_open ? 1 : 0.6,
+                    }}>
+                      <div style={{ fontWeight:700, fontSize:13, color:THEME.text }}>{DAY_LABELS[dayNum]}</div>
+                      <label style={{ display:"flex", alignItems:"center", gap:6, cursor:"pointer", fontSize:12, fontWeight:600, color: h.is_open ? THEME.teal : THEME.muted }}>
+                        <input
+                          type="checkbox"
+                          checked={h.is_open}
+                          onChange={e => updateHour(dayNum, { is_open: e.target.checked })}
+                          style={{ width:15, height:15, cursor:"pointer", color:"#2563eb" }}
+                        />
+                        {h.is_open ? "Aperto" : "Chiuso"}
+                      </label>
+                      <div>
+                        <label style={{ ...labelStyle, marginBottom:3 }}>Apertura</label>
+                        <input
+                          type="time"
+                          value={h.open_time}
+                          onChange={e => updateHour(dayNum, { open_time: e.target.value })}
+                          disabled={!h.is_open}
+                          style={{ ...inputStyle, padding:"6px 10px", fontSize:13, opacity: h.is_open ? 1 : 0.5 }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ ...labelStyle, marginBottom:3 }}>Chiusura</label>
+                        <input
+                          type="time"
+                          value={h.close_time}
+                          onChange={e => updateHour(dayNum, { close_time: e.target.value })}
+                          disabled={!h.is_open}
+                          style={{ ...inputStyle, padding:"6px 10px", fontSize:13, opacity: h.is_open ? 1 : 0.5 }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginTop:18 }}>
+                {btnOutline("Ricarica", () => void loadWorkingHours(), THEME.muted, loadingHours || savingHours)}
+                {btnPrimary(savingHours ? "Salvataggio…" : "Salva orari", () => void saveWorkingHours(), loadingHours || savingHours)}
               </div>
             </div>
           )}
@@ -611,6 +1050,245 @@ export default function SettingsPage() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+        </div>
+
+        {/* ── SEZIONE DURATE ─────────────────────────────────────────────── */}
+        <div style={cardStyle}>
+          <div style={sectionHead} onClick={() => setShowDurations(!showDurations)}>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15, color:THEME.text }}>Durate Appuntamento</div>
+              <div style={{ fontSize:12, color:THEME.muted, marginTop:2 }}>Durata predefinita per tipo trattamento (minuti)</div>
+            </div>
+            <span style={{ color:THEME.muted, fontSize:12, transform:showDurations?"rotate(180deg)":"none", transition:"transform 0.2s" }}>▾</span>
+          </div>
+          {showDurations && (
+            <div style={{ padding:"20px" }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:16 }}>
+                {[
+                  {label:"Seduta",v:durSeduta,set:setDurSeduta,color:"#0d9488"},
+                  {label:"Macchinario",v:durMacchina,set:setDurMacchina,color:"#2563eb"},
+                  {label:"Laser",v:durLaser,set:setDurLaser,color:"#d97706"},
+                  {label:"Tecar",v:durTecar,set:setDurTecar,color:"#ea580c"},
+                  {label:"Onde d'urto",v:durOndeUrto,set:setDurOndeUrto,color:"#7c3aed"},
+                  {label:"TENS",v:durTens,set:setDurTens,color:"#059669"},
+                ].map(d => (
+                  <div key={d.label} style={{ padding:"12px", borderRadius:9, border:`2px solid ${d.color}22`, background:`${d.color}08` }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:d.color, marginBottom:8 }}>{d.label}</div>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <input type="number" value={d.v} onChange={e=>d.set(e.target.value)} min={5} max={240} step={5}
+                        style={{ ...inputStyle, textAlign:"right", fontWeight:700, fontSize:15, padding:"7px 8px", width:"70px" }}/>
+                      <span style={{ fontSize:12, color:THEME.muted }}>min</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display:"flex", justifyContent:"flex-end", gap:8 }}>
+                {btnPrimary(savingPractice?"Salvataggio…":"Salva durate", ()=>void savePracticeSettings(), savingPractice)}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── SEZIONE MESSAGGI AUTOMATICI ─────────────────────────────────── */}
+        <div style={cardStyle}>
+          <div style={sectionHead} onClick={() => setShowBooking(!showBooking)}>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15, color:THEME.text }}>Messaggi Automatici</div>
+              <div style={{ fontSize:12, color:THEME.muted, marginTop:2 }}>Benvenuto nuovo paziente · Conferma prenotazione online</div>
+            </div>
+            <span style={{ color:THEME.muted, fontSize:12, transform:showBooking?"rotate(180deg)":"none", transition:"transform 0.2s" }}>▾</span>
+          </div>
+          {showBooking && (
+            <div style={{ padding:"20px", display:"flex", flexDirection:"column", gap:16 }}>
+              <div>
+                <label style={labelStyle}>Messaggio benvenuto nuovo paziente (WhatsApp)</label>
+                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato automaticamente al primo appuntamento. Usa: {"{nome}"}</div>
+                <textarea value={welcomeMsg} onChange={e=>setWelcomeMsg(e.target.value)} rows={4}
+                  placeholder={"Benvenuto/a {nome}! Siamo lieti di averla come paziente. Per qualsiasi informazione siamo a sua disposizione.\nDr. Marco Turchetta"}
+                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
+              </div>
+              <div>
+                <label style={labelStyle}>Messaggio conferma prenotazione online (WhatsApp)</label>
+                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato quando confermi una prenotazione dal sito. Usa: {"{nome}"} {"{data}"} {"{ora}"}</div>
+                <textarea value={bookingConfirmMsg} onChange={e=>setBookingConfirmMsg(e.target.value)} rows={4}
+                  placeholder={"Gentile {nome}, la sua prenotazione per il {data} alle {ora} è confermata.\nA presto, Dr. Marco Turchetta"}
+                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
+              </div>
+              <div style={{ display:"flex", justifyContent:"flex-end" }}>
+                {btnPrimary(savingPractice?"Salvataggio…":"Salva messaggi", ()=>void savePracticeSettings(), savingPractice)}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── SEZIONE SERVIZI PRENOTABILI ──────────────────────────────────── */}
+        <div style={cardStyle}>
+          <div style={sectionHead} onClick={() => setShowServices(!showServices)}>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15, color:THEME.text }}>Servizi Prenotabili Online</div>
+              <div style={{ fontSize:12, color:THEME.muted, marginTop:2 }}>{services.length} servizi configurati · Visibili nel booking pubblico</div>
+            </div>
+            <span style={{ color:THEME.muted, fontSize:12, transform:showServices?"rotate(180deg)":"none", transition:"transform 0.2s" }}>▾</span>
+          </div>
+          {showServices && (
+            <div style={{ padding:"20px" }}>
+              {/* Aggiungi nuovo */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 80px 80px auto", gap:10, marginBottom:16, alignItems:"end" }}>
+                <div><label style={labelStyle}>Nome servizio</label><input value={newSvcName} onChange={e=>setNewSvcName(e.target.value)} placeholder="Es. Visita osteopatica" style={inputStyle}/></div>
+                <div><label style={labelStyle}>Durata (min)</label><input type="number" value={newSvcDuration} onChange={e=>setNewSvcDuration(e.target.value)} min={5} step={5} style={{ ...inputStyle, textAlign:"right" }}/></div>
+                <div><label style={labelStyle}>Prezzo (€)</label><input type="number" value={newSvcPrice} onChange={e=>setNewSvcPrice(e.target.value)} min={0} step={1} style={{ ...inputStyle, textAlign:"right" }}/></div>
+                <button onClick={()=>void addService()} disabled={savingSvc||!newSvcName.trim()} style={{ padding:"9px 16px", borderRadius:7, border:"none", background:THEME.teal, color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer", alignSelf:"end", opacity:savingSvc?0.6:1 }}>
+                  + Aggiungi
+                </button>
+              </div>
+              {/* Lista */}
+              {loadingServices ? <div style={{ color:THEME.muted, fontSize:12 }}>Caricamento…</div>
+              : services.length === 0 ? <div style={{ color:THEME.muted, fontSize:12, fontStyle:"italic" }}>Nessun servizio configurato.</div>
+              : <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                {services.map((svc:any) => (
+                  <div key={svc.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 14px", borderRadius:8, border:`1px solid ${THEME.border}`, background:THEME.panelSoft }}>
+                    <div style={{ flex:1, fontWeight:700, fontSize:13, color:THEME.text }}>{svc.name}</div>
+                    <div style={{ fontSize:12, color:THEME.muted }}>{svc.duration} min</div>
+                    <div style={{ fontSize:13, fontWeight:700, color:THEME.teal }}>€{svc.price}</div>
+                    <button onClick={()=>void deleteService(svc.id)} style={{ padding:"4px 10px", borderRadius:6, border:`1px solid rgba(220,38,38,0.3)`, background:"rgba(220,38,38,0.05)", color:THEME.red, cursor:"pointer", fontWeight:700, fontSize:11 }}>✕</button>
+                  </div>
+                ))}
+              </div>}
+            </div>
+          )}
+        </div>
+
+        {/* ── SEZIONE GIORNI DI BLOCCO ─────────────────────────────────────── */}
+        <div style={cardStyle}>
+          <div style={sectionHead} onClick={() => setShowBlockDays(!showBlockDays)}>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15, color:THEME.text }}>Giorni di Blocco / Ferie</div>
+              <div style={{ fontSize:12, color:THEME.muted, marginTop:2 }}>{blockDays.length} giorni bloccati · Non prenotabili dal sito</div>
+            </div>
+            <span style={{ color:THEME.muted, fontSize:12, transform:showBlockDays?"rotate(180deg)":"none", transition:"transform 0.2s" }}>▾</span>
+          </div>
+          {showBlockDays && (
+            <div style={{ padding:"20px" }}>
+              <div style={{ display:"grid", gridTemplateColumns:"160px 1fr auto", gap:10, marginBottom:16, alignItems:"end" }}>
+                <div><label style={labelStyle}>Data</label><input type="date" value={newBlockDate} onChange={e=>setNewBlockDate(e.target.value)} style={inputStyle}/></div>
+                <div><label style={labelStyle}>Motivo (opzionale)</label><input value={newBlockLabel} onChange={e=>setNewBlockLabel(e.target.value)} placeholder="Es. Ferie, Congresso…" style={inputStyle}/></div>
+                <button onClick={()=>void addBlockDay()} disabled={savingBlock||!newBlockDate} style={{ padding:"9px 16px", borderRadius:7, border:"none", background:THEME.amber, color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer", alignSelf:"end", opacity:savingBlock?0.6:1 }}>
+                  + Blocca
+                </button>
+              </div>
+              {blockDays.length === 0 ? <div style={{ color:THEME.muted, fontSize:12, fontStyle:"italic" }}>Nessun giorno bloccato.</div>
+              : <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                {blockDays.map((bd:any) => (
+                  <div key={bd.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"8px 14px", borderRadius:8, border:`1px solid rgba(249,115,22,0.3)`, background:"rgba(249,115,22,0.04)" }}>
+                    <div style={{ fontWeight:800, fontSize:13, color:THEME.amber, minWidth:90 }}>{new Date(bd.date+"T12:00:00").toLocaleDateString("it-IT",{weekday:"short",day:"2-digit",month:"short",year:"numeric"})}</div>
+                    <div style={{ flex:1, fontSize:12, color:THEME.muted }}>{bd.label}</div>
+                    <button onClick={()=>void deleteBlockDay(bd.id)} style={{ padding:"4px 10px", borderRadius:6, border:`1px solid rgba(220,38,38,0.3)`, background:"rgba(220,38,38,0.05)", color:THEME.red, cursor:"pointer", fontWeight:700, fontSize:11 }}>✕</button>
+                  </div>
+                ))}
+              </div>}
+            </div>
+          )}
+        </div>
+
+        {/* ── SEZIONE GESTIONE ─────────────────────────────────────────────── */}
+        <div style={cardStyle}>
+          <div style={sectionHead} onClick={() => setShowGestione(!showGestione)}>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15, color:THEME.text }}>Parametri Gestione</div>
+              <div style={{ fontSize:12, color:THEME.muted, marginTop:2 }}>Obiettivo fatturato · Soglia inattività · Promemoria</div>
+            </div>
+            <span style={{ color:THEME.muted, fontSize:12, transform:showGestione?"rotate(180deg)":"none", transition:"transform 0.2s" }}>▾</span>
+          </div>
+          {showGestione && (
+            <div style={{ padding:"20px" }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:16 }}>
+                <div>
+                  <label style={labelStyle}>Obiettivo fatturato mensile (€)</label>
+                  <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                    <span style={{ fontSize:13, fontWeight:700, color:THEME.muted }}>€</span>
+                    <input type="number" value={monthlyGoal} onChange={e=>setMonthlyGoal(e.target.value)} min={0} step={100} style={{ ...inputStyle, textAlign:"right", fontWeight:700 }}/>
+                  </div>
+                  <div style={{ fontSize:11, color:THEME.muted, marginTop:4 }}>Usato nella barra di progressione nei Report</div>
+                </div>
+                <div>
+                  <label style={labelStyle}>Soglia paziente inattivo (giorni)</label>
+                  <input type="number" value={inactiveThresh} onChange={e=>setInactiveThresh(e.target.value)} min={7} max={365} style={{ ...inputStyle, textAlign:"right", fontWeight:700 }}/>
+                  <div style={{ fontSize:11, color:THEME.muted, marginTop:4 }}>Pazienti non visti da più di X giorni → avviso dashboard</div>
+                </div>
+                <div>
+                  <label style={labelStyle}>Promemoria WA (ore prima)</label>
+                  <input type="number" value={reminderHours} onChange={e=>setReminderHours(e.target.value)} min={1} max={72} style={{ ...inputStyle, textAlign:"right", fontWeight:700 }}/>
+                  <div style={{ fontSize:11, color:THEME.muted, marginTop:4 }}>Riferimento per quando inviare i promemoria</div>
+                </div>
+              </div>
+              <div style={{ display:"flex", justifyContent:"flex-end" }}>
+                {btnPrimary(savingPractice?"Salvataggio…":"Salva parametri", ()=>void savePracticeSettings(), savingPractice)}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── SEZIONE CAMBIO PASSWORD ──────────────────────────────────────── */}
+        <div style={cardStyle}>
+          <div style={sectionHead} onClick={() => setShowPassword(!showPassword)}>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15, color:THEME.text }}>Cambio Password</div>
+              <div style={{ fontSize:12, color:THEME.muted, marginTop:2 }}>Aggiorna la password di accesso</div>
+            </div>
+            <span style={{ color:THEME.muted, fontSize:12, transform:showPassword?"rotate(180deg)":"none", transition:"transform 0.2s" }}>▾</span>
+          </div>
+          {showPassword && (
+            <div style={{ padding:"20px" }}>
+              {pwError && <div style={{ marginBottom:12, padding:"9px 14px", borderRadius:7, background:"rgba(220,38,38,0.05)", border:"1px solid rgba(220,38,38,0.2)", color:THEME.red, fontWeight:600, fontSize:13 }}>{pwError}</div>}
+              {pwSuccess && <div style={{ marginBottom:12, padding:"9px 14px", borderRadius:7, background:"rgba(22,163,74,0.06)", border:"1px solid rgba(22,163,74,0.2)", color:THEME.green, fontWeight:600, fontSize:13 }}>{pwSuccess}</div>}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:16 }}>
+                <div style={{ gridColumn:"1/-1" }}>
+                  <label style={labelStyle}>Nuova password</label>
+                  <input type="password" value={pwNew} onChange={e=>setPwNew(e.target.value)} placeholder="Minimo 8 caratteri" style={inputStyle}/>
+                </div>
+                <div style={{ gridColumn:"1/-1" }}>
+                  <label style={labelStyle}>Conferma nuova password</label>
+                  <input type="password" value={pwConfirm} onChange={e=>setPwConfirm(e.target.value)} placeholder="Ripeti la nuova password" style={inputStyle}/>
+                </div>
+              </div>
+              <div style={{ display:"flex", justifyContent:"flex-end" }}>
+                {btnPrimary(pwSaving?"Aggiornamento…":"Aggiorna password", ()=>void changePassword(), pwSaving||!pwNew||!pwConfirm)}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── SEZIONE BACKUP & INTEGRAZIONI ───────────────────────────────── */}
+        <div style={cardStyle}>
+          <div style={sectionHead} onClick={() => setShowBackup(!showBackup)}>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15, color:THEME.text }}>Backup & Integrazioni</div>
+              <div style={{ fontSize:12, color:THEME.muted, marginTop:2 }}>Esporta dati · Google Calendar</div>
+            </div>
+            <span style={{ color:THEME.muted, fontSize:12, transform:showBackup?"rotate(180deg)":"none", transition:"transform 0.2s" }}>▾</span>
+          </div>
+          {showBackup && (
+            <div style={{ padding:"20px", display:"flex", flexDirection:"column", gap:14 }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:10, border:`1px solid ${THEME.border}`, background:THEME.panelSoft }}>
+                <div>
+                  <div style={{ fontWeight:700, fontSize:13, color:THEME.text }}>Backup completo dati</div>
+                  <div style={{ fontSize:12, color:THEME.muted, marginTop:3 }}>Scarica 3 file CSV: pazienti, appuntamenti, noleggii. Apribili in Excel.</div>
+                </div>
+                <button onClick={()=>void exportBackup()} disabled={exportingBackup} style={{ padding:"9px 18px", borderRadius:7, border:"none", background:`linear-gradient(135deg,#0d9488,#2563eb)`, color:"#fff", fontWeight:700, fontSize:13, cursor:exportingBackup?"wait":"pointer", opacity:exportingBackup?0.6:1, flexShrink:0 }}>
+                  {exportingBackup?"Preparazione…":"↓ Scarica backup"}
+                </button>
+              </div>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:10, border:`1px solid ${THEME.border}`, background:THEME.panelSoft }}>
+                <div>
+                  <div style={{ fontWeight:700, fontSize:13, color:THEME.text }}>Google Calendar</div>
+                  <div style={{ fontSize:12, color:THEME.muted, marginTop:3 }}>Esporta gli appuntamenti della settimana corrente su Google Calendar.</div>
+                </div>
+                <a href="/calendar" style={{ padding:"9px 18px", borderRadius:7, border:`1px solid ${THEME.blue}`, background:"rgba(37,99,235,0.06)", color:THEME.blue, fontWeight:700, fontSize:13, textDecoration:"none", flexShrink:0 }}>
+                  Vai al Calendario →
+                </a>
+              </div>
             </div>
           )}
         </div>

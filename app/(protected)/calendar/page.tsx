@@ -53,6 +53,7 @@ type PracticeSettings = {
   machine_invoice: number | null;
   machine_cash: number | null;
   auto_apply_prices: boolean | null;
+  google_review_link: string | null;
 };
 
 type CalendarEvent = {
@@ -99,7 +100,10 @@ const THEME = {
   blueDark: "#1e40af",
   green: "#16a34a",
   greenDark: "#15803d",
+  teal: "#0d9488",
+  tealDark: "#0f766e",
   patientsAccent: "#0d9488",
+  purple: "#7c3aed",
 
   red: "#dc2626",
   amber: "#f97316",
@@ -110,7 +114,7 @@ const DEFAULT_CLINIC_SITE = "Studio Pontecorvo";
 
 // ── Google Review ──────────────────────────────────────────
 // Sostituire con il link reale della pagina Google Business
-const GOOGLE_REVIEW_LINK = "https://g.page/r/INSERISCI-QUI-IL-TUO-LINK/review";
+const GOOGLE_REVIEW_LINK_FALLBACK = "https://www.google.com/maps/place//data=!4m3!3m2!1s0x133ab7000a9c53d3:0xf706ba51f69901bf!12e1?source=g.page.m.ia._&laa=nmx-review-solicitation-ia2";
 
 function statusColor(status: Status) {
   switch (status) {
@@ -165,8 +169,26 @@ function autoNameFontSize(fullName?: string | null) {
   return 9;
 }
 
-function asTreatmentType(v: string | null | undefined): "seduta" | "macchinario" {
-  return v === "macchinario" ? "macchinario" : "seduta";
+type TreatmentType = "seduta" | "macchinario" | "laser" | "tecar" | "onde_urto" | "tens";
+const ALL_TREATMENTS: { value: TreatmentType; label: string; color: string }[] = [
+  { value: "seduta",     label: "Seduta",       color: "#0d9488" },
+  { value: "macchinario",label: "Macchinario",  color: "#2563eb" },
+  { value: "laser",      label: "Laser",        color: "#d97706" },
+  { value: "tecar",      label: "Tecar",        color: "#ea580c" },
+  { value: "onde_urto",  label: "Onde d'urto",  color: "#7c3aed" },
+  { value: "tens",       label: "TENS",         color: "#059669" },
+];
+function getTreatmentColor(tt: string | null | undefined): string {
+  const found = ALL_TREATMENTS.find(t => t.value === tt);
+  return found ? found.color : "#2563eb";
+}
+function getTreatmentLabel(tt: string | null | undefined): string {
+  const found = ALL_TREATMENTS.find(t => t.value === tt);
+  return found ? found.label : "Seduta";
+}
+function asTreatmentType(v: string | null | undefined): TreatmentType {
+  const found = ALL_TREATMENTS.find(t => t.value === v);
+  return found ? found.value : "seduta";
 }
 
 function asPriceType(v: string | null | undefined): "invoiced" | "cash" {
@@ -375,7 +397,7 @@ const handleLogout = useCallback(async () => {
       setPracticeSettingsLoaded(false);
       const { data, error } = await supabase
         .from("practice_settings")
-        .select("standard_invoice, standard_cash, machine_invoice, machine_cash, auto_apply_prices")
+        .select("standard_invoice, standard_cash, machine_invoice, machine_cash, auto_apply_prices, google_review_link")
         .eq("owner_id", userId)
         .maybeSingle();
 
@@ -387,6 +409,7 @@ const handleLogout = useCallback(async () => {
         machine_invoice: data?.machine_invoice ?? null,
         machine_cash: data?.machine_cash ?? null,
         auto_apply_prices: data?.auto_apply_prices ?? null,
+        google_review_link: data?.google_review_link ?? null,
       });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -402,7 +425,7 @@ const handleLogout = useCallback(async () => {
     loadPracticeSettings();
   }, [userId, loadPracticeSettings]);
 
-  const getDefaultAmount = useCallback((tType: "seduta" | "macchinario", pType: "invoiced" | "cash") => {
+  const getDefaultAmount = useCallback((tType: TreatmentType, pType: "invoiced" | "cash") => {
     // fallback sicuri (i tuoi vecchi default)
     const fallback = tType === "seduta"
       ? (pType === "invoiced" ? 40 : 35)
@@ -455,7 +478,7 @@ const userInitials = useMemo(() => {
   const [editStatus, setEditStatus] = useState<Status>("booked");
   const [editNote, setEditNote] = useState("");
   const [editAmount, setEditAmount] = useState<string>("");
-  const [editTreatmentType, setEditTreatmentType] = useState<"seduta" | "macchinario">("seduta");
+  const [editTreatmentType, setEditTreatmentType] = useState<TreatmentType>("seduta");
   const [editPriceType, setEditPriceType] = useState<"invoiced" | "cash">("invoiced");
   
   // Stati per modifica orario e giorno
@@ -478,7 +501,7 @@ const userInitials = useMemo(() => {
   const [createClinicSite, setCreateClinicSite] = useState(DEFAULT_CLINIC_SITE);
   const [createDomicileAddress, setCreateDomicileAddress] = useState("");
 
-  const [treatmentType, setTreatmentType] = useState<"seduta" | "macchinario">("seduta");
+  const [treatmentType, setTreatmentType] = useState<TreatmentType>("seduta");
   const [priceType, setPriceType] = useState<"invoiced" | "cash">("cash"); // default: non fatturato
   const [customAmount, setCustomAmount] = useState<string>("");
   const [useCustomPrice, setUseCustomPrice] = useState(false);
@@ -508,6 +531,29 @@ const userInitials = useMemo(() => {
     setCurrentDate(new Date());
     setClientReady(true);
   }, []);
+
+  // ── Gestione parametri URL da GlobalSearch (?date=YYYY-MM-DD&view=day) ─────
+  useEffect(() => {
+    if (!clientReady) return;
+    const dateStr = params.get("date");
+    const view    = params.get("view");
+    if (!dateStr && !view) return;
+
+    if (view && view !== "week") {
+      setViewType(view === "month" ? "month" : "day");
+    }
+    if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      const [y, m, d] = dateStr.split("-").map(Number);
+      setCurrentDate(new Date(y, m - 1, d));
+    }
+    // Pulisci URL senza ricaricare la pagina
+    const url = new URL(window.location.href);
+    if (!params.get("new")) {
+      url.searchParams.delete("date");
+      url.searchParams.delete("view");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, [clientReady]);
 
   const [weeklyExpectedRevenue, setWeeklyExpectedRevenue] = useState<number>(0);
 
@@ -599,6 +645,38 @@ const { data, error } = await supabase
   const [calendarSearch, setCalendarSearch] = useState("");
   const [calendarSearchOpen, setCalendarSearchOpen] = useState(false);
 
+  // Ricerca attiva quando >= 2 caratteri
+  const isSearchActive = useMemo(() => calendarSearch.trim().length >= 2, [calendarSearch]);
+
+  // IDs degli eventi che matchano la ricerca
+  const searchMatchIds = useMemo(() => {
+    const s = new Set<string>();
+    if (!isSearchActive) return s;
+    const q = calendarSearch.trim().toLowerCase();
+    events.forEach(ev => {
+      if (ev.patient_name.toLowerCase().includes(q)) s.add(ev.id);
+    });
+    return s;
+  }, [isSearchActive, calendarSearch, events]);
+
+  // Riepilogo giornaliero per il modal "Riepilogo di oggi"
+  const dailySummary = useMemo(() => {
+    const today = new Date();
+    const todayEvts = events.filter(ev =>
+      ev.start.getDate() === today.getDate() &&
+      ev.start.getMonth() === today.getMonth() &&
+      ev.start.getFullYear() === today.getFullYear() &&
+      ev.status !== "cancelled"
+    );
+    const done = todayEvts.filter(ev => ev.status === "done").length;
+    const notDone = todayEvts.filter(ev => ev.status !== "done").length;
+    const unpaid = todayEvts.filter(ev => !ev.is_paid).length;
+    const invoicedTotal = todayEvts.filter(ev => ev.price_type === "invoiced" && ev.is_paid).reduce((s, ev) => s + (ev.amount ?? 0), 0);
+    const cashTotal = todayEvts.filter(ev => ev.price_type === "cash" && ev.is_paid).reduce((s, ev) => s + (ev.amount ?? 0), 0);
+    const grandTotal = todayEvts.filter(ev => ev.is_paid).reduce((s, ev) => s + (ev.amount ?? 0), 0);
+    return { total: todayEvts.length, done, notDone, unpaid, invoicedTotal, cashTotal, grandTotal, events: todayEvts };
+  }, [events]);
+
   // Feature: Hover tooltip per mini-scheda paziente
   const [hoverTooltip, setHoverTooltip] = useState<{
     event: CalendarEvent;
@@ -642,7 +720,7 @@ const { data, error } = await supabase
   // Stati per le nuove funzionalità
   const [filters, setFilters] = useState({
     location: "all" as "all" | "studio" | "domicile",
-    treatmentType: "all" as "all" | "seduta" | "macchinario",
+    treatmentType: "all" as "all" | TreatmentType,
     priceType: "all" as "all" | "invoiced" | "cash",
     minAmount: "",
     maxAmount: "",
@@ -754,6 +832,62 @@ const { data, error } = await supabase
   const gotoWeekStart = useCallback((iso: string) => {
     setCurrentDate(new Date(iso));
   }, []);
+
+  // Opzioni settimane per il select nella navbar (±8 settimane dalla corrente)
+  const weekOptions = useMemo(() => {
+    const options: { value: string; label: string }[] = [];
+    const now = startOfISOWeekMonday(new Date());
+    for (let i = -8; i <= 8; i++) {
+      const weekStart = addWeeks(now, i);
+      const weekEnd = addDays(weekStart, 6);
+      const mesi = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+      const label = `${formatDMY(weekStart)} – ${weekEnd.getDate()} ${mesi[weekEnd.getMonth()]}`;
+      options.push({ value: weekStart.toISOString(), label });
+    }
+    return options;
+  }, []);
+
+  // Ritorna statistiche occupazione per un giorno (usato nell'header settimana)
+  const getAvailabilityForecast = useCallback((day: Date) => {
+    const d0 = new Date(day); d0.setHours(0,0,0,0);
+    const d1 = new Date(day); d1.setHours(23,59,59,999);
+    const dayEvts = events.filter(ev =>
+      ev.status !== "cancelled" && ev.start >= d0 && ev.start <= d1
+    );
+    const totalMinutes = 8 * 60; // 8-20 = 12h = 720min, ma usiamo 8h lavorative
+    const usedMinutes = dayEvts.reduce((s, ev) => {
+      return s + Math.max(0, (ev.end.getTime() - ev.start.getTime()) / 60000);
+    }, 0);
+    const occupancyRate = Math.round(Math.min((usedMinutes / totalMinutes) * 100, 100));
+    return { totalEvents: dayEvts.length, occupancyRate };
+  }, [events]);
+
+  // Ritorna le finestre libere di un giorno (usato con showAvailableOnly)
+  const getFreeWindows = useCallback((day: Date) => {
+    const WORK_START = 8, WORK_END = 20;
+    const d0 = new Date(day); d0.setHours(0,0,0,0);
+    const d1 = new Date(day); d1.setHours(23,59,59,999);
+    const dayEvts = events
+      .filter(ev => ev.status !== "cancelled" && ev.start >= d0 && ev.start <= d1)
+      .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+    const windows: { start: Date; end: Date; minutes: number }[] = [];
+    let cursor = new Date(day); cursor.setHours(WORK_START, 0, 0, 0);
+    const workEnd = new Date(day); workEnd.setHours(WORK_END, 0, 0, 0);
+
+    for (const ev of dayEvts) {
+      if (ev.start > cursor) {
+        const mins = Math.round((ev.start.getTime() - cursor.getTime()) / 60000);
+        if (mins >= 30) windows.push({ start: new Date(cursor), end: new Date(ev.start), minutes: mins });
+      }
+      if (ev.end > cursor) cursor = new Date(ev.end);
+    }
+    if (cursor < workEnd) {
+      const mins = Math.round((workEnd.getTime() - cursor.getTime()) / 60000);
+      if (mins >= 30) windows.push({ start: new Date(cursor), end: new Date(workEnd), minutes: mins });
+    }
+    return windows;
+  }, [events]);
 
   const openCreateModal = useCallback((date: Date, hour: number = 9, minute: number = 0, duplicateEvent?: CalendarEvent) => {
     const timeStr = `${pad2(hour)}:${pad2(minute)}`;
@@ -909,258 +1043,58 @@ const { data, error } = await supabase
     return { top, height };
   }, []);
 
-  const getEventColor = useCallback((event: CalendarEvent | { status: Status; patient_id?: string }) => {
+  // Vista giorno: 2px per minuto → 1 ora = 120px, molto più leggibile
+  const DAY_PX_PER_MIN = 2;
+  const getDayEventPosition = useCallback((start: Date, end: Date) => {
+    const startHour = start.getHours();
+    const startMinute = start.getMinutes();
+    const endHour = end.getHours();
+    const endMinute = end.getMinutes();
+    const top    = ((startHour - 7) * 60 + startMinute) * DAY_PX_PER_MIN;
+    const height = ((endHour - startHour) * 60 + (endMinute - startMinute)) * DAY_PX_PER_MIN;
+    return { top, height };
+  }, []);
+
+  const getEventColor = useCallback((event: CalendarEvent | { status: Status; patient_id?: string; treatment_type?: string | null }) => {
     if (event.patient_id && eventColors[event.patient_id]) {
       return eventColors[event.patient_id];
+    }
+    if ("treatment_type" in event && event.treatment_type) {
+      return getTreatmentColor(event.treatment_type);
     }
     return statusColor(event.status);
   }, [eventColors]);
 
-  // Calcola le finestre libere reali (gap tra appuntamenti) per un giorno
-  const getFreeWindows = useCallback((date: Date) => {
-    const DAY_START = 8; // 08:00
-    const DAY_END   = 20; // 20:00
-    const MIN_MINUTES = 30; // finestre più corte di 30min non mostrate
-
-    const dayAppts = events
-      .filter(e =>
-        e.start.getDate() === date.getDate() &&
-        e.start.getMonth() === date.getMonth() &&
-        e.start.getFullYear() === date.getFullYear() &&
-        e.status !== "cancelled"
-      )
-      .sort((a, b) => a.start.getTime() - b.start.getTime());
-
-    const windows: { start: Date; end: Date; minutes: number }[] = [];
-
-    // Costruisci timeline occupata
-    const occupied: { s: number; e: number }[] = dayAppts.map(ev => ({
-      s: ev.start.getHours() * 60 + ev.start.getMinutes(),
-      e: ev.end.getHours() * 60 + ev.end.getMinutes(),
-    }));
-
-    // Merge overlaps
-    occupied.sort((a, b) => a.s - b.s);
-    const merged: { s: number; e: number }[] = [];
-    for (const o of occupied) {
-      if (merged.length && o.s < merged[merged.length - 1].e) {
-        merged[merged.length - 1].e = Math.max(merged[merged.length - 1].e, o.e);
-      } else {
-        merged.push({ ...o });
-      }
-    }
-
-    // Trova gap
-    let cursor = DAY_START * 60;
-    for (const m of merged) {
-      if (m.s > cursor && m.s - cursor >= MIN_MINUTES) {
-        const s = new Date(date); s.setHours(Math.floor(cursor / 60), cursor % 60, 0, 0);
-        const e = new Date(date); e.setHours(Math.floor(m.s / 60), m.s % 60, 0, 0);
-        windows.push({ start: s, end: e, minutes: m.s - cursor });
-      }
-      cursor = Math.max(cursor, m.e);
-    }
-    // Gap finale
-    const dayEndMin = DAY_END * 60;
-    if (dayEndMin > cursor && dayEndMin - cursor >= MIN_MINUTES) {
-      const s = new Date(date); s.setHours(Math.floor(cursor / 60), cursor % 60, 0, 0);
-      const e = new Date(date); e.setHours(DAY_END, 0, 0, 0);
-      windows.push({ start: s, end: e, minutes: dayEndMin - cursor });
-    }
-
-    return windows;
-  }, [events]);
-
-  const getAvailableSlots = useCallback((date: Date) => {
-    const slots = [];
-    for (let hour = 7; hour < 22; hour++) {
-      for (const minute of [0, 30]) {
-        const slotStart = new Date(date);
-        slotStart.setHours(hour, minute, 0, 0);
-        const slotEnd = new Date(slotStart.getTime() + 60 * 60000);
-        const isOccupied = events.some(event =>
-          event.start.getDate() === date.getDate() &&
-          event.start.getMonth() === date.getMonth() &&
-          event.start.getFullYear() === date.getFullYear() &&
-          ((event.start >= slotStart && event.start < slotEnd) ||
-           (event.end > slotStart && event.end <= slotEnd) ||
-           (event.start <= slotStart && event.end >= slotEnd))
-        );
-        if (!isOccupied) slots.push({ start: slotStart, end: slotEnd, time: `${pad2(hour)}:${pad2(minute)}` });
-      }
-    }
-    return slots;
-  }, [events]);
-
-  const weekOptions = useMemo(() => {
-    const base = startOfISOWeekMonday(currentDate);
-    const opts: { value: string; label: string }[] = [];
-    for (let w = -12; w <= 24; w++) {
-      const start = addDays(base, w * 7);
-      const end = addDays(start, 5);
-      opts.push({
-        value: start.toISOString(),
-        label: `SETTIMANA ${formatDMY(start)} → ${formatDMY(end)}`,
-      });
-    }
-    return opts;
-  }, [currentDate]);
-
-  const getAvailabilityForecast = useCallback((date: Date) => {
-    const dayStart = new Date(date);
-    dayStart.setHours(7, 0, 0, 0);
-    
-    const dayEnd = new Date(date);
-    dayEnd.setHours(22, 0, 0, 0);
-    
-    const dayEvents = events.filter(e => 
-      e.start.getDate() === date.getDate() &&
-      e.start.getMonth() === date.getMonth() &&
-      e.start.getFullYear() === date.getFullYear()
-    );
-    
-    const totalMinutes = 15 * 60;
-    let occupiedMinutes = 0;
-    
-    dayEvents.forEach(event => {
-      const duration = (event.end.getTime() - event.start.getTime()) / (60 * 1000);
-      occupiedMinutes += duration;
-    });
-    
-    const availableMinutes = totalMinutes - occupiedMinutes;
-    const occupancyRate = (occupiedMinutes / totalMinutes) * 100;
-    
-    return {
-      totalEvents: dayEvents.length,
-      occupiedMinutes,
-      availableMinutes,
-      occupancyRate,
-      availableSlots: Math.floor(availableMinutes / 60),
-      recommendation: occupancyRate > 40 ? "ALTA OCCUPAZIONE" : 
-                      occupancyRate > 20 ? "MEDIA OCCUPAZIONE" : 
-                      "BASSA OCCUPAZIONE"
-    };
-  }, [events]);
-
-  const filteredEvents = useMemo(() => {
-    let result = events;
-    
-    if (statusFilter !== "all") {
-      result = result.filter(event => event.status === statusFilter);
-    }
-    
-    if (filters.location !== "all") {
-      result = result.filter(event => event.location === filters.location);
-    }
-    
-    if (filters.treatmentType !== "all") {
-      result = result.filter(event => event.treatment_type === filters.treatmentType);
-    }
-    
-    if (filters.priceType !== "all") {
-      result = result.filter(event => event.price_type === filters.priceType);
-    }
-    
-    if (filters.minAmount) {
-      const min = parseFloat(filters.minAmount);
-      if (!isNaN(min)) {
-        result = result.filter(event => {
-          const price = (event.amount ?? getDefaultAmount(
-            (event.treatment_type as "seduta" | "macchinario") || "seduta",
-            (event.price_type as "invoiced" | "cash") || "invoiced"
-          ));
-          return price >= min;
-        });
-      }
-    }
-    
-    if (filters.maxAmount) {
-      const max = parseFloat(filters.maxAmount);
-      if (!isNaN(max)) {
-        result = result.filter(event => {
-          const price = (event.amount ?? getDefaultAmount(
-            (event.treatment_type as "seduta" | "macchinario") || "seduta",
-            (event.price_type as "invoiced" | "cash") || "invoiced"
-          ));
-          return price <= max;
-        });
-      }
-    }
-    
-    return result;
-  }, [events, statusFilter, filters]);
-
-  // Feature: Search match highlighting
-  const searchMatchIds = useMemo(() => {
-    if (!calendarSearch.trim() || calendarSearch.trim().length < 2) return new Set<string>();
-    const q = calendarSearch.trim().toLowerCase();
-    return new Set(
-      events
-        .filter(e => e.patient_name.toLowerCase().includes(q) || 
-                     (e.calendar_note && e.calendar_note.toLowerCase().includes(q)) ||
-                     (e.treatment && e.treatment.toLowerCase().includes(q)))
-        .map(e => e.id)
-    );
-  }, [events, calendarSearch]);
-
-  const isSearchActive = calendarSearch.trim().length >= 2 && searchMatchIds.size > 0;
-
-  // Feature: Riepilogo giornaliero (today's summary)
-  const dailySummary = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayEvents = events.filter(e => {
-      const d = new Date(e.start);
-      d.setHours(0, 0, 0, 0);
-      return d.getTime() === today.getTime() && e.status !== "cancelled";
-    });
-
-    const done = todayEvents.filter(e => e.status === "done");
-    const notDone = todayEvents.filter(e => e.status !== "done");
-    const paid = todayEvents.filter(e => e.is_paid);
-    const unpaid = todayEvents.filter(e => !e.is_paid && e.status !== "cancelled");
-
-    let invoicedTotal = 0;
-    let cashTotal = 0;
-    paid.forEach(e => {
-      const amt = e.amount ?? getDefaultAmount(
-        (e.treatment_type as "seduta" | "macchinario") || "seduta",
-        (e.price_type as "invoiced" | "cash") || "invoiced"
-      );
-      if (e.price_type === "cash") cashTotal += amt;
-      else invoicedTotal += amt;
-    });
-
-    return {
-      total: todayEvents.length,
-      done: done.length,
-      notDone: notDone.length,
-      paid: paid.length,
-      unpaid: unpaid.length,
-      invoicedTotal,
-      cashTotal,
-      grandTotal: invoicedTotal + cashTotal,
-      events: todayEvents.sort((a, b) => a.start.getTime() - b.start.getTime()),
-    };
-  }, [events, getDefaultAmount]);
-
-  // Feature: Hover tooltip handlers
   const handleEventHover = useCallback((e: React.MouseEvent, event: CalendarEvent) => {
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     hoverTimer.current = setTimeout(() => {
-      setHoverTooltip({
-        event,
-        x: rect.right + 8,
-        y: rect.top,
-      });
-    }, 400);
+      setHoverTooltip({ event, x: e.clientX, y: e.clientY });
+    }, 600);
   }, []);
 
   const handleEventHoverEnd = useCallback(() => {
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
     setHoverTooltip(null);
   }, []);
+
+  // Restituisce slot liberi per un giorno (usato nel modal creazione per suggerire orario)
+  const getAvailableSlots = useCallback((day: Date) => {
+    const WORK_START = 8, WORK_END = 20;
+    const d0 = new Date(day); d0.setHours(0,0,0,0);
+    const d1 = new Date(day); d1.setHours(23,59,59,999);
+    const dayEvts = events
+      .filter(ev => ev.status !== "cancelled" && ev.start >= d0 && ev.start <= d1)
+      .sort((a, b) => a.start.getTime() - b.start.getTime());
+    const slots: { start: Date; end: Date }[] = [];
+    let cursor = new Date(day); cursor.setHours(WORK_START, 0, 0, 0);
+    const workEnd = new Date(day); workEnd.setHours(WORK_END, 0, 0, 0);
+    for (const ev of dayEvts) {
+      if (ev.start > cursor) slots.push({ start: new Date(cursor), end: new Date(ev.start) });
+      if (ev.end > cursor) cursor = new Date(ev.end);
+    }
+    if (cursor < workEnd) slots.push({ start: new Date(cursor), end: new Date(workEnd) });
+    return slots;
+  }, [events]);
 
   const loadRequestId = useRef(0);
 
@@ -1312,15 +1246,17 @@ diagnosis: patient?.diagnosis ?? null,
     }
   }, [currentDate, viewType, loadAppointments, clientReady]);
 
+  // filteredEvents: visibili nella vista corrente — disponibile a tutto il componente
+  const filteredEvents = useMemo(() => {
+    if (viewType === "week" || viewType === "month") return events;
+    return events.filter(e =>
+      e.start.getDate() === currentDate.getDate() &&
+      e.start.getMonth() === currentDate.getMonth() &&
+      e.start.getFullYear() === currentDate.getFullYear()
+    );
+  }, [events, viewType, currentDate]);
+
   const stats = useMemo(() => {
-    const filteredEvents = viewType === "week" || viewType === "month"
-      ? events 
-      : events.filter(e => 
-          e.start.getDate() === currentDate.getDate() &&
-          e.start.getMonth() === currentDate.getMonth() &&
-          e.start.getFullYear() === currentDate.getFullYear()
-        );
-    
     return {
       total: filteredEvents.length,
       done: filteredEvents.filter(e => e.status === "done").length,
@@ -1336,7 +1272,7 @@ diagnosis: patient?.diagnosis ?? null,
         return sum + getDefaultAmount(tType, pType);
       }, 0),
     };
-  }, [events, viewType, currentDate, getDefaultAmount]);
+  }, [filteredEvents, getDefaultAmount]);
 
   const exportAppointments = useCallback(() => {
     const csvContent = [
@@ -1620,194 +1556,135 @@ ${days.map((day, di) => {
   }
 
   const exportToGoogleCalendar = useCallback(async () => {
-    const eventsToExport = filteredEvents.map(event => ({
+    const eventsToExport = events.filter(e => e.status !== "cancelled").map(event => ({
       summary: `${event.location === "domicile" ? `🏠 ${event.patient_name}` : event.patient_name} - ${statusLabel(event.status)}`,
-      location: event.location === 'studio' ? event.clinic_site : event.domicile_address,
-      description: `Trattamento: ${event.treatment_type === 'seduta' ? 'Seduta' : 'Macchinario'}\nPrezzo: €${event.amount !== undefined && event.amount !== null ? event.amount : (event.treatment_type === 'seduta' ? (event.price_type === 'invoiced' ? 40 : 35) : (event.price_type === 'invoiced' ? 25 : 20))}\nNote: ${event.calendar_note || 'Nessuna nota'}`,
-      start: {
-        dateTime: event.start.toISOString(),
-        timeZone: 'Europe/Rome',
-      },
-      end: {
-        dateTime: event.end.toISOString(),
-        timeZone: 'Europe/Rome',
-      },
+      location: event.location === "studio" ? event.clinic_site : event.domicile_address,
+      description: `Trattamento: ${getTreatmentLabel(event.treatment_type)}\nPrezzo: €${event.amount ?? ""}\nNote: ${event.calendar_note || "Nessuna nota"}`,
+      start: { dateTime: event.start.toISOString(), timeZone: "Europe/Rome" },
+      end:   { dateTime: event.end.toISOString(),   timeZone: "Europe/Rome" },
     }));
-    
-    const calendarUrl = 'https://calendar.google.com/calendar/render?action=TEMPLATE';
+    const calendarUrl = "https://calendar.google.com/calendar/render?action=TEMPLATE";
     const firstEvent = eventsToExport[0];
-    
     if (firstEvent) {
       const params = new URLSearchParams({
         text: firstEvent.summary,
         details: firstEvent.description,
-        location: firstEvent.location || '',
-        dates: `${firstEvent.start.dateTime.replace(/[-:]/g, '').split('.')[0]}Z/${firstEvent.end.dateTime.replace(/[-:]/g, '').split('.')[0]}Z`,
+        location: firstEvent.location || "",
+        dates: `${firstEvent.start.dateTime.replace(/[-:]/g, "").split(".")[0]}Z/${firstEvent.end.dateTime.replace(/[-:]/g, "").split(".")[0]}Z`,
       });
-      
-      window.open(`${calendarUrl}&${params.toString()}`, '_blank');
+      window.open(`${calendarUrl}&${params.toString()}`, "_blank");
     }
-  }, [filteredEvents]);
+  }, [events]);
 
-function formatPhoneForWhatsAppWeb(phone: string): string {
+// ── Utility WhatsApp — unica funzione usata ovunque ──────────────────────────
+// Restituisce SOLO cifre senza + (es. "393331234567")
+// api.whatsapp.com/send?phone= vuole il numero senza + né spazi
+function cleanPhoneForWA(phone: string): string {
   if (!phone) return "";
   // 1. Rimuovi tutto tranne cifre e +
   let c = phone.trim().replace(/[\s\(\)\-\.\/]/g, "");
-  // 2. 00 → +
+  // 2. 00xx → +xx
   if (c.startsWith("00")) c = "+" + c.slice(2);
   // 3. Rimuovi il + per lavorare solo con cifre
   if (c.startsWith("+")) c = c.slice(1);
-  // 4. Rimuovi eventuali caratteri non numerici residui
+  // 4. Rimuovi qualsiasi residuo non numerico
   c = c.replace(/\D/g, "");
   if (!c) return "";
-  // 5. Già con prefisso 39 e lunghezza corretta → ok
-  if (c.startsWith("39") && (c.length === 12 || c.length === 11)) return "+" + c;
-  // 5b. Doppio 39 (es. 0039 + 39xxx) → togli il primo 39
+  // 5. Doppio prefisso 39 (es. 003939xxx) → togli il primo
   if (c.startsWith("3939") && c.length > 13) c = c.slice(2);
-  // 6. Mobile italiano 3xx (10 cifre) → aggiungi 39
-  if (c.startsWith("3") && c.length === 10) return "+39" + c;
-  // 7. Fisso italiano con 0 (9-11 cifre) → sostituisci 0 con 39
-  if (c.startsWith("0") && c.length >= 9 && c.length <= 11) return "+39" + c.slice(1);
-  // 8. Fallback: aggiungi 39 se sembra un numero italiano incompleto
-  if (c.length <= 10) return "+39" + c;
-  return "+" + c;
+  // 6. Già con prefisso 39 e lunghezza corretta (11 fisso, 12 mobile)
+  if (c.startsWith("39") && (c.length === 11 || c.length === 12)) return c;
+  // 7. Mobile italiano 3xx (10 cifre) → aggiungi 39
+  if (c.startsWith("3") && c.length === 10) return "39" + c;
+  // 8. Fisso italiano 0xx (9-11 cifre) → sostituisci 0 iniziale con 39
+  if (c.startsWith("0") && c.length >= 9 && c.length <= 11) return "39" + c.slice(1);
+  // 9. Numero corto/incompleto → aggiungi 39
+  if (c.length <= 10) return "39" + c;
+  return c;
 }
 
+// Apre WhatsApp Web su desktop senza dipendere da window.open (bloccato dai browser)
+// Usa api.whatsapp.com che funziona sia su desktop che mobile
+function openWhatsApp(phone: string, message: string): boolean {
+  const clean = cleanPhoneForWA(phone);
+  if (!clean) return false;
+  const url = `https://api.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`;
+  const a = document.createElement("a");
+  a.href = url;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  return true;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
   const sendReminder = useCallback(async (appointmentId: string, patientPhone?: string, patientFirstName?: string, isConfirmation?: boolean) => {
-    if (!patientPhone) {
-      alert("Nessun telefono registrato per questo paziente");
-      return;
-    }
-    
+    if (!patientPhone) { alert("Nessun telefono registrato per questo paziente"); return; }
     const appointment = events.find(e => e.id === appointmentId);
     if (!appointment) return;
-    
+
     const templateName = isConfirmation ? "Appuntamento" : "Promemoria";
-    
-    const { data: templateData } = await supabase
-      .from("message_templates")
-      .select("template")
-      .eq("name", templateName)
-      .maybeSingle();
-    
-    let templateText = "";
-    if (isConfirmation) {
-      templateText = `Grazie per averci scelto.
-Ricordiamo il prossimo appuntamento fissato per {data_relativa} alle {ora}.
+    const { data: templateData } = await supabase.from("message_templates").select("template").eq("name", templateName).maybeSingle();
 
-A presto,
-Dr. Marco Turchetta
-Fisioterapia e Osteopatia`;
-    } else {
-      templateText = `Buongiorno {nome},
+    let templateText = isConfirmation
+      ? "Grazie per averci scelto.\nRicordiamo il prossimo appuntamento fissato per {data_relativa} alle {ora}.\n\nA presto,\nDr. Marco Turchetta\nFisioterapia e Osteopatia"
+      : "Buongiorno {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore {ora}.\n\n📍 {luogo}\n\nCordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia";
 
-Le ricordiamo il suo appuntamento di {data_relativa} alle ore ⏰ {ora}.
+    if (templateData?.template) templateText = templateData.template;
 
-📍 {luogo}
-
-Cordiali saluti,
-Dr. Marco Turchetta
-Fisioterapia e Osteopatia`;
-    }
-    
-    if (templateData?.template) {
-      templateText = templateData.template;
-    }
-    
-    const cleanPhone = formatPhoneForWhatsAppWeb(patientPhone);
-    
     const dataRelativa = formatDateRelative(appointment.start);
     const ora = fmtTime(appointment.start.toISOString());
-    
+    const nomePaziente = (patientFirstName?.trim()) || "Cliente";
     let luogo = "";
-    if (appointment.location === 'studio') {
-      luogo = CLINIC_ADDRESSES[appointment.clinic_site || ""] || 
-              appointment.clinic_site || 
-              "Pontecorvo, Via Galileo Galilei 5, dietro il Bar Principe";
+    if (appointment.location === "studio") {
+      luogo = CLINIC_ADDRESSES[appointment.clinic_site || ""] || appointment.clinic_site || "Pontecorvo, Via Galileo Galilei 5";
     } else {
       luogo = `Presso il suo domicilio (${appointment.domicile_address})`;
     }
-    
-    const nomePaziente = (patientFirstName && patientFirstName.trim()) ? patientFirstName.trim() : "Cliente";
-    
-    let message = templateText
+
+    const message = templateText
       .replace(/{nome}/g, nomePaziente)
       .replace(/{data_relativa}/g, dataRelativa)
       .replace(/{ora}/g, ora)
       .replace(/{luogo}/g, luogo);
-    
-    const encodedMessage = encodeURIComponent(message);
-    
-        const whatsappUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMessage}`;
-    
-    const confirmText = isConfirmation 
-      ? `📱 CONFERMA NUOVO APPOINTAMENTO WHATSAPP\n\nDestinatario: ${patientPhone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp e inviare.`
-      : `📱 INVIO PROMEMORIA WHATSAPP\n\nDestinatario: ${patientPhone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp e inviare.`;
-    
-    const confirm = window.confirm(confirmText);
-    
-    if (!confirm) return;
-    
-    console.log("Tentativo di aprire WhatsApp:", whatsappUrl);
-    
-    const newWindow = window.open(whatsappUrl, '_blank');
 
-    // Marca WhatsApp come "inviato" (timestamp = verità)
+    const confirmText = isConfirmation
+      ? `📱 CONFERMA APPUNTAMENTO\n\nDestinatario: ${patientPhone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp.`
+      : `📱 PROMEMORIA WHATSAPP\n\nDestinatario: ${patientPhone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp.`;
+
+    if (!window.confirm(confirmText)) return;
+
+    const opened = openWhatsApp(patientPhone, message);
+    if (!opened) { alert("Numero di telefono non valido."); return; }
+
     const nowIso = new Date().toISOString();
     await supabase.from("appointments").update({ whatsapp_sent_at: nowIso, whatsapp_sent: true }).eq("id", appointmentId);
-    setEvents((prev) => prev.map((ev) => ev.id === appointmentId ? { ...ev, whatsapp_sent_at: new Date(nowIso), whatsapp_sent: true } : ev));
-    
-    if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
-      console.log("window.open bloccato, provo con location.href");
-      
-      const manualOpen = window.confirm(
-        `Il browser ha bloccato l'apertura automatica di WhatsApp.\n\n` +
-        `URL: ${whatsappUrl}\n\n` +
-        `Clicca OK per provare ad aprire, oppure Annulla per copiare il link.`
-      );
-      
-      if (manualOpen) {
-        window.location.href = whatsappUrl;
-      } else {
-        alert(`Copia questo link e aprilo manualmente:\n\n${whatsappUrl}`);
-      }
-    }
-    
+    setEvents(prev => prev.map(ev => ev.id === appointmentId ? { ...ev, whatsapp_sent_at: new Date(nowIso), whatsapp_sent: true } : ev));
   }, [events]);
 
-  // ── Chiedi Recensione Google via WhatsApp ──────────────────
+  // ── Chiedi Recensione Google via WhatsApp ──────────────────────────
   const sendGoogleReview = useCallback(async (patientPhone?: string, patientFirstName?: string) => {
-    if (!patientPhone) {
-      alert("Nessun telefono registrato per questo paziente");
-      return;
-    }
+    if (!patientPhone) { alert("Nessun telefono registrato per questo paziente"); return; }
+    const nomePaziente = (patientFirstName?.trim()) || "Cliente";
+    const googleLink = practiceSettings?.google_review_link || GOOGLE_REVIEW_LINK_FALLBACK;
+    const message = `Buongiorno ${nomePaziente},
 
-    const nomePaziente = (patientFirstName && patientFirstName.trim()) ? patientFirstName.trim() : "Cliente";
-    const cleanPhone = formatPhoneForWhatsAppWeb(patientPhone);
+Grazie per aver scelto il nostro studio! 🙏
 
-    const message = `Buongiorno ${nomePaziente},\n\nGrazie per aver scelto il nostro studio! 🙏\n\nSe è rimasto/a soddisfatto/a del trattamento, le saremmo molto grati se potesse lasciarci una breve recensione su Google:\n\n${GOOGLE_REVIEW_LINK}\n\nLa sua opinione ci aiuta a migliorare e a farci conoscere.\n\nGrazie di cuore,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
+Se è rimasto/a soddisfatto/a del trattamento, le saremmo molto grati se potesse lasciarci una breve recensione su Google:
 
-    const confirmText = `⭐ RICHIESTA RECENSIONE GOOGLE\n\nDestinatario: ${patientPhone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp e inviare.`;
+${googleLink}
 
-    const confirm = window.confirm(confirmText);
-    if (!confirm) return;
+La sua opinione ci aiuta a migliorare e a farci conoscere.
 
-    const encodedMessage = encodeURIComponent(message);
-    const whatsappUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMessage}`;
-
-    const newWindow = window.open(whatsappUrl, '_blank');
-
-    if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
-      const manualOpen = window.confirm(
-        `Il browser ha bloccato l'apertura automatica di WhatsApp.\n\nURL: ${whatsappUrl}\n\nClicca OK per provare ad aprire, oppure Annulla per copiare il link.`
-      );
-      if (manualOpen) {
-        window.location.href = whatsappUrl;
-      } else {
-        alert(`Copia questo link e aprilo manualmente:\n\n${whatsappUrl}`);
-      }
-    }
-  }, []);
+Grazie di cuore,
+Dr. Marco Turchetta
+Fisioterapia e Osteopatia`;
+    if (!window.confirm(`⭐ RECENSIONE GOOGLE\n\nDestinatario: ${patientPhone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp.`)) return;
+    openWhatsApp(patientPhone, message);
+  }, [practiceSettings]);
   const toggleBulkSelect = useCallback((id: string) => {
     setBulkSelected(prev => {
       const next = new Set(prev);
@@ -2187,7 +2064,7 @@ Fisioterapia e Osteopatia`;
 
   const basePayload = {
     patient_id: selectedPatient.id,
-    status: "booked" as Status,
+    status: "confirmed" as Status,
     calendar_note: null as string | null,
     location: createLocation,
     clinic_site: createLocation === "studio" ? createClinicSite.trim() : null,
@@ -2214,9 +2091,7 @@ Fisioterapia e Osteopatia`;
         createdAppointmentId = data.id;
         
         if (sendWhatsApp) {
-          const cleanPhone = formatPhoneForWhatsAppWeb(selectedPatient.phone || "");
-          
-          if (!cleanPhone) {
+          if (!(selectedPatient.phone || "").trim()) {
             alert("Nessun telefono registrato per questo paziente");
           } else {
             const dataRelativa = formatDateRelative(firstStart);
@@ -2242,10 +2117,7 @@ A presto,
 Dr. Marco Turchetta
 Fisioterapia e Osteopatia`;
             
-            const encodedMessage = encodeURIComponent(message);
-const whatsappUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMessage}`;
-
-window.open(whatsappUrl, '_blank');
+            openWhatsApp(selectedPatient.phone || "", message);
 
             // Segna WhatsApp inviato per questo appuntamento (timestamp = verità)
             if (createdAppointmentId) {
@@ -2869,6 +2741,25 @@ return (
 
         {/* Right: Stats + Panel toggle + User */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          {/* Cmd+K hint */}
+          <button
+            onClick={() => {
+              const event = new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true });
+              window.dispatchEvent(event);
+            }}
+            className="mob-hide"
+            title="Ricerca globale"
+            style={{
+              padding: "5px 12px", borderRadius: 8,
+              border: "1.5px solid rgba(255,255,255,0.25)",
+              background: "rgba(255,255,255,0.1)",
+              color: "rgba(255,255,255,0.75)",
+              cursor: "pointer", fontSize: 11, fontWeight: 700,
+              display: "flex", alignItems: "center", gap: 6,
+            }}
+          >
+            🔍 <kbd style={{ fontSize: 10, background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, padding: "0 4px" }}>⌘K</kbd>
+          </button>
           <div className="mob-hide" style={{ display: "flex", gap: 6 }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,0.2)", padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)" }}>
               ✓ {stats.done}/{stats.total}
@@ -3582,11 +3473,10 @@ return (
                 </div>
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase" as const, letterSpacing: 0.5, marginBottom: 6 }}>Trattamento</div>
-                  <select value={filters.treatmentType} onChange={e => setFilters(p => ({ ...p, treatmentType: e.target.value as "all"|"seduta"|"macchinario" }))}
+                  <select value={filters.treatmentType} onChange={e => setFilters(p => ({ ...p, treatmentType: e.target.value as "all" | TreatmentType }))}
                     style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${THEME.borderSoft}`, background: THEME.panelBg, fontSize: 12, fontWeight: 600, color: THEME.text }}>
                     <option value="all">Tutti</option>
-                    <option value="seduta">Seduta</option>
-                    <option value="macchinario">Macchinario</option>
+                    {ALL_TREATMENTS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                 </div>
               </div>
@@ -4644,17 +4534,11 @@ return (
               </div>
             </div>
           ) : (
-            <div
-              style={{
-                background: THEME.panelBg,
-                border: `2px solid ${THEME.border}`,
-                borderRadius: 12,
-                minHeight: 600,
-                overflow: "clip",
-                boxShadow: "0 2px 12px rgba(30,64,175,0.06)",
-                position: "relative",
-              }}
-            >
+            /* ━━━ DAY VIEW — timeline + sidebar ━━━ */
+            <div style={{ display: "flex", gap: 0, background: THEME.panelBg, border: `2px solid ${THEME.border}`, borderRadius: 12, minHeight: 600, overflow: "clip", boxShadow: "0 2px 12px rgba(30,64,175,0.06)" }}>
+
+              {/* ── Colonna sinistra: timeline ── */}
+              <div style={{ flex: 1, minWidth: 0, position: "relative", borderRight: `2px solid ${THEME.border}` }}>
               <div style={{ 
                 display: "grid", 
                 gridTemplateColumns: `${TIME_COL}px 1fr`,
@@ -4696,7 +4580,7 @@ return (
                     <div 
                       key={timeIndex}
                       style={{ 
-                        height: "60px",
+                        height: "120px",
                         borderBottom: `1.5px solid ${THEME.border}`,
                         position: "relative",
                         display: "flex",
@@ -4730,7 +4614,7 @@ return (
                         {/* Slot 00-30 minuti */}
                         <div
                           style={{
-                            height: "30px",
+                            height: "60px",
                             borderBottom: `1.5px solid ${THEME.border}`,
                             cursor: "pointer",
                             boxSizing: "border-box",
@@ -4768,7 +4652,7 @@ return (
                         {/* Slot 30-60 minuti */}
                         <div
                           style={{
-                            height: "30px",
+                            height: "60px",
                             cursor: "pointer",
                             boxSizing: "border-box",
                             position: "relative",
@@ -4809,7 +4693,7 @@ return (
                 {showAvailableOnly && (() => {
                   const windows = getFreeWindows(currentDate);
                   return windows.map((win, wi) => {
-                    const { top, height } = getEventPosition(win.start, win.end);
+                    const { top, height } = getDayEventPosition(win.start, win.end);
                     const hrs = Math.floor(win.minutes / 60);
                     const mins = win.minutes % 60;
                     const label = hrs > 0 ? `${hrs}h${mins > 0 ? `${mins}′` : ""}` : `${mins}′`;
@@ -4853,7 +4737,7 @@ return (
                     event.start.getFullYear() === currentDate.getFullYear()
                   )
                   .map((event) => {
-                    const { top, height } = getEventPosition(event.start, event.end);
+                    const { top, height } = getDayEventPosition(event.start, event.end);
                     const col = getEventColor(event);
                     const isDone    = event.status === "done";
                     const isDomicile= event.location === "domicile";
@@ -4917,39 +4801,50 @@ return (
                           if (event.patient_id) { loadPatientFromEvent(event.patient_id); }
                         }}
                       >
-                        {/* Riga 1: orario + icone */}
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 4, flexShrink: 0, marginBottom: 2 }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.9)", lineHeight: 1 }}>
-                            {fmtTime(event.start.toISOString())}–{fmtTime(event.end.toISOString())}
-                            {isDomicile && " 🏠"}
-                          </span>
-                          <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-                            <button title={isPaid ? "Pagato — annulla" : "Segna pagato"} onClick={e => { e.preventDefault(); e.stopPropagation(); togglePaidQuick(event.id, isPaid); }}
-                              style={{ background: isPaid ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.15)", border: `1px solid ${isPaid ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.3)"}`, borderRadius: 4, cursor: "pointer", padding: "0 6px", fontSize: 14, lineHeight: "20px", display: "flex", alignItems: "center", gap: 2, height: 20 }}>
-                              🪙{isPaid && <span style={{ fontSize: 10, fontWeight: 800, color: "#fff" }}>✓</span>}
-                            </button>
-                            {event.status !== "cancelled" && event.patient_phone && (
-                              <button title={waSent ? "Reinvia" : "Invia promemoria"} onClick={e => { e.preventDefault(); e.stopPropagation(); sendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined); }}
-                                style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: 16, lineHeight: 1, opacity: waSent ? 1 : 0.55 }}>{waSent ? "🔕" : "🔔"}</button>
-                            )}
-                            <button title={isDone ? "Annulla eseguita" : "Segna eseguita"} onClick={e => { e.preventDefault(); e.stopPropagation(); if (bulkMode) toggleBulkSelect(event.id); else toggleDoneQuick(event.id, event.status); }}
-                              style={{ width: 20, height: 20, borderRadius: 99, border: `1.5px solid ${isDone ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.5)"}`, background: isDone ? "rgba(255,255,255,0.9)" : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: statusBg(event.status), fontSize: 11, fontWeight: 800 }}
-                            >{isDone || bulkSelected.has(event.id) ? "✓" : ""}</button>
-                          </div>
+                        {/* Riga 1: orario */}
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.85)", marginBottom: 4, flexShrink: 0 }}>
+                          {fmtTime(event.start.toISOString())} – {fmtTime(event.end.toISOString())}
+                          {isDomicile && " 🏠"}
+                          {event.calendar_note?.startsWith("[WEB|") && (
+                            <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 800, background: "rgba(255,255,255,0.25)", borderRadius: 3, padding: "1px 4px" }}>WEB</span>
+                          )}
                         </div>
-                        {/* Riga 2: nome */}
-                        <div style={{ fontWeight: 700, fontSize: 13, color: "#fff", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {event.calendar_note?.startsWith("[WEB|") && <span style={{ fontSize: 8, background: "rgba(255,255,255,0.25)", borderRadius: 3, padding: "1px 3px", marginRight: 3, fontWeight: 700, verticalAlign: "middle" }}>WEB</span>}
+                        {/* Riga 2: nome paziente — grande e sempre visibile */}
+                        <div
+                          style={{
+                            fontWeight: 800,
+                            fontSize: 15,
+                            color: "#fff",
+                            lineHeight: 1.2,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            flex: 1,
+                          }}
+                          title={event.patient_name}
+                        >
                           {event.patient_name}
                         </div>
-                        {/* Riga 3: tipo + importo + status */}
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "auto" }}>
-                          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.8)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {event.treatment_type === "macchinario" ? "Macchinario" : "Seduta"}
-                            {event.amount ? ` · €${event.amount}` : ""}
-                            {isDomicile && event.domicile_address ? ` · ${event.domicile_address}` : ""}
-                          </span>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,0.25)", padding: "1px 8px", borderRadius: 99, whiteSpace: "nowrap", flexShrink: 0, marginLeft: 4 }}>
+                        {/* Riga 3: tipo + importo */}
+                        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.85)", marginBottom: 4, flexShrink: 0 }}>
+                          {getTreatmentLabel(event.treatment_type)}
+                          {event.amount ? ` · €${event.amount}` : ""}
+                          {isDomicile && event.domicile_address ? ` · ${event.domicile_address}` : ""}
+                        </div>
+                        {/* Riga 4: azioni + status */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+                          <button title={isPaid ? "Pagato — annulla" : "Segna pagato"} onClick={e => { e.preventDefault(); e.stopPropagation(); togglePaidQuick(event.id, isPaid); }}
+                            style={{ background: isPaid ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.15)", border: `1px solid ${isPaid ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.3)"}`, borderRadius: 4, cursor: "pointer", padding: "2px 7px", fontSize: 12, display: "flex", alignItems: "center", gap: 2 }}>
+                            🪙{isPaid && <span style={{ fontSize: 10, fontWeight: 800, color: "#fff" }}>✓</span>}
+                          </button>
+                          {event.status !== "cancelled" && event.patient_phone && (
+                            <button title={waSent ? "Reinvia" : "Invia promemoria WA"} onClick={e => { e.preventDefault(); e.stopPropagation(); sendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined); }}
+                              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: 15, lineHeight: 1, opacity: waSent ? 1 : 0.6 }}>{waSent ? "🔕" : "🔔"}</button>
+                          )}
+                          <button title={isDone ? "Annulla eseguita" : "Segna eseguita"} onClick={e => { e.preventDefault(); e.stopPropagation(); if (bulkMode) toggleBulkSelect(event.id); else toggleDoneQuick(event.id, event.status); }}
+                            style={{ width: 22, height: 22, borderRadius: 99, border: `1.5px solid ${isDone ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.5)"}`, background: isDone ? "rgba(255,255,255,0.9)" : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: statusBg(event.status), fontSize: 12, fontWeight: 800 }}
+                          >{isDone || bulkSelected.has(event.id) ? "✓" : ""}</button>
+                          <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,0.22)", padding: "2px 8px", borderRadius: 99, whiteSpace: "nowrap" }}>
                             {statusLabel(event.status)}
                           </span>
                         </div>
@@ -4978,7 +4873,7 @@ return (
                       
                       const currentHour = now.getHours();
                       const currentMinute = now.getMinutes();
-                      const topPosition = ((currentHour - 7) * 60 + currentMinute);
+                      const topPosition = ((currentHour - 7) * 60 + currentMinute) * 2; // DAY_PX_PER_MIN=2
                       
                       return (
                         <div
@@ -5009,6 +4904,214 @@ return (
                     })()}
                   </div>
               </div>
+              </div>
+
+              {/* ── Colonna destra: sidebar giornaliera ── */}
+              {(() => {
+                const dayEvts = filteredEvents
+                  .filter(ev =>
+                    ev.start.getDate() === currentDate.getDate() &&
+                    ev.start.getMonth() === currentDate.getMonth() &&
+                    ev.start.getFullYear() === currentDate.getFullYear()
+                  )
+                  .filter(ev => ev.status !== "cancelled")
+                  .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+                const totRev = dayEvts.reduce((s, ev) => s + (ev.amount ?? 0), 0);
+                const totDone = dayEvts.filter(ev => ev.status === "done").length;
+                const totPaid = dayEvts.filter(ev => ev.is_paid).length;
+                const totUnpaid = dayEvts.filter(ev => !ev.is_paid && ev.status !== "cancelled").length;
+
+                const isToday =
+                  currentDate.getDate() === new Date().getDate() &&
+                  currentDate.getMonth() === new Date().getMonth() &&
+                  currentDate.getFullYear() === new Date().getFullYear();
+
+                const dayLabel = (() => {
+                  const g = ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"][currentDate.getDay()];
+                  const mesi = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+                  return `${g} ${currentDate.getDate()} ${mesi[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
+                })();
+
+                return (
+                  <div style={{ width: 280, flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+                    {/* Header sidebar */}
+                    <div style={{ background: "linear-gradient(135deg, #0d9488, #2563eb)", padding: "14px 16px" }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 2 }}>
+                        {isToday ? "Oggi" : dayLabel}
+                      </div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.7)", fontWeight: 600 }}>
+                        {isToday ? dayLabel : ""}
+                      </div>
+                    </div>
+
+                    {/* KPI strip */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0, borderBottom: `1px solid ${THEME.border}` }}>
+                      {[
+                        { label: "Appuntamenti", val: dayEvts.length, color: THEME.blue },
+                        { label: "Eseguiti", val: totDone, color: THEME.green },
+                        { label: "Fatturato", val: `€${Math.round(totRev)}`, color: THEME.teal },
+                        { label: "Non pagati", val: totUnpaid, color: totUnpaid > 0 ? THEME.amber : THEME.muted },
+                      ].map((k, i) => (
+                        <div key={i} style={{ padding: "10px 14px", borderBottom: i < 2 ? `1px solid ${THEME.border}` : "none", borderRight: i % 2 === 0 ? `1px solid ${THEME.border}` : "none" }}>
+                          <div style={{ fontSize: 10, color: THEME.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 3 }}>{k.label}</div>
+                          <div style={{ fontSize: 20, fontWeight: 800, color: k.color, lineHeight: 1 }}>{k.val}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Bottone nuovo appuntamento */}
+                    <div style={{ padding: "10px 12px", borderBottom: `1px solid ${THEME.border}` }}>
+                      <button
+                        onClick={() => { openCreateModal(currentDate, 9, 0); }}
+                        style={{
+                          width: "100%", padding: "8px 0", borderRadius: 8,
+                          border: `1.5px dashed ${THEME.teal}`,
+                          background: "rgba(13,148,136,0.04)", color: THEME.teal,
+                          cursor: "pointer", fontWeight: 700, fontSize: 12,
+                          letterSpacing: 0.3,
+                        }}
+                      >
+                        + Nuovo appuntamento
+                      </button>
+                    </div>
+
+                    {/* Lista appuntamenti */}
+                    <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
+                      {dayEvts.length === 0 ? (
+                        <div style={{ padding: "24px 16px", textAlign: "center", color: THEME.muted, fontSize: 13 }}>
+                          Nessun appuntamento<br/>
+                          <span style={{ fontSize: 11 }}>Clicca sulla griglia per aggiungerne uno</span>
+                        </div>
+                      ) : dayEvts.map((ev, idx) => {
+                        const isDone = ev.status === "done";
+                        const isPaid = !!ev.is_paid;
+                        const waSent = !!ev.whatsapp_sent_at;
+                        const isWeb = ev.calendar_note?.startsWith("[WEB|");
+                        const col = getEventColor(ev);
+
+                        return (
+                          <div
+                            key={ev.id}
+                            onClick={() => {
+                              setSelectedEvent({
+                                id: ev.id,
+                                title: ev.patient_name,
+                                patient_id: ev.patient_id,
+                                location: ev.location,
+                                clinic_site: ev.clinic_site,
+                                domicile_address: ev.domicile_address,
+                                treatment: ev.treatment,
+                                diagnosis: ev.diagnosis,
+                                amount: ev.amount,
+                                treatment_type: ev.treatment_type,
+                                price_type: ev.price_type,
+                                start: ev.start,
+                                end: ev.end,
+                              });
+                              setEditStatus(ev.status);
+                              setEditNote(ev.calendar_note || "");
+                              setEditAmount(ev.amount !== undefined && ev.amount !== null ? ev.amount.toString() : "");
+                              setEditTreatmentType((ev.treatment_type as "seduta" | "macchinario") || "seduta");
+                              setEditPriceType((ev.price_type as "invoiced" | "cash") || "invoiced");
+                              if (ev.patient_id) loadPatientFromEvent(ev.patient_id);
+                            }}
+                            style={{
+                              margin: "4px 10px",
+                              borderRadius: 8,
+                              border: `1.5px solid ${statusColor(ev.status)}22`,
+                              background: statusBg(ev.status) + "18",
+                              borderLeft: `4px solid ${statusColor(ev.status)}`,
+                              padding: "9px 10px",
+                              cursor: "pointer",
+                              transition: "all 0.12s",
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.background = statusBg(ev.status) + "30"; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = statusBg(ev.status) + "18"; }}
+                          >
+                            {/* Orario + badge */}
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                              <span style={{ fontSize: 12, fontWeight: 800, color: statusColor(ev.status) }}>
+                                {fmtTime(ev.start.toISOString())}
+                                <span style={{ fontWeight: 500, color: THEME.muted }}> – {fmtTime(ev.end.toISOString())}</span>
+                              </span>
+                              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                                {isWeb && <span style={{ fontSize: 9, fontWeight: 800, background: "#facc15", color: "#78350f", padding: "1px 5px", borderRadius: 3 }}>WEB</span>}
+                                {isPaid && <span style={{ fontSize: 9, fontWeight: 800, background: "rgba(22,163,74,0.15)", color: THEME.green, padding: "1px 5px", borderRadius: 3 }}>€✓</span>}
+                              </div>
+                            </div>
+
+                            {/* Nome paziente */}
+                            <div style={{ fontSize: 13, fontWeight: 700, color: THEME.text, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {ev.patient_name}
+                            </div>
+
+                            {/* Tipo + importo */}
+                            <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 6 }}>
+                              {ev.treatment_type === "macchinario" ? "Macchinario" : "Seduta"}
+                              {ev.location === "domicile" ? " · 🏠 Domicilio" : ""}
+                              {ev.amount ? ` · €${ev.amount}` : ""}
+                            </div>
+
+                            {/* Azioni rapide */}
+                            <div style={{ display: "flex", gap: 5 }}>
+                              <button
+                                title={isDone ? "Annulla eseguita" : "Segna eseguita"}
+                                onClick={e => { e.stopPropagation(); toggleDoneQuick(ev.id, ev.status); }}
+                                style={{
+                                  flex: 1, padding: "4px 0", borderRadius: 5, border: "none",
+                                  background: isDone ? THEME.green : "rgba(22,163,74,0.12)",
+                                  color: isDone ? "#fff" : THEME.green,
+                                  cursor: "pointer", fontWeight: 700, fontSize: 11,
+                                }}
+                              >
+                                {isDone ? "✓ Eseguita" : "Esegui"}
+                              </button>
+                              <button
+                                title={isPaid ? "Pagato" : "Segna pagato"}
+                                onClick={e => { e.stopPropagation(); togglePaidQuick(ev.id, isPaid); }}
+                                style={{
+                                  flex: 1, padding: "4px 0", borderRadius: 5, border: "none",
+                                  background: isPaid ? THEME.teal : "rgba(13,148,136,0.1)",
+                                  color: isPaid ? "#fff" : THEME.teal,
+                                  cursor: "pointer", fontWeight: 700, fontSize: 11,
+                                }}
+                              >
+                                {isPaid ? "€ Pagato" : "Paga"}
+                              </button>
+                              {ev.patient_phone && (
+                                <button
+                                  title={waSent ? "Reinvia WA" : "Invia promemoria WA"}
+                                  onClick={e => { e.stopPropagation(); sendReminder(ev.id, ev.patient_phone ?? undefined, ev.patient_first_name ?? undefined); }}
+                                  style={{
+                                    width: 30, padding: "4px 0", borderRadius: 5, border: "none",
+                                    background: waSent ? "rgba(37,211,102,0.2)" : "rgba(37,211,102,0.1)",
+                                    color: "#128C7E", cursor: "pointer", fontWeight: 700, fontSize: 13,
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  📲
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Footer: totali */}
+                    {dayEvts.length > 0 && (
+                      <div style={{ borderTop: `1px solid ${THEME.border}`, padding: "10px 14px", background: THEME.panelSoft }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ fontSize: 11, color: THEME.muted, fontWeight: 600 }}>{totPaid}/{dayEvts.length} pagati</span>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: THEME.teal }}>€{Math.round(totRev).toLocaleString("it-IT")}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
         </div>
@@ -5276,39 +5379,19 @@ return (
                   <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 8 }}>
                     Trattamento
                   </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button
-                      onClick={() => setTreatmentType("seduta")}
-                      style={{
-                        flex: 1,
-                        padding: "12px",
-                        borderRadius: 8,
-                        border: `1px solid ${treatmentType === "seduta" ? THEME.blueDark : THEME.borderSoft}`,
-                        background: treatmentType === "seduta" ? THEME.blue : "#fff",
-                        color: treatmentType === "seduta" ? "#fff" : THEME.text,
-                        cursor: "pointer",
-                        fontWeight: 600,
-                        fontSize: 13,
-                      }}
-                    >
-                      Seduta
-                    </button>
-                    <button
-                      onClick={() => setTreatmentType("macchinario")}
-                      style={{
-                        flex: 1,
-                        padding: "12px",
-                        borderRadius: 8,
-                        border: `1px solid ${treatmentType === "macchinario" ? THEME.blueDark : THEME.borderSoft}`,
-                        background: treatmentType === "macchinario" ? THEME.blue : "#fff",
-                        color: treatmentType === "macchinario" ? "#fff" : THEME.text,
-                        cursor: "pointer",
-                        fontWeight: 600,
-                        fontSize: 13,
-                      }}
-                    >
-                      Solo Macchinario
-                    </button>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {ALL_TREATMENTS.map(t => (
+                      <button key={t.value} onClick={() => setTreatmentType(t.value as TreatmentType)}
+                        style={{
+                          padding: "7px 12px", borderRadius: 7, cursor: "pointer", fontWeight: 700,
+                          fontSize: 13, border: `2px solid ${treatmentType === t.value ? t.color : THEME.borderSoft}`,
+                          background: treatmentType === t.value ? t.color : "#fff",
+                          color: treatmentType === t.value ? "#fff" : THEME.text,
+                          transition: "all 0.15s",
+                        }}>
+                        {t.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
@@ -6147,39 +6230,19 @@ return (
                   <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 8 }}>
                     Trattamento
                   </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button
-                      onClick={() => setEditTreatmentType("seduta")}
-                      style={{
-                        flex: 1,
-                        padding: "8px 10px",
-                        borderRadius: 8,
-                        border: `1px solid ${editTreatmentType === "seduta" ? THEME.blueDark : THEME.borderSoft}`,
-                        background: editTreatmentType === "seduta" ? THEME.blue : "#fff",
-                        color: editTreatmentType === "seduta" ? "#fff" : THEME.text,
-                        cursor: "pointer",
-                        fontWeight: 600,
-                        fontSize: 12,
-                      }}
-                    >
-                      Seduta
-                    </button>
-                    <button
-                      onClick={() => setEditTreatmentType("macchinario")}
-                      style={{
-                        flex: 1,
-                        padding: "8px 10px",
-                        borderRadius: 8,
-                        border: `1px solid ${editTreatmentType === "macchinario" ? THEME.blueDark : THEME.borderSoft}`,
-                        background: editTreatmentType === "macchinario" ? THEME.blue : "#fff",
-                        color: editTreatmentType === "macchinario" ? "#fff" : THEME.text,
-                        cursor: "pointer",
-                        fontWeight: 600,
-                        fontSize: 12,
-                      }}
-                    >
-                      Solo Macchinario
-                    </button>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {ALL_TREATMENTS.map(t => (
+                      <button key={t.value} onClick={() => setEditTreatmentType(t.value as TreatmentType)}
+                        style={{
+                          padding: "7px 12px", borderRadius: 7, cursor: "pointer", fontWeight: 700,
+                          fontSize: 12, border: `2px solid ${editTreatmentType === t.value ? t.color : THEME.borderSoft}`,
+                          background: editTreatmentType === t.value ? t.color : "#fff",
+                          color: editTreatmentType === t.value ? "#fff" : THEME.text,
+                          transition: "all 0.15s",
+                        }}>
+                        {t.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
 

@@ -50,7 +50,12 @@ function computeFreeSlots(dayAppts: AppointmentRow[], dateYMD: string, label: "o
   for (let h = WORK_START; h < WORK_END; h++) {
     const slotStart = `${dateYMD}T${pad2(h)}:00:00`;
     const slotEnd   = `${dateYMD}T${pad2(h+1)}:00:00`;
-    const occupied  = dayAppts.some(a => a.status !== "cancelled" && a.start_at < slotEnd && a.start_at >= slotStart);
+    // Overlap reale: considera la durata effettiva dell'appuntamento (end_at)
+    const occupied  = dayAppts.some(a =>
+      a.status !== "cancelled" &&
+      a.start_at < slotEnd &&
+      (a.end_at ?? slotEnd) > slotStart
+    );
     if (!occupied) slots.push({ day: label, time: `${pad2(h)}:00`, dateYMD });
   }
   return slots;
@@ -84,26 +89,30 @@ const pctDelta   = (c: number, p: number) => p===0?(c===0?0:100):((c-p)/p)*100;
 // Normalizza qualsiasi numero italiano → stringa di sole cifre con prefisso 39
 // Casi gestiti: +39xxx, 0039xxx, 39xxx (già con prefisso), 3xx (mobile senza prefisso),
 //               0xx (fisso senza prefisso), numeri con spazi/trattini/parentesi
+// Restituisce SOLO cifre senza + (uguale a cleanPhoneForWA nel calendario)
 const fmtPhone = (phone: string): string => {
   if (!phone) return "";
-  // 1. Rimuovi tutto tranne cifre e +
-  let c = phone.trim().replace(/[\s\-\.\(\)\/]/g, "");
-  // 2. Normalizza 00 → +
+  let c = phone.trim().replace(/[\s\(\)\-\.\//]/g, "");
   if (c.startsWith("00")) c = "+" + c.slice(2);
-  // 3. Rimuovi il + per lavorare solo con cifre
   if (c.startsWith("+")) c = c.slice(1);
-  // 4. Rimuovi caratteri non numerici residui
   c = c.replace(/\D/g, "");
   if (!c) return "";
-  // 5. Se inizia già con 39 e ha lunghezza corretta (12 cifre mobile o 11 fisso)
-  if (c.startsWith("39") && (c.length === 12 || c.length === 11)) return c;
-  // 6. Mobile italiano: 3xx → 12 cifre con 39
+  if (c.startsWith("3939") && c.length > 13) c = c.slice(2);
+  if (c.startsWith("39") && (c.length === 11 || c.length === 12)) return c;
   if (c.startsWith("3") && c.length === 10) return "39" + c;
-  // 7. Fisso italiano con 0: 0xx → 11 cifre con 39 (rimuove lo 0)
-  if (c.startsWith("0") && c.length >= 9 && c.length <= 11) return "39" + c;
-  // 8. Fallback: aggiungi 39 se < 11 cifre (numero parziale salvato male)
+  if (c.startsWith("0") && c.length >= 9 && c.length <= 11) return "39" + c.slice(1);
   if (c.length <= 10) return "39" + c;
   return c;
+};
+// Helper apri WhatsApp senza window.open (bloccato dai browser moderni)
+// usa api.whatsapp.com — funziona su desktop e mobile
+const openWA = (phone: string, message: string) => {
+  const clean = fmtPhone(phone);
+  if (!clean) return;
+  const url = "https://api.whatsapp.com/send?phone=" + clean + "&text=" + encodeURIComponent(message);
+  const a = document.createElement("a");
+  a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
 };
 const pickPatient = (p: AppointmentRow["patients"]) => Array.isArray(p)?(p[0]??null):((p as any)??null);
 const patientName = (p: AppointmentRow["patients"]) => { const pp=pickPatient(p); return `${pp?.last_name||""} ${pp?.first_name||""}`.trim()||"Paziente"; };
@@ -232,6 +241,41 @@ export default function HomePage() {
   }, []);
   useEffect(()=>{ void fetchWebBookings(); },[fetchWebBookings]);
 
+  // ── Noleggio scadenze ────────────────────────────────────────────────────
+  const [noleggioExpiring, setNoleggioExpiring] = useState<{id:string;patient_name:string;end_date:string;device_name:string;days_remaining:number}[]>([]);
+  const [noleggioWarningDays, setNoleggioWarningDays] = useState(3);
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const{data:cfg}=await supabase.from("noleggio_settings").select("warning_days").maybeSingle();
+        const wd=cfg?.warning_days??3; setNoleggioWarningDays(wd);
+        const{data}=await supabase.from("noleggios").select("id,patient_name,end_date,device_name").eq("is_returned",false).order("end_date",{ascending:true});
+        const today=new Date(); today.setHours(0,0,0,0);
+        const expiring=(data||[]).map((n:any)=>{
+          const end=new Date(n.end_date+"T00:00:00"); 
+          const dr=Math.ceil((end.getTime()-today.getTime())/86400000);
+          return{...n,days_remaining:dr};
+        }).filter((n:any)=>n.days_remaining<=wd);
+        setNoleggioExpiring(expiring);
+      }catch(e){console.error(e);}
+    })();
+  },[]);
+
+  // ── Previsione incasso ───────────────────────────────────────────────────
+  const forecastRevenue = useMemo(()=>{
+    const today=startOfDay(new Date());
+    const endWeek=addDays(today,7);
+    const future=appointments.filter(a=>
+      a.status!=="cancelled" && 
+      new Date(a.start_at)>=today && 
+      new Date(a.start_at)<endWeek
+    );
+    const confirmed=future.filter(a=>a.status==="confirmed"||a.status==="booked");
+    const total=confirmed.reduce((s,a)=>{ const n=typeof a.amount==="string"?Number(a.amount):a.amount; return s+(Number.isFinite(n as number)?(n as number):0); },0);
+    const sessCount=confirmed.length;
+    return{total:Math.round(total),sessCount,days:7};
+  },[appointments]);
+
   async function confirmWebBooking(req: WebBooking) {
     setWebBookingActionId(req.id);
     const timeStr = req.requested_time.slice(0,5);
@@ -266,7 +310,36 @@ export default function HomePage() {
     await fetchWebBookings();
   }
 
-  const fetchInactive=useCallback(async()=>{ try{ setInactiveLoading(true); const{data,error}=await supabase.from("appointments").select("patient_id,start_at,status,patients:patient_id!inner(first_name,last_name,phone,status)").eq("status","done").order("start_at",{ascending:false}).limit(2000); if(error) throw new Error(error.message); const rows=(data||[]) as any[]; const byP=new Map<string,any>(); for(const r of rows){if(r.patient_id&&!byP.has(r.patient_id)) byP.set(r.patient_id,r);} const nowMs=startOfDay(new Date()).getTime(); const list:InactivePatientRow[]=[]; for(const[pid,r] of byP.entries()){const p=pickPatient(r.patients); const days=Math.floor((nowMs-new Date(r.start_at).getTime())/86400000); if((p?.status||"").toString().toLowerCase()==="inactive") continue; if(days>inactiveThreshold) list.push({patient_id:pid,first_name:p?.first_name||"",last_name:p?.last_name||"",phone:p?.phone??null,last_done_at:r.start_at,days_since_last:days});} list.sort((a,b)=>b.days_since_last-a.days_since_last); setInactivePatients(list.slice(0,12)); }catch(e:any){console.error(e?.message);} finally{setInactiveLoading(false);} },[inactiveThreshold]);
+  const fetchInactive=useCallback(async()=>{
+    try{
+      setInactiveLoading(true);
+      // Filtra lato server: solo appuntamenti precedenti alla soglia di inattività
+      const cutoff=new Date(startOfDay(new Date()).getTime()-inactiveThreshold*86400000).toISOString();
+      const{data,error}=await supabase
+        .from("appointments")
+        .select("patient_id,start_at,patients:patient_id!inner(first_name,last_name,phone,status)")
+        .eq("status","done")
+        .lt("start_at",cutoff)
+        .order("start_at",{ascending:false})
+        .limit(500);
+      if(error) throw new Error(error.message);
+      const rows=(data||[]) as any[];
+      // Tieni solo l'appuntamento più recente per paziente
+      const byP=new Map<string,any>();
+      for(const r of rows){ if(r.patient_id&&!byP.has(r.patient_id)) byP.set(r.patient_id,r); }
+      const nowMs=startOfDay(new Date()).getTime();
+      const list:InactivePatientRow[]=[];
+      for(const[pid,r] of byP.entries()){
+        const p=pickPatient(r.patients);
+        if((p?.status||"").toString().toLowerCase()==="inactive") continue;
+        const days=Math.floor((nowMs-new Date(r.start_at).getTime())/86400000);
+        if(days>inactiveThreshold) list.push({patient_id:pid,first_name:p?.first_name||"",last_name:p?.last_name||"",phone:p?.phone??null,last_done_at:r.start_at,days_since_last:days});
+      }
+      list.sort((a,b)=>b.days_since_last-a.days_since_last);
+      setInactivePatients(list.slice(0,12));
+    }catch(e:any){console.error(e?.message);}
+    finally{setInactiveLoading(false);}
+  },[inactiveThreshold]);
   useEffect(()=>{fetchInactive();},[fetchInactive]);
 
   const [searchInput,setSearchInput]=useState("");
@@ -345,7 +418,7 @@ export default function HomePage() {
   const togglePaid=useCallback(async(id:string,isPaid:boolean)=>{ setBusyRow(m=>({...m,[id]:true})); const{error}=await supabase.from("appointments").update({is_paid:isPaid}).eq("id",id); setBusyRow(m=>({...m,[id]:false})); if(error) alert("Errore: "+error.message); else{ fetchAppts(); fetchOpenBalances(); } },[fetchAppts,fetchOpenBalances]);
   const saveNote=useCallback(async(id:string)=>{ setSavingNote(id); const note=(rowNotes[id]||"").trim(); await supabase.from("appointments").update({calendar_note:note||null}).eq("id",id); setSavingNote(null); },[rowNotes]);
   const saveNextTime=useCallback(async()=>{ if(!focusNext||!editDate||!editStart) return; setSavingTime(true); const[y,m,d]=editDate.split("-").map(Number); const[hh,mm]=editStart.split(":").map(Number); const ns=new Date(y,m-1,d,hh,mm,0,0); const ne=new Date(ns.getTime()+parseFloat(editDuration)*3600000); const{error}=await supabase.from("appointments").update({start_at:ns.toISOString(),end_at:ne.toISOString()}).eq("id",focusNext.id); setSavingTime(false); if(error) alert("Errore: "+error.message); else{setEditNextTime(false);fetchAppts();} },[focusNext,editDate,editStart,editDuration,fetchAppts]);
-  const sendWA=useCallback(async(appt:AppointmentRow)=>{ const phone=pickPatient(appt.patients)?.phone||""; const clean=fmtPhone(phone); if(!clean){alert("Numero non valido.");return;} const msg=buildWAMsg(appt); await supabase.from("appointments").update({whatsapp_sent_at:new Date().toISOString(),whatsapp_sent:true}).eq("id",appt.id); const a=document.createElement("a");a.href=`https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(msg)}`;a.target="_blank";a.rel="noopener noreferrer";document.body.appendChild(a);a.click();document.body.removeChild(a); fetchAppts(); },[fetchAppts]);
+  const sendWA=useCallback(async(appt:AppointmentRow)=>{ const phone=pickPatient(appt.patients)?.phone||""; if(!fmtPhone(phone)){alert("Numero non valido.");return;} const msg=buildWAMsg(appt); await supabase.from("appointments").update({whatsapp_sent_at:new Date().toISOString(),whatsapp_sent:true}).eq("id",appt.id); openWA(phone,msg); fetchAppts(); },[fetchAppts]);
 
   const nextCountdown=useCountdown(focusNext?.start_at??null);
   const headerDate=useMemo(()=>{const s=new Date().toLocaleDateString("it-IT",{weekday:"long",day:"2-digit",month:"long",year:"numeric"});return s.charAt(0).toUpperCase()+s.slice(1);},[]);
@@ -386,7 +459,7 @@ export default function HomePage() {
             <span style={{fontWeight:700,fontSize:14,color:"#fff",letterSpacing:0.8,textTransform:"uppercase"}}>Fisio<span style={{fontWeight:800}}>Hub</span></span>
           </div>
           <nav style={{display:"flex",gap:1}}>
-            {([{href:"/",label:"Home",active:true},{href:"/calendar",label:"Calendario",active:false},{href:"/reports",label:"Report",active:false},{href:"/patients",label:"Pazienti",active:false}] as const).map(item=>(
+            {([{href:"/",label:"Home",active:true},{href:"/calendar",label:"Calendario",active:false},{href:"/reports",label:"Report",active:false},{href:"/noleggio",label:"Noleggio",active:false},{href:"/patients",label:"Pazienti",active:false}] as const).map(item=>(
               <Link key={item.href} href={item.href} style={{padding:"5px 11px",borderRadius:7,fontSize:12,fontWeight:700,background:item.active?"rgba(255,255,255,0.22)":"transparent",color:item.active?"#fff":"rgba(255,255,255,0.78)",letterSpacing:0.2}}>{item.label}</Link>
             ))}
           </nav>
@@ -960,7 +1033,7 @@ export default function HomePage() {
                       {p.phone&&<a href={`tel:${p.phone}`} style={{fontSize:10,color:THEME.blue,display:"block",marginTop:1}}>{p.phone}</a>}
                     </div>
                     <div style={{display:"flex",flexDirection:"column",gap:3,flexShrink:0}}>
-                      {p.phone&&<button onClick={()=>{const c=fmtPhone(p.phone!);if(!c)return;const msg=`Ciao ${p.first_name||""}, come stai? Ti scrivo per sapere se vuoi prenotare una seduta.`;window.open(`https://web.whatsapp.com/send?phone=${c}&text=${encodeURIComponent(msg)}`,"_blank","noopener,noreferrer");}} style={{padding:"3px 7px",borderRadius:4,border:"none",background:THEME.green,color:"#fff",fontWeight:700,fontSize:10,cursor:"pointer"}}>WA</button>}
+                      {p.phone&&<button onClick={()=>{const c=fmtPhone(p.phone!);if(!c)return;const msg=`Ciao ${p.first_name||""}, come stai? Ti scrivo per sapere se vuoi prenotare una seduta.`;openWA(p.phone!,msg);}} style={{padding:"3px 7px",borderRadius:4,border:"none",background:THEME.green,color:"#fff",fontWeight:700,fontSize:10,cursor:"pointer"}}>WA</button>}
                       <button onClick={()=>setContactedPatients(prev=>new Set([...prev,p.patient_id]))} style={{padding:"3px 7px",borderRadius:4,border:`1px solid ${THEME.border}`,background:"#fff",color:THEME.muted,fontWeight:600,fontSize:10,cursor:"pointer"}}>✓</button>
                     </div>
                   </div>
@@ -986,6 +1059,79 @@ export default function HomePage() {
             </div>
           </div>
         </div>{/* fine main-cols */}
+
+        {/* ━━━ PREVISIONE INCASSO + NOLEGGIO IN SCADENZA ━━━ */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
+
+          {/* PREVISIONE INCASSO */}
+          <div style={{background:"#fff",borderRadius:12,border:`1px solid ${THEME.border}`,overflow:"hidden"}}>
+            <div style={{padding:"11px 16px",borderBottom:`1px solid ${THEME.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <span style={{fontWeight:700,fontSize:12,color:THEME.text}}>Previsione incasso</span>
+              <span style={{fontSize:10,fontWeight:600,color:THEME.muted}}>prossimi 7 giorni</span>
+            </div>
+            <div style={{padding:"16px"}}>
+              <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:8}}>
+                <span style={{fontSize:28,fontWeight:800,color:THEME.teal}}>€{forecastRevenue.total.toLocaleString("it-IT")}</span>
+                <span style={{fontSize:13,color:THEME.muted}}>stimati</span>
+              </div>
+              <div style={{fontSize:12,color:THEME.muted,marginBottom:12}}>
+                Da <strong style={{color:THEME.text}}>{forecastRevenue.sessCount} appuntamenti</strong> confermati/prenotati nei prossimi {forecastRevenue.days} giorni
+              </div>
+              {forecastRevenue.sessCount===0
+                ? <div style={{fontSize:12,color:THEME.muted,fontStyle:"italic"}}>Nessun appuntamento confermato nei prossimi 7 giorni.</div>
+                : (
+                  <div style={{background:"rgba(13,148,136,0.06)",borderRadius:8,padding:"10px 12px",border:"1px solid rgba(13,148,136,0.15)"}}>
+                    <div style={{fontSize:11,color:THEME.teal,fontWeight:700,marginBottom:4}}>Valore medio per seduta</div>
+                    <div style={{fontSize:18,fontWeight:800,color:THEME.teal}}>
+                      €{forecastRevenue.sessCount>0?Math.round(forecastRevenue.total/forecastRevenue.sessCount):0}
+                    </div>
+                  </div>
+                )
+              }
+              <div style={{marginTop:10}}>
+                <a href="/calendar" style={{fontSize:11,color:THEME.blue,fontWeight:700,textDecoration:"none"}}>
+                  Vai al calendario →
+                </a>
+              </div>
+            </div>
+          </div>
+
+          {/* NOLEGGIO IN SCADENZA */}
+          <div style={{background:"#fff",borderRadius:12,border:`1px solid ${THEME.border}`,overflow:"hidden"}}>
+            <div style={{padding:"11px 16px",borderBottom:`1px solid ${THEME.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <span style={{fontWeight:700,fontSize:12,color:THEME.text}}>Noleggi in scadenza</span>
+              <a href="/noleggio" style={{fontSize:11,color:THEME.blue,fontWeight:700,textDecoration:"none"}}>Gestisci →</a>
+            </div>
+            <div style={{padding:"12px 16px"}}>
+              {noleggioExpiring.length===0
+                ? <div style={{fontSize:12,color:THEME.muted,padding:"8px 0",fontStyle:"italic"}}>Nessun noleggio in scadenza nei prossimi {noleggioWarningDays} giorni.</div>
+                : noleggioExpiring.map((n,i)=>{
+                  const expired=n.days_remaining<0;
+                  const urgent=n.days_remaining===0;
+                  const col=expired?THEME.red:urgent?THEME.red:THEME.amber;
+                  const bg=expired?"rgba(220,38,38,0.05)":urgent?"rgba(220,38,38,0.05)":"rgba(249,115,22,0.05)";
+                  return (
+                    <div key={n.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:8,background:bg,border:`1px solid ${col}22`,marginBottom:i<noleggioExpiring.length-1?6:0}}>
+                      <span style={{fontSize:16,flexShrink:0}}>{expired?"⛔":urgent?"🚨":"⏳"}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:700,fontSize:13,color:THEME.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.patient_name}</div>
+                        <div style={{fontSize:11,color:THEME.muted}}>{n.device_name}</div>
+                      </div>
+                      <div style={{textAlign:"right",flexShrink:0}}>
+                        <div style={{fontSize:11,fontWeight:800,color:col}}>
+                          {expired?`Scaduto ${Math.abs(n.days_remaining)}gg fa`:urgent?"Scade oggi":`${n.days_remaining} giorni`}
+                        </div>
+                        <div style={{fontSize:10,color:THEME.muted}}>
+                          {new Date(n.end_date+"T12:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit"})}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              }
+            </div>
+          </div>
+        </div>
 
         {/* ━━━ RIGA INFERIORE: slot liberi · saldi aperti · compleanni ━━━ */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16,alignItems:"start"}}>
@@ -1077,7 +1223,7 @@ export default function HomePage() {
                         <span style={{fontSize:13,fontWeight:800,color:THEME.red}}>{g.total.toLocaleString("it-IT")}€</span>
                         {clean&&(
                           <button
-                            onClick={()=>{const a=document.createElement("a");a.href=`https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(waMsg)}`;a.target="_blank";a.rel="noopener noreferrer";document.body.appendChild(a);a.click();document.body.removeChild(a);}}
+                            onClick={()=>{openWA(g.phone||"",waMsg);}}
                             style={{padding:"3px 7px",borderRadius:4,border:"none",background:"#25d366",color:"#fff",fontWeight:700,fontSize:10,cursor:"pointer"}}
                             title="Invia sollecito pagamento su WhatsApp"
                           >WA</button>
@@ -1119,7 +1265,7 @@ export default function HomePage() {
                         </div>
                       </div>
                       {waClean&&(
-                        <button onClick={()=>window.open(`https://web.whatsapp.com/send?phone=${waClean}&text=${encodeURIComponent(waText)}`,"_blank","noopener,noreferrer")} style={{padding:"4px 8px",borderRadius:5,border:"none",background:THEME.green,color:"#fff",fontWeight:700,fontSize:10,cursor:"pointer",flexShrink:0}}>🎉 WA</button>
+                        <button onClick={()=>openWA(b.phone||"",waText)} style={{padding:"4px 8px",borderRadius:5,border:"none",background:THEME.green,color:"#fff",fontWeight:700,fontSize:10,cursor:"pointer",flexShrink:0}}>🎉 WA</button>
                       )}
                     </div>
                   );
