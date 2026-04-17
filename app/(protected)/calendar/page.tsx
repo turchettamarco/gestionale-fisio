@@ -1044,7 +1044,7 @@ const { data, error } = await supabase
   }, []);
 
   // Vista giorno: 2px per minuto → 1 ora = 120px, molto più leggibile
-  const DAY_PX_PER_MIN = 2;
+  const DAY_PX_PER_MIN = 1;
   const getDayEventPosition = useCallback((start: Date, end: Date) => {
     const startHour = start.getHours();
     const startMinute = start.getMinutes();
@@ -4580,7 +4580,7 @@ return (
                     <div 
                       key={timeIndex}
                       style={{ 
-                        height: "120px",
+                        height: "60px",
                         borderBottom: `1.5px solid ${THEME.border}`,
                         position: "relative",
                         display: "flex",
@@ -4801,53 +4801,67 @@ return (
                           if (event.patient_id) { loadPatientFromEvent(event.patient_id); }
                         }}
                       >
-                        {/* Riga 1: orario */}
-                        <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.85)", marginBottom: 4, flexShrink: 0 }}>
-                          {fmtTime(event.start.toISOString())} – {fmtTime(event.end.toISOString())}
-                          {isDomicile && " 🏠"}
-                          {event.calendar_note?.startsWith("[WEB|") && (
-                            <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 800, background: "rgba(255,255,255,0.25)", borderRadius: 3, padding: "1px 4px" }}>WEB</span>
-                          )}
-                        </div>
-                        {/* Riga 2: nome paziente — grande e sempre visibile */}
-                        <div
-                          style={{
-                            fontWeight: 800,
-                            fontSize: 15,
-                            color: "#fff",
-                            lineHeight: 1.2,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            flex: 1,
-                          }}
-                          title={event.patient_name}
-                        >
-                          {event.patient_name}
-                        </div>
-                        {/* Riga 3: tipo + importo */}
-                        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.85)", marginBottom: 4, flexShrink: 0 }}>
-                          {getTreatmentLabel(event.treatment_type)}
-                          {event.amount ? ` · €${event.amount}` : ""}
-                          {isDomicile && event.domicile_address ? ` · ${event.domicile_address}` : ""}
-                        </div>
-                        {/* Riga 4: azioni + status */}
-                        <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-                          <button title={isPaid ? "Pagato — annulla" : "Segna pagato"} onClick={e => { e.preventDefault(); e.stopPropagation(); togglePaidQuick(event.id, isPaid); }}
-                            style={{ background: isPaid ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.15)", border: `1px solid ${isPaid ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.3)"}`, borderRadius: 4, cursor: "pointer", padding: "2px 7px", fontSize: 12, display: "flex", alignItems: "center", gap: 2 }}>
-                            🪙{isPaid && <span style={{ fontSize: 10, fontWeight: 800, color: "#fff" }}>✓</span>}
-                          </button>
-                          {event.status !== "cancelled" && event.patient_phone && (
-                            <button title={waSent ? "Reinvia" : "Invia promemoria WA"} onClick={e => { e.preventDefault(); e.stopPropagation(); sendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined); }}
-                              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: 15, lineHeight: 1, opacity: waSent ? 1 : 0.6 }}>{waSent ? "🔕" : "🔔"}</button>
-                          )}
-                          <button title={isDone ? "Annulla eseguita" : "Segna eseguita"} onClick={e => { e.preventDefault(); e.stopPropagation(); if (bulkMode) toggleBulkSelect(event.id); else toggleDoneQuick(event.id, event.status); }}
-                            style={{ width: 22, height: 22, borderRadius: 99, border: `1.5px solid ${isDone ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.5)"}`, background: isDone ? "rgba(255,255,255,0.9)" : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: statusBg(event.status), fontSize: 12, fontWeight: 800 }}
-                          >{isDone || bulkSelected.has(event.id) ? "✓" : ""}</button>
-                          <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,0.22)", padding: "2px 8px", borderRadius: 99, whiteSpace: "nowrap" }}>
-                            {statusLabel(event.status)}
-                          </span>
-                        </div>
+                        {/* Layout due colonne: sx=bottoni, dx=testo — i bottoni non coprono mai il nome */}
+                        {(() => {
+                          const h = Math.max(height - 2, 20);
+
+                          // Sotto 22px: tutto inline, niente bottoni
+                          if (h < 22) {
+                            return (
+                              <div style={{ display:"flex", alignItems:"center", gap:4, overflow:"hidden", whiteSpace:"nowrap", width:"100%" }}>
+                                <span style={{ fontSize:9, fontWeight:700, color:"rgba(255,255,255,0.9)", flexShrink:0 }}>{fmtTime(event.start.toISOString())}</span>
+                                <span style={{ fontSize:10, fontWeight:800, color:"#fff", overflow:"hidden", textOverflow:"ellipsis" }}>{event.patient_name}</span>
+                                {isDomicile && <span style={{ fontSize:9, flexShrink:0 }}>🏠</span>}
+                              </div>
+                            );
+                          }
+
+                          // 22px+: layout due colonne
+                          // Bottoni fissi 12px — entrano sempre anche in 36px
+                          const BS = 12;
+
+                          return (
+                            <div style={{ display:"flex", gap:4, width:"100%", height:"100%", minWidth:0 }}>
+
+                              {/* COLONNA SINISTRA: 3 bottoni 12×12 sempre visibili */}
+                              <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"space-evenly", width:14, flexShrink:0, borderRight:"1px solid rgba(255,255,255,0.18)" }}>
+                                <button title={isPaid?"Pagato":"Segna pagato"} onClick={e=>{e.preventDefault();e.stopPropagation();togglePaidQuick(event.id,isPaid);}}
+                                  style={{ width:BS, height:BS, borderRadius:3, border:`1px solid ${isPaid?"rgba(255,255,255,0.8)":"rgba(255,255,255,0.35)"}`, background:isPaid?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.1)", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:8, padding:0, flexShrink:0 }}>
+                                  🪙
+                                </button>
+                                <button title={waSent?"Reinvia WA":"Invia WA"} onClick={e=>{e.preventDefault();e.stopPropagation();sendReminder(event.id,event.patient_phone??undefined,event.patient_first_name??undefined);}}
+                                  style={{ width:BS, height:BS, background:"none", border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, opacity:event.patient_phone?(waSent?1:0.55):0.2, padding:0, flexShrink:0 }}>
+                                  {waSent?"🔕":"🔔"}
+                                </button>
+                                <button title={isDone?"Annulla":"Eseguita"} onClick={e=>{e.preventDefault();e.stopPropagation();if(bulkMode)toggleBulkSelect(event.id);else toggleDoneQuick(event.id,event.status);}}
+                                  style={{ width:BS, height:BS, borderRadius:99, border:`1.5px solid ${isDone?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.45)"}`, background:isDone?"rgba(255,255,255,0.9)":"transparent", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", color:statusBg(event.status), fontSize:7, fontWeight:900, padding:0, flexShrink:0 }}>
+                                  {isDone||bulkSelected.has(event.id)?"✓":""}
+                                </button>
+                              </div>
+
+                              {/* COLONNA DESTRA: testo */}
+                              <div style={{ flex:1, minWidth:0, display:"flex", flexDirection:"column", justifyContent:"space-between", overflow:"hidden" }}>
+                                {/* Orario + badge */}
+                                <div style={{ display:"flex", alignItems:"center", gap:3, overflow:"hidden", flexShrink:0 }}>
+                                  <span style={{ fontSize:9, fontWeight:700, color:"rgba(255,255,255,0.85)", whiteSpace:"nowrap", flexShrink:0 }}>{fmtTime(event.start.toISOString())}–{fmtTime(event.end.toISOString())}</span>
+                                  {isDomicile&&<span style={{ fontSize:9, flexShrink:0 }}>🏠</span>}
+                                  {event.calendar_note?.startsWith("[WEB|")&&<span style={{ fontSize:7, background:"rgba(255,255,255,0.25)", borderRadius:2, padding:"1px 3px", fontWeight:800, flexShrink:0 }}>WEB</span>}
+                                  <span style={{ marginLeft:"auto", fontSize:7, fontWeight:700, color:"#fff", background:"rgba(255,255,255,0.2)", padding:"1px 4px", borderRadius:99, whiteSpace:"nowrap", flexShrink:0 }}>{statusLabel(event.status)}</span>
+                                </div>
+                                {/* Nome — sempre visibile e non coperto */}
+                                <div style={{ fontSize:h>=55?13:h>=36?11:10, fontWeight:800, color:"#fff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1, lineHeight:1.25, paddingTop:1 }} title={event.patient_name}>
+                                  {event.patient_name}
+                                </div>
+                                {/* Tipo + importo (solo se c'è spazio) */}
+                                {h >= 50 && (
+                                  <div style={{ fontSize:9, color:"rgba(255,255,255,0.82)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flexShrink:0 }}>
+                                    {getTreatmentLabel(event.treatment_type)}{event.amount?` · €${event.amount}`:""}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     );
                   })}
@@ -4873,7 +4887,7 @@ return (
                       
                       const currentHour = now.getHours();
                       const currentMinute = now.getMinutes();
-                      const topPosition = ((currentHour - 7) * 60 + currentMinute) * 2; // DAY_PX_PER_MIN=2
+                      const topPosition = ((currentHour - 7) * 60 + currentMinute) * 1; // DAY_PX_PER_MIN=1
                       
                       return (
                         <div

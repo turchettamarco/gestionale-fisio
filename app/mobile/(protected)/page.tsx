@@ -783,7 +783,7 @@ export default function MobileHomePage() {
           { href: "/mobile/calendar", label: "Calendario", icon: "▦" },
           { href: "/mobile/patients", label: "Pazienti",   icon: "◉" },
           { href: "/mobile/reports",  label: "Report",     icon: "◈" },
-          { href: "/noleggio",        label: "Noleggio",   icon: "🔌" },
+          { href: "/mobile/noleggio", label: "Noleggio",   icon: "🔌" },
           { href: "/mobile/settings", label: "Impost.",    icon: "⚙" },
         ].map(item => (
           <Link key={item.href} href={item.href} style={{
@@ -914,7 +914,7 @@ export default function MobileHomePage() {
           <div style={{ marginBottom: 12, background: "#fff", borderRadius: 12, border: `1px solid ${THEME.border}`, overflow: "hidden" }}>
             <div style={{ padding: "10px 14px", borderBottom: `1px solid ${THEME.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span style={{ fontWeight: 700, fontSize: 12, color: THEME.text }}>🔌 Noleggi in scadenza</span>
-              <a href="/noleggio" style={{ fontSize: 11, color: THEME.blue, fontWeight: 700, textDecoration: "none" }}>Gestisci →</a>
+              <a href="/mobile/noleggio" style={{ fontSize: 11, color: THEME.blue, fontWeight: 700, textDecoration: "none" }}>Gestisci →</a>
             </div>
             <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
               {noleggioExpiring.map(n => {
