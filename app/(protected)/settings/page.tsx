@@ -1280,14 +1280,39 @@ export default function SettingsPage() {
                   {exportingBackup?"Preparazione…":"↓ Scarica backup"}
                 </button>
               </div>
-              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:10, border:`1px solid ${THEME.border}`, background:THEME.panelSoft }}>
-                <div>
-                  <div style={{ fontWeight:700, fontSize:13, color:THEME.text }}>Google Calendar</div>
-                  <div style={{ fontSize:12, color:THEME.muted, marginTop:3 }}>Esporta gli appuntamenti della settimana corrente su Google Calendar.</div>
+              <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", padding:"14px 16px", borderRadius:10, border:`1px solid ${THEME.border}`, background:THEME.panelSoft, gap:16 }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:700, fontSize:13, color:THEME.text }}>Google Calendar — Feed automatico</div>
+                  <div style={{ fontSize:12, color:THEME.muted, marginTop:3, marginBottom:10 }}>
+                    Copia questo link e aggiungilo a Google Calendar come <strong>Calendario da URL</strong>. Si aggiorna automaticamente ogni 1-2 ore.
+                  </div>
+                  <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+                    <code style={{ fontSize:11, background:THEME.text, color:"#fff", padding:"5px 10px", borderRadius:6, userSelect:"all", wordBreak:"break-all" }}>
+                      {typeof window !== "undefined" ? `${window.location.origin}/api/calendar.ics` : "https://tuo-dominio.vercel.app/api/calendar.ics"}
+                    </code>
+                    <button
+                      onClick={() => {
+                        const url = `${window.location.origin}/api/calendar.ics`;
+                        navigator.clipboard.writeText(url).then(() => {
+                          flashSuccess("Link copiato!");
+                        });
+                      }}
+                      style={{ padding:"5px 12px", borderRadius:6, border:`1px solid ${THEME.blue}`, background:"rgba(37,99,235,0.06)", color:THEME.blue, fontWeight:700, fontSize:11, cursor:"pointer", flexShrink:0 }}
+                    >
+                      📋 Copia link
+                    </button>
+                    <a
+                      href={typeof window !== "undefined" ? `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(typeof window !== "undefined" ? `${window.location.origin}/api/calendar.ics` : "")}` : "#"}
+                      target="_blank" rel="noopener noreferrer"
+                      style={{ padding:"5px 12px", borderRadius:6, border:`1px solid ${THEME.teal}`, background:"rgba(13,148,136,0.06)", color:THEME.teal, fontWeight:700, fontSize:11, textDecoration:"none", flexShrink:0 }}
+                    >
+                      Apri Google Calendar →
+                    </a>
+                  </div>
+                  <div style={{ marginTop:10, fontSize:11, color:THEME.muted, lineHeight:1.6 }}>
+                    <strong>Come aggiungere:</strong> Apri Google Calendar → <em>+</em> accanto a "Altri calendari" → <em>Da URL</em> → incolla il link → <em>Aggiungi calendario</em>
+                  </div>
                 </div>
-                <a href="/calendar" style={{ padding:"9px 18px", borderRadius:7, border:`1px solid ${THEME.blue}`, background:"rgba(37,99,235,0.06)", color:THEME.blue, fontWeight:700, fontSize:13, textDecoration:"none", flexShrink:0 }}>
-                  Vai al Calendario →
-                </a>
               </div>
             </div>
           )}
