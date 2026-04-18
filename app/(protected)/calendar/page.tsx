@@ -2545,6 +2545,7 @@ return (
               { href: "/", label: "Home", icon: "⌂" },
               { href: "/calendar", label: "Calendario", icon: "▦", active: true },
               { href: "/reports", label: "Report", icon: "◈" },
+              { href: "/noleggio",  label: "Noleggio", icon: "🔌" },
               { href: "/patients", label: "Pazienti", icon: "◉" },
             ].map(item => (
               <Link key={item.href} href={item.href} style={{
@@ -2560,55 +2561,51 @@ return (
           </nav>
         </div>
 
-        {/* Center: Date title + Week selector + Print */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, justifyContent: "center", minWidth: 0 }}>
-          {/* Date title */}
-          <div style={{
-            fontWeight: 800, fontSize: 16, color: "#fff", letterSpacing: -0.3,
-            whiteSpace: "nowrap", flexShrink: 0,
-            textShadow: "0 1px 3px rgba(0,0,0,0.15)",
-          }}>
-            {viewType === "week"
-              ? `${formatDMY(weekDays[0])} – ${formatDMY(weekDays[5])}`
-              : viewType === "month"
-              ? (() => {
-                  const mesi = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"];
-                  return `${mesi[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
-                })()
-              : formatDMY(currentDate)}
-          </div>
+        {/* Center: Nav frecce + Titolo data + Selettore vista + Stampa */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, justifyContent: "center", minWidth: 0 }}>
 
-          {/* Week selector */}
-          <select
-            value={startOfISOWeekMonday(currentDate).toISOString()}
-            onChange={(e) => gotoWeekStart(e.target.value)}
-            className="mob-hide"
-            style={{
-              padding: "6px 28px 6px 10px",
-              borderRadius: 8,
-              border: "1.5px solid rgba(255,255,255,0.35)",
-              background: "rgba(255,255,255,0.18)",
-              color: "#fff",
-              fontWeight: 700,
-              outline: "none",
-              fontSize: 11,
-              height: 34,
-              maxWidth: 280,
-              appearance: "none" as const,
-              WebkitAppearance: "none" as const,
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' stroke='%23ffffff' stroke-width='1.5' fill='none'/%3E%3C/svg%3E")`,
-              backgroundRepeat: "no-repeat",
-              backgroundPosition: "right 8px center",
-              cursor: "pointer",
-              textShadow: "0 1px 2px rgba(0,0,0,0.1)",
-            }}
-          >
-            {weekOptions.map((o) => (
-              <option key={o.value} value={o.value} style={{ color: "#0f172a", background: "#fff" }}>
-                {o.label}
-              </option>
+          {/* Frecce navigazione */}
+          <button onClick={() => { if(viewType==="week") goToPreviousWeek(); else if(viewType==="month") goToPreviousMonth(); else setCurrentDate(d => { const x=new Date(d); x.setDate(x.getDate()-1); return x; }); }}
+            style={{ width:30, height:30, borderRadius:7, border:"1.5px solid rgba(255,255,255,0.35)", background:"rgba(255,255,255,0.15)", color:"#fff", cursor:"pointer", fontWeight:800, fontSize:14, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+            ‹
+          </button>
+
+          {/* Titolo + selettore settimana (solo in vista settimana) */}
+          {viewType === "week" ? (
+            <select value={startOfISOWeekMonday(currentDate).toISOString()} onChange={(e) => gotoWeekStart(e.target.value)}
+              className="mob-hide"
+              style={{ padding:"6px 28px 6px 10px", borderRadius:8, border:"1.5px solid rgba(255,255,255,0.35)", background:"rgba(255,255,255,0.18)", color:"#fff", fontWeight:700, outline:"none", fontSize:12, height:32, maxWidth:240, appearance:"none" as const, WebkitAppearance:"none" as const, backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' stroke='%23ffffff' stroke-width='1.5' fill='none'/%3E%3C/svg%3E")`, backgroundRepeat:"no-repeat", backgroundPosition:"right 8px center", cursor:"pointer", flexShrink:0 }}>
+              {weekOptions.map((o) => (<option key={o.value} value={o.value} style={{ color:"#0f172a", background:"#fff" }}>{o.label}</option>))}
+            </select>
+          ) : (
+            <div style={{ fontWeight:800, fontSize:15, color:"#fff", whiteSpace:"nowrap", flexShrink:0, textShadow:"0 1px 3px rgba(0,0,0,0.15)", minWidth:100, textAlign:"center" }}>
+              {viewType === "month"
+                ? (()=>{ const m=["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"]; return `${m[currentDate.getMonth()]} ${currentDate.getFullYear()}`; })()
+                : formatDMY(currentDate)}
+            </div>
+          )}
+
+          {/* Freccia avanti */}
+          <button onClick={() => { if(viewType==="week") goToNextWeek(); else if(viewType==="month") goToNextMonth(); else setCurrentDate(d => { const x=new Date(d); x.setDate(x.getDate()+1); return x; }); }}
+            style={{ width:30, height:30, borderRadius:7, border:"1.5px solid rgba(255,255,255,0.35)", background:"rgba(255,255,255,0.15)", color:"#fff", cursor:"pointer", fontWeight:800, fontSize:14, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+            ›
+          </button>
+
+          {/* Oggi */}
+          <button onClick={goToToday}
+            style={{ padding:"5px 12px", borderRadius:7, border:"1.5px solid rgba(255,255,255,0.35)", background:"rgba(255,255,255,0.15)", color:"#fff", cursor:"pointer", fontWeight:700, fontSize:11, flexShrink:0, whiteSpace:"nowrap" }}>
+            Oggi
+          </button>
+
+          {/* Selettore vista */}
+          <div style={{ display:"flex", gap:2, background:"rgba(255,255,255,0.12)", borderRadius:8, padding:2, flexShrink:0 }}>
+            {(["day","week","month"] as const).map(v => (
+              <button key={v} onClick={() => setViewType(v)}
+                style={{ padding:"4px 10px", borderRadius:6, border:"none", cursor:"pointer", fontSize:11, fontWeight:700, background:viewType===v?"rgba(255,255,255,0.9)":"transparent", color:viewType===v?"#1e40af":"rgba(255,255,255,0.85)", transition:"all 0.15s" }}>
+                {v==="day"?"Giorno":v==="week"?"Settimana":"Mese"}
+              </button>
             ))}
-          </select>
+          </div>
 
           {/* Print button */}
           <div ref={printMenuRef} style={{ position: "relative", flexShrink: 0, zIndex: 40 }}>
@@ -2739,42 +2736,14 @@ return (
           </div>
         </div>
 
-        {/* Right: Stats + Panel toggle + User */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          {/* Cmd+K hint */}
+        {/* Right: Ricerca + Notifiche + User */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          {/* Cmd+K */}
           <button
-            onClick={() => {
-              const event = new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true });
-              window.dispatchEvent(event);
-            }}
-            className="mob-hide"
-            title="Ricerca globale"
-            style={{
-              padding: "5px 12px", borderRadius: 8,
-              border: "1.5px solid rgba(255,255,255,0.25)",
-              background: "rgba(255,255,255,0.1)",
-              color: "rgba(255,255,255,0.75)",
-              cursor: "pointer", fontSize: 11, fontWeight: 700,
-              display: "flex", alignItems: "center", gap: 6,
-            }}
-          >
-            🔍 <kbd style={{ fontSize: 10, background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, padding: "0 4px" }}>⌘K</kbd>
-          </button>
-          <div className="mob-hide" style={{ display: "flex", gap: 6 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,0.2)", padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)" }}>
-              ✓ {stats.done}/{stats.total}
-            </span>
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,0.2)", padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)" }}>
-              € {stats.revenue}
-            </span>
-          </div>
-          <button onClick={() => setSidebarOpen(v => !v)} style={{
-            padding: "5px 12px", borderRadius: 8, border: "1.5px solid rgba(255,255,255,0.3)",
-            background: sidebarOpen ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.12)",
-            color: "#fff",
-            cursor: "pointer", fontSize: 11, fontWeight: 700,
-          }}>
-            {sidebarOpen ? "✕" : "☰"} Oggi
+            onClick={() => { const event = new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }); window.dispatchEvent(event); }}
+            className="mob-hide" title="Ricerca globale"
+            style={{ padding:"5px 10px", borderRadius:8, border:"1.5px solid rgba(255,255,255,0.25)", background:"rgba(255,255,255,0.1)", color:"rgba(255,255,255,0.75)", cursor:"pointer", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:5 }}>
+            🔍 <kbd style={{ fontSize:10, background:"rgba(255,255,255,0.15)", border:"1px solid rgba(255,255,255,0.2)", borderRadius:4, padding:"0 4px" }}>⌘K</kbd>
           </button>
           {/* Notification bell — richieste dal sito */}
           <button onClick={() => setBookingPanel(v => !v)} style={{

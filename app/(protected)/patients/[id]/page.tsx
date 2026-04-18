@@ -553,6 +553,7 @@ type AppointmentRow = {
   end_at: string;
   status: Status;
   is_paid: boolean;
+  amount: number | null;
   calendar_note: string | null;
 };
 
@@ -729,6 +730,8 @@ export default function PatientDetailPage({
   const [secDocClinici,   setSecDocClinici]   = useState(false);
   const [secTerapie,      setSecTerapie]      = useState(false);
   const [secGDPR,         setSecGDPR]         = useState(false);
+  const [secTimeline,     setSecTimeline]     = useState(false);
+  const [secEsercizi,     setSecEsercizi]     = useState(false);
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [consentSaving, setConsentSaving] = useState(false);
   const [consentSaved,  setConsentSaved]  = useState(false);
@@ -750,6 +753,23 @@ export default function PatientDetailPage({
   const [anamnesis,       setAnamnesis]       = useState("");
   const [diagnosis,       setDiagnosis]       = useState("");
   const [treatment,       setTreatment]       = useState("");
+
+  // ── Scheda Esercizi ───────────────────────────────────────────────────────
+  type Esercizio = {
+    id: string;
+    nome: string;
+    descrizione: string;
+    serie: string;
+    ripetizioni: string;
+    frequenza: string;
+    note: string;
+    avvertenze: string;
+  };
+  const [esercizi,       setEsercizi]       = useState<Esercizio[]>([]);
+  const [genLoading,     setGenLoading]     = useState(false);
+  const [genError,       setGenError]       = useState("");
+  const [eserciziNote,   setEserciziNote]   = useState("");
+  const [editingEx,      setEditingEx]      = useState<string|null>(null);
   const [savingClinical,  setSavingClinical]  = useState(false);
   const [showTreatmentDiary, setShowTreatmentDiary] = useState(true);
 
@@ -871,7 +891,7 @@ export default function PatientDetailPage({
     setError("");
     const res = await supabase
       .from("appointments")
-      .select("id, start_at, end_at, status, is_paid, calendar_note")
+      .select("id, start_at, end_at, status, is_paid, amount, calendar_note")
       .eq("patient_id", patientId)
       .order("start_at", { ascending: false });
     if (res.error) { setError(res.error.message); setAppointments([]); setLoadingAppts(false); return; }
@@ -1397,6 +1417,150 @@ ${footer}
     if (w) setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
 
+  // ── Scheda Esercizi — Genera con AI ──────────────────────────────────────
+  async function generaEserciziAI() {
+    if (!patient) return;
+    setGenLoading(true); setGenError("");
+    try {
+      const ctx = [
+        `Paziente: ${lastName} ${firstName}`,
+        bodyRegion ? `Zona corporea: ${bodyRegion}` : "",
+        side ? `Lato: ${side}` : "",
+        pathologyType ? `Tipo patologia: ${pathologyType}` : "",
+        mainComplaint ? `Disturbo principale: ${mainComplaint}` : "",
+        medicalDiagnosis ? `Diagnosi medica: ${medicalDiagnosis}` : "",
+        diagnosis ? `Diagnosi fisioterapica: ${diagnosis}` : "",
+        anamnesis ? `Anamnesi: ${anamnesis}` : "",
+        treatment ? `Trattamento in corso: ${treatment}` : "",
+        eserciziNote ? `Istruzioni aggiuntive: ${eserciziNote}` : "",
+      ].filter(Boolean).join("\n");
+
+      const response = await fetch("/api/ai-esercizi", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: `Sei un fisioterapista esperto. Genera un programma di esercizi domiciliari personalizzato per questo paziente:\n\n${ctx}\n\nRispondi SOLO con un array JSON, nessun testo aggiuntivo, nessun markdown. Formato esatto:\n[\n  {\n    "id": "1",\n    "nome": "Nome esercizio",\n    "descrizione": "Come eseguirlo in modo semplice per il paziente (2-3 frasi)",\n    "serie": "3",\n    "ripetizioni": "10",\n    "frequenza": "2 volte al giorno",\n    "note": "Indicazione tecnica per il paziente",\n    "avvertenze": "Fermarsi se..."\n  }\n]\n\nGenera 5-7 esercizi appropriati, in italiano, dal più semplice al più complesso. Tieni conto della diagnosi e della zona corporea.` }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Errore API");
+      const text = data.text ?? "";
+      const clean = text.replace(/```json|```/g, "").trim();
+      const parsed: Esercizio[] = JSON.parse(clean);
+      setEsercizi(parsed.map((e, i) => ({ ...e, id: e.id ?? String(i+1) })));
+    } catch(e: any) {
+      setGenError("Errore nella generazione. Riprova o aggiungi esercizi manualmente.");
+      console.error(e);
+    } finally {
+      setGenLoading(false);
+    }
+  }
+
+  function addEsercizioVuoto() {
+    const id = Date.now().toString();
+    setEsercizi(prev => [...prev, { id, nome:"", descrizione:"", serie:"3", ripetizioni:"10", frequenza:"1 volta al giorno", note:"", avvertenze:"" }]);
+    setEditingEx(id);
+  }
+
+  function updateEsercizio(id: string, field: keyof Esercizio, value: string) {
+    setEsercizi(prev => prev.map(e => e.id === id ? { ...e, [field]: value } : e));
+  }
+
+  function removeEsercizio(id: string) {
+    setEsercizi(prev => prev.filter(e => e.id !== id));
+  }
+
+  function moveEsercizio(id: string, dir: -1|1) {
+    setEsercizi(prev => {
+      const idx = prev.findIndex(e => e.id === id);
+      if (idx < 0) return prev;
+      const next = idx + dir;
+      if (next < 0 || next >= prev.length) return prev;
+      const arr = [...prev];
+      [arr[idx], arr[next]] = [arr[next], arr[idx]];
+      return arr;
+    });
+  }
+
+  function stampaEsercizi() {
+    if (!patient || esercizi.length === 0) return;
+    const oggi = new Date().toLocaleDateString("it-IT", { day:"2-digit", month:"long", year:"numeric" });
+    const rows = esercizi.map((e, i) => `
+      <div class="esercizio">
+        <div class="ex-header">
+          <span class="ex-num">${i+1}</span>
+          <span class="ex-nome">${e.nome}</span>
+          <span class="ex-params">${e.serie} serie × ${e.ripetizioni} ripetizioni &nbsp;·&nbsp; ${e.frequenza}</span>
+        </div>
+        <div class="ex-desc">${e.descrizione}</div>
+        ${e.note ? `<div class="ex-note">📌 ${e.note}</div>` : ""}
+        ${e.avvertenze ? `<div class="ex-warn">⚠️ ${e.avvertenze}</div>` : ""}
+      </div>
+    `).join("");
+
+    const html = `<!DOCTYPE html><html lang="it"><head><meta charset="utf-8">
+<title>Programma Esercizi — ${lastName} ${firstName}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Segoe UI',Arial,sans-serif;padding:32px 40px;color:#0f172a;background:#fff;font-size:13px;}
+  .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:18px;border-bottom:2.5px solid #0d9488;}
+  .logo{font-size:20px;font-weight:800;color:#0d9488;}.logo span{color:#2563eb;}
+  .studio{font-size:11px;color:#64748b;margin-top:4px;line-height:1.6;}
+  .doc-info{text-align:right;}
+  .doc-info h2{font-size:15px;font-weight:800;color:#0f172a;}
+  .doc-info .paziente{font-size:13px;color:#2563eb;font-weight:700;margin-top:3px;}
+  .doc-info .data{font-size:11px;color:#64748b;margin-top:2px;}
+  .intro{background:#f0fdf4;border-left:4px solid #0d9488;padding:10px 14px;border-radius:0 8px 8px 0;margin-bottom:24px;font-size:12px;color:#15803d;font-weight:600;}
+  .esercizio{margin-bottom:18px;padding:14px 16px;border:1.5px solid #e2e8f0;border-radius:10px;page-break-inside:avoid;}
+  .esercizio:nth-child(odd){background:#fafbff;}
+  .ex-header{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;}
+  .ex-num{width:24px;height:24px;border-radius:50%;background:#0d9488;color:#fff;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .ex-nome{font-weight:800;font-size:14px;color:#0f172a;flex:1;}
+  .ex-params{font-size:11px;font-weight:700;color:#2563eb;background:rgba(37,99,235,0.08);padding:3px 10px;border-radius:99px;white-space:nowrap;}
+  .ex-desc{font-size:12px;color:#334155;line-height:1.6;margin-bottom:6px;}
+  .ex-note{font-size:11px;color:#0d9488;background:rgba(13,148,136,0.06);padding:5px 10px;border-radius:6px;margin-bottom:4px;}
+  .ex-warn{font-size:11px;color:#dc2626;background:rgba(220,38,38,0.05);padding:5px 10px;border-radius:6px;}
+  .footer{margin-top:32px;padding-top:18px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:flex-end;}
+  .firma-box{border-bottom:1.5px solid #0f172a;width:200px;height:40px;margin-top:24px;}
+  .firma-label{font-size:10px;color:#64748b;margin-top:4px;}
+  .footer-info{font-size:10px;color:#94a3b8;line-height:1.8;}
+  @media print{body{padding:16px 20px;}button{display:none!important;}.esercizio{border-color:#cbd5e1;}}
+</style></head><body>
+<div class="header">
+  <div>
+    <div class="logo">Fisio<span>Hub</span></div>
+    <div class="studio">Dr. Marco Turchetta — Fisioterapista &amp; Osteopata<br>Via Galileo Galilei 5, 03037 Pontecorvo (FR)</div>
+  </div>
+  <div class="doc-info">
+    <h2>Programma Esercizi Domiciliari</h2>
+    <div class="paziente">${lastName} ${firstName}</div>
+    <div class="data">Emesso il ${oggi}</div>
+  </div>
+</div>
+<div class="intro">
+  Eseguire gli esercizi con attenzione, rispettando le indicazioni. In caso di dolore acuto o peggioramento dei sintomi, sospendere e contattare lo studio.
+</div>
+${rows}
+<div class="footer">
+  <div>
+    <div style="font-size:11px;color:#64748b;margin-bottom:4px;">Firma del paziente per presa visione</div>
+    <div class="firma-box"></div>
+    <div class="firma-label">Data: ___________</div>
+  </div>
+  <div class="footer-info">
+    Dr. Marco Turchetta — Fisioterapista &amp; Osteopata<br>
+    Via Galileo Galilei 5, Pontecorvo (FR)<br>
+    Documento generato il ${oggi}
+  </div>
+</div>
+<div style="text-align:center;margin-top:20px;">
+  <button onclick="window.print()" style="padding:10px 28px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">🖨️ Stampa / Salva PDF</button>
+</div>
+</body></html>`;
+
+    const w = window.open("", "_blank", "width=900,height=1000");
+    if (w) { w.document.write(html); w.document.close(); }
+  }
+
   // Genera e apri per stampa (firma a mano)
   function printConsentDoc(type: "privacy" | "consenso") {
     if (!patient) return;
@@ -1578,6 +1742,7 @@ ${footer}
               { href: "/",         label: "Home",       icon: "⌂",  active: false },
               { href: "/calendar", label: "Calendario", icon: "▦",  active: false },
               { href: "/reports",  label: "Report",     icon: "◈",  active: false },
+              { href: "/noleggio",  label: "Noleggio",   icon: "🔌",  active: false },
               { href: "/patients", label: "Pazienti",   icon: "◉",  active: true  },
             ] as const).map(item => (
               <Link key={item.href} href={item.href} style={{
@@ -2200,6 +2365,257 @@ ${footer}
             Nota: "Annullato" mantiene lo storico · se una seduta torna da "Eseguita" a un altro stato, il pagamento viene azzerato.
           </p>
           </div>
+          )}
+        </section>
+
+        {/* ── SCHEDA ESERCIZI ──────────────────────────────────────────────── */}
+        <section style={{ ...cardStyle }}>
+          <SecHeader
+            icon="🏋️"
+            title="Scheda Esercizi Domiciliari"
+            subtitle="Genera con AI · modifica · stampa PDF da consegnare al paziente"
+            open={secEsercizi}
+            onToggle={() => setSecEsercizi(s => !s)}
+            badge={!secEsercizi && esercizi.length > 0
+              ? <span style={{ background:"rgba(13,148,136,0.1)", color:THEME.teal, fontWeight:800, fontSize:12, borderRadius:99, padding:"2px 10px", border:"1px solid rgba(13,148,136,0.2)" }}>
+                  {esercizi.length} esercizi
+                </span>
+              : undefined}
+          />
+          {secEsercizi && (
+            <div style={cardBody}>
+
+              {/* Toolbar */}
+              <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
+                <div style={{ flex:1, minWidth:200 }}>
+                  <input
+                    value={eserciziNote}
+                    onChange={e => setEserciziNote(e.target.value)}
+                    placeholder="Istruzioni aggiuntive per l'AI (opzionale, es: solo esercizi in scarico, evitare rotazioni...)"
+                    style={{ width:"100%", padding:"8px 12px", borderRadius:8, border:`1.5px solid ${THEME.border}`, fontSize:12, fontWeight:500, color:THEME.text, background:"#fff", outline:"none" }}
+                  />
+                </div>
+                <button
+                  onClick={generaEserciziAI}
+                  disabled={genLoading}
+                  style={{ padding:"9px 18px", borderRadius:8, border:"none", background:`linear-gradient(135deg,#0d9488,#2563eb)`, color:"#fff", fontWeight:700, fontSize:13, cursor:genLoading?"wait":"pointer", opacity:genLoading?0.7:1, display:"flex", alignItems:"center", gap:8, flexShrink:0, boxShadow:"0 2px 8px rgba(13,148,136,0.25)" }}>
+                  {genLoading ? "⏳ Generando…" : "✨ Genera con AI"}
+                </button>
+                <button
+                  onClick={addEsercizioVuoto}
+                  style={{ padding:"9px 14px", borderRadius:8, border:`1.5px solid ${THEME.teal}`, background:"rgba(13,148,136,0.06)", color:THEME.teal, fontWeight:700, fontSize:13, cursor:"pointer", flexShrink:0 }}>
+                  + Aggiungi
+                </button>
+                {esercizi.length > 0 && (
+                  <button
+                    onClick={stampaEsercizi}
+                    style={{ padding:"9px 14px", borderRadius:8, border:`1.5px solid ${THEME.blue}`, background:"rgba(37,99,235,0.06)", color:THEME.blue, fontWeight:700, fontSize:13, cursor:"pointer", flexShrink:0 }}>
+                    🖨️ Stampa PDF
+                  </button>
+                )}
+              </div>
+
+              {genError && (
+                <div style={{ marginBottom:12, padding:"9px 14px", borderRadius:8, background:"rgba(220,38,38,0.05)", border:"1px solid rgba(220,38,38,0.2)", color:THEME.red, fontSize:12, fontWeight:600 }}>
+                  {genError}
+                </div>
+              )}
+
+              {genLoading && (
+                <div style={{ textAlign:"center", padding:"32px 0", color:THEME.teal }}>
+                  <div style={{ fontSize:32, marginBottom:12 }}>✨</div>
+                  <div style={{ fontSize:14, fontWeight:700 }}>Claude sta generando il programma…</div>
+                  <div style={{ fontSize:12, color:THEME.muted, marginTop:4 }}>Analizzando diagnosi, zona corporea e anamnesi del paziente</div>
+                </div>
+              )}
+
+              {!genLoading && esercizi.length === 0 && (
+                <div style={{ textAlign:"center", padding:"32px 0", color:THEME.muted }}>
+                  <div style={{ fontSize:40, marginBottom:12 }}>🏋️</div>
+                  <div style={{ fontSize:14, fontWeight:700, color:THEME.text, marginBottom:6 }}>Nessun esercizio ancora</div>
+                  <div style={{ fontSize:12 }}>Clicca <strong>"Genera con AI"</strong> per creare automaticamente un programma personalizzato basato sulla diagnosi del paziente, oppure aggiungi esercizi manualmente.</div>
+                </div>
+              )}
+
+              {/* Lista esercizi */}
+              {!genLoading && esercizi.length > 0 && (
+                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                  {esercizi.map((e, idx) => (
+                    <div key={e.id} style={{ border:`1.5px solid ${editingEx===e.id?THEME.teal:THEME.border}`, borderRadius:10, overflow:"hidden", background:editingEx===e.id?"rgba(13,148,136,0.02)":"#fff", transition:"border-color 0.15s" }}>
+                      {/* Header esercizio */}
+                      <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:THEME.panelSoft, borderBottom:`1px solid ${THEME.border}` }}>
+                        <div style={{ width:24, height:24, borderRadius:"50%", background:`linear-gradient(135deg,#0d9488,#2563eb)`, color:"#fff", fontWeight:800, fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{idx+1}</div>
+                        {editingEx === e.id ? (
+                          <input value={e.nome} onChange={ev => updateEsercizio(e.id,"nome",ev.target.value)} placeholder="Nome esercizio" style={{ flex:1, padding:"4px 8px", borderRadius:6, border:`1.5px solid ${THEME.teal}`, fontSize:13, fontWeight:700, outline:"none" }}/>
+                        ) : (
+                          <span style={{ flex:1, fontSize:13, fontWeight:800, color:THEME.text }}>{e.nome || <em style={{ color:THEME.muted }}>Esercizio senza nome</em>}</span>
+                        )}
+                        <div style={{ display:"flex", gap:4, flexShrink:0 }}>
+                          <button onClick={() => moveEsercizio(e.id,-1)} disabled={idx===0} style={{ width:24, height:24, borderRadius:5, border:`1px solid ${THEME.border}`, background:"#fff", cursor:"pointer", fontSize:11, opacity:idx===0?0.3:1 }}>↑</button>
+                          <button onClick={() => moveEsercizio(e.id,1)} disabled={idx===esercizi.length-1} style={{ width:24, height:24, borderRadius:5, border:`1px solid ${THEME.border}`, background:"#fff", cursor:"pointer", fontSize:11, opacity:idx===esercizi.length-1?0.3:1 }}>↓</button>
+                          <button onClick={() => setEditingEx(editingEx===e.id?null:e.id)} style={{ width:24, height:24, borderRadius:5, border:`1px solid ${editingEx===e.id?THEME.teal:THEME.border}`, background:editingEx===e.id?"rgba(13,148,136,0.1)":"#fff", cursor:"pointer", fontSize:11 }}>{editingEx===e.id?"✓":"✏️"}</button>
+                          <button onClick={() => removeEsercizio(e.id)} style={{ width:24, height:24, borderRadius:5, border:"1px solid rgba(220,38,38,0.3)", background:"rgba(220,38,38,0.05)", cursor:"pointer", fontSize:11, color:THEME.red }}>✕</button>
+                        </div>
+                      </div>
+
+                      {/* Body esercizio */}
+                      <div style={{ padding:"12px 14px", display:"grid", gap:8 }}>
+                        {editingEx === e.id ? (
+                          <>
+                            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
+                              {([["serie","Serie"],["ripetizioni","Ripetizioni"],["frequenza","Frequenza"]] as const).map(([f,l]) => (
+                                <div key={f}>
+                                  <label style={{ fontSize:10, fontWeight:700, color:THEME.muted, textTransform:"uppercase", letterSpacing:0.4, display:"block", marginBottom:3 }}>{l}</label>
+                                  <input value={e[f]} onChange={ev => updateEsercizio(e.id, f, ev.target.value)} style={{ width:"100%", padding:"6px 8px", borderRadius:6, border:`1.5px solid ${THEME.border}`, fontSize:12, outline:"none" }}/>
+                                </div>
+                              ))}
+                            </div>
+                            {([["descrizione","Descrizione esecuzione"],["note","Note tecniche"],["avvertenze","Avvertenze"]] as const).map(([f,l]) => (
+                              <div key={f}>
+                                <label style={{ fontSize:10, fontWeight:700, color:THEME.muted, textTransform:"uppercase", letterSpacing:0.4, display:"block", marginBottom:3 }}>{l}</label>
+                                <textarea value={e[f]} onChange={ev => updateEsercizio(e.id, f, ev.target.value)} rows={2} style={{ width:"100%", padding:"6px 8px", borderRadius:6, border:`1.5px solid ${THEME.border}`, fontSize:12, outline:"none", resize:"vertical", fontFamily:"inherit" }}/>
+                              </div>
+                            ))}
+                          </>
+                        ) : (
+                          <>
+                            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                              {[{l:"Serie",v:e.serie},{l:"Rip.",v:e.ripetizioni},{l:"Frequenza",v:e.frequenza}].map(k=>(
+                                <span key={k.l} style={{ fontSize:11, fontWeight:700, color:THEME.blue, background:"rgba(37,99,235,0.08)", padding:"2px 10px", borderRadius:99 }}>{k.l}: {k.v}</span>
+                              ))}
+                            </div>
+                            {e.descrizione && <div style={{ fontSize:12, color:THEME.text, lineHeight:1.6 }}>{e.descrizione}</div>}
+                            {e.note && <div style={{ fontSize:11, color:THEME.teal, background:"rgba(13,148,136,0.06)", padding:"5px 10px", borderRadius:6 }}>📌 {e.note}</div>}
+                            {e.avvertenze && <div style={{ fontSize:11, color:THEME.red, background:"rgba(220,38,38,0.05)", padding:"5px 10px", borderRadius:6 }}>⚠️ {e.avvertenze}</div>}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Bottone stampa in fondo se ci sono esercizi */}
+              {esercizi.length > 0 && (
+                <div style={{ marginTop:16, display:"flex", justifyContent:"flex-end", gap:10 }}>
+                  <button onClick={() => { if(confirm("Rigenerare con AI? Gli esercizi attuali verranno sostituiti.")) generaEserciziAI(); }} disabled={genLoading}
+                    style={{ padding:"9px 16px", borderRadius:8, border:`1.5px solid ${THEME.teal}`, background:"rgba(13,148,136,0.06)", color:THEME.teal, fontWeight:700, fontSize:13, cursor:"pointer" }}>
+                    ↺ Rigenera
+                  </button>
+                  <button onClick={stampaEsercizi}
+                    style={{ padding:"9px 20px", borderRadius:8, border:"none", background:`linear-gradient(135deg,#0d9488,#2563eb)`, color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer", boxShadow:"0 2px 8px rgba(13,148,136,0.2)" }}>
+                    🖨️ Stampa PDF da consegnare al paziente
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* ── TIMELINE PAZIENTE ────────────────────────────────────────────── */}
+        <section style={{ ...cardStyle }}>
+          <SecHeader
+            icon="📈"
+            title="Timeline sedute"
+            subtitle="Andamento visivo di tutti gli appuntamenti nel tempo"
+            open={secTimeline}
+            onToggle={() => setSecTimeline(s => !s)}
+            badge={!secTimeline && appointments.length > 0
+              ? <span style={{ background:"rgba(13,148,136,0.1)", color:THEME.teal, fontWeight:800, fontSize:12, borderRadius:99, padding:"2px 10px", border:"1px solid rgba(13,148,136,0.2)" }}>
+                  {appointments.length} sedute
+                </span>
+              : undefined}
+          />
+          {secTimeline && (
+            <div style={cardBody}>
+              {appointments.length === 0 ? (
+                <div style={{ fontSize:13, color:THEME.muted, fontWeight:600 }}>Nessuna seduta trovata.</div>
+              ) : (() => {
+                // Raggruppa per mese
+                const byMonth = new Map<string, typeof appointments>();
+                [...appointments].sort((a,b) => new Date(a.start_at).getTime()-new Date(b.start_at).getTime()).forEach(a => {
+                  const d = new Date(a.start_at);
+                  const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+                  if (!byMonth.has(key)) byMonth.set(key, []);
+                  byMonth.get(key)!.push(a);
+                });
+                const mesi = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+                const statusC: Record<string,string> = { done:"#16a34a", confirmed:"#2563eb", booked:"#f97316", cancelled:"#dc2626", not_paid:"#7c3aed" };
+                const totalDone = appointments.filter(a=>a.status==="done").length;
+                const totalRev  = appointments.filter(a=>a.status==="done").reduce((s,a)=>s+(a.amount??0),0);
+                const firstDate = new Date(appointments[appointments.length-1]?.start_at ?? new Date());
+                const lastDate  = new Date(appointments[0]?.start_at ?? new Date());
+                const months    = Math.max(1, Math.round((lastDate.getTime()-firstDate.getTime())/2629800000)+1);
+
+                return (
+                  <>
+                    {/* KPI strip */}
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:20 }}>
+                      {[
+                        { l:"Sedute totali",   v:appointments.length, c:THEME.teal },
+                        { l:"Eseguite",        v:totalDone, c:THEME.green },
+                        { l:"Incasso totale",  v:`€${Math.round(totalRev)}`, c:THEME.blue },
+                        { l:"Media/mese",      v:(totalDone/months).toFixed(1), c:THEME.amber },
+                      ].map(k=>(
+                        <div key={k.l} style={{ padding:"12px 14px", borderRadius:10, border:`1px solid ${k.c}22`, background:`${k.c}08`, textAlign:"center" }}>
+                          <div style={{ fontSize:20, fontWeight:800, color:k.c }}>{k.v}</div>
+                          <div style={{ fontSize:10, color:THEME.muted, fontWeight:600, marginTop:2 }}>{k.l}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Timeline per mese */}
+                    <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
+                      {Array.from(byMonth.entries()).reverse().map(([key, appts]) => {
+                        const [yr, mo] = key.split("-");
+                        const label = `${mesi[parseInt(mo)-1]} ${yr}`;
+                        const done = appts.filter(a=>a.status==="done");
+                        const rev  = done.reduce((s,a)=>s+(a.amount??0),0);
+                        const maxPerMonth = Math.max(...Array.from(byMonth.values()).map(v=>v.length));
+                        const barW = Math.round((appts.length/maxPerMonth)*100);
+
+                        return (
+                          <div key={key} style={{ display:"flex", alignItems:"flex-start", gap:14, padding:"10px 0", borderBottom:`1px solid ${THEME.border}` }}>
+                            {/* Label mese */}
+                            <div style={{ width:70, flexShrink:0, paddingTop:6 }}>
+                              <div style={{ fontSize:12, fontWeight:700, color:THEME.text }}>{label}</div>
+                              <div style={{ fontSize:10, color:THEME.muted }}>{appts.length} sedute</div>
+                            </div>
+                            {/* Barra + dot sedute */}
+                            <div style={{ flex:1, minWidth:0 }}>
+                              {/* Barra progresso */}
+                              <div style={{ height:8, background:"rgba(13,148,136,0.1)", borderRadius:4, marginBottom:8, overflow:"hidden" }}>
+                                <div style={{ height:"100%", width:`${barW}%`, background:`linear-gradient(90deg,#0d9488,#2563eb)`, borderRadius:4, transition:"width 0.3s" }}/>
+                              </div>
+                              {/* Dot per ogni seduta */}
+                              <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
+                                {appts.map(a=>{
+                                  const d=new Date(a.start_at);
+                                  const col=statusC[a.status]??"#94a3b8";
+                                  return (
+                                    <div key={a.id} title={`${d.toLocaleDateString("it-IT")} ${d.toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})} — ${a.status}${a.amount?` — €${a.amount}`:""}`}
+                                      style={{ width:28, height:28, borderRadius:6, background:`${col}18`, border:`1.5px solid ${col}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"default" }}>
+                                      <span style={{ fontSize:9, fontWeight:700, color:col }}>{d.getDate()}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                            {/* Incasso mese */}
+                            {rev > 0 && (
+                              <div style={{ flexShrink:0, textAlign:"right", paddingTop:4 }}>
+                                <div style={{ fontSize:13, fontWeight:800, color:THEME.green }}>€{Math.round(rev)}</div>
+                                <div style={{ fontSize:9, color:THEME.muted }}>incassato</div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
           )}
         </section>
 

@@ -205,6 +205,88 @@ export default function NoleggioPage() {
     setNoleggios(p=>p.filter(n=>n.id!==id));
   }
 
+  function sendWAScadenza(n: NoleggioRow) {
+    if (!n.patient_phone) { alert("Nessun numero di telefono per questo paziente."); return; }
+    const dr = getDaysRemaining(n.end_date);
+    const scad = new Date(n.end_date+"T12:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"numeric"});
+    let msg = "";
+    if (dr < 0) {
+      msg = `Gentile ${n.patient_name},\nLe ricordiamo che il noleggio del dispositivo *${n.device_name}* è scaduto il ${scad}.\nLa preghiamo di contattarci per la restituzione.\nGrazie, Dr. Marco Turchetta`;
+    } else if (dr === 0) {
+      msg = `Gentile ${n.patient_name},\nLe ricordiamo che il noleggio del dispositivo *${n.device_name}* scade *oggi*.\nPer informazioni o proroga contatti lo studio.\nGrazie, Dr. Marco Turchetta`;
+    } else {
+      msg = `Gentile ${n.patient_name},\nLe ricordiamo che il noleggio del dispositivo *${n.device_name}* scadrà il *${scad}* (tra ${dr} giorni).\nPer informazioni o proroga contatti lo studio.\nGrazie, Dr. Marco Turchetta`;
+    }
+    let phone = n.patient_phone.replace(/[\s\(\)\-\.]/g,"").replace(/^\+/,"");
+    if (phone.startsWith("0")) phone = "39" + phone;
+    else if (!phone.startsWith("39")) phone = "39" + phone;
+    const url = `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`;
+    const a = document.createElement("a");
+    a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }
+
+  function printRicevuta(n: NoleggioRow) {
+    const scadStr = new Date(n.end_date+"T12:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"numeric"});
+    const startStr = new Date(n.start_date+"T12:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"numeric"});
+    const oggi = new Date().toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"numeric"});
+    const days = diffDays(n.start_date, n.end_date);
+    const html = `<!DOCTYPE html><html lang="it"><head><meta charset="utf-8"><title>Ricevuta Noleggio</title>
+<style>
+  body{font-family:'Segoe UI',Arial,sans-serif;margin:0;padding:40px;color:#0f172a;background:#fff;}
+  .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:32px;padding-bottom:20px;border-bottom:2px solid #0d9488;}
+  .logo{font-size:22px;font-weight:800;color:#0d9488;letter-spacing:-0.5px;}
+  .logo span{color:#2563eb;}
+  .doc-title{font-size:14px;font-weight:700;color:#334155;text-align:right;}
+  .doc-num{font-size:11px;color:#64748b;margin-top:3px;}
+  h2{font-size:16px;font-weight:700;color:#0f172a;margin:0 0 16px;padding-bottom:8px;border-bottom:1px solid #e2e8f0;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:28px;}
+  .field label{font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px;}
+  .field span{font-size:14px;font-weight:600;color:#0f172a;}
+  .total-box{background:#f0fdf4;border:2px solid #16a34a;border-radius:10px;padding:20px 24px;display:flex;justify-content:space-between;align-items:center;margin:24px 0;}
+  .total-box .label{font-size:13px;font-weight:700;color:#15803d;}
+  .total-box .amount{font-size:28px;font-weight:800;color:#15803d;}
+  .detail{font-size:11px;color:#64748b;margin-top:4px;}
+  .footer{margin-top:40px;padding-top:20px;border-top:1px solid #e2e8f0;font-size:11px;color:#64748b;text-align:center;line-height:1.8;}
+  .paid-badge{display:inline-block;background:#dcfce7;color:#15803d;font-weight:800;font-size:11px;padding:3px 10px;border-radius:99px;border:1px solid #86efac;margin-left:10px;}
+  .unpaid-badge{display:inline-block;background:#fef3c7;color:#92400e;font-weight:800;font-size:11px;padding:3px 10px;border-radius:99px;border:1px solid #fde68a;margin-left:10px;}
+  @media print{body{padding:20px;}button{display:none!important;}}
+</style></head><body>
+<div class="header">
+  <div><div class="logo">Fisio<span>Hub</span></div><div style="font-size:12px;color:#64748b;margin-top:4px;">Dr. Marco Turchetta<br>Fisioterapista &amp; Osteopata<br>Via Galileo Galilei 5, Pontecorvo (FR)</div></div>
+  <div><div class="doc-title">RICEVUTA NOLEGGIO</div><div class="doc-num">Data emissione: ${oggi}</div>${n.is_paid?'<div class="paid-badge">✓ PAGATO</div>':'<div class="unpaid-badge">⏳ DA PAGARE</div>'}</div>
+</div>
+<h2>Dati paziente</h2>
+<div class="grid">
+  <div class="field"><label>Cognome e Nome</label><span>${n.patient_name}</span></div>
+  ${n.patient_phone?`<div class="field"><label>Telefono</label><span>${n.patient_phone}</span></div>`:"<div></div>"}
+</div>
+<h2>Dettaglio noleggio</h2>
+<div class="grid">
+  <div class="field"><label>Dispositivo</label><span>${n.device_name}</span></div>
+  <div class="field"><label>Prezzo al giorno</label><span>€ ${n.price_per_day.toFixed(2)}</span></div>
+  <div class="field"><label>Data inizio</label><span>${startStr}</span></div>
+  <div class="field"><label>Data fine / scadenza</label><span>${scadStr}</span></div>
+  <div class="field"><label>Durata totale</label><span>${days} giorni</span></div>
+</div>
+<div class="total-box">
+  <div><div class="label">Totale da pagare</div><div class="detail">${days} giorni × €${n.price_per_day.toFixed(2)}/giorno</div></div>
+  <div class="amount">€ ${n.total_amount.toFixed(2)}</div>
+</div>
+${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;border-left:3px solid #0d9488;font-size:12px;color:#334155;margin-bottom:16px;"><strong>Note:</strong> ${n.notes}</div>`:""}
+<div style="text-align:center;margin:24px 0;">
+  <button onclick="window.print()" style="padding:10px 28px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">🖨️ Stampa / Salva PDF</button>
+</div>
+<div class="footer">
+  Dr. Marco Turchetta — Fisioterapista & Osteopata<br>
+  Via Galileo Galilei 5, 03037 Pontecorvo (FR) — Tel: disponibile su richiesta<br>
+  Documento generato il ${oggi}
+</div>
+</body></html>`;
+    const w = window.open("","_blank","width=800,height=900");
+    if(w){ w.document.write(html); w.document.close(); }
+  }
+
   async function saveSettings() {
     const wd = parseInt(warningInput)||3;
     const pd = parseFloat(priceInput)||5;
@@ -476,6 +558,14 @@ export default function NoleggioPage() {
                 </button>
                 <button onClick={()=>toggleReturned(n.id,n.is_returned)} style={{ padding:"6px 10px", borderRadius:6, border:`1px solid ${n.is_returned?THEME.teal:THEME.border}`, background:n.is_returned?"rgba(13,148,136,0.1)":"#fff", color:n.is_returned?THEME.teal:THEME.muted, cursor:"pointer", fontWeight:700, fontSize:11 }}>
                   {n.is_returned?"✓ Reso":"Segna reso"}
+                </button>
+                {n.patient_phone && (
+                  <button onClick={()=>sendWAScadenza(n)} style={{ padding:"6px 10px", borderRadius:6, border:`1px solid rgba(37,211,102,0.4)`, background:"rgba(37,211,102,0.06)", color:"#16a34a", cursor:"pointer", fontWeight:700, fontSize:11 }}>
+                    💬 WA scadenza
+                  </button>
+                )}
+                <button onClick={()=>printRicevuta(n)} style={{ padding:"6px 10px", borderRadius:6, border:`1px solid ${THEME.blue}22`, background:"rgba(37,99,235,0.05)", color:THEME.blue, cursor:"pointer", fontWeight:700, fontSize:11 }}>
+                  🖨️ Ricevuta
                 </button>
                 <button onClick={()=>deleteNoleggio(n.id)} style={{ padding:"6px 10px", borderRadius:6, border:`1px solid rgba(220,38,38,0.25)`, background:"rgba(220,38,38,0.04)", color:THEME.red, cursor:"pointer", fontWeight:700, fontSize:11 }}>
                   Elimina

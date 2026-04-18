@@ -470,6 +470,7 @@ export default function PatientsPage() {
               { href: "/",         label: "Home",       icon: "⌂",  active: false },
               { href: "/calendar", label: "Calendario", icon: "▦",  active: false },
               { href: "/reports",  label: "Report",     icon: "◈",  active: false },
+              { href: "/noleggio",  label: "Noleggio",   icon: "🔌",  active: false },
               { href: "/patients", label: "Pazienti",   icon: "◉",  active: true  },
             ] as const).map(item => (
               <Link key={item.href} href={item.href} style={{

@@ -134,6 +134,18 @@ export default function ReportsPage(){
   // ref per annullare chiamate in corso se period/date cambiano prima che finiscano
   const loadIdRef = useRef(0);
 
+  // Carica obiettivo fatturato dalle impostazioni all'avvio
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const{data:{user}}=await supabase.auth.getUser();
+        if(!user)return;
+        const{data}=await supabase.from("practice_settings").select("monthly_revenue_goal").eq("owner_id",user.id).maybeSingle();
+        if(data?.monthly_revenue_goal){ setGoal(data.monthly_revenue_goal); setGoalInput(String(data.monthly_revenue_goal)); }
+      }catch(e){ console.warn(e); }
+    })();
+  },[]);
+
   // ─── Load ──────────────────────────────────────────────────────────────────
   async function loadData(){
     const currentId = ++loadIdRef.current;

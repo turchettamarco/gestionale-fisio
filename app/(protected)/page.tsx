@@ -242,14 +242,14 @@ export default function HomePage() {
   useEffect(()=>{ void fetchWebBookings(); },[fetchWebBookings]);
 
   // ── Noleggio scadenze ────────────────────────────────────────────────────
-  const [noleggioExpiring, setNoleggioExpiring] = useState<{id:string;patient_name:string;end_date:string;device_name:string;days_remaining:number}[]>([]);
+  const [noleggioExpiring, setNoleggioExpiring] = useState<{id:string;patient_name:string;end_date:string;device_name:string;days_remaining:number;patient_phone:string|null}[]>([]);
   const [noleggioWarningDays, setNoleggioWarningDays] = useState(3);
   useEffect(()=>{
     (async()=>{
       try{
         const{data:cfg}=await supabase.from("noleggio_settings").select("warning_days").maybeSingle();
         const wd=cfg?.warning_days??3; setNoleggioWarningDays(wd);
-        const{data}=await supabase.from("noleggios").select("id,patient_name,end_date,device_name").eq("is_returned",false).order("end_date",{ascending:true});
+        const{data}=await supabase.from("noleggios").select("id,patient_name,end_date,device_name,patient_phone").eq("is_returned",false).order("end_date",{ascending:true});
         const today=new Date(); today.setHours(0,0,0,0);
         const expiring=(data||[]).map((n:any)=>{
           const end=new Date(n.end_date+"T00:00:00"); 
@@ -1110,6 +1110,14 @@ export default function HomePage() {
                   const urgent=n.days_remaining===0;
                   const col=expired?THEME.red:urgent?THEME.red:THEME.amber;
                   const bg=expired?"rgba(220,38,38,0.05)":urgent?"rgba(220,38,38,0.05)":"rgba(249,115,22,0.05)";
+                  function sendWA(){
+                    const ph=n.patient_phone; if(!ph) return;
+                    const scad=new Date(n.end_date+"T12:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"numeric"});
+                    const msg=expired?`Gentile ${n.patient_name},\nLe ricordiamo che il noleggio del dispositivo *${n.device_name}* è scaduto il ${scad}.\nLa preghiamo di contattarci per la restituzione.\nGrazie, Dr. Marco Turchetta`:`Gentile ${n.patient_name},\nLe ricordiamo che il noleggio del dispositivo *${n.device_name}* scadrà il *${scad}*${n.days_remaining>0?` (tra ${n.days_remaining} giorni)`:""  }.\nPer informazioni contatti lo studio.\nGrazie, Dr. Marco Turchetta`;
+                    let phone=ph.replace(/[\s\(\)\-\.]/g,"").replace(/^\+/,"");
+                    if(phone.startsWith("0"))phone="39"+phone; else if(!phone.startsWith("39"))phone="39"+phone;
+                    const a=document.createElement("a"); a.href=`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`; a.target="_blank"; a.rel="noopener noreferrer"; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                  }
                   return (
                     <div key={n.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:8,background:bg,border:`1px solid ${col}22`,marginBottom:i<noleggioExpiring.length-1?6:0}}>
                       <span style={{fontSize:16,flexShrink:0}}>{expired?"⛔":urgent?"🚨":"⏳"}</span>
@@ -1125,6 +1133,9 @@ export default function HomePage() {
                           {new Date(n.end_date+"T12:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit"})}
                         </div>
                       </div>
+                      {n.patient_phone && (
+                        <button onClick={sendWA} title="Invia WA scadenza" style={{width:28,height:28,borderRadius:6,border:"1px solid rgba(37,211,102,0.4)",background:"rgba(37,211,102,0.08)",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>💬</button>
+                      )}
                     </div>
                   );
                 })
