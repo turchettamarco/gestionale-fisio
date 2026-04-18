@@ -25,13 +25,19 @@ function escapeICS(str: string): string {
 }
 
 function toICSDate(iso: string): string {
-  // Converte ISO 8601 → formato ICS con timezone Roma
-  // Es: "2026-04-17T09:00:00" → "20260417T090000"
-  return iso
-    .replace(/[-:]/g, "")
-    .replace(/\.\d{3}Z?$/, "")
-    .replace("T", "T")
-    .slice(0, 15);
+  // Converte ISO 8601 UTC → ora locale Europe/Rome per ICS con TZID
+  // Supabase restituisce UTC (es. "2026-04-17T09:00:00+00:00")
+  // Google Calendar con TZID=Europe/Rome si aspetta l'orario LOCALE italiano
+  const d = new Date(iso);
+  // Formatta in timezone Europe/Rome
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Rome",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const get = (t: string) => parts.find(p => p.type === t)?.value ?? "00";
+  return `${get("year")}${get("month")}${get("day")}T${get("hour").replace("24","00")}${get("minute")}${get("second")}`;
 }
 
 function foldLine(line: string): string {
@@ -131,20 +137,17 @@ export async function GET(req: NextRequest) {
         ? `${patient.last_name || ""} ${patient.first_name || ""}`.trim()
         : "Paziente";
 
-      // Titolo evento
-      const treatLabel: Record<string, string> = {
-        seduta: "Seduta",
-        macchinario: "Macchinario",
-        laser: "Laser",
-        tecar: "Tecar",
-        onde_urto: "Onde d'urto",
-        tens: "TENS",
-      };
-      const treat = treatLabel[appt.treatment_type as string] || "Seduta";
       const isDomicile = appt.location === "domicile";
       const summary = isDomicile
-        ? `🏠 ${patientName} — ${treat}`
-        : `${patientName} — ${treat}`;
+        ? `🏠 ${patientName}`
+        : patientName;
+
+      // Titolo evento
+      const treatLabel: Record<string, string> = {
+        seduta: "Seduta", macchinario: "Macchinario", laser: "Laser",
+        tecar: "Tecar", onde_urto: "Onde d'urto", tens: "TENS",
+      };
+      const treat = treatLabel[appt.treatment_type as string] || "Seduta";
 
       // Location
       const location = isDomicile
