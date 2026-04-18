@@ -57,19 +57,30 @@ export async function GET(req: NextRequest) {
     const to = new Date();
     to.setDate(to.getDate() + 365);
 
+    // Query appuntamenti senza join per evitare problemi RLS
     const { data: appointments, error } = await supabase
       .from("appointments")
-      .select(`
-        id, start_at, end_at, status, location, clinic_site,
-        domicile_address, treatment_type, amount, calendar_note,
-        patients:patient_id (first_name, last_name, phone)
-      `)
+      .select("id, start_at, end_at, status, location, clinic_site, domicile_address, treatment_type, amount, calendar_note, patient_id")
       .gte("start_at", from.toISOString())
       .lte("start_at", to.toISOString())
       .neq("status", "cancelled")
       .order("start_at", { ascending: true });
 
+    console.log("[calendar.ics] appointments count:", appointments?.length, "error:", error?.message);
+    console.log("[calendar.ics] using key type:", process.env.SUPABASE_SERVICE_ROLE_KEY ? "service_role" : "anon");
     if (error) throw error;
+
+    // Carica pazienti separatamente
+    const patientIds = [...new Set((appointments||[]).map(a => a.patient_id).filter(Boolean))];
+    let patientsMap: Record<string, {first_name:string|null; last_name:string|null; phone:string|null}> = {};
+    if (patientIds.length > 0) {
+      const { data: pts } = await supabase
+        .from("patients")
+        .select("id, first_name, last_name, phone")
+        .in("id", patientIds);
+      (pts||[]).forEach((p:any) => { patientsMap[p.id] = p; });
+    }
+    console.log("[calendar.ics] patients loaded:", Object.keys(patientsMap).length);
 
     // Carica nome studio per il calendario
     const { data: settings } = await supabase
@@ -114,9 +125,7 @@ export async function GET(req: NextRequest) {
     ];
 
     for (const appt of appointments || []) {
-      const patient = Array.isArray(appt.patients)
-        ? appt.patients[0]
-        : (appt.patients as any);
+      const patient = appt.patient_id ? patientsMap[appt.patient_id] : null;
 
       const patientName = patient
         ? `${patient.last_name || ""} ${patient.first_name || ""}`.trim()
