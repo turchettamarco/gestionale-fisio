@@ -1448,7 +1448,7 @@ ${footer}
       const parsed: Esercizio[] = JSON.parse(clean);
       setEsercizi(parsed.map((e, i) => ({ ...e, id: e.id ?? String(i+1) })));
     } catch(e: any) {
-      setGenError("Errore nella generazione. Riprova o aggiungi esercizi manualmente.");
+      setGenError(`Errore: ${e?.message ?? "sconosciuto"}. Controlla che GEMINI_API_KEY sia configurata su Vercel.`);
       console.error(e);
     } finally {
       setGenLoading(false);
