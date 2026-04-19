@@ -764,7 +764,8 @@ export default function PatientDetailPage({
     frequenza: string;
     note: string;
     avvertenze: string;
-    youtube_query?: string;
+    youtube_id?: string;   // ID video YouTube (es. "dQw4w9WgXcQ")
+    categoria?: string;    // stretching | rinforzo | mobilita | respirazione | equilibrio
   };
   const [esercizi,       setEsercizi]       = useState<Esercizio[]>([]);
   const [pubLink,        setPubLink]        = useState("");
@@ -1441,20 +1442,43 @@ ${footer}
       const response = await fetch("/api/ai-esercizi", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: `Sei un fisioterapista esperto. Genera esattamente 5 esercizi domiciliari personalizzati per questo paziente:\n\n${ctx}\n\nRispondi SOLO con un array JSON valido e completo, senza testo aggiuntivo, senza markdown. Formato:\n[{"id":"1","nome":"Nome esercizio","descrizione":"Come eseguirlo (1-2 frasi semplici per il paziente)","serie":"3","ripetizioni":"10","frequenza":"1 volta al giorno","note":"Indicazione tecnica","avvertenze":"Fermarsi se...","youtube_query":"nome esercizio fisioterapia tutorial"}]\nGenera esattamente 5 esercizi adatti alla diagnosi, in italiano.` }),
+        body: JSON.stringify({ prompt: `Sei un fisioterapista esperto. Genera esattamente 5 esercizi domiciliari per questo paziente:
+
+${ctx}
+
+Rispondi SOLO con un array JSON valido, senza testo aggiuntivo, senza markdown.
+Per youtube_id metti l'ID reale di un video YouTube di fisioterapia/riabilitazione per quell'esercizio (solo l'ID, es: "abc123xyz"). Per categoria scegli tra: stretching, rinforzo, mobilita, respirazione, equilibrio.
+
+[{"id":"1","nome":"","descrizione":"Come eseguirlo (1-2 frasi)","serie":"3","ripetizioni":"10","frequenza":"1 volta al giorno","note":"","avvertenze":"Fermarsi se...","youtube_id":"ID_VIDEO_YOUTUBE","categoria":"stretching"}]
+
+Genera 5 esercizi in italiano adatti alla diagnosi.` }),
       });
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Errore API");
       const text = data.text ?? "";
       const clean = text.replace(/```json|```/g, "").trim();
-      // Estrai solo il JSON array anche se Gemini aggiunge testo extra
+      // Estrai solo il JSON array anche se Claude aggiunge testo extra
       const match = clean.match(/\[[\s\S]*\]/);
       if (!match) throw new Error("Nessun array JSON trovato nella risposta AI");
       const parsed: Esercizio[] = JSON.parse(match[0]);
-      setEsercizi(parsed.map((e, i) => ({ ...e, id: e.id ?? String(i+1) })));
+      const withIds = parsed.map((e, i) => ({ ...e, id: e.id ?? String(i+1) }));
+      setEsercizi(withIds);
+
+      // Cerca automaticamente i video YouTube per ogni esercizio
+      setGenError(""); 
+      const withVideos = await Promise.all(withIds.map(async (e) => {
+        try {
+          const q = e.nome + (e.categoria ? ` ${e.categoria}` : "");
+          const res = await fetch(`/api/youtube-search?q=${encodeURIComponent(q)}`);
+          const data = await res.json();
+          if (data.videoId) return { ...e, youtube_id: data.videoId };
+        } catch {}
+        return e;
+      }));
+      setEsercizi(withVideos);
     } catch(e: any) {
-      setGenError(`Errore: ${e?.message ?? "sconosciuto"}. Controlla che GEMINI_API_KEY sia configurata su Vercel.`);
+      setGenError(`Errore: ${e?.message ?? "sconosciuto"}.`);
       console.error(e);
     } finally {
       setGenLoading(false);
@@ -1500,7 +1524,7 @@ ${footer}
         <div class="ex-desc">${e.descrizione}</div>
         ${e.note ? `<div class="ex-note">📌 ${e.note}</div>` : ""}
         ${e.avvertenze ? `<div class="ex-warn">⚠️ ${e.avvertenze}</div>` : ""}
-        ${e.youtube_query ? `<div class="ex-video">▶ Video: <a href="https://www.youtube.com/results?search_query=${encodeURIComponent(e.youtube_query)}" style="color:#dc2626">youtube.com → cerca "${e.youtube_query}"</a></div>` : ""}
+        ${(e as any).youtube_id ? `<div class="ex-video">▶ Video dimostrativo: <a href="https://www.youtube.com/watch?v=${(e as any).youtube_id}" style="color:#dc2626">youtube.com/watch?v=${(e as any).youtube_id}</a></div>` : ""}
       </div>
     `).join("");
 
@@ -2487,7 +2511,7 @@ ${rows}
                 <div style={{ textAlign:"center", padding:"32px 0", color:THEME.teal }}>
                   <div style={{ fontSize:32, marginBottom:12 }}>✨</div>
                   <div style={{ fontSize:14, fontWeight:700 }}>Claude sta generando il programma…</div>
-                  <div style={{ fontSize:12, color:THEME.muted, marginTop:4 }}>Analizzando diagnosi, zona corporea e anamnesi del paziente</div>
+                  <div style={{ fontSize:12, color:THEME.muted, marginTop:4 }}>Poi cercherà automaticamente i video YouTube per ogni esercizio</div>
                 </div>
               )}
 
