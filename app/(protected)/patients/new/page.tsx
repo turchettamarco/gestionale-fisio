@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../../../src/lib/supabaseClient";
+import { supabase } from "@/src/lib/supabaseClient";
 
 // --- TIPI ---
 type Plan = "invoice" | "no_invoice";

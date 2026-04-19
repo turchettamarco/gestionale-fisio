@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../../src/lib/supabaseClient";
+import { supabase } from "@/src/lib/supabaseClient";
 
 const COLORS = {
   bg1: "#0b1220",
