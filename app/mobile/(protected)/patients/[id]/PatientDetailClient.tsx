@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import Link from "next/link";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
@@ -253,7 +254,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState("");
   const [patient,   setPatient]   = useState<Patient | null>(null);
-  const [activeTab, setActiveTab] = useState<"info" | "clinical" | "therapies" | "docs">("info");
+  const [activeTab, setActiveTab] = useState<"info" | "clinical" | "therapies" | "docs" | "esercizi">("info");
 
   /* user */
   const [userEmail,    setUserEmail]    = useState<string | null>(null);
@@ -782,7 +783,8 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
           { id: "clinical",  label: "Clinica", icon: "🩺" },
           { id: "therapies", label: "Sedute",  icon: "📋" },
           { id: "docs",      label: "Referti", icon: "📁" },
-        ] as { id: "info" | "clinical" | "therapies" | "docs"; label: string; icon: string }[]).map(tab => (
+          { id: "esercizi",  label: "Esercizi", icon: "🏋️" },
+        ] as { id: "info" | "clinical" | "therapies" | "docs" | "esercizi"; label: string; icon: string }[]).map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
             padding: "11px 14px", background: "none", border: "none",
             borderBottom: `2.5px solid ${activeTab === tab.id ? T.blue : "transparent"}`,
@@ -1163,6 +1165,10 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
         )}
 
         {/* ─── TAB REFERTI ─── */}
+        {activeTab === "esercizi" && (
+          <MobileEserciziTab patientId={patient.id} patientName={`${patient.last_name ?? ""} ${patient.first_name ?? ""}`.trim()} />
+        )}
+
         {activeTab === "docs" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
@@ -1274,6 +1280,158 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Scheda Esercizi Mobile ─────────────────────────────────────────────────
+function MobileEserciziTab({ patientId, patientName }: { patientId: string; patientName: string }) {
+  const [esercizi, setEsercizi] = React.useState<any[]>([]);
+  const [schedaId, setSchedaId] = React.useState<string|null>(null);
+  const [pubLink,  setPubLink]  = React.useState("");
+  const [loading,  setLoading]  = React.useState(true);
+  const [genLoading, setGenLoading] = React.useState(false);
+  const [error,    setError]    = React.useState("");
+  const [storico,  setStorico]  = React.useState<any[]>([]);
+
+  React.useEffect(() => { loadScheda(); }, [patientId]);
+
+  async function loadScheda() {
+    setLoading(true);
+    try {
+      const { data } = await supabase.from("schede_esercizi_pubbliche")
+        .select("id,token,esercizi,note,created_at").eq("patient_id", patientId)
+        .order("created_at", { ascending: false }).limit(5);
+      if (data && data.length > 0) {
+        setSchedaId(data[0].id);
+        setEsercizi(JSON.parse(data[0].esercizi ?? "[]"));
+        setPubLink(`${window.location.origin}/esercizi/${data[0].token}`);
+        setStorico(data);
+      }
+    } catch(e) { console.warn(e); }
+    finally { setLoading(false); }
+  }
+
+  async function generaAI() {
+    setGenLoading(true); setError("");
+    try {
+      const res = await fetch("/api/ai-esercizi", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: `Sei un fisioterapista. Genera esattamente 5 esercizi domiciliari per il paziente: ${patientName}.\nRispondi SOLO con array JSON: [{"id":"1","nome":"","descrizione":"","serie":"3","ripetizioni":"10","frequenza":"1 volta al giorno","note":"","avvertenze":"","youtube_id":"","categoria":"rinforzo"}]` }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      const match = data.text.replace(/```json|```/g,"").trim().match(/\[[\s\S]*\]/);
+      if (!match) throw new Error("JSON non trovato");
+      const parsed = JSON.parse(match[0]);
+      // Cerca video YouTube
+      const withVideos = await Promise.all(parsed.map(async (e: any) => {
+        try {
+          const r = await fetch(`/api/youtube-search?q=${encodeURIComponent(e.nome)}`);
+          const d = await r.json();
+          if (d.videoId) return { ...e, youtube_id: d.videoId };
+        } catch {}
+        return e;
+      }));
+      setEsercizi(withVideos);
+      // Salva
+      const token = Math.random().toString(36).slice(2,14);
+      const payload = { patient_id:patientId, patient_name:patientName, esercizi:JSON.stringify(withVideos), token, expires_at:new Date(Date.now()+90*24*60*60*1000).toISOString() };
+      if (schedaId) {
+        await supabase.from("schede_esercizi_pubbliche").update(payload).eq("id", schedaId);
+      } else {
+        const { data:d } = await supabase.from("schede_esercizi_pubbliche").insert(payload).select("id,token").single();
+        if (d) { setSchedaId(d.id); setPubLink(`${window.location.origin}/esercizi/${d.token}`); }
+      }
+      await loadScheda();
+    } catch(e:any) { setError(e?.message ?? "Errore"); }
+    finally { setGenLoading(false); }
+  }
+
+  function sendWA() {
+    if (!pubLink) return;
+    const msg = `Gentile ${patientName},\nEcco la sua scheda esercizi domiciliari:\n${pubLink}\n\nDr. Marco Turchetta`;
+    const a = document.createElement("a");
+    a.href = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
+    a.target = "_blank"; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }
+
+  const inp = { width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #cbd5e1", fontSize:14, outline:"none", background:"#fff", color:"#0f172a", boxSizing:"border-box" as const };
+
+  if (loading) return <div style={{padding:32,textAlign:"center",color:"#64748b"}}>Caricamento…</div>;
+
+  return (
+    <div style={{padding:"16px 0"}}>
+      {error && <div style={{marginBottom:12,padding:"10px 14px",borderRadius:8,background:"rgba(220,38,38,0.05)",border:"1px solid rgba(220,38,38,0.2)",color:"#dc2626",fontSize:13}}>{error}</div>}
+
+      {/* Bottoni azione */}
+      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+        <button onClick={generaAI} disabled={genLoading}
+          style={{flex:1,padding:"12px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#0d9488,#2563eb)",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",opacity:genLoading?0.7:1}}>
+          {genLoading?"⏳ Generando…":"✨ Genera con AI"}
+        </button>
+        {pubLink && (
+          <button onClick={sendWA} style={{padding:"12px 16px",borderRadius:10,border:"1.5px solid #16a34a",background:"rgba(22,163,74,0.06)",color:"#16a34a",fontWeight:700,fontSize:14,cursor:"pointer"}}>
+            💬 WA
+          </button>
+        )}
+        {pubLink && (
+          <button onClick={()=>navigator.clipboard.writeText(pubLink)} style={{padding:"12px 16px",borderRadius:10,border:"1.5px solid #2563eb",background:"rgba(37,99,235,0.06)",color:"#2563eb",fontWeight:700,fontSize:14,cursor:"pointer"}}>
+            🔗
+          </button>
+        )}
+      </div>
+
+      {/* Link pubblico */}
+      {pubLink && (
+        <div style={{marginBottom:14,padding:"12px 14px",borderRadius:10,background:"rgba(22,163,74,0.05)",border:"1.5px solid rgba(22,163,74,0.25)"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#15803d",marginBottom:6}}>✅ Link attivo — tocca per copiare:</div>
+          <div onClick={()=>navigator.clipboard.writeText(pubLink)} style={{fontSize:11,color:"#0f172a",background:"#f1f5f9",padding:"6px 10px",borderRadius:6,wordBreak:"break-all",cursor:"pointer"}}>
+            {pubLink}
+          </div>
+          <a href={pubLink} target="_blank" rel="noopener noreferrer" style={{display:"inline-block",marginTop:8,fontSize:12,color:"#2563eb",fontWeight:700,textDecoration:"none"}}>👁️ Anteprima →</a>
+        </div>
+      )}
+
+      {/* Lista esercizi */}
+      {genLoading ? (
+        <div style={{textAlign:"center",padding:24,color:"#0d9488"}}><div style={{fontSize:28,marginBottom:8}}>✨</div><div style={{fontSize:14,fontWeight:700}}>Generando esercizi e cercando video…</div></div>
+      ) : esercizi.length === 0 ? (
+        <div style={{textAlign:"center",padding:24,color:"#94a3b8"}}><div style={{fontSize:36,marginBottom:8}}>🏋️</div><div style={{fontSize:14,fontWeight:600}}>Nessun esercizio ancora</div><div style={{fontSize:12,marginTop:4}}>Clicca "Genera con AI" per creare un programma personalizzato</div></div>
+      ) : (
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {esercizi.map((e:any,idx:number) => (
+            <div key={e.id ?? idx} style={{background:"#fff",borderRadius:10,border:"1.5px solid #e2e8f0",padding:"12px 14px"}}>
+              <div style={{fontWeight:800,fontSize:14,color:"#0f172a",marginBottom:4}}>{idx+1}. {e.nome}</div>
+              <div style={{fontSize:12,color:"#64748b",marginBottom:6}}>{e.serie} serie × {e.ripetizioni} · {e.frequenza}</div>
+              {e.descrizione && <div style={{fontSize:12,color:"#334155",lineHeight:1.6,marginBottom:6}}>{e.descrizione}</div>}
+              {e.avvertenze && <div style={{fontSize:11,color:"#dc2626",background:"rgba(220,38,38,0.05)",padding:"5px 8px",borderRadius:6,marginBottom:6}}>⚠️ {e.avvertenze}</div>}
+              {e.youtube_id && (
+                <a href={`https://www.youtube.com/watch?v=${e.youtube_id}`} target="_blank" rel="noopener noreferrer"
+                  style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:"#dc2626",borderRadius:8,textDecoration:"none",color:"#fff",fontWeight:700,fontSize:13}}>
+                  <span style={{fontSize:16}}>▶</span> Guarda il video
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Storico */}
+      {storico.length > 1 && (
+        <div style={{marginTop:16,padding:"12px 14px",borderRadius:10,border:"1.5px solid #e2e8f0",background:"#f8fafc"}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#334155",marginBottom:8}}>🕐 Schede precedenti</div>
+          {storico.slice(1).map((s:any) => (
+            <div key={s.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+              <div style={{flex:1,fontSize:12,color:"#64748b"}}>{new Date(s.created_at).toLocaleDateString("it-IT")}</div>
+              <button onClick={async()=>{ const{data}=await supabase.from("schede_esercizi_pubbliche").select("*").eq("id",s.id).single(); if(data){setSchedaId(data.id);setEsercizi(JSON.parse(data.esercizi??"[]"));setPubLink(`${window.location.origin}/esercizi/${data.token}`);} }}
+                style={{padding:"4px 10px",borderRadius:6,border:"1px solid #0d9488",background:"rgba(13,148,136,0.06)",color:"#0d9488",fontWeight:700,fontSize:11,cursor:"pointer"}}>
+                Carica
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

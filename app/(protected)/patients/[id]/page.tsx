@@ -774,6 +774,10 @@ export default function PatientDetailPage({
   const [genError,       setGenError]       = useState("");
   const [eserciziNote,   setEserciziNote]   = useState("");
   const [editingEx,      setEditingEx]      = useState<string|null>(null);
+  const [schedaId,       setSchedaId]       = useState<string|null>(null); // ID scheda salvata nel DB
+  const [schedeStorico,  setSchedeStorico]  = useState<{id:string;created_at:string;token:string;note:string|null}[]>([]);
+  const [showStorico,    setShowStorico]    = useState(false);
+  const [savingScheda,   setSavingScheda]   = useState(false);
   const [savingClinical,  setSavingClinical]  = useState(false);
   const [showTreatmentDiary, setShowTreatmentDiary] = useState(true);
 
@@ -1477,6 +1481,26 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
         return e;
       }));
       setEsercizi(withVideos);
+      // Salva automaticamente nel DB
+      setTimeout(async () => {
+        try {
+          const token = Math.random().toString(36).slice(2, 14);
+          const payload = {
+            patient_id: patientId,
+            patient_name: `${lastName} ${firstName}`.trim(),
+            esercizi: JSON.stringify(withVideos),
+            note: eserciziNote || null,
+            expires_at: new Date(Date.now() + 90*24*60*60*1000).toISOString(),
+          };
+          if (schedaId) {
+            await supabase.from("schede_esercizi_pubbliche").update(payload).eq("id", schedaId);
+          } else {
+            const { data } = await supabase.from("schede_esercizi_pubbliche").insert({ ...payload, token }).select("id,token").single();
+            if (data) { setSchedaId(data.id); setPubLink(`${window.location.origin}/esercizi/${data.token}`); }
+          }
+          await loadSchedaEsercizi();
+        } catch(e) { console.warn("autosave", e); }
+      }, 100);
     } catch(e: any) {
       setGenError(`Errore: ${e?.message ?? "sconosciuto"}.`);
       console.error(e);
@@ -1591,6 +1615,66 @@ ${rows}
 
     const w = window.open("", "_blank", "width=900,height=1000");
     if (w) { w.document.write(html); w.document.close(); }
+  }
+
+  // ── Carica/salva scheda esercizi nel DB ─────────────────────────────────
+  async function loadSchedaEsercizi() {
+    try {
+      const { data } = await supabase
+        .from("schede_esercizi_pubbliche")
+        .select("id, token, esercizi, note, created_at")
+        .eq("patient_id", patientId)
+        .order("created_at", { ascending: false })
+        .limit(10);
+      if (data && data.length > 0) {
+        // Carica la scheda più recente
+        const latest = data[0];
+        setSchedaId(latest.id);
+        setEsercizi(JSON.parse(latest.esercizi ?? "[]"));
+        setEserciziNote(latest.note ?? "");
+        setPubLink(`${window.location.origin}/esercizi/${latest.token}`);
+        // Popola storico
+        setSchedeStorico(data.map((d:any) => ({ id:d.id, created_at:d.created_at, token:d.token, note:d.note })));
+      }
+    } catch(e) { console.warn("loadSchedaEsercizi", e); }
+  }
+
+  async function saveSchedaEsercizi() {
+    if (esercizi.length === 0) return;
+    setSavingScheda(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const payload = {
+        patient_id: patientId,
+        patient_name: `${lastName} ${firstName}`.trim(),
+        esercizi: JSON.stringify(esercizi),
+        note: eserciziNote || null,
+        expires_at: new Date(Date.now() + 90*24*60*60*1000).toISOString(),
+      };
+      if (schedaId) {
+        // Aggiorna esistente
+        await supabase.from("schede_esercizi_pubbliche").update(payload).eq("id", schedaId);
+      } else {
+        // Crea nuova
+        const token = Math.random().toString(36).slice(2, 14);
+        const { data } = await supabase.from("schede_esercizi_pubbliche").insert({ ...payload, token }).select("id,token").single();
+        if (data) { setSchedaId(data.id); setPubLink(`${window.location.origin}/esercizi/${data.token}`); }
+      }
+      await loadSchedaEsercizi();
+    } catch(e:any) { console.error(e); }
+    finally { setSavingScheda(false); }
+  }
+
+  async function loadSchedaStorico(id: string) {
+    const { data } = await supabase.from("schede_esercizi_pubbliche").select("*").eq("id", id).single();
+    if (data) {
+      setSchedaId(data.id);
+      setEsercizi(JSON.parse(data.esercizi ?? "[]"));
+      setEserciziNote(data.note ?? "");
+      setPubLink(`${window.location.origin}/esercizi/${data.token}`);
+      setShowStorico(false);
+    }
   }
 
   async function generatePubLink() {
@@ -2432,7 +2516,7 @@ ${rows}
             title="Scheda Esercizi Domiciliari"
             subtitle="Genera con AI · modifica · stampa PDF da consegnare al paziente"
             open={secEsercizi}
-            onToggle={() => setSecEsercizi(s => !s)}
+            onToggle={() => { setSecEsercizi(s => { if(!s) loadSchedaEsercizi(); return !s; }); }}
             badge={!secEsercizi && esercizi.length > 0
               ? <span style={{ background:"rgba(13,148,136,0.1)", color:THEME.teal, fontWeight:800, fontSize:12, borderRadius:99, padding:"2px 10px", border:"1px solid rgba(13,148,136,0.2)" }}>
                   {esercizi.length} esercizi
@@ -2478,11 +2562,50 @@ ${rows}
                     {pubLinkLoading ? "⏳ Generando…" : "🔗 Genera link paziente"}
                   </button>
                 )}
+                {esercizi.length > 0 && (
+                  <button onClick={saveSchedaEsercizi} disabled={savingScheda}
+                    style={{ padding:"9px 14px", borderRadius:8, border:`1.5px solid ${THEME.teal}`, background:"rgba(13,148,136,0.06)", color:THEME.teal, fontWeight:700, fontSize:13, cursor:"pointer", flexShrink:0, opacity:savingScheda?0.6:1 }}>
+                    {savingScheda ? "💾 Salvo…" : "💾 Salva"}
+                  </button>
+                )}
+                {schedeStorico.length > 0 && (
+                  <button onClick={() => setShowStorico(v=>!v)}
+                    style={{ padding:"9px 14px", borderRadius:8, border:`1.5px solid ${THEME.border}`, background:THEME.panelSoft, color:THEME.muted, fontWeight:700, fontSize:13, cursor:"pointer", flexShrink:0 }}>
+                    🕐 Storico ({schedeStorico.length})
+                  </button>
+                )}
               </div>
 
               {genError && (
                 <div style={{ marginBottom:12, padding:"9px 14px", borderRadius:8, background:"rgba(220,38,38,0.05)", border:"1px solid rgba(220,38,38,0.2)", color:THEME.red, fontSize:12, fontWeight:600 }}>
                   {genError}
+                </div>
+              )}
+
+              {/* Storico schede */}
+              {showStorico && schedeStorico.length > 0 && (
+                <div style={{ marginBottom:14, padding:"14px 16px", borderRadius:10, border:`1.5px solid ${THEME.border}`, background:THEME.panelSoft }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:THEME.text, marginBottom:10 }}>🕐 Storico schede esercizi</div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                    {schedeStorico.map((s, i) => (
+                      <div key={s.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", borderRadius:8, background:"#fff", border:`1px solid ${s.id===schedaId?THEME.teal:THEME.border}` }}>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontSize:12, fontWeight:700, color:THEME.text }}>
+                            {i===0?"📌 Attuale":"📄"} Scheda del {new Date(s.created_at).toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"numeric"})}
+                          </div>
+                          {s.note && <div style={{ fontSize:11, color:THEME.muted }}>{s.note}</div>}
+                        </div>
+                        <button onClick={() => loadSchedaStorico(s.id)}
+                          style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${THEME.teal}`, background:"rgba(13,148,136,0.06)", color:THEME.teal, cursor:"pointer", fontWeight:700, fontSize:11 }}>
+                          Carica
+                        </button>
+                        <a href={`${window.location.origin}/esercizi/${s.token}`} target="_blank" rel="noopener noreferrer"
+                          style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${THEME.blue}`, background:"rgba(37,99,235,0.06)", color:THEME.blue, textDecoration:"none", fontWeight:700, fontSize:11 }}>
+                          Link
+                        </a>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
