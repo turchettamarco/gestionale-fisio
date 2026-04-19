@@ -43,6 +43,9 @@ type CreateModalProps = {
   createAmount: string; setCreateAmount: (v: string) => void;
   createNote: string; setCreateNote: (v: string) => void;
   createAppointment: () => Promise<void>;
+  createRecurring: boolean; setCreateRecurring: (v: boolean) => void;
+  createRecurringCount: number; setCreateRecurringCount: (v: number) => void;
+  createRecurringInterval: number; setCreateRecurringInterval: (v: number) => void;
 };
 
 type TouchDragState = {
@@ -249,6 +252,7 @@ function CalendarPageInner() {
   const [createTime,            setCreateTime]            = useState("09:00");
   const [createDuration,        setCreateDuration]        = useState(60);
   const [createStatus,          setCreateStatus]          = useState<Status>("confirmed");
+  const [defaultStatus,         setDefaultStatus]         = useState<"confirmed"|"booked">("confirmed");
   const [createLocation,        setCreateLocation]        = useState<LocationType>("studio");
   const [createClinicSite,      setCreateClinicSite]      = useState(DEFAULT_CLINIC);
   const [createDomicileAddress, setCreateDomicileAddress] = useState("");
@@ -273,6 +277,9 @@ function CalendarPageInner() {
   /* ── User ────────────────────────────────── */
   useEffect(() => {
     supabase.auth.getUser().then(({data}) => setUserEmail(data?.user?.email??null)).catch(()=>{});
+    // Load default appointment status
+    supabase.from("practice_settings").select("default_appointment_status").maybeSingle()
+      .then(({data})=>{ if(data?.default_appointment_status) setDefaultStatus(data.default_appointment_status as "confirmed"|"booked"); }, ()=>{});
   }, []);
   useEffect(() => {
     const fn = (e: MouseEvent) => {
@@ -640,7 +647,7 @@ function CalendarPageInner() {
     const dateISO=prefillDateISO&&isValidISODate(prefillDateISO)?prefillDateISO:toISODateLocal(currentDate);
     setCreateDate(dateISO);
     setCreateTime(prefillTime&&isValidHHMM(prefillTime)?prefillTime:"09:00");
-    setCreateDuration(60); setCreateStatus("confirmed"); setCreateLocation("studio");
+    setCreateDuration(60); setCreateStatus(defaultStatus); setCreateLocation("studio");
     setCreateClinicSite(DEFAULT_CLINIC); setCreateDomicileAddress(""); setCreateAmount(""); setCreateNote("");
   }, [currentDate]);
 
@@ -673,25 +680,45 @@ function CalendarPageInner() {
     setPatientResults([]);setBusy(false);
   }, [quickFirstName,quickLastName,quickPhone]);
 
+  const [createRecurring, setCreateRecurring] = useState(false);
+  const [createRecurringCount, setCreateRecurringCount] = useState(6);
+  const [createRecurringInterval, setCreateRecurringInterval] = useState(2); // giorni tra sedute
+
   const createAppointment = useCallback(async () => {
     if (!selectedPatient){setError("Seleziona un paziente.");return;}
     const dur=Number(createDuration);
     if (!isFinite(dur)||dur<=0){setError("Durata non valida.");return;}
     setBusy(true);setError("");
-    const start=buildDateTime(createDate,createTime);
-    const end=new Date(start);end.setMinutes(end.getMinutes()+dur);
     const amount=createAmount.trim()===""?null
       :(()=>{const n=Number(createAmount.replace(",",".")); return isFinite(n)?n:null;})();
-    const {error:e}=await supabase.from("appointments").insert({
-      patient_id:selectedPatient.id,start_at:start.toISOString(),end_at:end.toISOString(),
-      status:createStatus,calendar_note:createNote.trim()||null,location:createLocation,
-      clinic_site:createLocation==="studio"?(createClinicSite.trim()||DEFAULT_CLINIC):null,
-      domicile_address:createLocation==="domicile"?(createDomicileAddress.trim()||null):null,amount,
-    });
+
+    // Build list of appointments (1 o più se ricorrente)
+    const toInsert:any[] = [];
+    const totalCount = createRecurring ? Math.max(1, Math.min(30, createRecurringCount)) : 1;
+    for (let i=0; i<totalCount; i++) {
+      const baseDate = new Date(buildDateTime(createDate,createTime));
+      baseDate.setDate(baseDate.getDate() + i*createRecurringInterval);
+      const end = new Date(baseDate); end.setMinutes(end.getMinutes()+dur);
+      toInsert.push({
+        patient_id:selectedPatient.id,
+        start_at:baseDate.toISOString(),
+        end_at:end.toISOString(),
+        status:createStatus,
+        calendar_note:createNote.trim()||null,
+        location:createLocation,
+        clinic_site:createLocation==="studio"?(createClinicSite.trim()||DEFAULT_CLINIC):null,
+        domicile_address:createLocation==="domicile"?(createDomicileAddress.trim()||null):null,
+        amount,
+      });
+    }
+    const {error:e}=await supabase.from("appointments").insert(toInsert);
     if (e){setError(e.message);setBusy(false);return;}
-    setBusy(false);setCreateOpen(false);await loadAppointments(currentDate);
+    setBusy(false);setCreateOpen(false);
+    setCreateRecurring(false); // reset for next
+    await loadAppointments(currentDate);
   }, [selectedPatient,createDuration,createDate,createTime,createStatus,createNote,
-      createLocation,createClinicSite,createDomicileAddress,createAmount,currentDate,loadAppointments]);
+      createLocation,createClinicSite,createDomicileAddress,createAmount,currentDate,loadAppointments,
+      createRecurring,createRecurringCount,createRecurringInterval]);
 
   /* ── Move appointment (drag) ─────────────── */
   const moveAppointment = useCallback(async (id:string,newStart:Date) => {
@@ -1656,6 +1683,9 @@ function CalendarPageInner() {
           createAmount={createAmount}     setCreateAmount={setCreateAmount}
           createNote={createNote}         setCreateNote={setCreateNote}
           createAppointment={createAppointment}
+          createRecurring={createRecurring} setCreateRecurring={setCreateRecurring}
+          createRecurringCount={createRecurringCount} setCreateRecurringCount={setCreateRecurringCount}
+          createRecurringInterval={createRecurringInterval} setCreateRecurringInterval={setCreateRecurringInterval}
         />
       )}
 
@@ -1761,6 +1791,8 @@ function CreateModal(props:CreateModalProps) {
     createStatus,setCreateStatus,createLocation,setCreateLocation,
     createClinicSite,setCreateClinicSite,createDomicileAddress,setCreateDomicileAddress,
     createAmount,setCreateAmount,createNote,setCreateNote,createAppointment,
+    createRecurring,setCreateRecurring,createRecurringCount,setCreateRecurringCount,
+    createRecurringInterval,setCreateRecurringInterval,
   }=props;
   return (
     <LightModal onClose={onClose}>
@@ -1836,8 +1868,38 @@ function CreateModal(props:CreateModalProps) {
         <FG label="Note">
           <textarea value={createNote} onChange={e=>setCreateNote(e.target.value)} style={{...inputS(),minHeight:80,resize:"vertical"}} />
         </FG>
+
+        {/* Ricorrente */}
+        <div style={{background:"rgba(13,148,136,0.06)",border:"1.5px solid rgba(13,148,136,0.2)",borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+          <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",fontSize:14,fontWeight:700,color:THEME.teal}}>
+            <input type="checkbox" checked={createRecurring} onChange={e=>setCreateRecurring(e.target.checked)} style={{width:18,height:18,accentColor:THEME.teal}}/>
+            🔁 Crea ciclo di sedute
+          </label>
+          {createRecurring && (
+            <div style={{marginTop:12,display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:THEME.muted,marginBottom:4,textTransform:"uppercase"}}>N° sedute</div>
+                <input type="number" min={2} max={30} value={createRecurringCount} onChange={e=>setCreateRecurringCount(Math.max(2,Math.min(30,parseInt(e.target.value)||6)))} style={inputS()}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:THEME.muted,marginBottom:4,textTransform:"uppercase"}}>Ogni (giorni)</div>
+                <select value={createRecurringInterval} onChange={e=>setCreateRecurringInterval(parseInt(e.target.value))} style={inputS()}>
+                  <option value={1}>Ogni giorno</option>
+                  <option value={2}>Ogni 2 giorni</option>
+                  <option value={3}>Ogni 3 giorni</option>
+                  <option value={7}>Settimanale</option>
+                  <option value={14}>Bisettimanale</option>
+                </select>
+              </div>
+              <div style={{gridColumn:"1/-1",fontSize:11,color:THEME.teal,fontWeight:600,marginTop:2}}>
+                Verranno create {createRecurringCount} sedute, una ogni {createRecurringInterval===1?"giorno":`${createRecurringInterval} giorni`}
+              </div>
+            </div>
+          )}
+        </div>
+
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          <LightBtn v="primary" onClick={createAppointment} disabled={busy}>✅ Crea</LightBtn>
+          <LightBtn v="primary" onClick={createAppointment} disabled={busy}>{createRecurring?`✅ Crea ${createRecurringCount} sedute`:"✅ Crea"}</LightBtn>
           <LightBtn v="ghost" onClick={onClose}>Annulla</LightBtn>
         </div>
       </div>

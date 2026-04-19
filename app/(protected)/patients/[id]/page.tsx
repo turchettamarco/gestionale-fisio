@@ -3,6 +3,8 @@
 import Link from "next/link";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
+import { ClinicalScalesSection } from "./ClinicalScales";
+import { PhotoGallerySection } from "./PhotoGallery";
 
 function cleanPhoneWA(phone: string): string {
   if (!phone) return "";
@@ -738,6 +740,11 @@ export default function PatientDetailPage({
   const [secBodyChart,    setSecBodyChart]    = useState(false);
   const [secDocClinici,   setSecDocClinici]   = useState(false);
   const [secTerapie,      setSecTerapie]      = useState(false);
+  const [secDiarioSOAP,   setSecDiarioSOAP]   = useState(false);
+  const [soapNotes,       setSoapNotes]       = useState<any[]>([]);
+  const [loadingSOAP,     setLoadingSOAP]     = useState(false);
+  const [secScales,       setSecScales]       = useState(false);
+  const [secPhotos,       setSecPhotos]       = useState(false);
   const [secGDPR,         setSecGDPR]         = useState(false);
   const [secTimeline,     setSecTimeline]     = useState(false);
   const [secEsercizi,     setSecEsercizi]     = useState(false);
@@ -1544,6 +1551,28 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
     });
   }
 
+  // ── Invia link area riservata ────────────────────────────────────────────
+  async function sendPortalLink() {
+    if (!patient) return;
+    if (!phone) { alert("Nessun numero di telefono per questo paziente."); return; }
+    try {
+      const r = await fetch("/api/portal", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patient_id: patient.id }),
+      });
+      const d = await r.json();
+      if (d.error) { alert("Errore: " + d.error); return; }
+      const link = `${window.location.origin}/portale/${d.token}`;
+      const msg = `Gentile ${firstName},\n\nle ho attivato un'area personale dove può consultare:\n- i suoi prossimi appuntamenti\n- la scheda esercizi da fare a casa\n- i contatti dello studio\n\n🔑 Il suo link personale:\n${link}\n\nLa conservi, è valido per 6 mesi.\n\nCordiali saluti,\nDr. Marco Turchetta`;
+      const clean = cleanPhoneWA(phone);
+      const url = "https://api.whatsapp.com/send?phone=" + clean + "&text=" + encodeURIComponent(msg);
+      const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
+      document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
+    } catch (e:any) {
+      alert("Errore: " + (e?.message || "sconosciuto"));
+    }
+  }
+
   // ── Questionario soddisfazione ───────────────────────────────────────────
   async function sendSatisfactionSurvey() {
     if (!patient) return;
@@ -2085,6 +2114,11 @@ ${rows}
               background: "rgba(245,158,11,0.06)", color: "#b45309", fontWeight: 700,
               fontSize: 13, cursor: "pointer",
             }}>⭐ Questionario</button>
+            <button onClick={sendPortalLink} style={{
+              padding: "9px 16px", borderRadius: 8, border: `1.5px solid #7c3aed`,
+              background: "rgba(124,58,237,0.06)", color: "#7c3aed", fontWeight: 700,
+              fontSize: 13, cursor: "pointer",
+            }}>🔑 Area riservata</button>
           </div>
         </div>
 
@@ -2604,6 +2638,168 @@ ${rows}
             Nota: "Annullato" mantiene lo storico · se una seduta torna da "Eseguita" a un altro stato, il pagamento viene azzerato.
           </p>
           </div>
+          )}
+        </section>
+
+        {/* ── DIARIO CLINICO (SOAP) ────────────────────────────────────────── */}
+        <section style={{ ...cardStyle }}>
+          <SecHeader
+            icon="📝"
+            title="Diario clinico"
+            subtitle="Note SOAP e punteggi VAS seduta per seduta"
+            open={secDiarioSOAP}
+            onToggle={() => {
+              setSecDiarioSOAP(s => {
+                if (!s && patient) {
+                  setLoadingSOAP(true);
+                  supabase.from("session_notes")
+                    .select("*, appointments(start_at,status)")
+                    .eq("patient_id", patient.id)
+                    .order("created_at", { ascending: false })
+                    .then(({ data }) => {
+                      setSoapNotes(data || []);
+                      setLoadingSOAP(false);
+                    });
+                }
+                return !s;
+              });
+            }}
+            badge={!secDiarioSOAP && soapNotes.length > 0
+              ? <span style={{ background:"rgba(124,58,237,0.1)", color:"#7c3aed", fontWeight:800, fontSize:12, borderRadius:99, padding:"2px 10px", border:"1px solid rgba(124,58,237,0.2)" }}>
+                  {soapNotes.length} note
+                </span>
+              : undefined}
+          />
+          {secDiarioSOAP && (
+            <div style={cardBody}>
+              {loadingSOAP ? (
+                <div style={{ textAlign:"center", padding:24, color:THEME.muted, fontSize:13 }}>Caricamento note…</div>
+              ) : soapNotes.length === 0 ? (
+                <div style={{ textAlign:"center", padding:24, color:THEME.muted, fontSize:13 }}>
+                  Nessuna nota clinica ancora. Apri un appuntamento dal calendario per aggiungerle.
+                </div>
+              ) : (
+                <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                  {/* Grafico VAS temporale se ci sono almeno 2 note con VAS */}
+                  {(() => {
+                    const vasData = soapNotes
+                      .filter(n => n.vas_before != null || n.vas_after != null)
+                      .slice()
+                      .reverse();
+                    if (vasData.length < 2) return null;
+                    const maxY = 10;
+                    return (
+                      <div style={{ background:"rgba(13,148,136,0.04)", border:`1px solid ${THEME.border}`, borderRadius:10, padding:"14px 18px" }}>
+                        <div style={{ fontSize:12, fontWeight:800, color:THEME.text, marginBottom:10 }}>📉 Andamento VAS nel tempo</div>
+                        <div style={{ display:"flex", alignItems:"flex-end", gap:6, height:70, paddingBottom:4, borderBottom:`1px solid ${THEME.border}` }}>
+                          {vasData.map((n, i) => {
+                            const v = n.vas_after ?? n.vas_before;
+                            const h = v == null ? 0 : (v / maxY) * 100;
+                            const color = v == null ? THEME.muted : v <= 3 ? THEME.green : v <= 6 ? "#f59e0b" : THEME.red;
+                            return (
+                              <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
+                                <div style={{ fontSize:10, fontWeight:700, color }}>{v ?? "-"}</div>
+                                <div style={{ width:"100%", height:`${h}%`, background:color, borderRadius:"3px 3px 0 0", minHeight:2 }}/>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div style={{ display:"flex", justifyContent:"space-between", marginTop:4, fontSize:9, color:THEME.muted }}>
+                          <span>prima seduta</span>
+                          <span>ultima</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Lista note */}
+                  {soapNotes.map((n, i) => {
+                    const apptDate = n.appointments?.start_at ? new Date(n.appointments.start_at) : new Date(n.created_at);
+                    const hasSOAP = n.soap_s || n.soap_o || n.soap_a || n.soap_p;
+                    return (
+                      <div key={n.id} style={{ background:"#fff", border:`1px solid ${THEME.border}`, borderRadius:10, padding:"14px 16px" }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10, gap:8 }}>
+                          <div>
+                            <div style={{ fontSize:13, fontWeight:800, color:THEME.text }}>
+                              {apptDate.toLocaleDateString("it-IT", { weekday:"long", day:"2-digit", month:"long", year:"numeric" })}
+                            </div>
+                            <div style={{ fontSize:11, color:THEME.muted, marginTop:1 }}>
+                              {apptDate.toLocaleTimeString("it-IT", { hour:"2-digit", minute:"2-digit" })}
+                            </div>
+                          </div>
+                          {(n.vas_before != null || n.vas_after != null) && (
+                            <div style={{ display:"flex", gap:6, alignItems:"center", flexShrink:0 }}>
+                              {n.vas_before != null && (
+                                <div style={{ padding:"3px 8px", borderRadius:5, background:"rgba(100,116,139,0.08)", fontSize:11, fontWeight:700, color:THEME.muted }}>
+                                  prima: <span style={{ color:n.vas_before<=3?THEME.green:n.vas_before<=6?"#f59e0b":THEME.red }}>{n.vas_before}</span>
+                                </div>
+                              )}
+                              {n.vas_after != null && (
+                                <div style={{ padding:"3px 8px", borderRadius:5, background:"rgba(100,116,139,0.08)", fontSize:11, fontWeight:700, color:THEME.muted }}>
+                                  dopo: <span style={{ color:n.vas_after<=3?THEME.green:n.vas_after<=6?"#f59e0b":THEME.red }}>{n.vas_after}</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        {n.quick_note && (
+                          <div style={{ fontSize:13, color:THEME.text, whiteSpace:"pre-wrap", padding:"10px 12px", background:THEME.panelSoft, borderRadius:7, marginBottom:hasSOAP?10:0 }}>
+                            {n.quick_note}
+                          </div>
+                        )}
+                        {hasSOAP && (
+                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                            {([
+                              { k:"soap_s", l:"S", color:THEME.blue },
+                              { k:"soap_o", l:"O", color:THEME.teal },
+                              { k:"soap_a", l:"A", color:"#7c3aed" },
+                              { k:"soap_p", l:"P", color:THEME.green },
+                            ] as const).map(f => n[f.k] && (
+                              <div key={f.k} style={{ background:THEME.panelSoft, borderRadius:7, padding:"8px 10px", borderLeft:`3px solid ${f.color}` }}>
+                                <div style={{ fontSize:10, fontWeight:800, color:f.color, textTransform:"uppercase", letterSpacing:0.4, marginBottom:3 }}>{f.l}</div>
+                                <div style={{ fontSize:12, color:THEME.text, whiteSpace:"pre-wrap" }}>{n[f.k]}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* ── SCALE DI VALUTAZIONE ──────────────────────────────────────────── */}
+        <section style={{ ...cardStyle }}>
+          <SecHeader
+            icon="📊"
+            title="Scale di valutazione"
+            subtitle="VAS · NDI · Oswestry · DASH · LEFS — monitora i progressi nel tempo"
+            open={secScales}
+            onToggle={() => setSecScales(s => !s)}
+          />
+          {secScales && patient && (
+            <div style={cardBody}>
+              <ClinicalScalesSection patientId={patient.id} />
+            </div>
+          )}
+        </section>
+
+        {/* ── FOTO POSTURALI PRE/POST ─────────────────────────────────────── */}
+        <section style={{ ...cardStyle }}>
+          <SecHeader
+            icon="📷"
+            title="Foto cliniche"
+            subtitle="Analisi posturale · confronto pre/post · progressi visibili"
+            open={secPhotos}
+            onToggle={() => setSecPhotos(s => !s)}
+          />
+          {secPhotos && patient && (
+            <div style={cardBody}>
+              <PhotoGallerySection patientId={patient.id} />
+            </div>
           )}
         </section>
 

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
+import { SOAPNotesEditor } from "./components/SOAPNotes";
 
 import { useSearchParams } from "next/navigation";
 
@@ -54,6 +55,7 @@ type PracticeSettings = {
   machine_cash: number | null;
   auto_apply_prices: boolean | null;
   google_review_link: string | null;
+  default_appointment_status: "confirmed" | "booked" | null;
 };
 
 type CalendarEvent = {
@@ -397,7 +399,7 @@ const handleLogout = useCallback(async () => {
       setPracticeSettingsLoaded(false);
       const { data, error } = await supabase
         .from("practice_settings")
-        .select("standard_invoice, standard_cash, machine_invoice, machine_cash, auto_apply_prices, google_review_link")
+        .select("standard_invoice, standard_cash, machine_invoice, machine_cash, auto_apply_prices, google_review_link, default_appointment_status")
         .eq("owner_id", userId)
         .maybeSingle();
 
@@ -410,6 +412,7 @@ const handleLogout = useCallback(async () => {
         machine_cash: data?.machine_cash ?? null,
         auto_apply_prices: data?.auto_apply_prices ?? null,
         google_review_link: data?.google_review_link ?? null,
+        default_appointment_status: (data?.default_appointment_status ?? "confirmed") as "confirmed"|"booked",
       });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1644,11 +1647,24 @@ function openWhatsApp(phone: string, message: string): boolean {
       luogo = `Presso il suo domicilio (${appointment.domicile_address})`;
     }
 
-    const message = templateText
+    // Genera link di conferma
+    const originBase = typeof window !== "undefined" ? window.location.origin : "";
+    const confirmToken = typeof window !== "undefined" ? btoa(appointmentId).replace(/\+/g,"-").replace(/\//g,"_").replace(/=/g,"") : "";
+    const linkConferma = `${originBase}/conferma/${confirmToken}`;
+
+    let message = templateText
       .replace(/{nome}/g, nomePaziente)
       .replace(/{data_relativa}/g, dataRelativa)
+      .replace(/{data}/g, dataRelativa)
       .replace(/{ora}/g, ora)
-      .replace(/{luogo}/g, luogo);
+      .replace(/{luogo}/g, luogo)
+      .replace(/{link_conferma}/g, linkConferma)
+      .replace(/{link}/g, linkConferma);
+
+    // Se il template non contiene già il link, aggiungilo alla fine per i promemoria
+    if (!isConfirmation && !message.includes(linkConferma)) {
+      message += `\n\n👉 Conferma o annulla con un click:\n${linkConferma}`;
+    }
 
     const confirmText = isConfirmation
       ? `📱 CONFERMA APPUNTAMENTO\n\nDestinatario: ${patientPhone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp.`
@@ -2064,7 +2080,7 @@ Fisioterapia e Osteopatia`;
 
   const basePayload = {
     patient_id: selectedPatient.id,
-    status: "confirmed" as Status,
+    status: (practiceSettings?.default_appointment_status ?? "confirmed") as Status,
     calendar_note: null as string | null,
     location: createLocation,
     clinic_site: createLocation === "studio" ? createClinicSite.trim() : null,
@@ -6482,6 +6498,13 @@ return (
                 }}
               />
             </label>
+
+            {/* SOAP Notes — note di seduta strutturate */}
+            {selectedEvent.patient_id && (
+              <div style={{ marginTop: -8, marginBottom: 20 }}>
+                <SOAPNotesEditor appointmentId={selectedEvent.id} patientId={selectedEvent.patient_id} />
+              </div>
+            )}
 
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 24, flexWrap: "wrap" }}>
               <button

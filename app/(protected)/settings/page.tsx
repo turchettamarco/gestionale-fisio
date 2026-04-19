@@ -69,6 +69,8 @@ type PracticeSettingsRow = {
   satisfaction_message: string | null;
   // Logo
   logo_base64: string | null;
+  // Stato default appuntamenti
+  default_appointment_status: string | null;
   // Gestione
   monthly_revenue_goal: number | null;
   inactive_threshold_days: number | null;
@@ -166,6 +168,7 @@ export default function SettingsPage() {
   // Practice fields
   const [practiceName,   setPracticeName]   = useState("");
   const [logoBase64,     setLogoBase64]     = useState("");  // base64 logo studio
+  const [defaultApptStatus, setDefaultApptStatus] = useState<"confirmed"|"booked">("confirmed");
   const [ownerFullName,  setOwnerFullName]  = useState("");
   const [vatNumber,      setVatNumber]      = useState("");
   const [address,        setAddress]        = useState("");
@@ -463,7 +466,7 @@ export default function SettingsPage() {
       const uid = await requireUserId();
       const { data, error } = await supabase
         .from("practice_settings")
-        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, logo_base64, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices, reminder_message, payment_message, birthday_message, satisfaction_message")
+        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, logo_base64, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices, reminder_message, payment_message, birthday_message, satisfaction_message, default_appointment_status")
         .eq("owner_id", uid)
         .maybeSingle();
       if (error) throw new Error(error.message);
@@ -472,7 +475,7 @@ export default function SettingsPage() {
         if (uErr) throw new Error(uErr.message);
         const u = uData?.user;
         const fullName = ((u?.user_metadata?.full_name || u?.user_metadata?.name || [u?.user_metadata?.first_name, u?.user_metadata?.last_name].filter(Boolean).join(" ") || u?.email || "Titolare") + "").trim() || "Titolare";
-        const seed: PracticeSettingsRow = { owner_id: uid, practice_name: "FisioHub", owner_full_name: fullName, vat_number: "", address: "", pec_email: "", phone: "", google_review_link: "", logo_base64: null, standard_invoice: 40, standard_cash: 35, machine_invoice: 25, machine_cash: 20, laser_invoice: 30, laser_cash: 25, tecar_invoice: 30, tecar_cash: 25, onde_urto_invoice: 40, onde_urto_cash: 35, tens_invoice: 20, tens_cash: 15, duration_seduta: 60, duration_macchinario: 30, duration_laser: 20, duration_tecar: 30, duration_onde_urto: 15, duration_tens: 20, welcome_message: null, booking_confirm_message: null, reminder_message: null, payment_message: null, birthday_message: null, satisfaction_message: null, monthly_revenue_goal: 2000, inactive_threshold_days: 45, reminder_hours_before: 24, auto_apply_prices: true };
+        const seed: PracticeSettingsRow = { owner_id: uid, practice_name: "FisioHub", owner_full_name: fullName, vat_number: "", address: "", pec_email: "", phone: "", google_review_link: "", logo_base64: null, standard_invoice: 40, standard_cash: 35, machine_invoice: 25, machine_cash: 20, laser_invoice: 30, laser_cash: 25, tecar_invoice: 30, tecar_cash: 25, onde_urto_invoice: 40, onde_urto_cash: 35, tens_invoice: 20, tens_cash: 15, duration_seduta: 60, duration_macchinario: 30, duration_laser: 20, duration_tecar: 30, duration_onde_urto: 15, duration_tens: 20, welcome_message: null, booking_confirm_message: null, reminder_message: null, payment_message: null, birthday_message: null, satisfaction_message: null, default_appointment_status: "confirmed", monthly_revenue_goal: 2000, inactive_threshold_days: 45, reminder_hours_before: 24, auto_apply_prices: true };
         const { error: upsertErr } = await supabase.from("practice_settings").upsert(seed, { onConflict: "owner_id" });
         if (upsertErr) throw new Error(upsertErr.message);
         return await loadPracticeSettings();
@@ -510,6 +513,7 @@ export default function SettingsPage() {
       setPaymentMsg((data as any).payment_message ?? "");
       setBirthdayMsg((data as any).birthday_message ?? "");
       setSatisfactionMsg((data as any).satisfaction_message ?? "");
+      setDefaultApptStatus(((data as any).default_appointment_status ?? "confirmed") as "confirmed"|"booked");
       setMonthlyGoal(String((data as any).monthly_revenue_goal ?? 2000));
       setInactiveThresh(String((data as any).inactive_threshold_days ?? 45));
       setReminderHours(String((data as any).reminder_hours_before ?? 24));
@@ -560,6 +564,7 @@ export default function SettingsPage() {
         payment_message:          paymentMsg.trim() || null,
         birthday_message:         birthdayMsg.trim() || null,
         satisfaction_message:     satisfactionMsg.trim() || null,
+        default_appointment_status: defaultApptStatus,
         monthly_revenue_goal:  parseFloat(monthlyGoal) || 2000,
         inactive_threshold_days: parseInt(inactiveThresh) || 45,
         reminder_hours_before: parseInt(reminderHours) || 24,
@@ -1126,6 +1131,42 @@ export default function SettingsPage() {
               </div>
             </div>
           )}
+        </div>
+
+        {/* ── SEZIONE PREFERENZE CALENDARIO ───────────────────────────────── */}
+        <div style={cardStyle}>
+          <div style={{...sectionHead, cursor:"default"}}>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15, color:THEME.text }}>Preferenze Calendario</div>
+              <div style={{ fontSize:12, color:THEME.muted, marginTop:2 }}>Stato predefinito dei nuovi appuntamenti</div>
+            </div>
+          </div>
+          <div style={{ padding:"18px 20px" }}>
+            <label style={labelStyle}>Quando creo un nuovo appuntamento, impostalo come:</label>
+            <div style={{ display:"flex", gap:10, marginTop:6 }}>
+              {([
+                { k:"confirmed", label:"✓ Confermato", desc:"Il paziente è già d'accordo sull'orario", color:THEME.blue, bg:"rgba(37,99,235,0.08)" },
+                { k:"booked",    label:"📅 Prenotato", desc:"Attende conferma del paziente",        color:THEME.teal, bg:"rgba(13,148,136,0.08)" },
+              ] as const).map(opt=>(
+                <button key={opt.k} onClick={()=>setDefaultApptStatus(opt.k as "confirmed"|"booked")}
+                  style={{
+                    flex:1, padding:"14px 16px", borderRadius:10, cursor:"pointer",
+                    border:defaultApptStatus===opt.k?`2px solid ${opt.color}`:`1.5px solid ${THEME.border}`,
+                    background:defaultApptStatus===opt.k?opt.bg:"#fff",
+                    textAlign:"left", fontFamily:"inherit",
+                  }}>
+                  <div style={{ fontWeight:800, fontSize:14, color:defaultApptStatus===opt.k?opt.color:THEME.text, marginBottom:4 }}>{opt.label}</div>
+                  <div style={{ fontSize:11, color:THEME.muted }}>{opt.desc}</div>
+                </button>
+              ))}
+            </div>
+            <div style={{ marginTop:14, padding:"10px 14px", borderRadius:8, background:"rgba(13,148,136,0.04)", border:`1px solid rgba(13,148,136,0.15)`, fontSize:11, color:THEME.muted }}>
+              Vale sia per desktop che per mobile. Puoi sempre modificare lo stato di un singolo appuntamento dopo averlo creato.
+            </div>
+            <div style={{ display:"flex", justifyContent:"flex-end", marginTop:14 }}>
+              {btnPrimary(savingPractice?"Salvataggio…":"Salva preferenze", ()=>void savePracticeSettings(), savingPractice)}
+            </div>
+          </div>
         </div>
 
         {/* ── SEZIONE MESSAGGI AUTOMATICI ─────────────────────────────────── */}
