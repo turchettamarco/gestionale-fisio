@@ -1,8 +1,7 @@
 "use client";
 
-import React from "react";
-import Link from "next/link";
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
 
 /* ─── Types ───────────────────────────────────────────────────────────── */
