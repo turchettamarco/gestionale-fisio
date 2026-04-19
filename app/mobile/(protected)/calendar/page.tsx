@@ -594,10 +594,6 @@ function CalendarPageInner() {
     await supabase.from("appointments").update({whatsapp_sent_at:nowIso,whatsapp_sent:true}).eq("id",appointmentId);
     setEvents(prev=>prev.map(ev=>ev.id===appointmentId?{...ev,whatsapp_sent_at:nowIso}:ev));
     setSelectedEvent(prev=>prev?.id===appointmentId?{...prev,whatsapp_sent_at:nowIso}:prev);
-
-    if (!newWindow||newWindow.closed||typeof newWindow.closed==="undefined") {
-      // anchor click fallback già gestito sopra
-    }
   }, [events]);
 
   /* ── Open / Save / Delete ────────────────── */

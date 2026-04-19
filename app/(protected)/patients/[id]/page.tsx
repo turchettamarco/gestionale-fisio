@@ -4,6 +4,15 @@ import Link from "next/link";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 
+function cleanPhoneWA(phone: string): string {
+  if (!phone) return "";
+  let p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
+  if (p.startsWith("00")) p = p.slice(2);
+  if (p.startsWith("0")) p = "39" + p;
+  if (!p.startsWith("39") && p.length <= 10) p = "39" + p;
+  return p;
+}
+
 // ─── Pain Map ─────────────────────────────────────────────────────────────────
 
 const PAIN_TYPES_PM = [
@@ -1535,6 +1544,89 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
     });
   }
 
+  // ── Questionario soddisfazione ───────────────────────────────────────────
+  async function sendSatisfactionSurvey() {
+    if (!patient) return;
+    if (!phone) { alert("Nessun numero di telefono per questo paziente."); return; }
+    const token = Math.random().toString(36).slice(2, 14);
+    try {
+      // Save token in survey_tokens table
+      await fetch("/api/survey", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, patient_id: patient.id, patient_name: `${lastName} ${firstName}`.trim(), q1: null, q2: null, q3: null, _create_token: true }),
+      });
+    } catch {}
+    const link = `${window.location.origin}/survey/${token}`;
+    const msg = `Gentile ${firstName},\nil suo ciclo di trattamento è terminato.\n\nLe saremmo grati se volesse rispondere a 3 brevi domande:\n${link}\n\nGrazie, Dr. Marco Turchetta`;
+    const clean = cleanPhoneWA(phone);
+    const url = "https://api.whatsapp.com/send?phone=" + clean + "&text=" + encodeURIComponent(msg);
+    const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
+    document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
+  }
+
+  // ── Export scheda paziente completa PDF ──────────────────────────────────
+  function exportPazientePDF() {
+    if (!patient) return;
+    const oggi = new Date().toLocaleDateString("it-IT",{day:"2-digit",month:"long",year:"numeric"});
+    const nomeCompleto = `${lastName} ${firstName}`.trim();
+    const eta = birthDate ? `${Math.floor((Date.now()-new Date(birthDate).getTime())/31557600000)} anni` : "—";
+    const apptRows = appointments.slice(0,30).map((a,i)=>{
+      const d=new Date(a.start_at);
+      const stato=(a.status as string)==="done"?"Eseguita":(a.status as string)==="not_paid"?"Non pagata":(a.status as string)==="cancelled"?"Annullata":(a.status as string)==="confirmed"?"Confermata":"Prenotata";
+      const pagato=a.is_paid?"✓":"";
+      return `<tr style="background:${i%2===0?"#f8fafc":"#fff"}"><td style="padding:6px 10px">${d.toLocaleDateString("it-IT")}</td><td style="padding:6px 10px">${d.toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})}</td><td style="padding:6px 10px">${stato}</td><td style="padding:6px 10px;text-align:center">${pagato}</td><td style="padding:6px 10px;text-align:right">${a.amount?`€${a.amount}`:""}</td></tr>`;
+    }).join("");
+    const exRows = esercizi.map((e,i)=>`<tr style="background:${i%2===0?"#f8fafc":"#fff"}"><td style="padding:6px 10px;font-weight:700">${e.nome}</td><td style="padding:6px 10px">${e.serie}×${e.ripetizioni}</td><td style="padding:6px 10px">${e.frequenza}</td><td style="padding:6px 10px">${e.avvertenze||"—"}</td></tr>`).join("");
+    const html=`<!DOCTYPE html><html lang="it"><head><meta charset="utf-8"><title>Scheda — ${nomeCompleto}</title>
+<style>
+  body{font-family:'Segoe UI',Arial,sans-serif;padding:40px;color:#0f172a;font-size:12px;max-width:760px;margin:0 auto;}
+  h1{font-size:22px;font-weight:800;margin:0 0 3px;}.sub{font-size:11px;color:#64748b;margin-bottom:28px;}
+  h2{font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1.5px solid #e2e8f0;padding-bottom:5px;margin:20px 0 10px;}
+  .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:8px;}
+  .field label{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;display:block;margin-bottom:2px;}
+  .field span{font-size:13px;font-weight:600;}
+  .box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;}
+  table{width:100%;border-collapse:collapse;font-size:11px;}
+  th{background:#f1f5f9;padding:6px 10px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;}
+  @media print{button{display:none!important;}.no-print{display:none!important;}}
+</style></head><body>
+<h1>${nomeCompleto}</h1>
+<div class="sub">Scheda clinica completa — esportata il ${oggi} · Dr. Marco Turchetta</div>
+<h2>Anagrafica</h2>
+<div class="box grid">
+  <div class="field"><label>Data di nascita</label><span>${birthDate?new Date(birthDate+"T12:00:00").toLocaleDateString("it-IT"):"—"} (${eta})</span></div>
+  <div class="field"><label>Luogo di nascita</label><span>${birthPlace||"—"}</span></div>
+  <div class="field"><label>Codice Fiscale</label><span>${taxCode||"—"}</span></div>
+  <div class="field"><label>Città</label><span>${resCity||"—"}</span></div>
+  <div class="field"><label>Telefono</label><span>${phone||"—"}</span></div>
+  <div class="field"><label>Prima visita</label><span>${firstVisitDate?new Date(firstVisitDate+"T12:00:00").toLocaleDateString("it-IT"):"—"}</span></div>
+</div>
+<h2>Quadro clinico</h2>
+<div class="box">
+  <div class="grid">
+    <div class="field"><label>Disturbo principale</label><span>${mainComplaint||"—"}</span></div>
+    <div class="field"><label>Zona corporea</label><span>${bodyRegion||"—"} ${side?`(${side})`:""}</span></div>
+    <div class="field"><label>Tipo patologia</label><span>${pathologyType||"—"}</span></div>
+    <div class="field" style="grid-column:1/-1"><label>Diagnosi medica</label><span>${medicalDiagnosis||"—"}</span></div>
+  </div>
+  ${anamnesis?`<div class="field" style="margin-top:8px"><label>Anamnesi</label><span style="white-space:pre-wrap">${anamnesis}</span></div>`:""}
+  ${diagnosis?`<div class="field" style="margin-top:8px"><label>Diagnosi fisioterapica</label><span style="white-space:pre-wrap">${diagnosis}</span></div>`:""}
+  ${treatment?`<div class="field" style="margin-top:8px"><label>Trattamento</label><span style="white-space:pre-wrap">${treatment}</span></div>`:""}
+</div>
+${appointments.length>0?`
+<h2>Storico sedute (ultime 30)</h2>
+<table><thead><tr><th>Data</th><th>Ora</th><th>Stato</th><th>Pagata</th><th>Importo</th></tr></thead><tbody>${apptRows}</tbody></table>`:""}
+${esercizi.length>0?`
+<h2>Scheda esercizi attuale</h2>
+<table><thead><tr><th>Esercizio</th><th>Serie×Rip</th><th>Frequenza</th><th>Avvertenze</th></tr></thead><tbody>${exRows}</tbody></table>`:""}
+<div style="text-align:center;margin-top:32px" class="no-print">
+  <button onclick="window.print()" style="padding:10px 28px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">🖨️ Stampa / Salva PDF</button>
+</div>
+</body></html>`;
+    const w=window.open("","_blank","width=900,height:1000"); if(w){w.document.write(html);w.document.close();}
+  }
+
   function stampaEsercizi() {
     if (!patient || esercizi.length === 0) return;
     const oggi = new Date().toLocaleDateString("it-IT", { day:"2-digit", month:"long", year:"numeric" });
@@ -1880,12 +1972,8 @@ ${rows}
           </div>
           <nav style={{ display: "flex", gap: 2 }}>
             {([
-              { href: "/",         label: "Home",       icon: "⌂",  active: false },
-              { href: "/calendar", label: "Calendario", icon: "▦",  active: false },
-              { href: "/reports",  label: "Report",     icon: "◈",  active: false },
-              { href: "/noleggio",  label: "Noleggio",   icon: "🔌",  active: false },
-              { href: "/patients", label: "Pazienti",   icon: "◉",  active: true  },
-            ] as const).map(item => (
+              {href:"/",label:"Home"},{href:"/calendar",label:"Calendario"},{href:"/reports",label:"Report"},{href:"/noleggio",label:"Noleggio"},{href:"/patients",label:"Pazienti",active:true},
+            ] as {href:string;label:string;active?:boolean}[]).map(item => (
               <Link key={item.href} href={item.href} style={{
                 padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700,
                 textDecoration: "none", transition: "all 0.2s",
@@ -1893,7 +1981,7 @@ ${rows}
                 color: item.active ? "#fff" : "rgba(255,255,255,0.8)",
                 letterSpacing: 0.3,
               }}>
-                <span className="tab-compact">{item.icon} {item.label}</span>
+                <span className="tab-compact">{item.label}</span>
               </Link>
             ))}
           </nav>
@@ -1987,6 +2075,16 @@ ${rows}
               background: "linear-gradient(135deg, #0d9488, #2563eb)",
               color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer",
             }}>🔏 Genera consensi</button>
+            <button onClick={exportPazientePDF} style={{
+              padding: "9px 16px", borderRadius: 8, border: `1.5px solid ${THEME.blue}`,
+              background: "rgba(37,99,235,0.06)", color: THEME.blue, fontWeight: 700,
+              fontSize: 13, cursor: "pointer",
+            }}>📄 Esporta PDF</button>
+            <button onClick={sendSatisfactionSurvey} style={{
+              padding: "9px 16px", borderRadius: 8, border: `1.5px solid #f59e0b`,
+              background: "rgba(245,158,11,0.06)", color: "#b45309", fontWeight: 700,
+              fontSize: 13, cursor: "pointer",
+            }}>⭐ Questionario</button>
           </div>
         </div>
 

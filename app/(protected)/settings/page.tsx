@@ -63,6 +63,12 @@ type PracticeSettingsRow = {
   // Messaggi automatici
   welcome_message: string | null;
   booking_confirm_message: string | null;
+  reminder_message: string | null;
+  payment_message: string | null;
+  birthday_message: string | null;
+  satisfaction_message: string | null;
+  // Logo
+  logo_base64: string | null;
   // Gestione
   monthly_revenue_goal: number | null;
   inactive_threshold_days: number | null;
@@ -159,6 +165,7 @@ export default function SettingsPage() {
 
   // Practice fields
   const [practiceName,   setPracticeName]   = useState("");
+  const [logoBase64,     setLogoBase64]     = useState("");  // base64 logo studio
   const [ownerFullName,  setOwnerFullName]  = useState("");
   const [vatNumber,      setVatNumber]      = useState("");
   const [address,        setAddress]        = useState("");
@@ -192,8 +199,12 @@ export default function SettingsPage() {
   const [durTens,      setDurTens]      = useState("20");
 
   // Messaggi automatici
-  const [welcomeMsg,      setWelcomeMsg]      = useState("");
-  const [bookingConfirmMsg, setBookingConfirmMsg] = useState("");
+  const [welcomeMsg,        setWelcomeMsg]        = useState("");
+  const [bookingConfirmMsg,  setBookingConfirmMsg]  = useState("");
+  const [reminderMsg,        setReminderMsg]        = useState("");
+  const [paymentMsg,         setPaymentMsg]         = useState("");
+  const [birthdayMsg,        setBirthdayMsg]        = useState("");
+  const [satisfactionMsg,    setSatisfactionMsg]    = useState("");
 
   // Gestione
   const [monthlyGoal,      setMonthlyGoal]      = useState("2000");
@@ -452,7 +463,7 @@ export default function SettingsPage() {
       const uid = await requireUserId();
       const { data, error } = await supabase
         .from("practice_settings")
-        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices")
+        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, logo_base64, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices, reminder_message, payment_message, birthday_message, satisfaction_message")
         .eq("owner_id", uid)
         .maybeSingle();
       if (error) throw new Error(error.message);
@@ -461,12 +472,13 @@ export default function SettingsPage() {
         if (uErr) throw new Error(uErr.message);
         const u = uData?.user;
         const fullName = ((u?.user_metadata?.full_name || u?.user_metadata?.name || [u?.user_metadata?.first_name, u?.user_metadata?.last_name].filter(Boolean).join(" ") || u?.email || "Titolare") + "").trim() || "Titolare";
-        const seed: PracticeSettingsRow = { owner_id: uid, practice_name: "FisioHub", owner_full_name: fullName, vat_number: "", address: "", pec_email: "", phone: "", google_review_link: "", standard_invoice: 40, standard_cash: 35, machine_invoice: 25, machine_cash: 20, laser_invoice: 30, laser_cash: 25, tecar_invoice: 30, tecar_cash: 25, onde_urto_invoice: 40, onde_urto_cash: 35, tens_invoice: 20, tens_cash: 15, duration_seduta: 60, duration_macchinario: 30, duration_laser: 20, duration_tecar: 30, duration_onde_urto: 15, duration_tens: 20, welcome_message: null, booking_confirm_message: null, monthly_revenue_goal: 2000, inactive_threshold_days: 45, reminder_hours_before: 24, auto_apply_prices: true };
+        const seed: PracticeSettingsRow = { owner_id: uid, practice_name: "FisioHub", owner_full_name: fullName, vat_number: "", address: "", pec_email: "", phone: "", google_review_link: "", logo_base64: null, standard_invoice: 40, standard_cash: 35, machine_invoice: 25, machine_cash: 20, laser_invoice: 30, laser_cash: 25, tecar_invoice: 30, tecar_cash: 25, onde_urto_invoice: 40, onde_urto_cash: 35, tens_invoice: 20, tens_cash: 15, duration_seduta: 60, duration_macchinario: 30, duration_laser: 20, duration_tecar: 30, duration_onde_urto: 15, duration_tens: 20, welcome_message: null, booking_confirm_message: null, reminder_message: null, payment_message: null, birthday_message: null, satisfaction_message: null, monthly_revenue_goal: 2000, inactive_threshold_days: 45, reminder_hours_before: 24, auto_apply_prices: true };
         const { error: upsertErr } = await supabase.from("practice_settings").upsert(seed, { onConflict: "owner_id" });
         if (upsertErr) throw new Error(upsertErr.message);
         return await loadPracticeSettings();
       }
       setPracticeName(data.practice_name ?? "");
+      setLogoBase64((data as any).logo_base64 ?? "");
       setOwnerFullName(data.owner_full_name ?? "");
       setVatNumber(data.vat_number ?? "");
       setAddress(data.address ?? "");
@@ -494,6 +506,10 @@ export default function SettingsPage() {
       setDurTens(String((data as any).duration_tens ?? 20));
       setWelcomeMsg((data as any).welcome_message ?? "");
       setBookingConfirmMsg((data as any).booking_confirm_message ?? "");
+      setReminderMsg((data as any).reminder_message ?? "");
+      setPaymentMsg((data as any).payment_message ?? "");
+      setBirthdayMsg((data as any).birthday_message ?? "");
+      setSatisfactionMsg((data as any).satisfaction_message ?? "");
       setMonthlyGoal(String((data as any).monthly_revenue_goal ?? 2000));
       setInactiveThresh(String((data as any).inactive_threshold_days ?? 45));
       setReminderHours(String((data as any).reminder_hours_before ?? 24));
@@ -512,6 +528,7 @@ export default function SettingsPage() {
       const payload: PracticeSettingsRow = {
         owner_id:        uid,
         practice_name:   practiceName.trim() || "FisioHub",
+        logo_base64:     logoBase64 || null,
         owner_full_name: ownerFullName.trim() || "Titolare",
         vat_number:      vatNumber.trim() || "",
         address:         address.trim() || "",
@@ -537,8 +554,12 @@ export default function SettingsPage() {
         duration_tecar:        parseInt(durTecar) || 30,
         duration_onde_urto:    parseInt(durOndeUrto) || 15,
         duration_tens:         parseInt(durTens) || 20,
-        welcome_message:       welcomeMsg.trim() || null,
-        booking_confirm_message: bookingConfirmMsg.trim() || null,
+        welcome_message:          welcomeMsg.trim() || null,
+        booking_confirm_message:  bookingConfirmMsg.trim() || null,
+        reminder_message:         reminderMsg.trim() || null,
+        payment_message:          paymentMsg.trim() || null,
+        birthday_message:         birthdayMsg.trim() || null,
+        satisfaction_message:     satisfactionMsg.trim() || null,
         monthly_revenue_goal:  parseFloat(monthlyGoal) || 2000,
         inactive_threshold_days: parseInt(inactiveThresh) || 45,
         reminder_hours_before: parseInt(reminderHours) || 24,
@@ -762,7 +783,23 @@ export default function SettingsPage() {
                   <label style={labelStyle}>Indirizzo</label>
                   <input value={address} onChange={e => setAddress(e.target.value)} style={inputStyle} />
                 </div>
-                <div style={{ gridColumn:"1 / -1" }}>
+                <div style={{ gridColumn:"1/-1" }}>
+                  <label style={labelStyle}>Logo studio (appare su PDF, ricevute, schede esercizi)</label>
+                  <div style={{ display:"flex", alignItems:"center", gap:14, flexWrap:"wrap" }}>
+                    {logoBase64 && <img src={logoBase64} alt="Logo" style={{ height:48, objectFit:"contain", borderRadius:6, border:`1px solid ${THEME.border}` }}/>}
+                    <label style={{ padding:"8px 16px", borderRadius:7, border:`1.5px solid ${THEME.teal}`, background:"rgba(13,148,136,0.06)", color:THEME.teal, fontWeight:700, fontSize:12, cursor:"pointer", display:"inline-block" }}>
+                      {logoBase64?"📷 Cambia logo":"📷 Carica logo"}
+                      <input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>{
+                        const file=e.target.files?.[0]; if(!file)return;
+                        if(file.size>200000){alert("Logo max 200KB");return;}
+                        const r=new FileReader(); r.onload=ev=>setLogoBase64(ev.target!.result as string); r.readAsDataURL(file);
+                      }}/>
+                    </label>
+                    {logoBase64&&<button onClick={()=>setLogoBase64("")} style={{ padding:"8px 12px", borderRadius:7, border:`1px solid ${THEME.border}`, background:"transparent", color:THEME.muted, fontWeight:600, fontSize:12, cursor:"pointer" }}>✕ Rimuovi</button>}
+                    <span style={{ fontSize:11, color:THEME.muted }}>Max 200KB · PNG/JPG · appare su tutti i documenti generati</span>
+                  </div>
+                </div>
+                <div style={{ gridColumn:"1/-1" }}>
                   <label style={labelStyle}>Link Google Review (per richiesta recensioni WA)</label>
                   <input
                     value={googleReviewLink}
@@ -1114,6 +1151,34 @@ export default function SettingsPage() {
                 <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato quando confermi una prenotazione dal sito. Usa: {"{nome}"} {"{data}"} {"{ora}"}</div>
                 <textarea value={bookingConfirmMsg} onChange={e=>setBookingConfirmMsg(e.target.value)} rows={4}
                   placeholder={"Gentile {nome}, la sua prenotazione per il {data} alle {ora} è confermata.\nA presto, Dr. Marco Turchetta"}
+                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
+              </div>
+              <div>
+                <label style={labelStyle}>Promemoria appuntamento (WhatsApp)</label>
+                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato come promemoria. Usa: {"{nome}"} {"{data}"} {"{ora}"} {"{luogo}"}</div>
+                <textarea value={reminderMsg} onChange={e=>setReminderMsg(e.target.value)} rows={4}
+                  placeholder={"Buongiorno {nome},\nLe ricordiamo l'appuntamento di {data} alle {ora}.\n📍 {luogo}\nA presto, Dr. Marco Turchetta"}
+                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
+              </div>
+              <div>
+                <label style={labelStyle}>Sollecito pagamento (WhatsApp)</label>
+                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Per pazienti con saldo aperto. Usa: {"{nome}"} {"{importo}"}</div>
+                <textarea value={paymentMsg} onChange={e=>setPaymentMsg(e.target.value)} rows={4}
+                  placeholder={"Gentile {nome},\nLe ricordiamo un saldo aperto di €{importo} per le sedute effettuate.\nPer info contatti lo studio.\nGrazie, Dr. Marco Turchetta"}
+                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
+              </div>
+              <div>
+                <label style={labelStyle}>Auguri compleanno (WhatsApp)</label>
+                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato dal widget compleanni in dashboard. Usa: {"{nome}"}</div>
+                <textarea value={birthdayMsg} onChange={e=>setBirthdayMsg(e.target.value)} rows={3}
+                  placeholder={"Tanti auguri {nome}! 🎉\nDr. Marco Turchetta e tutto lo staff le augurano una splendida giornata!"}
+                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
+              </div>
+              <div>
+                <label style={labelStyle}>Questionario soddisfazione (WhatsApp)</label>
+                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato al termine del ciclo. Usa: {"{nome}"} {"{link}"}</div>
+                <textarea value={satisfactionMsg} onChange={e=>setSatisfactionMsg(e.target.value)} rows={3}
+                  placeholder={"Gentile {nome}, il suo ciclo di trattamento è terminato.\nSaremmo grati se volesse rispondere a 3 domande:\n{link}\nGrazie, Dr. Marco Turchetta"}
                   style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
               </div>
               <div style={{ display:"flex", justifyContent:"flex-end" }}>

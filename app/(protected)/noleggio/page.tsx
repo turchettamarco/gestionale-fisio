@@ -85,6 +85,9 @@ export default function NoleggioPage() {
   const [warningDays, setWarningDays] = useState(3);
   const [editingWarning, setEditingWarning] = useState(false);
   const [warningInput, setWarningInput] = useState("3");
+  const [totalUnits, setTotalUnits] = useState(1);
+  const [editingUnits, setEditingUnits] = useState(false);
+  const [tempUnits, setTempUnits] = useState("1");
 
   // Default price per day
   const [defaultPrice, setDefaultPrice] = useState(5);
@@ -299,6 +302,61 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
     if(w){ w.document.write(html); w.document.close(); }
   }
 
+  function printContratto(n: NoleggioRow) {
+    const oggi = new Date().toLocaleDateString("it-IT",{day:"2-digit",month:"long",year:"numeric"});
+    const startStr = new Date(n.start_date+"T12:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"long",year:"numeric"});
+    const scadStr  = new Date(n.end_date+"T12:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"long",year:"numeric"});
+    const days = Math.max(1,Math.round((new Date(n.end_date+"T12:00:00").getTime()-new Date(n.start_date+"T12:00:00").getTime())/86400000));
+    const html = `<!DOCTYPE html><html lang="it"><head><meta charset="utf-8"><title>Contratto Noleggio</title>
+<style>
+  body{font-family:'Segoe UI',Arial,sans-serif;padding:48px;color:#0f172a;max-width:700px;margin:0 auto;font-size:13px;}
+  h1{font-size:20px;font-weight:800;margin:0 0 4px;}
+  .sub{color:#64748b;font-size:12px;margin-bottom:32px;}
+  .section h2{font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #e2e8f0;padding-bottom:6px;margin:20px 0 10px;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .field label{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;display:block;margin-bottom:2px;}
+  .field span{font-size:14px;font-weight:600;}
+  .box{background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px;padding:14px 18px;}
+  .total{display:flex;justify-content:space-between;align-items:center;background:#f0fdf4;border:2px solid #16a34a;border-radius:10px;padding:14px 20px;margin:20px 0;}
+  .total .lbl{font-weight:700;color:#15803d;}
+  .total .amt{font-size:24px;font-weight:800;color:#15803d;}
+  .art{margin-bottom:10px;font-size:12px;line-height:1.7;}
+  .art strong{display:block;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.3px;}
+  .firma{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:40px;}
+  .firma-box{border-top:1.5px solid #0f172a;padding-top:8px;font-size:11px;color:#64748b;}
+  @media print{button{display:none!important;}}
+</style></head><body>
+<h1>Contratto di Noleggio — Magnetoterapia</h1>
+<div class="sub">Dr. Marco Turchetta — Fisioterapista &amp; Osteopata · Via Galileo Galilei 5, Pontecorvo (FR) · Emesso il ${oggi}</div>
+<div class="section"><h2>Dati del locatario</h2>
+<div class="box grid">
+  <div class="field"><label>Cognome e Nome</label><span>${n.patient_name}</span></div>
+  ${n.patient_phone?`<div class="field"><label>Telefono</label><span>${n.patient_phone}</span></div>`:"<div></div>"}
+</div></div>
+<div class="section"><h2>Dispositivo noleggiato</h2>
+<div class="box grid">
+  <div class="field"><label>Dispositivo</label><span>${n.device_name}</span></div>
+  <div class="field"><label>Prezzo/giorno</label><span>€ ${n.price_per_day.toFixed(2)}</span></div>
+  <div class="field"><label>Data inizio</label><span>${startStr}</span></div>
+  <div class="field"><label>Data fine</label><span>${scadStr}</span></div>
+  <div class="field"><label>Durata</label><span>${days} giorni</span></div>
+</div></div>
+<div class="total"><div><div class="lbl">Importo totale</div><div style="font-size:11px;color:#64748b">${days} giorni × €${n.price_per_day.toFixed(2)}/giorno</div></div><div class="amt">€ ${n.total_amount.toFixed(2)}</div></div>
+<div class="section"><h2>Condizioni di noleggio</h2>
+<div class="art"><strong>Art. 1 – Oggetto</strong>Il locatore concede in uso temporaneo il dispositivo sopra indicato per uso terapeutico domiciliare esclusivo.</div>
+<div class="art"><strong>Art. 2 – Durata e restituzione</strong>Il noleggio ha durata fino alla data indicata. Il locatario si impegna alla restituzione in buono stato entro tale data. Ogni giorno di ritardo comporta l'addebito del prezzo giornaliero.</div>
+<div class="art"><strong>Art. 3 – Utilizzo e responsabilità</strong>Il dispositivo deve essere usato secondo le istruzioni fornite. È vietata la cessione a terzi. Il locatario risponde di eventuali danni.</div>
+<div class="art"><strong>Art. 4 – Pagamento</strong>L'importo è dovuto secondo le modalità concordate al momento della consegna.</div>
+</div>
+<div class="firma">
+  <div class="firma-box"><div style="font-weight:700;margin-bottom:36px">Il locatore</div>Dr. Marco Turchetta<br>Fisioterapista &amp; Osteopata</div>
+  <div class="firma-box"><div style="font-weight:700;margin-bottom:36px">Il locatario — firma per accettazione</div>${n.patient_name}</div>
+</div>
+<div style="text-align:center;margin-top:32px;"><button onclick="window.print()" style="padding:10px 28px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🖨️ Stampa / Salva PDF</button></div>
+</body></html>`;
+    const w=window.open("","_blank","width=820,height:950"); if(w){w.document.write(html);w.document.close();}
+  }
+
   async function saveSettings() {
     const wd = parseInt(warningInput)||3;
     const pd = parseFloat(priceInput)||5;
@@ -397,7 +455,8 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
         {/* KPI + Impostazioni */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:12, marginBottom:20 }}>
           {[
-            { label:"Attivi", val:stats.total, color:THEME.teal, bg:"rgba(13,148,136,0.08)" },
+            { label:"Disponibili", val:`${Math.max(0,totalUnits-stats.total)}/${totalUnits}`, color:stats.total>=totalUnits?THEME.red:THEME.teal, bg:stats.total>=totalUnits?"rgba(220,38,38,0.08)":"rgba(13,148,136,0.08)" },
+            { label:"In noleggio", val:stats.total, color:THEME.blue, bg:"rgba(37,99,235,0.08)" },
             { label:`In scadenza (≤${warningDays}gg)`, val:stats.expiring, color:THEME.amber, bg:"rgba(249,115,22,0.08)" },
             { label:"Scaduti", val:stats.expired, color:THEME.red, bg:"rgba(220,38,38,0.08)" },
             { label:"Incassato", val:`€${Math.round(stats.revenue)}`, color:THEME.green, bg:"rgba(22,163,74,0.08)" },
@@ -414,6 +473,18 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
           <div style={{ padding:"14px 20px", borderBottom:`1px solid ${THEME.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:12 }}>
             <div style={{ fontWeight:700, fontSize:14, color:THEME.text }}>Impostazioni noleggio</div>
             <div style={{ display:"flex", gap:20, alignItems:"center", flexWrap:"wrap" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <span style={{ fontSize:12, color:THEME.muted, fontWeight:600 }}>Unità dispositivi:</span>
+                {editingUnits ? (
+                  <>
+                    <input value={tempUnits} onChange={e=>setTempUnits(e.target.value)} type="number" min="1" max="20" style={{ width:60, padding:"4px 8px", borderRadius:6, border:`1.5px solid ${THEME.teal}`, fontSize:13, fontWeight:700, outline:"none" }}/>
+                    <button onClick={()=>{setTotalUnits(parseInt(tempUnits)||1);setEditingUnits(false);}} style={{ padding:"4px 12px", borderRadius:6, border:"none", background:THEME.teal, color:"#fff", fontWeight:700, fontSize:12, cursor:"pointer" }}>OK</button>
+                    <button onClick={()=>setEditingUnits(false)} style={{ padding:"4px 10px", borderRadius:6, border:`1px solid ${THEME.border}`, background:"transparent", color:THEME.muted, fontWeight:600, fontSize:12, cursor:"pointer" }}>✕</button>
+                  </>
+                ) : (
+                  <button onClick={()=>{setTempUnits(String(totalUnits));setEditingUnits(true);}} style={{ padding:"4px 12px", borderRadius:6, border:`1px solid ${THEME.border}`, background:THEME.panelSoft, color:THEME.text, fontWeight:700, fontSize:13, cursor:"pointer" }}>{totalUnits} ✏️</button>
+                )}
+              </div>
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                 <span style={{ fontSize:12, color:THEME.muted, fontWeight:600 }}>Alert scadenza (giorni):</span>
                 {editingWarning||editingPrice ? (
@@ -578,6 +649,9 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
                 )}
                 <button onClick={()=>printRicevuta(n)} style={{ padding:"6px 10px", borderRadius:6, border:`1px solid ${THEME.blue}22`, background:"rgba(37,99,235,0.05)", color:THEME.blue, cursor:"pointer", fontWeight:700, fontSize:11 }}>
                   🖨️ Ricevuta
+                </button>
+                <button onClick={()=>printContratto(n)} style={{ padding:"6px 10px", borderRadius:6, border:"1px solid rgba(124,58,237,0.3)", background:"rgba(124,58,237,0.05)", color:"#7c3aed", cursor:"pointer", fontWeight:700, fontSize:11 }}>
+                  📄 Contratto
                 </button>
                 <button onClick={()=>deleteNoleggio(n.id)} style={{ padding:"6px 10px", borderRadius:6, border:`1px solid rgba(220,38,38,0.25)`, background:"rgba(220,38,38,0.04)", color:THEME.red, cursor:"pointer", fontWeight:700, fontSize:11 }}>
                   Elimina

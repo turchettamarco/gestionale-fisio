@@ -361,11 +361,10 @@ export default function MobileHomePage() {
       `📍 ${luogo}\n\n` +
       `Cordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
 
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     const clean = formatPhoneForWA(phone);
-    const url = isMobile
-`https://api.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+    const url = `https://api.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`;
+    const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
+    document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
 
     const nowIso = new Date().toISOString();
     setSendingWA(appt.id);
@@ -559,11 +558,10 @@ export default function MobileHomePage() {
           `Per qualsiasi necessità non esiti a contattarci.\n\n` +
           `Cordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
 
-        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
         const clean = formatPhoneForWA(patientPhone);
-        const url = isMobile
-`https://api.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(confMsg)}`;
-        window.open(url, "_blank", "noopener,noreferrer");
+        const url = `https://api.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(confMsg)}`;
+        const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
+        document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
       }
 
       setQuickAddOpen(false);

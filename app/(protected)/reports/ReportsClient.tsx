@@ -769,7 +769,7 @@ export default function ReportsPage(){
                       </div>
                       <div style={{display:"flex",gap:6,flexShrink:0}}>
                         {p.phone&&<a href={`tel:${p.phone}`} style={{width:28,height:28,borderRadius:7,background:"rgba(37,99,235,0.08)",border:`1px solid rgba(37,99,235,0.2)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}}>📞</a>}
-                        {p.phone&&<button onClick={()=>openWADirect(p.phone!)} style={{width:28,height:28,borderRadius:7,background:"rgba(22,163,74,0.08)",border:"1px solid rgba(22,163,74,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,cursor:"pointer",border:"none"}}>💬</button>}
+                        {p.phone&&<button onClick={()=>openWADirect(p.phone!)} style={{width:28,height:28,borderRadius:7,background:"rgba(22,163,74,0.08)",border:"none",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,cursor:"pointer"}}>💬</button>}
                       </div>
                     </div>
                   ))}

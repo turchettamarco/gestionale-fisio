@@ -2541,22 +2541,8 @@ return (
             <span className="mob-hide" style={{ fontWeight: 700, fontSize: 15, color: "#fff", letterSpacing: 0.5, textTransform: "uppercase" }}>Fisio<span style={{ color: "#fff", fontWeight: 800 }}>Hub</span></span>
           </div>
           <nav className="mob-hide" style={{ display: "flex", gap: 2 }}>
-            {[
-              { href: "/", label: "Home", icon: "⌂" },
-              { href: "/calendar", label: "Calendario", icon: "▦", active: true },
-              { href: "/reports", label: "Report", icon: "◈" },
-              { href: "/noleggio",  label: "Noleggio", icon: "🔌" },
-              { href: "/patients", label: "Pazienti", icon: "◉" },
-            ].map(item => (
-              <Link key={item.href} href={item.href} style={{
-                padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700,
-                textDecoration: "none", transition: "all 0.2s",
-                background: item.active ? "rgba(255,255,255,0.2)" : "transparent",
-                color: item.active ? "#fff" : "rgba(255,255,255,0.8)",
-                letterSpacing: 0.3,
-              }}>
-                {item.icon} {item.label}
-              </Link>
+            {([{href:"/",label:"Home"},{href:"/calendar",label:"Calendario",active:true},{href:"/reports",label:"Report"},{href:"/noleggio",label:"Noleggio"},{href:"/patients",label:"Pazienti"}] as const).map(item=>(
+              <Link key={item.href} href={item.href} style={{ padding:"6px 12px", borderRadius:8, fontSize:12, fontWeight:700, textDecoration:"none", background:(item as any).active?"rgba(255,255,255,0.2)":"transparent", color:(item as any).active?"#fff":"rgba(255,255,255,0.8)", letterSpacing:0.3 }}>{item.label}</Link>
             ))}
           </nav>
         </div>

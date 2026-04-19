@@ -467,12 +467,8 @@ export default function PatientsPage() {
           </div>
           <nav style={{ display: "flex", gap: 2 }}>
             {([
-              { href: "/",         label: "Home",       icon: "⌂",  active: false },
-              { href: "/calendar", label: "Calendario", icon: "▦",  active: false },
-              { href: "/reports",  label: "Report",     icon: "◈",  active: false },
-              { href: "/noleggio",  label: "Noleggio",   icon: "🔌",  active: false },
-              { href: "/patients", label: "Pazienti",   icon: "◉",  active: true  },
-            ] as const).map(item => (
+              {href:"/",label:"Home"},{href:"/calendar",label:"Calendario"},{href:"/reports",label:"Report"},{href:"/noleggio",label:"Noleggio"},{href:"/patients",label:"Pazienti",active:true},
+            ] as {href:string;label:string;active?:boolean}[]).map(item => (
               <Link key={item.href} href={item.href} style={{
                 padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700,
                 textDecoration: "none",
@@ -480,7 +476,7 @@ export default function PatientsPage() {
                 color: item.active ? "#fff" : "rgba(255,255,255,0.8)",
                 letterSpacing: 0.3,
               }}>
-                <span className="tab-compact">{item.icon} {item.label}</span>
+                <span className="tab-compact">{item.label}</span>
               </Link>
             ))}
           </nav>

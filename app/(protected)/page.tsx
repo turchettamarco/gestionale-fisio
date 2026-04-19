@@ -98,6 +98,7 @@ function cleanPhoneWA(phone: string): string {
   return p;
 }
 const fmtPhone = cleanPhoneWA; // alias compatibilità
+
 function openWA(phone: string, message: string): void {
   const clean = cleanPhoneWA(phone);
   if (!clean) { alert("Numero non valido."); return; }
@@ -107,6 +108,9 @@ function openWA(phone: string, message: string): void {
   document.body.appendChild(a); a.click();
   setTimeout(() => document.body.removeChild(a), 200);
 }
+type PatientRef = { first_name?: string|null; last_name?: string|null; phone?: string|null; status?: string|null } | null;
+const pickPatient = (p: PatientRef | PatientRef[] | undefined): PatientRef => Array.isArray(p) ? (p[0] ?? null) : (p ?? null);
+const patientName = (p: PatientRef | PatientRef[] | undefined): string => { const pt=pickPatient(p); return `${pt?.last_name??""} ${pt?.first_name??""}`.trim()||"Paziente sconosciuto"; };
 const buildWAMsg  = (a: AppointmentRow) => { const fn=(pickPatient(a.patients)?.first_name||"").trim()||"Cliente"; const luogo=a.location==="studio"?a.clinic_site||"Studio":`Domicilio (${a.domicile_address||"indirizzo da confermare"})`; return `Buongiorno ${fn},\n\nLe ricordiamo il suo appuntamento di ${formatDateRelative(new Date(a.start_at))} alle ore ${fmtTime(a.start_at)}.\n\n📍 ${luogo}\n\nA presto,\nFisioHub - Studi Galileo`; };
 const todayNoteKey = () => `fisiohub_daynote_${new Date().toISOString().slice(0,10)}`;
 
@@ -232,8 +236,33 @@ export default function HomePage() {
   }, []);
   useEffect(()=>{ void fetchWebBookings(); },[fetchWebBookings]);
 
+  // Check push notification permission on load
+  useEffect(()=>{
+    if("Notification" in window) setPushEnabled(Notification.permission==="granted");
+  },[]);
+
   // ── Noleggio scadenze ────────────────────────────────────────────────────
   const [noleggioExpiring, setNoleggioExpiring] = useState<{id:string;patient_name:string;end_date:string;device_name:string;days_remaining:number;patient_phone:string|null}[]>([]);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+
+  async function requestPushPermission() {
+    setPushLoading(true);
+    try {
+      if (!("Notification" in window)) { alert("Il tuo browser non supporta le notifiche push."); return; }
+      const perm = await Notification.requestPermission();
+      setPushEnabled(perm === "granted");
+      if (perm === "granted") {
+        new Notification("FisioHub — Notifiche attivate! ✅", {
+          body: "Riceverai avvisi per nuove prenotazioni e scadenze noleggio.",
+          icon: "/favicon.ico",
+        });
+      } else {
+        alert("Notifiche rifiutate. Puoi attivarle dalle impostazioni del browser.");
+      }
+    } catch(e) { console.error(e); }
+    finally { setPushLoading(false); }
+  }
   const [noleggioWarningDays, setNoleggioWarningDays] = useState(3);
   useEffect(()=>{
     (async()=>{
@@ -373,6 +402,19 @@ export default function HomePage() {
   const [webBookingActionId, setWebBookingActionId] = useState<string|null>(null);
   const [webPopup, setWebPopup] = useState<WebBooking|null>(null);
 
+  // Trigger push notification for new web bookings (after webBookings is declared)
+  useEffect(()=>{
+    if(!pushEnabled) return;
+    const pending = webBookings.filter((r:any)=>r.status==="pending");
+    if(pending.length>0 && Notification.permission==="granted") {
+      new Notification(`FisioHub — ${pending.length} nuova/e prenotazione/i online`,{
+        body: pending.map((r:any)=>r.patient_name||"Paziente").join(", "),
+        icon:"/favicon.ico"
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[webBookings.length]);
+
   const filtered=useMemo(()=>{ const q=debounced.trim().toLowerCase(); if(!q) return appointments; return appointments.filter(a=>patientName(a.patients).toLowerCase().includes(q)); },[appointments,debounced]);
   const todayAppts=useMemo(()=>filtered.filter(a=>isSameDay(new Date(a.start_at),today)),[filtered,today]);
   const domicilesToday=useMemo(()=>todayAppts.filter(a=>a.location==="domicile"),[todayAppts]);
@@ -461,6 +503,13 @@ export default function HomePage() {
             <input value={searchInput} onChange={e=>setSearchInput(e.target.value)} placeholder="Cerca paziente…" style={{border:"none",background:"transparent",outline:"none",color:"#fff",fontSize:12,fontWeight:500,width:150}}/>
           </div>
           <button onClick={fetchAppts} style={{width:30,height:30,borderRadius:7,border:"1px solid rgba(255,255,255,0.28)",background:"rgba(255,255,255,0.14)",color:"#fff",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>↺</button>
+          {/* Push notification toggle */}
+          <button
+            onClick={()=>requestPushPermission()}
+            disabled={pushLoading||pushEnabled}
+            title={pushEnabled?"Notifiche attive":"Attiva notifiche push"}
+            style={{width:30,height:30,borderRadius:7,border:"1px solid rgba(255,255,255,0.28)",background:pushEnabled?"rgba(134,239,172,0.25)":"rgba(255,255,255,0.14)",color:"#fff",cursor:pushEnabled?"default":"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",opacity:pushLoading?0.6:1}}
+          >{pushLoading?"…":pushEnabled?"🔔":"🔕"}</button>
           <div ref={userMenuRef} style={{position:"relative"}}>
             <button onClick={()=>setUserMenuOpen(v=>!v)} style={{width:30,height:30,borderRadius:7,border:"1px solid rgba(255,255,255,0.32)",background:"rgba(255,255,255,0.18)",color:"#fff",fontWeight:800,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{userInitials}</button>
             {userMenuOpen&&(
