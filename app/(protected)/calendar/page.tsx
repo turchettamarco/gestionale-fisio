@@ -1666,12 +1666,6 @@ function openWhatsApp(phone: string, message: string): boolean {
       message += `\n\n👉 Conferma o annulla con un click:\n${linkConferma}`;
     }
 
-    const confirmText = isConfirmation
-      ? `📱 CONFERMA APPUNTAMENTO\n\nDestinatario: ${patientPhone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp.`
-      : `📱 PROMEMORIA WHATSAPP\n\nDestinatario: ${patientPhone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp.`;
-
-    if (!window.confirm(confirmText)) return;
-
     const opened = openWhatsApp(patientPhone, message);
     if (!opened) { alert("Numero di telefono non valido."); return; }
 
@@ -1698,7 +1692,7 @@ La sua opinione ci aiuta a migliorare e a farci conoscere.
 Grazie di cuore,
 Dr. Marco Turchetta
 Fisioterapia e Osteopatia`;
-    if (!window.confirm(`⭐ RECENSIONE GOOGLE\n\nDestinatario: ${patientPhone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp.`)) return;
+    
     openWhatsApp(patientPhone, message);
   }, [practiceSettings]);
   const toggleBulkSelect = useCallback((id: string) => {

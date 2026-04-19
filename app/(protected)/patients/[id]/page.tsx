@@ -1563,7 +1563,19 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
       const d = await r.json();
       if (d.error) { alert("Errore: " + d.error); return; }
       const link = `${window.location.origin}/portale/${d.token}`;
-      const msg = `Gentile ${firstName},\n\nle ho attivato un'area personale dove può consultare:\n- i suoi prossimi appuntamenti\n- la scheda esercizi da fare a casa\n- i contatti dello studio\n\n🔑 Il suo link personale:\n${link}\n\nLa conservi, è valido per 6 mesi.\n\nCordiali saluti,\nDr. Marco Turchetta`;
+      const nome = firstName?.trim() || lastName?.trim() || "Paziente";
+      const msg = `Gentile ${nome},
+
+le ho attivato la sua area personale FisioHub dove puo vedere:
+- i suoi prossimi appuntamenti
+- la scheda esercizi da casa
+- i contatti dello studio
+
+Il suo link personale (valido 6 mesi):
+${link}
+
+Cordiali saluti,
+Dr. Marco Turchetta`;
       const clean = cleanPhoneWA(phone);
       const url = "https://api.whatsapp.com/send?phone=" + clean + "&text=" + encodeURIComponent(msg);
       const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
