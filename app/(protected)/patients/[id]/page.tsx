@@ -1552,38 +1552,53 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
   }
 
   // ── Invia link area riservata ────────────────────────────────────────────
-  async function sendPortalLink() {
-    if (!patient) return;
-    if (!phone) { alert("Nessun numero di telefono per questo paziente."); return; }
+  const [portalLink, setPortalLink] = useState("");
+  const [portalLinkLoading, setPortalLinkLoading] = useState(false);
+  const [portalLinkCopied, setPortalLinkCopied] = useState(false);
+
+  async function generatePortalLink(): Promise<string|null> {
+    if (!patient) return null;
+    setPortalLinkLoading(true);
     try {
       const r = await fetch("/api/portal", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ patient_id: patient.id }),
       });
       const d = await r.json();
-      if (d.error) { alert("Errore: " + d.error); return; }
+      if (d.error) { alert("Errore: " + d.error); return null; }
       const link = `${window.location.origin}/portale/${d.token}`;
-      const nome = firstName?.trim() || lastName?.trim() || "Paziente";
-      const msg = `Gentile ${nome},
-
-le ho attivato la sua area personale FisioHub dove puo vedere:
-- i suoi prossimi appuntamenti
-- la scheda esercizi da casa
-- i contatti dello studio
-
-Il suo link personale (valido 6 mesi):
-${link}
-
-Cordiali saluti,
-Dr. Marco Turchetta`;
-      const clean = cleanPhoneWA(phone);
-      const url = "https://api.whatsapp.com/send?phone=" + clean + "&text=" + encodeURIComponent(msg);
-      const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
-      document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
+      setPortalLink(link);
+      return link;
     } catch (e:any) {
       alert("Errore: " + (e?.message || "sconosciuto"));
+      return null;
+    } finally {
+      setPortalLinkLoading(false);
     }
   }
+
+  async function sendPortalLink() {
+    if (!phone) { alert("Nessun numero di telefono per questo paziente."); return; }
+    const link = await generatePortalLink();
+    if (!link) return;
+    const nome = firstName?.trim() || lastName?.trim() || "Paziente";
+    const msg = "Gentile " + nome + ",\n\nle ho attivato la sua area personale FisioHub dove puo vedere:\n- i suoi prossimi appuntamenti\n- la scheda esercizi da casa\n- i contatti dello studio\n\nIl suo link personale (valido 6 mesi):\n" + link + "\n\nCordiali saluti,\nDr. Marco Turchetta";
+    const clean = cleanPhoneWA(phone);
+    const url = "https://web.whatsapp.com/send?phone=" + clean + "&text=" + encodeURIComponent(msg);
+    const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
+    document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
+  }
+
+  async function copyPortalLink() {
+    const link = portalLink || await generatePortalLink();
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      setPortalLinkCopied(true);
+      setTimeout(() => setPortalLinkCopied(false), 2000);
+    } catch { alert("Link: " + link); }
+  }
+
 
   // ── Questionario soddisfazione ───────────────────────────────────────────
   async function sendSatisfactionSurvey() {
@@ -2126,11 +2141,16 @@ ${rows}
               background: "rgba(245,158,11,0.06)", color: "#b45309", fontWeight: 700,
               fontSize: 13, cursor: "pointer",
             }}>⭐ Questionario</button>
-            <button onClick={sendPortalLink} style={{
+            <button onClick={sendPortalLink} disabled={portalLinkLoading} style={{
               padding: "9px 16px", borderRadius: 8, border: `1.5px solid #7c3aed`,
               background: "rgba(124,58,237,0.06)", color: "#7c3aed", fontWeight: 700,
+              fontSize: 13, cursor: "pointer", opacity: portalLinkLoading ? 0.6 : 1,
+            }}>{portalLinkLoading ? "⏳…" : "🔑 Area riservata"}</button>
+            <button onClick={copyPortalLink} disabled={portalLinkLoading} style={{
+              padding: "9px 16px", borderRadius: 8, border: `1.5px solid ${THEME.border}`,
+              background: THEME.panelSoft, color: portalLinkCopied ? THEME.green : THEME.muted, fontWeight: 700,
               fontSize: 13, cursor: "pointer",
-            }}>🔑 Area riservata</button>
+            }}>{portalLinkCopied ? "✓ Copiato!" : "📋 Copia link"}</button>
           </div>
         </div>
 
@@ -2909,6 +2929,14 @@ ${rows}
                           style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${THEME.blue}`, background:"rgba(37,99,235,0.06)", color:THEME.blue, textDecoration:"none", fontWeight:700, fontSize:11 }}>
                           Link
                         </a>
+                        <button onClick={async()=>{
+                          if(!confirm("Eliminare questa scheda esercizi? Il link non funzionerà più.")) return;
+                          await supabase.from("schede_esercizi_pubbliche").delete().eq("id",s.id);
+                          if(schedaId===s.id) { setSchedaId(null); setEsercizi([]); }
+                          await loadSchedaEsercizi();
+                        }} style={{ padding:"5px 8px", borderRadius:6, border:`1px solid rgba(220,38,38,0.3)`, background:"rgba(220,38,38,0.05)", color:THEME.red, cursor:"pointer", fontWeight:700, fontSize:11 }}>
+                          🗑
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -2925,7 +2953,7 @@ ${rows}
                     </button>
                     <button onClick={()=>{
                         const msg = `Gentile ${lastName} ${firstName},\nEcco la sua scheda esercizi domiciliari:\n${pubLink}\n\nClicchi il link per vedere gli esercizi e i video dimostrativi.\nDr. Marco Turchetta`;
-                        const url = "https://api.whatsapp.com/send?text=" + encodeURIComponent(msg);
+                        const url = "https://web.whatsapp.com/send?text=" + encodeURIComponent(msg);
                         const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
                         document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
                       }}

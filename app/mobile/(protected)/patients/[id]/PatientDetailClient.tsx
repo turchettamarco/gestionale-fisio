@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
+import { ClinicalScalesSection } from "@/app/(protected)/patients/[id]/ClinicalScales";
+import { PhotoGallerySection } from "@/app/(protected)/patients/[id]/PhotoGallery";
 
 /* ─── Types ───────────────────────────────────────────────────────────── */
 type Plan   = "invoice" | "no_invoice";
@@ -253,7 +255,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState("");
   const [patient,   setPatient]   = useState<Patient | null>(null);
-  const [activeTab, setActiveTab] = useState<"info" | "clinical" | "therapies" | "docs" | "esercizi">("info");
+  const [activeTab, setActiveTab] = useState<"info" | "clinical" | "therapies" | "docs" | "esercizi" | "scales" | "photos" | "portal">("info");
 
   /* user */
   const [userEmail,    setUserEmail]    = useState<string | null>(null);
@@ -783,7 +785,10 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
           { id: "therapies", label: "Sedute",  icon: "📋" },
           { id: "docs",      label: "Referti", icon: "📁" },
           { id: "esercizi",  label: "Esercizi", icon: "🏋️" },
-        ] as { id: "info" | "clinical" | "therapies" | "docs" | "esercizi"; label: string; icon: string }[]).map(tab => (
+          { id: "scales",    label: "Scale",   icon: "📊" },
+          { id: "photos",    label: "Foto",    icon: "📷" },
+          { id: "portal",    label: "Portale", icon: "🔑" },
+        ] as { id: "info" | "clinical" | "therapies" | "docs" | "esercizi" | "scales" | "photos" | "portal"; label: string; icon: string }[]).map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
             padding: "11px 14px", background: "none", border: "none",
             borderBottom: `2.5px solid ${activeTab === tab.id ? T.blue : "transparent"}`,
@@ -1168,6 +1173,27 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
           <MobileEserciziTab patientId={patient.id} patientName={`${patient.last_name ?? ""} ${patient.first_name ?? ""}`.trim()} />
         )}
 
+        {/* ─── SCALE ─── */}
+        {activeTab === "scales" && (
+          <div style={{ padding:"14px 12px" }}>
+            <div style={{ fontSize:15, fontWeight:800, color:T.text, marginBottom:14 }}>📊 Scale di valutazione</div>
+            <ClinicalScalesSection patientId={patient.id} />
+          </div>
+        )}
+
+        {/* ─── FOTO ─── */}
+        {activeTab === "photos" && (
+          <div style={{ padding:"14px 12px" }}>
+            <div style={{ fontSize:15, fontWeight:800, color:T.text, marginBottom:14 }}>📷 Foto cliniche</div>
+            <PhotoGallerySection patientId={patient.id} />
+          </div>
+        )}
+
+        {/* ─── PORTALE ─── */}
+        {activeTab === "portal" && (
+          <MobilePortalTab patient={patient} />
+        )}
+
         {activeTab === "docs" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
@@ -1427,10 +1453,94 @@ function MobileEserciziTab({ patientId, patientName }: { patientId: string; pati
                 style={{padding:"4px 10px",borderRadius:6,border:"1px solid #0d9488",background:"rgba(13,148,136,0.06)",color:"#0d9488",fontWeight:700,fontSize:11,cursor:"pointer"}}>
                 Carica
               </button>
+              <button onClick={async()=>{
+                if(!confirm("Eliminare questa scheda?")) return;
+                await supabase.from("schede_esercizi_pubbliche").delete().eq("id",s.id);
+                const{data:newStorico}=await supabase.from("schede_esercizi_pubbliche").select("id,token,esercizi,note,created_at").eq("patient_id",patientId).order("created_at",{ascending:false});
+                setStorico(newStorico||[]);
+              }} style={{padding:"4px 8px",borderRadius:6,border:"1px solid rgba(220,38,38,0.3)",background:"rgba(220,38,38,0.05)",color:"#dc2626",fontWeight:700,fontSize:11,cursor:"pointer"}}>
+                🗑
+              </button>
             </div>
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ─── Portal Tab (mobile) ─────────────────────────────────────────────── */
+function MobilePortalTab({ patient }: { patient: any }) {
+  const T2 = { teal:"#0d9488", blue:"#2563eb", text:"#0f172a", muted:"#64748b", border:"#e2e8f0", green:"#16a34a", panelBg:"#fff", panelSoft:"#f8fafc" };
+  const [loading, setLoading] = useState(false);
+  const [link, setLink] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  function cleanPhone(phone: string): string {
+    let p = phone.replace(/[\s\(\)\-\.]/g,"").replace(/^\+/,"");
+    if(p.startsWith("00")) p=p.slice(2);
+    if(p.startsWith("0")) p="39"+p;
+    if(!p.startsWith("39")&&p.length<=10) p="39"+p;
+    return p;
+  }
+
+  async function generate() {
+    setLoading(true);
+    try {
+      const r = await fetch("/api/portal",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({patient_id:patient.id})});
+      const d = await r.json();
+      if(d.error){alert("Errore: "+d.error);return;}
+      const url = `${window.location.origin}/portale/${d.token}`;
+      setLink(url);
+      return url;
+    } finally { setLoading(false); }
+  }
+
+  async function sendWA() {
+    const url = link || await generate();
+    if(!url||!patient.phone) return;
+    const nome = patient.first_name?.trim()||"Paziente";
+    const msg = "Gentile "+nome+",\n\nle ho attivato la sua area personale FisioHub dove puo vedere:\n- i suoi prossimi appuntamenti\n- la scheda esercizi da casa\n- i contatti dello studio\n\nIl suo link personale (valido 6 mesi):\n"+url+"\n\nCordiali saluti,\nDr. Marco Turchetta";
+    const clean = cleanPhone(patient.phone);
+    const waUrl = "https://api.whatsapp.com/send?phone="+clean+"&text="+encodeURIComponent(msg);
+    const a=document.createElement("a"); a.href=waUrl; a.target="_blank"; a.rel="noopener noreferrer";
+    document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
+  }
+
+  async function copy() {
+    const url = link || await generate();
+    if(!url) return;
+    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(()=>setCopied(false),2000); }
+    catch { alert("Link: "+url); }
+  }
+
+  return (
+    <div style={{padding:"16px 14px",display:"flex",flexDirection:"column",gap:14}}>
+      <div style={{fontSize:15,fontWeight:800,color:T2.text}}>🔑 Area riservata paziente</div>
+      <div style={{background:"rgba(124,58,237,0.06)",border:"1.5px solid rgba(124,58,237,0.25)",borderRadius:12,padding:"16px"}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#7c3aed",marginBottom:8}}>Cosa vede il paziente</div>
+        <div style={{fontSize:12,color:T2.muted,lineHeight:1.7}}>
+          • I suoi prossimi appuntamenti<br/>
+          • La scheda esercizi domiciliari<br/>
+          • I contatti dello studio<br/>
+          • Link valido 6 mesi
+        </div>
+      </div>
+      {link&&(
+        <div style={{background:"rgba(22,163,74,0.06)",border:"1.5px solid rgba(22,163,74,0.3)",borderRadius:10,padding:"12px 14px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:T2.green,marginBottom:6}}>✅ Link generato</div>
+          <div style={{fontSize:11,color:T2.text,wordBreak:"break-all",background:"#f8fafc",borderRadius:6,padding:"6px 8px",marginBottom:8,fontFamily:"monospace"}}>{link}</div>
+        </div>
+      )}
+      <button onClick={sendWA} disabled={loading||!patient.phone}
+        style={{width:"100%",padding:"14px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#25D366,#128C7E)",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"inherit",opacity:(!patient.phone||loading)?0.6:1}}>
+        {loading?"⏳ Generando…":"💬 Invia link su WhatsApp"}
+      </button>
+      {!patient.phone&&<div style={{fontSize:11,color:"#dc2626",textAlign:"center"}}>Nessun numero di telefono salvato</div>}
+      <button onClick={copy} disabled={loading}
+        style={{width:"100%",padding:"12px",borderRadius:10,border:`1.5px solid ${T2.border}`,background:T2.panelSoft,color:copied?T2.green:T2.muted,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>
+        {copied?"✓ Link copiato!":"📋 Copia link (senza inviare)"}
+      </button>
     </div>
   );
 }
