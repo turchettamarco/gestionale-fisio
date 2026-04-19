@@ -764,8 +764,11 @@ export default function PatientDetailPage({
     frequenza: string;
     note: string;
     avvertenze: string;
+    youtube_query?: string;
   };
   const [esercizi,       setEsercizi]       = useState<Esercizio[]>([]);
+  const [pubLink,        setPubLink]        = useState("");
+  const [pubLinkLoading, setPubLinkLoading] = useState(false);
   const [genLoading,     setGenLoading]     = useState(false);
   const [genError,       setGenError]       = useState("");
   const [eserciziNote,   setEserciziNote]   = useState("");
@@ -1438,7 +1441,7 @@ ${footer}
       const response = await fetch("/api/ai-esercizi", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: `Sei un fisioterapista. Genera esattamente 5 esercizi domiciliari per questo paziente:\n\n${ctx}\n\nRispondi SOLO con un array JSON valido e completo, senza testo aggiuntivo, senza markdown. Usa descrizioni brevi (max 1 frase):\n[{"id":"1","nome":"","descrizione":"","serie":"3","ripetizioni":"10","frequenza":"1 volta al giorno","note":"","avvertenze":""}]\nGenera 5 esercizi in italiano adatti alla diagnosi.` }),
+        body: JSON.stringify({ prompt: `Sei un fisioterapista esperto. Genera esattamente 5 esercizi domiciliari personalizzati per questo paziente:\n\n${ctx}\n\nRispondi SOLO con un array JSON valido e completo, senza testo aggiuntivo, senza markdown. Formato:\n[{"id":"1","nome":"Nome esercizio","descrizione":"Come eseguirlo (1-2 frasi semplici per il paziente)","serie":"3","ripetizioni":"10","frequenza":"1 volta al giorno","note":"Indicazione tecnica","avvertenze":"Fermarsi se...","youtube_query":"nome esercizio fisioterapia tutorial"}]\nGenera esattamente 5 esercizi adatti alla diagnosi, in italiano.` }),
       });
 
       const data = await response.json();
@@ -1497,6 +1500,7 @@ ${footer}
         <div class="ex-desc">${e.descrizione}</div>
         ${e.note ? `<div class="ex-note">📌 ${e.note}</div>` : ""}
         ${e.avvertenze ? `<div class="ex-warn">⚠️ ${e.avvertenze}</div>` : ""}
+        ${e.youtube_query ? `<div class="ex-video">▶ Video: <a href="https://www.youtube.com/results?search_query=${encodeURIComponent(e.youtube_query)}" style="color:#dc2626">youtube.com → cerca "${e.youtube_query}"</a></div>` : ""}
       </div>
     `).join("");
 
@@ -1522,6 +1526,7 @@ ${footer}
   .ex-desc{font-size:12px;color:#334155;line-height:1.6;margin-bottom:6px;}
   .ex-note{font-size:11px;color:#0d9488;background:rgba(13,148,136,0.06);padding:5px 10px;border-radius:6px;margin-bottom:4px;}
   .ex-warn{font-size:11px;color:#dc2626;background:rgba(220,38,38,0.05);padding:5px 10px;border-radius:6px;}
+  .ex-video{font-size:11px;color:#64748b;margin-top:4px;}
   .footer{margin-top:32px;padding-top:18px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:flex-end;}
   .firma-box{border-bottom:1.5px solid #0f172a;width:200px;height:40px;margin-top:24px;}
   .firma-label{font-size:10px;color:#64748b;margin-top:4px;}
@@ -1562,6 +1567,31 @@ ${rows}
 
     const w = window.open("", "_blank", "width=900,height=1000");
     if (w) { w.document.write(html); w.document.close(); }
+  }
+
+  async function generatePubLink() {
+    if (esercizi.length === 0) return;
+    setPubLinkLoading(true); setPubLink("");
+    try {
+      const res = await fetch("/api/esercizi-pubblici", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          patient_id: patient?.id ?? null,
+          patient_name: `${lastName} ${firstName}`.trim(),
+          esercizi,
+          note: eserciziNote || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      const fullUrl = `${window.location.origin}${data.url}`;
+      setPubLink(fullUrl);
+    } catch(e: any) {
+      setGenError(`Errore generazione link: ${e?.message}`);
+    } finally {
+      setPubLinkLoading(false);
+    }
   }
 
   // Genera e apri per stampa (firma a mano)
@@ -2416,11 +2446,40 @@ ${rows}
                     🖨️ Stampa PDF
                   </button>
                 )}
+                {esercizi.length > 0 && (
+                  <button
+                    onClick={generatePubLink}
+                    disabled={pubLinkLoading}
+                    style={{ padding:"9px 14px", borderRadius:8, border:`1.5px solid #16a34a`, background:"rgba(22,163,74,0.06)", color:"#16a34a", fontWeight:700, fontSize:13, cursor:"pointer", flexShrink:0, opacity:pubLinkLoading?0.6:1 }}>
+                    {pubLinkLoading ? "⏳ Generando…" : "🔗 Genera link paziente"}
+                  </button>
+                )}
               </div>
 
               {genError && (
                 <div style={{ marginBottom:12, padding:"9px 14px", borderRadius:8, background:"rgba(220,38,38,0.05)", border:"1px solid rgba(220,38,38,0.2)", color:THEME.red, fontSize:12, fontWeight:600 }}>
                   {genError}
+                </div>
+              )}
+
+              {pubLink && (
+                <div style={{ marginBottom:16, padding:"14px 16px", borderRadius:10, background:"rgba(22,163,74,0.05)", border:"1.5px solid rgba(22,163,74,0.3)" }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:"#15803d", marginBottom:8 }}>✅ Link generato! Valido 90 giorni — invialo al paziente via WhatsApp:</div>
+                  <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+                    <code style={{ flex:1, fontSize:11, background:"#0f172a", color:"#fff", padding:"6px 10px", borderRadius:6, wordBreak:"break-all", userSelect:"all" }}>{pubLink}</code>
+                    <button onClick={() => navigator.clipboard.writeText(pubLink)} style={{ padding:"7px 12px", borderRadius:7, border:"1px solid #16a34a", background:"#16a34a", color:"#fff", fontWeight:700, fontSize:11, cursor:"pointer", flexShrink:0 }}>
+                      📋 Copia
+                    </button>
+                    <a href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`Gentile ${lastName} ${firstName},\nEcco la sua scheda esercizi domiciliari:\n${pubLink}\n\nClicchi il link per vedere gli esercizi e i video dimostrativi.\nDr. Marco Turchetta`)}`}
+                      target="_blank" rel="noopener noreferrer"
+                      style={{ padding:"7px 12px", borderRadius:7, border:"1px solid #16a34a", background:"rgba(37,211,102,0.1)", color:"#15803d", fontWeight:700, fontSize:11, textDecoration:"none", flexShrink:0 }}>
+                      💬 Invia WA
+                    </a>
+                    <a href={pubLink} target="_blank" rel="noopener noreferrer"
+                      style={{ padding:"7px 12px", borderRadius:7, border:`1px solid ${THEME.blue}`, background:"rgba(37,99,235,0.06)", color:THEME.blue, fontWeight:700, fontSize:11, textDecoration:"none", flexShrink:0 }}>
+                      👁️ Anteprima
+                    </a>
+                  </div>
                 </div>
               )}
 
@@ -2490,6 +2549,12 @@ ${rows}
                             {e.descrizione && <div style={{ fontSize:12, color:THEME.text, lineHeight:1.6 }}>{e.descrizione}</div>}
                             {e.note && <div style={{ fontSize:11, color:THEME.teal, background:"rgba(13,148,136,0.06)", padding:"5px 10px", borderRadius:6 }}>📌 {e.note}</div>}
                             {e.avvertenze && <div style={{ fontSize:11, color:THEME.red, background:"rgba(220,38,38,0.05)", padding:"5px 10px", borderRadius:6 }}>⚠️ {e.avvertenze}</div>}
+                            {e.youtube_query && (
+                              <a href={`https://www.youtube.com/results?search_query=${encodeURIComponent(e.youtube_query)}`} target="_blank" rel="noopener noreferrer"
+                                style={{ fontSize:11, color:"#dc2626", background:"rgba(220,38,38,0.06)", padding:"5px 10px", borderRadius:6, display:"inline-flex", alignItems:"center", gap:5, textDecoration:"none", fontWeight:700 }}>
+                                ▶ Guarda il video su YouTube
+                              </a>
+                            )}
                           </>
                         )}
                       </div>
