@@ -17,7 +17,7 @@ async function tryModel(model: string, prompt: string, apiKey: string) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 1500 },
+        generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
       }),
     }
   );

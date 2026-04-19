@@ -1438,14 +1438,17 @@ ${footer}
       const response = await fetch("/api/ai-esercizi", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: `Sei un fisioterapista esperto. Genera un programma di esercizi domiciliari personalizzato per questo paziente:\n\n${ctx}\n\nRispondi SOLO con un array JSON, nessun testo aggiuntivo, nessun markdown. Formato esatto:\n[\n  {\n    "id": "1",\n    "nome": "Nome esercizio",\n    "descrizione": "Come eseguirlo in modo semplice per il paziente (2-3 frasi)",\n    "serie": "3",\n    "ripetizioni": "10",\n    "frequenza": "2 volte al giorno",\n    "note": "Indicazione tecnica per il paziente",\n    "avvertenze": "Fermarsi se..."\n  }\n]\n\nGenera 5-7 esercizi appropriati, in italiano, dal più semplice al più complesso. Tieni conto della diagnosi e della zona corporea.` }),
+        body: JSON.stringify({ prompt: `Sei un fisioterapista. Genera esattamente 5 esercizi domiciliari per questo paziente:\n\n${ctx}\n\nRispondi SOLO con un array JSON valido e completo, senza testo aggiuntivo, senza markdown. Usa descrizioni brevi (max 1 frase):\n[{"id":"1","nome":"","descrizione":"","serie":"3","ripetizioni":"10","frequenza":"1 volta al giorno","note":"","avvertenze":""}]\nGenera 5 esercizi in italiano adatti alla diagnosi.` }),
       });
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Errore API");
       const text = data.text ?? "";
       const clean = text.replace(/```json|```/g, "").trim();
-      const parsed: Esercizio[] = JSON.parse(clean);
+      // Estrai solo il JSON array anche se Gemini aggiunge testo extra
+      const match = clean.match(/\[[\s\S]*\]/);
+      if (!match) throw new Error("Nessun array JSON trovato nella risposta AI");
+      const parsed: Esercizio[] = JSON.parse(match[0]);
       setEsercizi(parsed.map((e, i) => ({ ...e, id: e.id ?? String(i+1) })));
     } catch(e: any) {
       setGenError(`Errore: ${e?.message ?? "sconosciuto"}. Controlla che GEMINI_API_KEY sia configurata su Vercel.`);
