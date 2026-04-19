@@ -2,12 +2,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const MODELS_TO_TRY = [
-  "gemini-1.5-flash",
-  "gemini-1.5-flash-8b",
-  "gemini-1.0-pro",
-  "gemini-pro",
   "gemini-2.0-flash-lite",
-  "gemini-2.0-flash-exp",
+  "gemini-2.0-flash",
+  "gemini-flash-latest",
 ];
 
 export async function POST(req: NextRequest) {
