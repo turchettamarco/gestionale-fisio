@@ -709,7 +709,7 @@ export default function ReportsPage(){
             </div>
 
             {/* Trend + KPI secondari */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 140px 140px 140px 140px",gap:14}}>
+            <div className="rep-trend-row" style={{display:"grid",gridTemplateColumns:"1fr 140px 140px 140px 140px",gap:14}}>
               <div style={{...card,padding:"18px 22px"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                   <div style={{fontSize:13,fontWeight:700,color:T.text}}>
@@ -788,7 +788,7 @@ export default function ReportsPage(){
                   <div style={{fontSize:13,fontWeight:700,color:T.text}}>Confronto periodi vicini</div>
                   <div style={{fontSize:11,color:T.muted}}>±2 periodi rispetto al selezionato</div>
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
+                <div className="rep-compare-grid" style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
                   {compBars.map((b,i)=>{
                     const maxRev=Math.max(...compBars.map(x=>x.revenue),1);
                     return(

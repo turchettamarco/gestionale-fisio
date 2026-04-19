@@ -244,7 +244,7 @@ export default function PatientsPage() {
           transition: transform 260ms cubic-bezier(.4,0,.2,1);
         }
         .drawer.open { transform: translateX(0); }
-        @media (min-width: 768px) and (max-width: 1024px) {
+        @media (min-width: 768px) and (max-width: 1199px) {
           .tab-hide    { display: none !important; }
           .tab-compact { font-size: 11px !important; padding: 3px 8px !important; }
           .tab-p       { padding: 20px 18px !important; }
@@ -324,7 +324,7 @@ export default function PatientsPage() {
                   <label style={labelStyle}>Motivo principale</label>
                   <textarea value={mainComplaint} onChange={e => setMainComplaint(e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical" }} placeholder="Es. dolore lombare da 3 settimane…" />
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                <div className="tab-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
                   <div>
                     <label style={labelStyle}>Distretto</label>
                     <select value={bodyRegion} onChange={e => setBodyRegion(e.target.value as any)} style={selectStyle}>

@@ -24,3 +24,195 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TABLET OPTIMIZATIONS — iPad / Samsung Tab (768px–1199px)
+   ⚠️  NON tocca nulla sotto 768px (mobile) né sopra 1199px (desktop PC)
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (min-width: 768px) and (max-width: 1199px) {
+
+  /* ── Touch targets ──────────────────────────────────────────────────────── */
+  /* Tutti i bottoni e link navigabili devono essere almeno 44x44px su tablet */
+  button, a[role="button"], input[type="button"], input[type="submit"] {
+    min-height: 44px;
+  }
+  input[type="text"], input[type="number"], input[type="email"],
+  input[type="tel"], select, textarea {
+    min-height: 44px;
+    font-size: 16px !important; /* evita zoom automatico iOS */
+  }
+
+  /* ── Utility classes tablet ─────────────────────────────────────────────── */
+  .tab-hide    { display: none !important; }
+  .tab-show    { display: block !important; }
+  .tab-flex    { display: flex !important; }
+  .tab-col     { flex-direction: column !important; }
+  .tab-wrap    { flex-wrap: wrap !important; }
+  .tab-1col    { grid-template-columns: 1fr !important; }
+  .tab-2col    { grid-template-columns: 1fr 1fr !important; }
+  .tab-3col    { grid-template-columns: 1fr 1fr 1fr !important; }
+  .tab-compact { font-size: 11px !important; padding: 3px 8px !important; }
+  .tab-p12     { padding: 12px !important; }
+  .tab-full    { width: 100% !important; max-width: 100% !important; }
+  .tab-grid-2  { grid-template-columns: 1fr 1fr !important; }
+  .tab-grid-3  { grid-template-columns: 1fr 1fr 1fr !important; }
+
+  /* ── Navbar desktop ─────────────────────────────────────────────────────── */
+  /* Riduce padding laterale navbar su tablet */
+  header[style*="padding: 0 24px"],
+  header[style*="padding: 0 20px"] {
+    padding: 0 12px !important;
+  }
+
+  /* ── Calendario ─────────────────────────────────────────────────────────── */
+
+  /* Slot orari: più alti per le dita */
+  .cal-slot { min-height: 56px !important; }
+
+  /* Colonna ore: più stretta per guadagnare spazio griglia */
+  .cal-time-col { width: 48px !important; flex-shrink: 0 !important; }
+
+  /* Header giorni settimana: font più piccolo */
+  .cal-day-header { font-size: 11px !important; padding: 6px 4px !important; }
+
+  /* Bottoni periodo (Giorno/Sett/Mese…): wrapping automatico */
+  .cal-period-btns {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 3px !important;
+  }
+  .cal-period-btns button {
+    font-size: 10px !important;
+    padding: 5px 8px !important;
+    min-height: 36px !important;
+  }
+
+  /* Sidebar appuntamento: larghezza ridotta */
+  .cal-sidebar { width: 280px !important; min-width: 280px !important; }
+
+  /* ── Dashboard ──────────────────────────────────────────────────────────── */
+
+  /* Le 2 colonne laterali diventano 1 colonna */
+  .main-cols {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Bottoni azione seduta: touch-friendly */
+  .appt-action-btn {
+    min-width: 44px !important;
+    min-height: 44px !important;
+    padding: 8px !important;
+  }
+
+  /* KPI cards: 2 colonne */
+  .kpi-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  /* ── Scheda paziente ────────────────────────────────────────────────────── */
+
+  /* Header bottoni: wrapping */
+  .patient-header-btns {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+  .patient-header-btns button,
+  .patient-header-btns a {
+    font-size: 12px !important;
+    padding: 8px 12px !important;
+  }
+
+  /* Griglia anagrafica: 2 colonne invece di 4 */
+  .patient-anag-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  /* ── Report ─────────────────────────────────────────────────────────────── */
+
+  /* Confronto periodi: 3 colonne invece di 5 */
+  .rep-compare-grid {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+  /* KPI secondari: 2 colonne */
+  .rep-kpi-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+  /* Trend chart + KPI: colonna singola */
+  .rep-trend-row {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* ── Liste pazienti ─────────────────────────────────────────────────────── */
+  .patients-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  /* ── Settings ───────────────────────────────────────────────────────────── */
+  .settings-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  /* ── Noleggio ───────────────────────────────────────────────────────────── */
+  .noleggio-kpi {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  /* ── Modali ─────────────────────────────────────────────────────────────── */
+  /* Le modali non escono dallo schermo */
+  [style*="maxWidth: 900"], [style*="max-width: 900px"],
+  [style*="maxWidth: 1000"], [style*="max-width: 1000px"] {
+    max-width: calc(100vw - 32px) !important;
+  }
+
+  /* ── Scale cliniche ─────────────────────────────────────────────────────── */
+  .scale-btns { flex-wrap: wrap !important; }
+
+  /* ── SOAP notes ─────────────────────────────────────────────────────────── */
+  .soap-grid { grid-template-columns: 1fr !important; }
+}
+
+/* ── Extra tablet refinements ─────────────────────────────────────────────── */
+@media (min-width: 768px) and (max-width: 1199px) {
+
+  /* Appointment rows in dashboard: bigger tap area */
+  /* Gli appuntamenti nella lista devono essere comodi da toccare */
+  [style*="borderLeft"][style*="borderRadius"][style*="cursor: pointer"],
+  [style*="border-left"][style*="border-radius"][style*="cursor: pointer"] {
+    min-height: 52px !important;
+  }
+
+  /* Report: KPI pazienti 2x2 invece di 4 colonne */
+  [style*="repeat(4,1fr)"], [style*="repeat(4, 1fr)"] {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  /* Scroll orizzontale su tabelle strette */
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Padding ridotto sui pannelli per guadagnare spazio */
+  [style*="padding: 28px 32px"],
+  [style*="padding: 24px 32px"],
+  [style*="padding: 32px 40px"] {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  /* Modal più strette per non uscire dallo schermo */
+  [style*="width: 900"], [style*="width: 780"], [style*="width: 860"] {
+    width: calc(100vw - 32px) !important;
+  }
+
+  /* Noleggio: tabella contratti scrollabile */
+  .noleggio-table { overflow-x: auto; }
+
+  /* Navbar: riduci gap tra elementi */
+  header nav { gap: 1px !important; }
+  header nav a, header nav button {
+    padding: 5px 8px !important;
+    font-size: 11px !important;
+  }
+}

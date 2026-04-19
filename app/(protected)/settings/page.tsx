@@ -1107,7 +1107,7 @@ export default function SettingsPage() {
           </div>
           {showDurations && (
             <div style={{ padding:"20px" }}>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:16 }}>
+              <div className="settings-grid" style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:16 }}>
                 {[
                   {label:"Seduta",v:durSeduta,set:setDurSeduta,color:"#0d9488"},
                   {label:"Macchinario",v:durMacchina,set:setDurMacchina,color:"#2563eb"},
@@ -1309,7 +1309,7 @@ export default function SettingsPage() {
           </div>
           {showGestione && (
             <div style={{ padding:"20px" }}>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:16 }}>
+              <div className="settings-grid" style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:16 }}>
                 <div>
                   <label style={labelStyle}>Obiettivo fatturato mensile (€)</label>
                   <div style={{ display:"flex", alignItems:"center", gap:6 }}>

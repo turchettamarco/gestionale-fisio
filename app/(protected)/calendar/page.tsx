@@ -758,10 +758,16 @@ const { data, error } = await supabase
   useEffect(() => {
     if (typeof window === "undefined") return;
     const mqlDesktop = window.matchMedia("(min-width: 1024px)");
-    const mqlTablet = window.matchMedia("(min-width: 768px)");
+    const mqlTablet = window.matchMedia("(min-width: 768px) and (max-width: 1199px)");
     const update = () => {
-      setIsDesktop(mqlDesktop.matches);
-      setIsTablet(mqlTablet.matches);
+      const desk = mqlDesktop.matches;
+      const tab = mqlTablet.matches;
+      setIsDesktop(desk);
+      setIsTablet(tab);
+      // Su tablet: default vista giorno (più comoda touch)
+      if (tab && !desk) {
+        setViewType(prev => prev === "week" ? "day" : prev);
+      }
     };
     update();
     if (mqlDesktop.addEventListener) {
@@ -2522,9 +2528,12 @@ return (
         .sidebar-scroll.show-scrollbar::-webkit-scrollbar { width: 6px; }
         .sidebar-scroll.show-scrollbar::-webkit-scrollbar-thumb { background: rgba(91,130,168,0.18); border-radius: 99px; }
         @media (max-width: 768px) { .mob-hide { display: none !important; } .mob-col { flex-direction: column !important; } }
-        @media (min-width: 768px) and (max-width: 1024px) {
+        @media (min-width: 768px) and (max-width: 1199px) {
           .tab-compact { font-size: 11px !important; padding: 3px 6px !important; }
           .tab-hide { display: none !important; }
+          .cal-period-btns { flex-wrap: wrap !important; gap: 3px !important; }
+          .cal-period-btns button { font-size: 10px !important; padding: 5px 8px !important; min-height: 36px !important; }
+          .cal-sidebar { width: 280px !important; min-width: 280px !important; }
         }
         @media print { .no-print { display: none !important; } .print-wrap { margin: 0 !important; padding: 4px !important; } }
       `}</style>
@@ -2594,7 +2603,7 @@ return (
           </button>
 
           {/* Selettore vista */}
-          <div style={{ display:"flex", gap:2, background:"rgba(255,255,255,0.12)", borderRadius:8, padding:2, flexShrink:0 }}>
+          <div className="cal-period-btns" style={{ display:"flex", gap:2, background:"rgba(255,255,255,0.12)", borderRadius:8, padding:2, flexShrink:0 }}>
             {(["day","week","month"] as const).map(v => (
               <button key={v} onClick={() => setViewType(v)}
                 style={{ padding:"4px 10px", borderRadius:6, border:"none", cursor:"pointer", fontSize:11, fontWeight:700, background:viewType===v?"rgba(255,255,255,0.9)":"transparent", color:viewType===v?"#1e40af":"rgba(255,255,255,0.85)", transition:"all 0.15s" }}>
@@ -2929,7 +2938,7 @@ return (
 
       <aside
         ref={sidebarRef}
-        className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`}
+        className={`no-print sidebar-scroll cal-sidebar ${showAllUpcoming ? "show-scrollbar" : ""}`}
         style={{
           width: SIDEBAR_W, maxWidth: "85vw",
           background: THEME.panelBg, borderLeft: `2px solid ${THEME.border}`,

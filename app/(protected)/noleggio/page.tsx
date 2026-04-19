@@ -453,7 +453,7 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
         {success&&<div style={{ marginBottom:14, padding:"10px 16px", borderRadius:8, background:"rgba(22,163,74,0.06)", border:"1px solid rgba(22,163,74,0.2)", color:THEME.green, fontWeight:600, fontSize:13 }}>{success}</div>}
 
         {/* KPI + Impostazioni */}
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:12, marginBottom:20 }}>
+        <div className="noleggio-kpi" style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:12, marginBottom:20 }}>
           {[
             { label:"Disponibili", val:`${Math.max(0,totalUnits-stats.total)}/${totalUnits}`, color:stats.total>=totalUnits?THEME.red:THEME.teal, bg:stats.total>=totalUnits?"rgba(220,38,38,0.08)":"rgba(13,148,136,0.08)" },
             { label:"In noleggio", val:stats.total, color:THEME.blue, bg:"rgba(37,99,235,0.08)" },

@@ -481,7 +481,7 @@ export default function HomePage() {
         .fade-in{animation:fadeIn 0.2s ease forwards;}
         @media(max-width:1100px){.col-right{display:none!important}.main-cols{grid-template-columns:340px 1fr!important}}
         @media(max-width:780px){.main-cols{grid-template-columns:1fr!important}}
-        @media(min-width:768px)and(max-width:1024px){.th{display:none!important}}
+        @media(min-width:768px)and(max-width:1199px){.th{display:none!important}.main-cols{grid-template-columns:1fr 1fr!important}.kpi-grid{grid-template-columns:1fr 1fr!important}}
       `}</style>
 
       {/* ━━━ NAVBAR ━━━ */}
@@ -546,7 +546,7 @@ export default function HomePage() {
 
         {/* KPI row */}
         {!loading && (
-          <div style={{display:"flex",gap:0,flexWrap:"wrap",marginBottom:0}}>
+          <div className="kpi-grid" style={{display:"flex",gap:0,flexWrap:"wrap",marginBottom:0}}>
             {[
               {
                 label:"Eseguite",
@@ -750,14 +750,14 @@ export default function HomePage() {
                         <StatusPill status={focusNext.status}/>
                       </div>
                       <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-                        <button onClick={()=>setStatus(focusNext.id,focusNext.status==="done"?"confirmed":"done")} style={{flex:1,padding:"9px 10px",borderRadius:8,border:"none",background:focusNext.status==="done"?"rgba(22,163,74,0.10)":THEME.teal,color:focusNext.status==="done"?THEME.green:"#fff",fontWeight:700,fontSize:12,cursor:"pointer"}}>
+                        <button onClick={()=>setStatus(focusNext.id,focusNext.status==="done"?"confirmed":"done")} className="appt-action-btn" style={{flex:1,padding:"9px 10px",borderRadius:8,border:"none",background:focusNext.status==="done"?"rgba(22,163,74,0.10)":THEME.teal,color:focusNext.status==="done"?THEME.green:"#fff",fontWeight:700,fontSize:12,cursor:"pointer"}}>
                           {focusNext.status==="done"?"Annulla":"Segna eseguito"}
                         </button>
                         {focusNext.status==="done"&&!focusNext.is_paid&&(
-                          <button onClick={()=>togglePaid(focusNext.id,true)} style={{padding:"9px 12px",borderRadius:8,border:`1.5px solid ${THEME.green}`,background:"rgba(22,163,74,0.06)",color:THEME.green,fontWeight:700,fontSize:12,cursor:"pointer"}}>Incassa</button>
+                          <button onClick={()=>togglePaid(focusNext.id,true)} className="appt-action-btn" style={{padding:"9px 12px",borderRadius:8,border:`1.5px solid ${THEME.green}`,background:"rgba(22,163,74,0.06)",color:THEME.green,fontWeight:700,fontSize:12,cursor:"pointer"}}>Incassa</button>
                         )}
-                        {pickPatient(focusNext.patients)?.phone&&<button onClick={()=>sendWA(focusNext)} style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${THEME.border}`,background:"#fff",color:THEME.green,fontWeight:700,fontSize:12,cursor:"pointer"}}>WA</button>}
-                        <button onClick={()=>{if(confirm("Annullare?"))setStatus(focusNext.id,"cancelled");}} style={{padding:"9px 10px",borderRadius:8,border:`1px solid ${THEME.border}`,background:"#fff",color:THEME.red,fontWeight:700,fontSize:12,cursor:"pointer"}}>✕</button>
+                        {pickPatient(focusNext.patients)?.phone&&<button onClick={()=>sendWA(focusNext)} className="appt-action-btn" style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${THEME.border}`,background:"#fff",color:THEME.green,fontWeight:700,fontSize:12,cursor:"pointer"}}>WA</button>}
+                        <button onClick={()=>{if(confirm("Annullare?"))setStatus(focusNext.id,"cancelled");}} className="appt-action-btn" style={{padding:"9px 10px",borderRadius:8,border:`1px solid ${THEME.border}`,background:"#fff",color:THEME.red,fontWeight:700,fontSize:12,cursor:"pointer"}}>✕</button>
                       </div>
                       <button onClick={()=>{setEditDate(new Date(focusNext.start_at).toISOString().slice(0,10));setEditStart(`${pad2(new Date(focusNext.start_at).getHours())}:${pad2(new Date(focusNext.start_at).getMinutes())}`);setEditNextTime(true);}} style={{width:"100%",marginTop:8,padding:"6px",borderRadius:6,border:`1px solid ${THEME.border}`,background:"transparent",color:THEME.muted,fontSize:11,fontWeight:600,cursor:"pointer",textAlign:"center"}}>
                         Modifica orario
