@@ -1,6 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+
+function openWADirect(phone: string, message: string = ""): void {
+  if (!phone) return;
+  let p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
+  if (p.startsWith("00")) p = p.slice(2);
+  if (p.startsWith("0")) p = "39" + p;
+  if (!p.startsWith("39") && p.length <= 10) p = "39" + p;
+  const url = "https://api.whatsapp.com/send?phone=" + p + (message ? "&text=" + encodeURIComponent(message) : "");
+  const a = document.createElement("a");
+  a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+  document.body.appendChild(a); a.click();
+  setTimeout(() => document.body.removeChild(a), 200);
+}
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import Link from "next/link";
@@ -756,7 +769,7 @@ export default function ReportsPage(){
                       </div>
                       <div style={{display:"flex",gap:6,flexShrink:0}}>
                         {p.phone&&<a href={`tel:${p.phone}`} style={{width:28,height:28,borderRadius:7,background:"rgba(37,99,235,0.08)",border:`1px solid rgba(37,99,235,0.2)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}}>📞</a>}
-                        {p.phone&&<a href={`https://wa.me/${p.phone.replace(/[\s+\-()]/g,"")}`} target="_blank" rel="noreferrer" style={{width:28,height:28,borderRadius:7,background:"rgba(22,163,74,0.08)",border:`1px solid rgba(22,163,74,0.2)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}}>💬</a>}
+                        {p.phone&&<button onClick={()=>openWADirect(p.phone!)} style={{width:28,height:28,borderRadius:7,background:"rgba(22,163,74,0.08)",border:"1px solid rgba(22,163,74,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,cursor:"pointer",border:"none"}}>💬</button>}
                       </div>
                     </div>
                   ))}

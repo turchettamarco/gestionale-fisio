@@ -226,7 +226,7 @@ function QuickActionBar({ phone, waPhone, patientId }: {
 }) {
   const actions = [
     phone    ? { label: "Chiama",    icon: "📞", href: `tel:${phone}`,                          color: T.blue  } : null,
-    waPhone  ? { label: "WhatsApp",  icon: "💬", href: `https://wa.me/${waPhone}`,               color: T.green } : null,
+    waPhone  ? { label: "WhatsApp",  icon: "💬", href: `https://api.whatsapp.com/send?phone=${waPhone}`, color: T.green } : null,
     { label: "Prenota",   icon: "📅", href: `/mobile/calendar?new=1&patient_id=${patientId}`, color: T.teal  },
   ].filter(Boolean) as { label: string; icon: string; href: string; color: string }[];
 

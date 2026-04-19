@@ -580,7 +580,7 @@ function CalendarPageInner() {
       .replace(/{ora}/g,           ora)
       .replace(/{luogo}/g,         luogo);
 
-    const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
     const confirmText = isConfirmation
       ? `📱 CONFERMA NUOVO APPUNTAMENTO WHATSAPP\n\nDestinatario: ${patientPhone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp e inviare.`
       : `📱 INVIO PROMEMORIA WHATSAPP\n\nDestinatario: ${patientPhone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp e inviare.`;
@@ -588,7 +588,7 @@ function CalendarPageInner() {
     const confirmed = window.confirm(confirmText);
     if (!confirmed) return;
 
-    const newWindow = window.open(whatsappUrl,"_blank");
+    const a = document.createElement("a"); a.href=whatsappUrl; a.target="_blank"; a.rel="noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200); const newWindow = true;
 
     const nowIso = new Date().toISOString();
     await supabase.from("appointments").update({whatsapp_sent_at:nowIso,whatsapp_sent:true}).eq("id",appointmentId);
@@ -596,9 +596,7 @@ function CalendarPageInner() {
     setSelectedEvent(prev=>prev?.id===appointmentId?{...prev,whatsapp_sent_at:nowIso}:prev);
 
     if (!newWindow||newWindow.closed||typeof newWindow.closed==="undefined") {
-      const manual=window.confirm(`Il browser ha bloccato l'apertura automatica di WhatsApp.\n\nURL: ${whatsappUrl}\n\nClicca OK per provare ad aprire, oppure Annulla per copiare il link.`);
-      if (manual) window.location.href=whatsappUrl;
-      else alert(`Copia questo link e aprilo manualmente:\n\n${whatsappUrl}`);
+      // anchor click fallback già gestito sopra
     }
   }, [events]);
 

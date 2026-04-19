@@ -205,6 +205,24 @@ export default function NoleggioPage() {
     setNoleggios(p=>p.filter(n=>n.id!==id));
   }
 
+  function cleanPhoneWA(phone: string): string {
+    if (!phone) return "";
+    let p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
+    if (p.startsWith("00")) p = p.slice(2);
+    if (p.startsWith("0")) p = "39" + p;
+    if (!p.startsWith("39") && p.length <= 10) p = "39" + p;
+    return p;
+  }
+  function openWADirect(phone: string, message: string): void {
+    const clean = cleanPhoneWA(phone);
+    if (!clean) { alert("Numero non valido."); return; }
+    const url = "https://api.whatsapp.com/send?phone=" + clean + "&text=" + encodeURIComponent(message);
+    const a = document.createElement("a");
+    a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+    document.body.appendChild(a); a.click();
+    setTimeout(() => document.body.removeChild(a), 200);
+  }
+
   function sendWAScadenza(n: NoleggioRow) {
     if (!n.patient_phone) { alert("Nessun numero di telefono per questo paziente."); return; }
     const dr = getDaysRemaining(n.end_date);
@@ -217,13 +235,7 @@ export default function NoleggioPage() {
     } else {
       msg = `Gentile ${n.patient_name},\nLe ricordiamo che il noleggio del dispositivo *${n.device_name}* scadrà il *${scad}* (tra ${dr} giorni).\nPer informazioni o proroga contatti lo studio.\nGrazie, Dr. Marco Turchetta`;
     }
-    let phone = n.patient_phone.replace(/[\s\(\)\-\.]/g,"").replace(/^\+/,"");
-    if (phone.startsWith("0")) phone = "39" + phone;
-    else if (!phone.startsWith("39")) phone = "39" + phone;
-    const url = `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`;
-    const a = document.createElement("a");
-    a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    openWADirect(n.patient_phone, msg);
   }
 
   function printRicevuta(n: NoleggioRow) {

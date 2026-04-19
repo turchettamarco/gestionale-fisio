@@ -89,33 +89,24 @@ const pctDelta   = (c: number, p: number) => p===0?(c===0?0:100):((c-p)/p)*100;
 // Normalizza qualsiasi numero italiano → stringa di sole cifre con prefisso 39
 // Casi gestiti: +39xxx, 0039xxx, 39xxx (già con prefisso), 3xx (mobile senza prefisso),
 //               0xx (fisso senza prefisso), numeri con spazi/trattini/parentesi
-// Restituisce SOLO cifre senza + (uguale a cleanPhoneForWA nel calendario)
-const fmtPhone = (phone: string): string => {
+function cleanPhoneWA(phone: string): string {
   if (!phone) return "";
-  let c = phone.trim().replace(/[\s\(\)\-\.\//]/g, "");
-  if (c.startsWith("00")) c = "+" + c.slice(2);
-  if (c.startsWith("+")) c = c.slice(1);
-  c = c.replace(/\D/g, "");
-  if (!c) return "";
-  if (c.startsWith("3939") && c.length > 13) c = c.slice(2);
-  if (c.startsWith("39") && (c.length === 11 || c.length === 12)) return c;
-  if (c.startsWith("3") && c.length === 10) return "39" + c;
-  if (c.startsWith("0") && c.length >= 9 && c.length <= 11) return "39" + c.slice(1);
-  if (c.length <= 10) return "39" + c;
-  return c;
-};
-// Helper apri WhatsApp senza window.open (bloccato dai browser moderni)
-// usa api.whatsapp.com — funziona su desktop e mobile
-const openWA = (phone: string, message: string) => {
-  const clean = fmtPhone(phone);
-  if (!clean) return;
+  let p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
+  if (p.startsWith("00")) p = p.slice(2);
+  if (p.startsWith("0")) p = "39" + p;
+  if (!p.startsWith("39") && p.length <= 10) p = "39" + p;
+  return p;
+}
+const fmtPhone = cleanPhoneWA; // alias compatibilità
+function openWA(phone: string, message: string): void {
+  const clean = cleanPhoneWA(phone);
+  if (!clean) { alert("Numero non valido."); return; }
   const url = "https://api.whatsapp.com/send?phone=" + clean + "&text=" + encodeURIComponent(message);
   const a = document.createElement("a");
   a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-};
-const pickPatient = (p: AppointmentRow["patients"]) => Array.isArray(p)?(p[0]??null):((p as any)??null);
-const patientName = (p: AppointmentRow["patients"]) => { const pp=pickPatient(p); return `${pp?.last_name||""} ${pp?.first_name||""}`.trim()||"Paziente"; };
+  document.body.appendChild(a); a.click();
+  setTimeout(() => document.body.removeChild(a), 200);
+}
 const buildWAMsg  = (a: AppointmentRow) => { const fn=(pickPatient(a.patients)?.first_name||"").trim()||"Cliente"; const luogo=a.location==="studio"?a.clinic_site||"Studio":`Domicilio (${a.domicile_address||"indirizzo da confermare"})`; return `Buongiorno ${fn},\n\nLe ricordiamo il suo appuntamento di ${formatDateRelative(new Date(a.start_at))} alle ore ${fmtTime(a.start_at)}.\n\n📍 ${luogo}\n\nA presto,\nFisioHub - Studi Galileo`; };
 const todayNoteKey = () => `fisiohub_daynote_${new Date().toISOString().slice(0,10)}`;
 
@@ -1114,9 +1105,7 @@ export default function HomePage() {
                     const ph=n.patient_phone; if(!ph) return;
                     const scad=new Date(n.end_date+"T12:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"numeric"});
                     const msg=expired?`Gentile ${n.patient_name},\nLe ricordiamo che il noleggio del dispositivo *${n.device_name}* è scaduto il ${scad}.\nLa preghiamo di contattarci per la restituzione.\nGrazie, Dr. Marco Turchetta`:`Gentile ${n.patient_name},\nLe ricordiamo che il noleggio del dispositivo *${n.device_name}* scadrà il *${scad}*${n.days_remaining>0?` (tra ${n.days_remaining} giorni)`:""  }.\nPer informazioni contatti lo studio.\nGrazie, Dr. Marco Turchetta`;
-                    let phone=ph.replace(/[\s\(\)\-\.]/g,"").replace(/^\+/,"");
-                    if(phone.startsWith("0"))phone="39"+phone; else if(!phone.startsWith("39"))phone="39"+phone;
-                    const a=document.createElement("a"); a.href=`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`; a.target="_blank"; a.rel="noopener noreferrer"; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                    openWA(ph, msg);
                   }
                   return (
                     <div key={n.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:8,background:bg,border:`1px solid ${col}22`,marginBottom:i<noleggioExpiring.length-1?6:0}}>

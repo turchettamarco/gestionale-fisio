@@ -2617,11 +2617,15 @@ ${rows}
                     <button onClick={() => navigator.clipboard.writeText(pubLink)} style={{ padding:"7px 12px", borderRadius:7, border:"1px solid #16a34a", background:"#16a34a", color:"#fff", fontWeight:700, fontSize:11, cursor:"pointer", flexShrink:0 }}>
                       📋 Copia
                     </button>
-                    <a href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`Gentile ${lastName} ${firstName},\nEcco la sua scheda esercizi domiciliari:\n${pubLink}\n\nClicchi il link per vedere gli esercizi e i video dimostrativi.\nDr. Marco Turchetta`)}`}
-                      target="_blank" rel="noopener noreferrer"
-                      style={{ padding:"7px 12px", borderRadius:7, border:"1px solid #16a34a", background:"rgba(37,211,102,0.1)", color:"#15803d", fontWeight:700, fontSize:11, textDecoration:"none", flexShrink:0 }}>
+                    <button onClick={()=>{
+                        const msg = `Gentile ${lastName} ${firstName},\nEcco la sua scheda esercizi domiciliari:\n${pubLink}\n\nClicchi il link per vedere gli esercizi e i video dimostrativi.\nDr. Marco Turchetta`;
+                        const url = "https://api.whatsapp.com/send?text=" + encodeURIComponent(msg);
+                        const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
+                        document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
+                      }}
+                      style={{ padding:"7px 12px", borderRadius:7, border:"1px solid #16a34a", background:"rgba(37,211,102,0.1)", color:"#15803d", fontWeight:700, fontSize:11, cursor:"pointer", flexShrink:0 }}>
                       💬 Invia WA
-                    </a>
+                    </button>
                     <a href={pubLink} target="_blank" rel="noopener noreferrer"
                       style={{ padding:"7px 12px", borderRadius:7, border:`1px solid ${THEME.blue}`, background:"rgba(37,99,235,0.06)", color:THEME.blue, fontWeight:700, fontSize:11, textDecoration:"none", flexShrink:0 }}>
                       👁️ Anteprima

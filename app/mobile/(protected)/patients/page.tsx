@@ -451,7 +451,7 @@ export default function MobilePatientsPage() {
                         )}
                         {/* WhatsApp */}
                         {waPhone&&(
-                          <a href={`https://wa.me/${waPhone}`} target="_blank" rel="noreferrer"
+                          <a href={`https://api.whatsapp.com/send?phone=${waPhone}`} target="_blank" rel="noreferrer"
                             style={{
                               width:34,height:34,borderRadius:10,flexShrink:0,
                               display:"flex",alignItems:"center",justifyContent:"center",

@@ -364,8 +364,7 @@ export default function MobileHomePage() {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     const clean = formatPhoneForWA(phone);
     const url = isMobile
-      ? `https://wa.me/${clean}?text=${encodeURIComponent(message)}`
-      : `https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`;
+`https://api.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`;
     window.open(url, "_blank", "noopener,noreferrer");
 
     const nowIso = new Date().toISOString();
@@ -563,8 +562,7 @@ export default function MobileHomePage() {
         const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
         const clean = formatPhoneForWA(patientPhone);
         const url = isMobile
-          ? `https://wa.me/${clean}?text=${encodeURIComponent(confMsg)}`
-          : `https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(confMsg)}`;
+`https://api.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(confMsg)}`;
         window.open(url, "_blank", "noopener,noreferrer");
       }
 
