@@ -28,7 +28,7 @@ const T = {
   gradient:"linear-gradient(135deg,#0d9488,#2563eb)",
 };
 
-type Period = "day"|"week"|"month";
+type Period = "day"|"week"|"month"|"quarter"|"semester"|"year";
 type MainTab = "overview"|"patients"|"operations"|"transactions";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -42,6 +42,23 @@ function eoM(d:Date){return new Date(d.getFullYear(),d.getMonth()+1,0,23,59,59,9
 function getRange(p:Period,b:Date){
   if(p==="day") return{from:soD(b),to:eoD(b)};
   if(p==="week")return{from:soW(b),to:eoW(b)};
+  if(p==="quarter"){
+    const q=Math.floor(b.getMonth()/3);
+    const from=new Date(b.getFullYear(),q*3,1,0,0,0,0);
+    const to=new Date(b.getFullYear(),q*3+3,0,23,59,59,999);
+    return{from,to};
+  }
+  if(p==="semester"){
+    const half=b.getMonth()<6?0:1;
+    const from=new Date(b.getFullYear(),half*6,1,0,0,0,0);
+    const to=new Date(b.getFullYear(),half*6+6,0,23,59,59,999);
+    return{from,to};
+  }
+  if(p==="year"){
+    const from=new Date(b.getFullYear(),0,1,0,0,0,0);
+    const to=new Date(b.getFullYear(),11,31,23,59,59,999);
+    return{from,to};
+  }
   return{from:soM(b),to:eoM(b)};
 }
 const euro  = new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0});
@@ -115,6 +132,7 @@ export default function ReportsPage(){
   const[prevRev,    setPrevRev]    =useState<number|null>(null);
   const[monthBars,  setMonthBars]  =useState<MonthBar[]>([]);
   const[goal,       setGoal]       =useState(2000);
+  const[compBars,   setCompBars]   =useState<{label:string;period:string;revenue:number;sessions:number;isActive:boolean}[]>([]);
   const[editGoal,   setEditGoal]   =useState(false);
   const[goalInput,  setGoalInput]  =useState("2000");
 
@@ -242,24 +260,70 @@ export default function ReportsPage(){
       const prevBase=new Date(baseDate);
       if(period==="day")prevBase.setDate(prevBase.getDate()-1);
       else if(period==="week")prevBase.setDate(prevBase.getDate()-7);
+      else if(period==="quarter")prevBase.setMonth(prevBase.getMonth()-3);
+      else if(period==="semester")prevBase.setMonth(prevBase.getMonth()-6);
+      else if(period==="year")prevBase.setFullYear(prevBase.getFullYear()-1);
       else prevBase.setMonth(prevBase.getMonth()-1);
       const{from:pf,to:pt}=getRange(period,prevBase);
       const{data:prevD}=await supabase.from("appointments").select("amount").eq("status","done").gte("amount",0.01).gte("start_at",pf.toISOString()).lte("start_at",pt.toISOString());
       setPrevRev((prevD||[]).reduce((s:number,r:any)=>s+(parseFloat(String(r.amount))||0),0));
 
-      // ── Trend 6 mesi ──
+      // ── Trend: mensile dentro il periodo selezionato (o ultimi 6 mesi per day/week/month) ──
       const bars:MonthBar[]=[];
-      const now=new Date();
-      for(let i=5;i>=0;i--){
-        const d=new Date(now.getFullYear(),now.getMonth()-i,1);
-        const mf=soM(d).toISOString(),mt=eoM(d).toISOString();
-        const[{data:mp},{data:mu}]=await Promise.all([
-          supabase.from("appointments").select("amount").eq("status","done").gte("amount",0.01).gte("start_at",mf).lte("start_at",mt),
-          supabase.from("appointments").select("amount").eq("status","not_paid").gte("amount",0.01).gte("start_at",mf).lte("start_at",mt),
-        ]);
-        bars.push({monthKey:toYMD(d),label:d.toLocaleDateString("it-IT",{month:"short"}),revenue:(mp||[]).reduce((s:number,r:any)=>s+(parseFloat(String(r.amount))||0),0),unpaid:(mu||[]).reduce((s:number,r:any)=>s+(parseFloat(String(r.amount))||0),0)});
+      if(period==="year"||period==="semester"||period==="quarter"){
+        // Mostra tutti i mesi dentro il periodo selezionato
+        const{from:pFrom,to:pTo}=getRange(period,baseDate);
+        const cur=new Date(pFrom.getFullYear(),pFrom.getMonth(),1);
+        while(cur<=pTo){
+          const mf=soM(cur).toISOString(),mt=eoM(cur).toISOString();
+          const[{data:mp},{data:mu}]=await Promise.all([
+            supabase.from("appointments").select("amount").eq("status","done").gte("amount",0.01).gte("start_at",mf).lte("start_at",mt),
+            supabase.from("appointments").select("amount").eq("status","not_paid").gte("amount",0.01).gte("start_at",mf).lte("start_at",mt),
+          ]);
+          bars.push({monthKey:toYMD(cur),label:cur.toLocaleDateString("it-IT",{month:"short",year:period==="year"?"2-digit":undefined}),revenue:(mp||[]).reduce((s:number,r:any)=>s+(parseFloat(String(r.amount))||0),0),unpaid:(mu||[]).reduce((s:number,r:any)=>s+(parseFloat(String(r.amount))||0),0)});
+          cur.setMonth(cur.getMonth()+1);
+        }
+      } else {
+        // Ultimi 6 mesi per day/week/month
+        const now=new Date();
+        for(let i=5;i>=0;i--){
+          const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+          const mf=soM(d).toISOString(),mt=eoM(d).toISOString();
+          const[{data:mp},{data:mu}]=await Promise.all([
+            supabase.from("appointments").select("amount").eq("status","done").gte("amount",0.01).gte("start_at",mf).lte("start_at",mt),
+            supabase.from("appointments").select("amount").eq("status","not_paid").gte("amount",0.01).gte("start_at",mf).lte("start_at",mt),
+          ]);
+          bars.push({monthKey:toYMD(d),label:d.toLocaleDateString("it-IT",{month:"short"}),revenue:(mp||[]).reduce((s:number,r:any)=>s+(parseFloat(String(r.amount))||0),0),unpaid:(mu||[]).reduce((s:number,r:any)=>s+(parseFloat(String(r.amount))||0),0)});
+        }
       }
       setMonthBars(bars);
+
+      // ── Confronto periodi vicini (±2 periodi) ──
+      const compData:{label:string;period:string;revenue:number;sessions:number;isActive:boolean}[]=[];
+      for(let i=-2;i<=2;i++){
+        const d=new Date(baseDate);
+        if(period==="day")d.setDate(d.getDate()+i);
+        else if(period==="week")d.setDate(d.getDate()+i*7);
+        else if(period==="month")d.setMonth(d.getMonth()+i);
+        else if(period==="quarter")d.setMonth(d.getMonth()+i*3);
+        else if(period==="semester")d.setMonth(d.getMonth()+i*6);
+        else if(period==="year")d.setFullYear(d.getFullYear()+i);
+        const{from:cf,to:ct}=getRange(period,d);
+        const[{data:cDone}]=await Promise.all([
+          supabase.from("appointments").select("amount,status").in("status",["done","not_paid"]).gte("start_at",cf.toISOString()).lte("start_at",ct.toISOString()),
+        ]);
+        const cRev=(cDone||[]).filter((r:any)=>r.status==="done").reduce((s:number,r:any)=>s+(parseFloat(String(r.amount))||0),0);
+        const cSess=(cDone||[]).length;
+        let label="";
+        if(period==="month")label=d.toLocaleDateString("it-IT",{month:"short",year:"2-digit"});
+        else if(period==="quarter"){const q=Math.floor(d.getMonth()/3)+1;label=`Q${q}'${String(d.getFullYear()).slice(2)}`;}
+        else if(period==="semester"){const h=d.getMonth()<6?"S1":"S2";label=`${h}'${String(d.getFullYear()).slice(2)}`;}
+        else if(period==="year")label=String(d.getFullYear());
+        else if(period==="week")label=`Sett.${i===0?"":""+i}`;
+        else label=d.toLocaleDateString("it-IT",{day:"2-digit",month:"short"});
+        compData.push({label,period:cf.toISOString().slice(0,10),revenue:cRev,sessions:cSess,isActive:i===0});
+      }
+      if(currentId===loadIdRef.current) setCompBars(compData);
 
       // ── Nuovi vs ritorni ──
       const patientIdsInPeriod=Array.from(new Set(ap.filter(a=>a.patient_id).map((a:any)=>a.patient_id)));
@@ -424,7 +488,7 @@ export default function ReportsPage(){
 
       // Nome file: fisiohub_YYYY-MM.csv per il mese, fisiohub_YYYY-MM-DD.csv altrimenti
       const ymd=toYMD(baseDate);
-      const fileLabel=period==="month"?ymd.slice(0,7):ymd;
+      const fileLabel=period==="month"?ymd.slice(0,7):period==="quarter"?`Q${Math.floor(new Date(ymd).getMonth()/3)+1}-${new Date(ymd).getFullYear()}`:period==="semester"?`S${new Date(ymd).getMonth()<6?1:2}-${new Date(ymd).getFullYear()}`:period==="year"?ymd.slice(0,4):ymd;
       const filename=`fisiohub_${fileLabel}.csv`;
 
       const url=URL.createObjectURL(blob);
@@ -464,6 +528,9 @@ export default function ReportsPage(){
     const d=new Date(baseDate);
     if(period==="day")d.setDate(d.getDate()+dir);
     else if(period==="week")d.setDate(d.getDate()+dir*7);
+    else if(period==="quarter")d.setMonth(d.getMonth()+dir*3);
+    else if(period==="semester")d.setMonth(d.getMonth()+dir*6);
+    else if(period==="year")d.setFullYear(d.getFullYear()+dir);
     else d.setMonth(d.getMonth()+dir);
     setDateStr(toYMD(d));
   }
@@ -471,6 +538,9 @@ export default function ReportsPage(){
     const{from,to}=getRange(period,baseDate);
     if(period==="day") return from.toLocaleDateString("it-IT",{weekday:"long",day:"numeric",month:"long"});
     if(period==="week")return `${from.toLocaleDateString("it-IT",{day:"2-digit",month:"short"})} – ${to.toLocaleDateString("it-IT",{day:"2-digit",month:"short",year:"numeric"})}`;
+    if(period==="quarter"){const q=Math.floor(from.getMonth()/3)+1;return `Q${q} ${from.getFullYear()}`;}
+    if(period==="semester"){const h=from.getMonth()<6?"1°":"2°";return `${h} semestre ${from.getFullYear()}`;}
+    if(period==="year")return `Anno ${from.getFullYear()}`;
     const MM=["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
     const{from:f}=getRange(period,baseDate);
     return`${MM[f.getMonth()]} ${f.getFullYear()}`;
@@ -517,8 +587,8 @@ export default function ReportsPage(){
           <button onClick={()=>setDateStr(toYMD(new Date()))} style={{padding:"5px 11px",borderRadius:7,border:"1.5px solid rgba(255,255,255,0.5)",background:"rgba(255,255,255,0.25)",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:12}}>Oggi</button>
           <button onClick={()=>navigate(1)} style={{padding:"5px 11px",borderRadius:7,border:"1.5px solid rgba(255,255,255,0.35)",background:"rgba(255,255,255,0.15)",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13}}>▶</button>
           <div style={{display:"flex",gap:0,marginLeft:4}}>
-            {([{k:"day",l:"Giorno"},{k:"week",l:"Settimana"},{k:"month",l:"Mese"}] as{k:Period;l:string}[]).map((p,i)=>(
-              <button key={`per-${i}`} onClick={()=>setPeriod(p.k)} style={{padding:"5px 13px",borderRadius:i===0?"7px 0 0 7px":i===2?"0 7px 7px 0":"0",border:`1.5px solid ${period===p.k?T.blue:"rgba(255,255,255,0.3)"}`,background:period===p.k?"rgba(255,255,255,0.28)":"rgba(255,255,255,0.1)",color:period===p.k?"#fff":"rgba(255,255,255,0.8)",cursor:"pointer",fontWeight:700,fontSize:12}}>{p.l}</button>
+            {([{k:"day",l:"Giorno"},{k:"week",l:"Sett."},{k:"month",l:"Mese"},{k:"quarter",l:"Trim."},{k:"semester",l:"Semestre"},{k:"year",l:"Anno"}] as{k:Period;l:string}[]).map((p,i,arr)=>(
+              <button key={`per-${i}`} onClick={()=>setPeriod(p.k)} style={{padding:"5px 10px",borderRadius:i===0?"7px 0 0 7px":i===arr.length-1?"0 7px 7px 0":"0",border:`1.5px solid ${period===p.k?T.blue:"rgba(255,255,255,0.3)"}`,background:period===p.k?"rgba(255,255,255,0.28)":"rgba(255,255,255,0.1)",color:period===p.k?"#fff":"rgba(255,255,255,0.8)",cursor:"pointer",fontWeight:700,fontSize:11}}>{p.l}</button>
             ))}
           </div>
         </div>
@@ -583,7 +653,7 @@ export default function ReportsPage(){
                       </span>
                     )}
                   </div>
-                  {period==="month"&&(
+                  {(period==="month"||period==="quarter"||period==="semester"||period==="year")&&(
                     <div style={{marginTop:16}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                         <span style={{fontSize:11,color:"#166534",fontWeight:600}}>Obiettivo: {euro.format(goal)} · {goalPct>=100?"Raggiunto!":""}</span>
@@ -641,26 +711,61 @@ export default function ReportsPage(){
             {/* Trend + KPI secondari */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 140px 140px 140px 140px",gap:14}}>
               <div style={{...card,padding:"18px 22px"}}>
-                <div style={cardH({marginBottom:14,padding:0,border:"none"})}>
-                  <div style={{fontSize:13,fontWeight:700,color:T.text}}>Andamento ultimi 6 mesi</div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                  <div style={{fontSize:13,fontWeight:700,color:T.text}}>
+                    {period==="year"?"Andamento mensile anno":period==="semester"?"Andamento mensile semestre":period==="quarter"?"Andamento mensile trimestre":"Confronto ultimi 6 mesi"}
+                  </div>
+                  <div style={{fontSize:10,color:T.muted,fontWeight:600}}>
+                    <span style={{display:"inline-block",width:10,height:10,borderRadius:2,background:`linear-gradient(90deg,${T.teal},${T.blue})`,marginRight:4}}/>incassato&nbsp;
+                    <span style={{display:"inline-block",width:10,height:10,borderRadius:2,background:"rgba(220,38,38,0.5)",marginRight:4}}/>non pagato
+                  </div>
                 </div>
-                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {monthBars.length===0&&!loading&&(
+                  <div style={{textAlign:"center",padding:"20px 0",color:T.muted,fontSize:12}}>Nessun dato disponibile per questo periodo</div>
+                )}
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
                   {monthBars.map((b,bi)=>{
-                    const maxV=Math.max(...monthBars.map(x=>x.revenue+x.unpaid),0.01);
+                    const maxV=Math.max(...monthBars.map(x=>x.revenue+x.unpaid),1);
+                    const isCurrentPeriod=b.monthKey===dateStr.slice(0,7);
+                    const total=b.revenue+b.unpaid;
                     return(
-                      <div key={`mb-${b.monthKey}-${bi}`} style={{display:"flex",alignItems:"center",gap:10}}>
-                        <div style={{width:28,fontSize:10,fontWeight:700,color:T.muted,flexShrink:0,textAlign:"right"}}>{b.label}</div>
+                      <div key={`mb-${b.monthKey}-${bi}`} style={{display:"flex",alignItems:"center",gap:10,padding:"4px 0",borderRadius:6,background:isCurrentPeriod?"rgba(13,148,136,0.04)":"transparent"}}>
+                        <div style={{width:32,fontSize:10,fontWeight:isCurrentPeriod?800:700,color:isCurrentPeriod?T.teal:T.muted,flexShrink:0,textAlign:"right"}}>{b.label}</div>
                         <div style={{flex:1,display:"flex",flexDirection:"column",gap:2}}>
-                          {b.revenue>0&&<div style={{height:8,borderRadius:4,width:`${(b.revenue/maxV)*100}%`,background:`linear-gradient(90deg,${T.teal},${T.blue})`,position:"relative",minWidth:4}}>
-                            <span style={{position:"absolute",right:4,top:"50%",transform:"translateY(-50%)",fontSize:8,fontWeight:700,color:"rgba(255,255,255,0.9)"}}>{(b.revenue/maxV)*100>20?euro.format(b.revenue):""}</span>
-                          </div>}
-                          {b.unpaid>0&&<div style={{height:4,borderRadius:4,width:`${(b.unpaid/maxV)*100}%`,background:"rgba(220,38,38,0.6)",minWidth:3}}/>}
+                          <div style={{height:12,borderRadius:4,background:"rgba(13,148,136,0.08)",overflow:"hidden",position:"relative"}}>
+                            {b.revenue>0&&<div style={{position:"absolute",left:0,top:0,height:"100%",borderRadius:4,width:`${(b.revenue/maxV)*100}%`,background:`linear-gradient(90deg,${T.teal},${T.blue})`}}/>}
+                            {b.unpaid>0&&<div style={{position:"absolute",left:`${(b.revenue/maxV)*100}%`,top:0,height:"100%",borderRadius:"0 4px 4px 0",width:`${(b.unpaid/maxV)*100}%`,background:"rgba(220,38,38,0.55)"}}/>}
+                          </div>
                         </div>
-                        <div style={{width:58,fontSize:11,fontWeight:700,color:T.text,flexShrink:0,textAlign:"right"}}>{euro.format(b.revenue)}</div>
+                        <div style={{width:70,fontSize:11,fontWeight:700,color:isCurrentPeriod?T.teal:T.text,flexShrink:0,textAlign:"right"}}>
+                          {euro.format(b.revenue)}
+                          {b.unpaid>0&&<div style={{fontSize:9,color:T.red,fontWeight:600}}>+{euro.format(b.unpaid)}</div>}
+                        </div>
                       </div>
                     );
                   })}
                 </div>
+                {monthBars.length>1&&(()=>{
+                  const sorted=[...monthBars].sort((a,b)=>b.revenue-a.revenue);
+                  const best=sorted[0];
+                  const worst=sorted[sorted.length-1];
+                  const avg=monthBars.reduce((s,b)=>s+b.revenue,0)/monthBars.length;
+                  return(
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginTop:12,paddingTop:12,borderTop:`1px solid ${T.border}`}}>
+                      {[
+                        {l:"Migliore",v:best.label,n:euro.format(best.revenue),c:T.green},
+                        {l:"Media",v:"",n:euro.format(avg),c:T.blue},
+                        {l:"Peggiore",v:worst.label,n:euro.format(worst.revenue),c:T.red},
+                      ].map((k,i)=>(
+                        <div key={i} style={{textAlign:"center"}}>
+                          <div style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:0.4}}>{k.l}</div>
+                          {k.v&&<div style={{fontSize:10,color:k.c,fontWeight:700}}>{k.v}</div>}
+                          <div style={{fontSize:13,fontWeight:800,color:k.c}}>{k.n}</div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
               {[
                 {label:"Sedute",value:loading?"—":String(sessions),sub:`${revenuePerVisit!=null?euro.format(revenuePerVisit):""} / seduta`,color:T.teal},
@@ -675,6 +780,52 @@ export default function ReportsPage(){
                 </div>
               ))}
             </div>
+
+            {/* ── Confronto periodi vicini ── */}
+            {compBars.length>0&&(
+              <div style={{...card,padding:"18px 22px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                  <div style={{fontSize:13,fontWeight:700,color:T.text}}>Confronto periodi vicini</div>
+                  <div style={{fontSize:11,color:T.muted}}>±2 periodi rispetto al selezionato</div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
+                  {compBars.map((b,i)=>{
+                    const maxRev=Math.max(...compBars.map(x=>x.revenue),1);
+                    return(
+                      <div key={i} style={{
+                        borderRadius:10,padding:"12px 10px",textAlign:"center",
+                        background:b.isActive?"linear-gradient(135deg,rgba(13,148,136,0.12),rgba(37,99,235,0.08))":"rgba(248,250,252,1)",
+                        border:b.isActive?`2px solid ${T.teal}`:`1px solid ${T.border}`,
+                        cursor:"pointer",transition:"all 0.15s",
+                      }} onClick={()=>setDateStr(b.period)}>
+                        <div style={{fontSize:10,fontWeight:700,color:b.isActive?T.teal:T.muted,textTransform:"uppercase",letterSpacing:0.4,marginBottom:6}}>{b.label}</div>
+                        <div style={{height:40,display:"flex",alignItems:"flex-end",justifyContent:"center",marginBottom:6}}>
+                          <div style={{width:24,borderRadius:"3px 3px 0 0",background:b.isActive?`linear-gradient(180deg,${T.teal},${T.blue})`:`rgba(148,163,184,0.4)`,height:`${Math.max((b.revenue/maxRev)*100,4)}%`,minHeight:4,transition:"height 0.4s"}}/>
+                        </div>
+                        <div style={{fontSize:14,fontWeight:800,color:b.isActive?T.teal:T.text,letterSpacing:-0.3}}>{euro.format(b.revenue)}</div>
+                        <div style={{fontSize:10,color:T.muted,marginTop:2}}>{b.sessions} sed.</div>
+                        {b.isActive&&<div style={{fontSize:9,fontWeight:700,color:T.teal,marginTop:4,textTransform:"uppercase",letterSpacing:0.3}}>▲ attuale</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+                {compBars.length>=3&&(()=>{
+                  const active=compBars.find(b=>b.isActive);
+                  const prev=compBars[compBars.findIndex(b=>b.isActive)-1];
+                  if(!active||!prev||prev.revenue===0) return null;
+                  const diff=Math.round(((active.revenue-prev.revenue)/prev.revenue)*100);
+                  return(
+                    <div style={{marginTop:12,padding:"8px 14px",borderRadius:8,background:diff>=0?"rgba(22,163,74,0.06)":"rgba(220,38,38,0.06)",border:`1px solid ${diff>=0?"rgba(22,163,74,0.2)":"rgba(220,38,38,0.2)"}`,display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:16}}>{diff>=0?"📈":"📉"}</span>
+                      <span style={{fontSize:12,fontWeight:700,color:diff>=0?T.green:T.red}}>
+                        {diff>=0?`+${diff}%`:`${diff}%`} rispetto al periodo precedente ({prev.label})
+                      </span>
+                      <span style={{fontSize:11,color:T.muted,marginLeft:"auto"}}>{euro.format(active.revenue-prev.revenue)}</span>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </div>
         )}
 

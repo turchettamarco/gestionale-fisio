@@ -31,7 +31,7 @@ const currency = new Intl.NumberFormat("it-IT", {
 });
 
 /* ─── Types ───────────────────────────────────────────────────────────── */
-type Period = "day" | "week" | "month";
+type Period = "day" | "week" | "month" | "quarter" | "semester" | "year";
 
 type FinancialItem = {
   amount: number; date: string;
@@ -69,6 +69,9 @@ function endOfMonth(d: Date)   { return new Date(d.getFullYear(),d.getMonth()+1,
 function getRange(period: Period, base: Date) {
   if (period==="day")   return {from:startOfDay(base),  to:endOfDay(base)};
   if (period==="week")  return {from:startOfWeek(base), to:endOfWeek(base)};
+  if (period==="quarter"){const q=Math.floor(base.getMonth()/3);return{from:new Date(base.getFullYear(),q*3,1,0,0,0,0),to:new Date(base.getFullYear(),q*3+3,0,23,59,59,999)};}
+  if (period==="semester"){const h=base.getMonth()<6?0:1;return{from:new Date(base.getFullYear(),h*6,1,0,0,0,0),to:new Date(base.getFullYear(),h*6+6,0,23,59,59,999)};}
+  if (period==="year")  return {from:new Date(base.getFullYear(),0,1,0,0,0,0),to:new Date(base.getFullYear(),11,31,23,59,59,999)};
   return {from:startOfMonth(base), to:endOfMonth(base)};
 }
 function prevBase(period: Period, base: Date): Date {
@@ -76,6 +79,9 @@ function prevBase(period: Period, base: Date): Date {
   if (period==="day")   d.setDate(d.getDate()-1);
   if (period==="week")  d.setDate(d.getDate()-7);
   if (period==="month") d.setMonth(d.getMonth()-1);
+  if (period==="quarter") d.setMonth(d.getMonth()-3);
+  if (period==="semester") d.setMonth(d.getMonth()-6);
+  if (period==="year")  d.setFullYear(d.getFullYear()-1);
   return d;
 }
 function nextBase(period: Period, base: Date): Date {
@@ -83,10 +89,16 @@ function nextBase(period: Period, base: Date): Date {
   if (period==="day")   d.setDate(d.getDate()+1);
   if (period==="week")  d.setDate(d.getDate()+7);
   if (period==="month") d.setMonth(d.getMonth()+1);
+  if (period==="quarter") d.setMonth(d.getMonth()+3);
+  if (period==="semester") d.setMonth(d.getMonth()+6);
+  if (period==="year")  d.setFullYear(d.getFullYear()+1);
   return d;
 }
 function periodLabel(period: Period, base: Date): string {
   if (period==="day")  return base.toLocaleDateString("it-IT",{weekday:"short",day:"2-digit",month:"short",year:"numeric"});
+  if (period==="quarter") {const q=Math.floor(base.getMonth()/3)+1;return `Q${q} ${base.getFullYear()}`;}
+  if (period==="semester") {const h=base.getMonth()<6?"1°":"2°";return `${h} semestre ${base.getFullYear()}`;}
+  if (period==="year")  return `Anno ${base.getFullYear()}`;
   if (period==="week") {
     const s=startOfWeek(base), e=endOfWeek(base);
     return `${s.toLocaleDateString("it-IT",{day:"2-digit",month:"short"})} – ${e.toLocaleDateString("it-IT",{day:"2-digit",month:"short",year:"numeric"})}`;
@@ -279,6 +291,7 @@ export default function ReportsMobile() {
   const [arrearsMonths,    setArrearsMonths]    = useState<{month:string;count:number;total:number}[]>([]);
   const [reportTherapies,  setReportTherapies]  = useState<AppointmentTherapy[]>([]);
   const [prevPeriodTotal,  setPrevPeriodTotal]  = useState<number|null>(null);
+  const [compBars, setCompBars] = useState<{label:string;dateStr:string;revenue:number;isActive:boolean}[]>([]);
 
   const [selectedDay, setSelectedDay] = useState<number|null>(null);
   const [dayDetails,  setDayDetails]  = useState<FinancialItem[]>([]);
@@ -477,6 +490,28 @@ export default function ReportsMobile() {
       const prevTotal=await fetchPaidData(pf,pt);
       setPrevPeriodTotal(prevTotal);
 
+      // Confronto ±2 periodi
+      const comp:{label:string;dateStr:string;revenue:number;isActive:boolean}[]=[];
+      for(let i=-2;i<=2;i++){
+        const d=new Date(baseDate);
+        if(period==="day")d.setDate(d.getDate()+i);
+        else if(period==="week")d.setDate(d.getDate()+i*7);
+        else if(period==="month")d.setMonth(d.getMonth()+i);
+        else if(period==="quarter")d.setMonth(d.getMonth()+i*3);
+        else if(period==="semester")d.setMonth(d.getMonth()+i*6);
+        else if(period==="year")d.setFullYear(d.getFullYear()+i);
+        const{from:cf,to:ct}=getRange(period,d);
+        const rev=await fetchPaidData(cf,ct);
+        let lbl="";
+        if(period==="month")lbl=d.toLocaleDateString("it-IT",{month:"short",year:"2-digit"});
+        else if(period==="quarter"){const q=Math.floor(d.getMonth()/3)+1;lbl=`Q${q}'${String(d.getFullYear()).slice(2)}`;}
+        else if(period==="semester"){const h=d.getMonth()<6?"S1":"S2";lbl=`${h}'${String(d.getFullYear()).slice(2)}`;}
+        else if(period==="year")lbl=String(d.getFullYear());
+        else lbl=d.toLocaleDateString("it-IT",{day:"2-digit",month:"short"});
+        comp.push({label:lbl,dateStr:toISODate(d),revenue:rev,isActive:i===0});
+      }
+      setCompBars(comp);
+
     } catch(e:any) {
       setError(e.message||"Errore nel caricamento.");
     } finally {
@@ -617,15 +652,15 @@ export default function ReportsMobile() {
         display:"flex",flexDirection:"column",gap:8,
       }}>
         {/* Toggle periodo */}
-        <div style={{display:"flex",gap:6}}>
-          {(["day","week","month"] as Period[]).map(p=>(
+        <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+          {(["day","week","month","quarter","semester","year"] as Period[]).map(p=>(
             <button key={p} onClick={()=>setPeriod(p)} style={{
-              flex:1,padding:"7px 4px",borderRadius:9,fontSize:11,fontWeight:700,
+              flex:"1 1 auto",padding:"7px 6px",borderRadius:9,fontSize:10,fontWeight:700,
               border:"none",cursor:"pointer",fontFamily:"Inter,-apple-system,sans-serif",
               background:period===p?THEME.gradient:THEME.panelSoft,
-              color:period===p?"#fff":THEME.muted,
+              color:period===p?"#fff":THEME.muted,minWidth:48,
             }}>
-              {p==="day"?"Giorno":p==="week"?"Settimana":"Mese"}
+              {p==="day"?"Oggi":p==="week"?"Sett.":p==="month"?"Mese":p==="quarter"?"Trim.":p==="semester"?"Sem.":"Anno"}
             </button>
           ))}
         </div>
@@ -756,6 +791,27 @@ export default function ReportsMobile() {
                     )}
                   </div>
                 </div>
+
+                {/* Confronto periodi vicini */}
+                {compBars.length>0&&(
+                  <div style={{background:THEME.panelBg,border:`1.5px solid ${THEME.border}`,borderRadius:14,padding:"14px 16px",boxShadow:"0 1px 4px rgba(15,23,42,0.05)"}}>
+                    <div style={{fontSize:12,fontWeight:700,color:THEME.text,marginBottom:12}}>Confronto periodi vicini</div>
+                    <div style={{display:"flex",gap:6,alignItems:"flex-end",height:80}}>
+                      {compBars.map((b,i)=>{
+                        const maxRev=Math.max(...compBars.map(x=>x.revenue),1);
+                        const barH=Math.max((b.revenue/maxRev)*56,4);
+                        return(
+                          <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",cursor:"pointer"}}
+                            onClick={()=>setDateStr(b.dateStr)}>
+                            <div style={{fontSize:9,fontWeight:700,color:b.isActive?THEME.teal:THEME.muted,marginBottom:4,textAlign:"center"}}>{currency.format(b.revenue)}</div>
+                            <div style={{width:"100%",height:barH,borderRadius:"3px 3px 0 0",background:b.isActive?THEME.gradient:"rgba(148,163,184,0.35)",border:b.isActive?`1.5px solid ${THEME.teal}`:"none"}}/>
+                            <div style={{fontSize:9,fontWeight:b.isActive?800:600,color:b.isActive?THEME.teal:THEME.muted,marginTop:4,textAlign:"center"}}>{b.label}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* Arretrati */}
                 {arrearsMonths.length>0&&(
