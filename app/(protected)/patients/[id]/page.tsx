@@ -2573,10 +2573,10 @@ ${rows}
                             {e.descrizione && <div style={{ fontSize:12, color:THEME.text, lineHeight:1.6 }}>{e.descrizione}</div>}
                             {e.note && <div style={{ fontSize:11, color:THEME.teal, background:"rgba(13,148,136,0.06)", padding:"5px 10px", borderRadius:6 }}>📌 {e.note}</div>}
                             {e.avvertenze && <div style={{ fontSize:11, color:THEME.red, background:"rgba(220,38,38,0.05)", padding:"5px 10px", borderRadius:6 }}>⚠️ {e.avvertenze}</div>}
-                            {e.youtube_query && (
-                              <a href={`https://www.youtube.com/results?search_query=${encodeURIComponent(e.youtube_query)}`} target="_blank" rel="noopener noreferrer"
+                            {e.youtube_id && (
+                              <a href={`https://www.youtube.com/watch?v=${e.youtube_id}`} target="_blank" rel="noopener noreferrer"
                                 style={{ fontSize:11, color:"#dc2626", background:"rgba(220,38,38,0.06)", padding:"5px 10px", borderRadius:6, display:"inline-flex", alignItems:"center", gap:5, textDecoration:"none", fontWeight:700 }}>
-                                ▶ Guarda il video su YouTube
+                                ▶ Apri video su YouTube
                               </a>
                             )}
                           </>
