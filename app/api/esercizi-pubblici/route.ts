@@ -5,7 +5,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const supabase = createClient(
+const supabaseAnon = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
@@ -28,7 +33,7 @@ export async function POST(req: NextRequest) {
     const token = generateToken();
     const expires_at = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(); // 90 giorni
 
-    const { error } = await supabase.from("schede_esercizi_pubbliche").insert({
+    const { error } = await supabaseAdmin.from("schede_esercizi_pubbliche").insert({
       token,
       patient_id: patient_id ?? null,
       patient_name: patient_name ?? "Paziente",
@@ -52,7 +57,7 @@ export async function GET(req: NextRequest) {
     const token = req.nextUrl.searchParams.get("token");
     if (!token) return NextResponse.json({ error: "token required" }, { status: 400 });
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAnon
       .from("schede_esercizi_pubbliche")
       .select("*")
       .eq("token", token)
