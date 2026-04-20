@@ -331,6 +331,15 @@ export default function HomePage() {
     await fetchWebBookings();
   }
 
+  async function deleteWebBooking(id: string) {
+    if (!confirm("Eliminare definitivamente questa prenotazione?")) return;
+    setWebBookingActionId(id);
+    await supabase.from("booking_requests").delete().eq("id", id);
+    setWebBookingActionId(null);
+    setWebPopup(null);
+    await fetchWebBookings();
+  }
+
   const fetchInactive=useCallback(async()=>{
     try{
       setInactiveLoading(true);
@@ -348,12 +357,12 @@ export default function HomePage() {
       // Tieni solo l'appuntamento più recente per paziente
       const byP=new Map<string,any>();
       for(const r of rows){ if(r.patient_id&&!byP.has(r.patient_id)) byP.set(r.patient_id,r); }
-      const nowMs=startOfDay(new Date()).getTime();
+      // Use Date.now() for accurate days since last appointment
       const list:InactivePatientRow[]=[];
       for(const[pid,r] of byP.entries()){
         const p=pickPatient(r.patients);
         if((p?.status||"").toString().toLowerCase()==="inactive") continue;
-        const days=Math.floor((nowMs-new Date(r.start_at).getTime())/86400000);
+        const days=Math.round((Date.now()-new Date(r.start_at).getTime())/86400000);
         if(days>inactiveThreshold) list.push({patient_id:pid,first_name:p?.first_name||"",last_name:p?.last_name||"",phone:p?.phone??null,last_done_at:r.start_at,days_since_last:days});
       }
       list.sort((a,b)=>b.days_since_last-a.days_since_last);
@@ -691,19 +700,36 @@ export default function HomePage() {
                     style={{flex:1,padding:"11px",border:"1.5px solid #fecaca",borderRadius:10,background:"#fff5f5",color:"#dc2626",fontWeight:700,fontSize:13,cursor:"pointer",opacity:webBookingActionId?0.6:1}}>
                     ✕ Rifiuta
                   </button>
+                  <button onClick={()=>deleteWebBooking(webPopup.id)} disabled={!!webBookingActionId}
+                    style={{padding:"11px 14px",border:"1.5px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontWeight:700,fontSize:13,cursor:"pointer",opacity:webBookingActionId?0.6:1}}
+                    title="Elimina definitivamente">
+                    🗑
+                  </button>
                 </>
               )}
               {webPopup.status==="confirmed"&&(
-                <button onClick={()=>rejectWebBooking(webPopup.id)} disabled={!!webBookingActionId}
-                  style={{flex:1,padding:"11px",border:"1.5px solid #fecaca",borderRadius:10,background:"#fff5f5",color:"#dc2626",fontWeight:700,fontSize:13,cursor:"pointer"}}>
-                  ✕ Annulla prenotazione
-                </button>
+                <div style={{display:"flex",gap:8,flex:1}}>
+                  <button onClick={()=>rejectWebBooking(webPopup.id)} disabled={!!webBookingActionId}
+                    style={{flex:1,padding:"11px",border:"1.5px solid #fecaca",borderRadius:10,background:"#fff5f5",color:"#dc2626",fontWeight:700,fontSize:13,cursor:"pointer"}}>
+                    ✕ Annulla
+                  </button>
+                  <button onClick={()=>deleteWebBooking(webPopup.id)} disabled={!!webBookingActionId}
+                    style={{flex:1,padding:"11px",border:"1.5px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontWeight:700,fontSize:13,cursor:"pointer"}}>
+                    🗑 Elimina
+                  </button>
+                </div>
               )}
               {webPopup.status==="cancelled"&&(
-                <button onClick={()=>confirmWebBooking(webPopup)} disabled={!!webBookingActionId}
-                  style={{flex:1,padding:"11px",border:"none",borderRadius:10,background:THEME.teal,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>
-                  ↩ Riconferma
-                </button>
+                <div style={{display:"flex",gap:8,flex:1}}>
+                  <button onClick={()=>confirmWebBooking(webPopup)} disabled={!!webBookingActionId}
+                    style={{flex:1,padding:"11px",border:"none",borderRadius:10,background:THEME.teal,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>
+                    ↩ Riconferma
+                  </button>
+                  <button onClick={()=>deleteWebBooking(webPopup.id)} disabled={!!webBookingActionId}
+                    style={{flex:1,padding:"11px",border:"1.5px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontWeight:700,fontSize:13,cursor:"pointer"}}>
+                    🗑 Elimina
+                  </button>
+                </div>
               )}
             </div>
           </div>

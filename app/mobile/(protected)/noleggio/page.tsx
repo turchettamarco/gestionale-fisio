@@ -265,10 +265,10 @@ export default function MobileNoleggioPage() {
                     <div style={{display:"flex",flexDirection:"column",gap:6}}>
                       <input value={editName} onChange={e=>setEditName(e.target.value)}
                         placeholder="Cognome Nome" autoFocus
-                        style={{padding:"7px 10px",borderRadius:7,border:`1.5px solid ${THEME.teal}`,fontSize:14,fontWeight:700,outline:"none",width:"100%",boxSizing:"border-box" as const}}/>
+                        style={{padding:"7px 10px",borderRadius:7,border:`1.5px solid ${THEME.teal}`,fontSize:14,fontWeight:700,outline:"none",width:"100%",boxSizing:"border-box" as const,color:"#0f172a",background:"#fff"}}/>
                       <input value={editPhone} onChange={e=>setEditPhone(e.target.value)}
                         placeholder="Telefono" type="tel"
-                        style={{padding:"7px 10px",borderRadius:7,border:`1.5px solid ${THEME.border}`,fontSize:13,outline:"none",width:"100%",boxSizing:"border-box" as const}}/>
+                        style={{padding:"7px 10px",borderRadius:7,border:`1.5px solid ${THEME.border}`,fontSize:13,outline:"none",width:"100%",boxSizing:"border-box" as const,color:"#0f172a",background:"#fff"}}/>
                       <div style={{display:"flex",gap:6}}>
                         <button onClick={()=>saveEditNoleggio(n.id)} disabled={editSaving}
                           style={{flex:1,padding:"8px",borderRadius:7,border:"none",background:THEME.teal,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",opacity:editSaving?0.6:1}}>

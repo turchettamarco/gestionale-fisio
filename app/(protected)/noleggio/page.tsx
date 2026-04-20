@@ -662,10 +662,10 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
                   <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
                     <input value={editName} onChange={e=>setEditName(e.target.value)}
                       placeholder="Cognome Nome" autoFocus
-                      style={{ padding:"7px 10px", borderRadius:7, border:`1.5px solid ${THEME.teal}`, fontSize:14, fontWeight:700, outline:"none", width:"100%", boxSizing:"border-box" }}/>
+                      style={{ padding:"7px 10px", borderRadius:7, border:`1.5px solid ${THEME.teal}`, fontSize:14, fontWeight:700, outline:"none", width:"100%", boxSizing:"border-box", color:"#0f172a", background:"#fff" }}/>
                     <input value={editPhone} onChange={e=>setEditPhone(e.target.value)}
                       placeholder="Telefono (es. 320...)" type="tel"
-                      style={{ padding:"7px 10px", borderRadius:7, border:`1.5px solid ${THEME.border}`, fontSize:13, outline:"none", width:"100%", boxSizing:"border-box" }}/>
+                      style={{ padding:"7px 10px", borderRadius:7, border:`1.5px solid ${THEME.border}`, fontSize:13, outline:"none", width:"100%", boxSizing:"border-box", color:"#0f172a", background:"#fff" }}/>
                     <div style={{ display:"flex", gap:6 }}>
                       <button onClick={()=>saveEditNoleggio(n.id)} disabled={editSaving}
                         style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"none", background:THEME.teal, color:"#fff", fontWeight:700, fontSize:12, cursor:"pointer", opacity:editSaving?0.6:1 }}>
