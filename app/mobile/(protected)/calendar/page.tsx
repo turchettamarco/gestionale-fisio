@@ -1,5 +1,17 @@
 "use client";
 
+function openWA(phone: string, message: string = ""): void {
+  const p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
+  const n = p.startsWith("00") ? p.slice(2) : p.startsWith("0") ? "39" + p : !p.startsWith("39") && p.length <= 10 ? "39" + p : p;
+  const text = message ? "&text=" + encodeURIComponent(message) : "";
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
+  const url = isMobile
+    ? "https://api.whatsapp.com/send?phone=" + n + text
+    : "https://web.whatsapp.com/send?phone=" + n + text;
+  const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+  document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200);
+}
+
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -587,15 +599,7 @@ function CalendarPageInner() {
       .replace(/{ora}/g,           ora)
       .replace(/{luogo}/g,         luogo);
 
-    const whatsappUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
-    const confirmText = isConfirmation
-      ? `📱 CONFERMA NUOVO APPUNTAMENTO WHATSAPP\n\nDestinatario: ${patientPhone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp e inviare.`
-      : `📱 INVIO PROMEMORIA WHATSAPP\n\nDestinatario: ${patientPhone}\n\nMessaggio:\n${message}\n\nClicca OK per aprire WhatsApp e inviare.`;
-
-    const confirmed = window.confirm(confirmText);
-    if (!confirmed) return;
-
-    const a = document.createElement("a"); a.href=whatsappUrl; a.target="_blank"; a.rel="noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200); const newWindow = true;
+    openWA(cleanPhone, message);
 
     const nowIso = new Date().toISOString();
     await supabase.from("appointments").update({whatsapp_sent_at:nowIso,whatsapp_sent:true}).eq("id",appointmentId);

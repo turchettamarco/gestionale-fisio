@@ -1170,6 +1170,9 @@ export default function PatientDetailPage({
   const doneCount      = appointments.filter(a => a.status === "done").length;
   const paidCount      = appointments.filter(a => a.status === "done" && a.is_paid).length;
   const lastTherapy    = appointments[0]?.start_at;
+  const unpaidAmount   = appointments
+    .filter(a => (a.status === "done" || (a.status as string) === "not_paid") && !a.is_paid && a.amount)
+    .reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
 
   // ─── Shared style helpers ─────────────────────────────────────────────────
   const inputStyle: React.CSSProperties = {
@@ -1584,7 +1587,7 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
     const nome = firstName?.trim() || lastName?.trim() || "Paziente";
     const msg = "Gentile " + nome + ",\n\nle ho attivato la sua area personale FisioHub dove puo vedere:\n- i suoi prossimi appuntamenti\n- la scheda esercizi da casa\n- i contatti dello studio\n\nIl suo link personale (valido 6 mesi):\n" + link + "\n\nCordiali saluti,\nDr. Marco Turchetta";
     const clean = cleanPhoneWA(phone);
-    const url = "https://web.whatsapp.com/send?phone=" + clean + "&text=" + encodeURIComponent(msg);
+    const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(msg);
     const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
     document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
   }
@@ -1616,7 +1619,30 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
     const link = `${window.location.origin}/survey/${token}`;
     const msg = `Gentile ${firstName},\nil suo ciclo di trattamento è terminato.\n\nLe saremmo grati se volesse rispondere a 3 brevi domande:\n${link}\n\nGrazie, Dr. Marco Turchetta`;
     const clean = cleanPhoneWA(phone);
-    const url = "https://api.whatsapp.com/send?phone=" + clean + "&text=" + encodeURIComponent(msg);
+    const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(msg);
+    const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
+    document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
+  }
+
+  // ── Auguri compleanno ────────────────────────────────────────────────────
+  function sendBirthdayMsg() {
+    if (!patient || !phone) { alert("Nessun numero di telefono."); return; }
+    const nome = firstName?.trim() || "Paziente";
+    const msg = `Buon compleanno ${nome}! 🎂\n\nTutto lo staff di FisioHub le augura una splendida giornata.\nSe ha bisogno di noi, siamo a sua disposizione.\n\nCordiali saluti,\nDr. Marco Turchetta`;
+    const clean = cleanPhoneWA(phone);
+    const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(msg);
+    const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
+    document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
+  }
+
+  // ── Promemoria pagamento ──────────────────────────────────────────────────
+  function sendPaymentMsg() {
+    if (!patient || !phone) { alert("Nessun numero di telefono."); return; }
+    const nome = firstName?.trim() || "Paziente";
+    const importo = unpaidAmount.toLocaleString("it-IT", { minimumFractionDigits: 2 });
+    const msg = `Gentile ${nome},\n\nle ricordiamo un saldo aperto di €${importo} per le sedute effettuate.\n\nPer qualsiasi informazione non esiti a contattarci.\n\nCordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
+    const clean = cleanPhoneWA(phone);
+    const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(msg);
     const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
     document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
   }
@@ -2154,6 +2180,22 @@ ${rows}
               background: THEME.panelSoft, color: portalLinkCopied ? THEME.green : THEME.muted, fontWeight: 700,
               fontSize: 13, cursor: "pointer",
             }}>{portalLinkCopied ? "✓ Copiato!" : "📋 Copia link"}</button>
+            {/* Compleanno — solo se ha data di nascita */}
+            {birthDate && phone && (
+              <button onClick={sendBirthdayMsg} title={`Auguri di compleanno a ${firstName}`} style={{
+                padding: "9px 16px", borderRadius: 8, border: `1.5px solid #f59e0b`,
+                background: "rgba(245,158,11,0.06)", color: "#b45309", fontWeight: 700,
+                fontSize: 13, cursor: "pointer",
+              }}>🎂 Auguri</button>
+            )}
+            {/* Saldo — solo se ha importo non pagato */}
+            {unpaidAmount > 0 && phone && (
+              <button onClick={sendPaymentMsg} title={`Saldo aperto: €${unpaidAmount.toFixed(2)}`} style={{
+                padding: "9px 16px", borderRadius: 8, border: `1.5px solid #dc2626`,
+                background: "rgba(220,38,38,0.06)", color: "#dc2626", fontWeight: 700,
+                fontSize: 13, cursor: "pointer",
+              }}>💶 Saldo €{unpaidAmount % 1 === 0 ? unpaidAmount.toFixed(0) : unpaidAmount.toFixed(2)}</button>
+            )}
           </div>
         </div>
 
@@ -2956,7 +2998,7 @@ ${rows}
                     </button>
                     <button onClick={()=>{
                         const msg = `Gentile ${lastName} ${firstName},\nEcco la sua scheda esercizi domiciliari:\n${pubLink}\n\nClicchi il link per vedere gli esercizi e i video dimostrativi.\nDr. Marco Turchetta`;
-                        const url = "https://web.whatsapp.com/send?text=" + encodeURIComponent(msg);
+                        const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?text=" + encodeURIComponent(msg);
                         const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
                         document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
                       }}

@@ -95,6 +95,9 @@ export default function NewPatientPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [okMsg, setOkMsg] = useState("");
+  const [savedPhone, setSavedPhone] = useState("");
+  const [savedName,  setSavedName]  = useState("");
+  const [showWelcomeWA, setShowWelcomeWA] = useState(false);
 
   // Base
   const [firstName, setFirstName] = useState("");
@@ -162,6 +165,9 @@ export default function NewPatientPage() {
     }
 
     setOkMsg("Paziente creato ✅");
+    setSavedPhone(phone.trim());
+    setSavedName(firstName.trim() || lastName.trim());
+    setShowWelcomeWA(!!phone.trim());
 
     // reset
     setFirstName("");
@@ -215,18 +221,29 @@ export default function NewPatientPage() {
           ) : null}
 
           {okMsg ? (
-            <div
-              style={{
-                marginBottom: 12,
-                padding: 12,
-                borderRadius: 12,
-                background: "rgba(22,163,74,0.10)",
-                border: "1px solid rgba(22,163,74,0.25)",
-                color: THEME.greenDark,
-                fontWeight: 900,
-              }}
-            >
-              {okMsg}
+            <div style={{ marginBottom: 12, padding: 16, borderRadius: 12, background: "rgba(22,163,74,0.10)", border: "1px solid rgba(22,163,74,0.25)" }}>
+              <div style={{ color: THEME.greenDark, fontWeight: 900, fontSize: 15, marginBottom: showWelcomeWA ? 12 : 0 }}>{okMsg}</div>
+              {showWelcomeWA && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button type="button" onClick={() => {
+                    const nome = savedName || "Paziente";
+                    const msg = `Buongiorno ${nome},\n\nbenvenuto/a nello studio del Dr. Marco Turchetta!\n\nSiamo lieti di averla come nuovo paziente. A presto!\n\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
+                    const p = savedPhone.replace(/[\s\(\)\-\.]/g,"").replace(/^\+/,"");
+                    const n = p.startsWith("00")?p.slice(2):p.startsWith("0")?"39"+p:!p.startsWith("39")&&p.length<=10?"39"+p:p;
+                    const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
+                    const url = (isMobile ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + n + "&text=" + encodeURIComponent(msg);
+                    const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
+                    document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
+                    setShowWelcomeWA(false);
+                  }} style={{ padding: "10px 18px", borderRadius: 8, border: "none", background: "#25D366", color: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
+                    💬 Invia benvenuto WA
+                  </button>
+                  <button type="button" onClick={() => { setShowWelcomeWA(false); router.push("/patients"); }}
+                    style={{ padding: "10px 18px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                    Vai alla lista pazienti →
+                  </button>
+                </div>
+              )}
             </div>
           ) : null}
 

@@ -1,5 +1,17 @@
 "use client";
 
+function openWA(phone: string, message: string = ""): void {
+  const p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
+  const n = p.startsWith("00") ? p.slice(2) : p.startsWith("0") ? "39" + p : !p.startsWith("39") && p.length <= 10 ? "39" + p : p;
+  const text = message ? "&text=" + encodeURIComponent(message) : "";
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
+  const url = isMobile
+    ? "https://api.whatsapp.com/send?phone=" + n + text
+    : "https://web.whatsapp.com/send?phone=" + n + text;
+  const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+  document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200);
+}
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
@@ -223,19 +235,37 @@ function DocThumbnail({ doc }: { doc: PatientDoc }) {
 }
 
 /* ─── QuickActionBar ──────────────────────────────────────────────────── */
-function QuickActionBar({ phone, waPhone, patientId }: {
+function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, firstName }: {
   phone: string | null; waPhone: string | null; patientId: string;
+  unpaidAmount: number; birthDate: string | null; firstName: string | null;
 }) {
   const actions = [
     phone    ? { label: "Chiama",    icon: "📞", href: `tel:${phone}`,                          color: T.blue  } : null,
-    waPhone  ? { label: "WhatsApp",  icon: "💬", href: `https://api.whatsapp.com/send?phone=${waPhone}`, color: T.green } : null,
+    waPhone  ? { label: "WhatsApp",  icon: "💬", href: `#`, color: T.green } : null,
     { label: "Prenota",   icon: "📅", href: `/mobile/calendar?new=1&patient_id=${patientId}`, color: T.teal  },
+    (birthDate && phone) ? { label: "Auguri",   icon: "🎂", href: `#birthday`, color: "#f59e0b" } : null,
+    (unpaidAmount > 0 && phone) ? { label: `€${unpaidAmount % 1 === 0 ? unpaidAmount.toFixed(0) : unpaidAmount.toFixed(2)}`, icon: "💶", href: `#payment`, color: "#dc2626" } : null,
   ].filter(Boolean) as { label: string; icon: string; href: string; color: string }[];
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: `repeat(${actions.length},1fr)`, gap: 8, marginTop: 12 }}>
       {actions.map(a => (
-        <a key={a.label} href={a.href} target={a.href.startsWith("http") ? "_blank" : undefined}
+        <a key={a.label} href={a.href}
+          onClick={e => {
+            if (a.href === "#birthday" && phone) {
+              e.preventDefault();
+              const nome = firstName?.trim() || "Paziente";
+              const msg = `Buon compleanno ${nome}! 🎂\n\nTutto lo staff di FisioHub le augura una splendida giornata.\nSe ha bisogno di noi siamo a sua disposizione.\n\nDr. Marco Turchetta`;
+              openWA(phone, msg);
+            } else if (a.href === "#payment" && phone) {
+              e.preventDefault();
+              const nome = firstName?.trim() || "Paziente";
+              const importo = unpaidAmount.toLocaleString("it-IT", { minimumFractionDigits: 2 });
+              const msg = `Gentile ${nome},\n\nle ricordiamo un saldo aperto di €${importo} per le sedute effettuate.\n\nCordiali saluti,\nDr. Marco Turchetta`;
+              openWA(phone, msg);
+            }
+          }}
+          target={a.href.startsWith("http") ? "_blank" : undefined}
           rel="noreferrer"
           style={{
             display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
@@ -770,7 +800,21 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
         )}
 
         {/* Quick actions */}
-        <QuickActionBar phone={patient.phone} waPhone={waPhone} patientId={patient.id} />
+        {(() => {
+          const _unpaid = appointments
+            .filter((a: any) => (a.status === "done" || a.status === "not_paid") && !a.is_paid && a.amount)
+            .reduce((s: number, a: any) => s + (Number(a.amount) || 0), 0);
+          return (
+            <QuickActionBar
+              phone={patient.phone}
+              waPhone={waPhone}
+              patientId={patient.id}
+              unpaidAmount={_unpaid}
+              birthDate={patient.birth_date ?? null}
+              firstName={patient.first_name ?? null}
+            />
+          );
+        })()}
       </div>
 
       {/* ━━━ TABS ━━━ */}
@@ -1377,7 +1421,7 @@ function MobileEserciziTab({ patientId, patientName }: { patientId: string; pati
     if (!pubLink) return;
     const msg = `Gentile ${patientName},\nEcco la sua scheda esercizi domiciliari:\n${pubLink}\n\nDr. Marco Turchetta`;
     const a = document.createElement("a");
-    a.href = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
+    a.href = (typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? 'https://api.whatsapp.com' : 'https://web.whatsapp.com') + '/send?text=' + encodeURIComponent(msg);
     a.target = "_blank"; document.body.appendChild(a); a.click(); document.body.removeChild(a);
   }
 
@@ -1502,9 +1546,7 @@ function MobilePortalTab({ patient }: { patient: any }) {
     const nome = patient.first_name?.trim()||"Paziente";
     const msg = "Gentile "+nome+",\n\nle ho attivato la sua area personale FisioHub dove puo vedere:\n- i suoi prossimi appuntamenti\n- la scheda esercizi da casa\n- i contatti dello studio\n\nIl suo link personale (valido 6 mesi):\n"+url+"\n\nCordiali saluti,\nDr. Marco Turchetta";
     const clean = cleanPhone(patient.phone);
-    const waUrl = "https://api.whatsapp.com/send?phone="+clean+"&text="+encodeURIComponent(msg);
-    const a=document.createElement("a"); a.href=waUrl; a.target="_blank"; a.rel="noopener noreferrer";
-    document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
+    openWA(clean, msg);
   }
 
   async function copy() {

@@ -1,5 +1,15 @@
 "use client";
 
+function openWA(phone: string, message: string = ""): void {
+  const p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
+  const n = p.startsWith("00") ? p.slice(2) : p.startsWith("0") ? "39" + p : !p.startsWith("39") && p.length <= 10 ? "39" + p : p;
+  const text = message ? "&text=" + encodeURIComponent(message) : "";
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
+  const url = isMobile ? "https://api.whatsapp.com/send?phone=" + n + text : "https://web.whatsapp.com/send?phone=" + n + text;
+  const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+  document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200);
+}
+
 import Link from "next/link";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -61,6 +71,9 @@ export default function NewPatientPage() {
   const router = useRouter();
 
   const [saving,  setSaving]  = useState(false);
+  const [savedPhone, setSavedPhone] = useState("");
+  const [savedName,  setSavedName]  = useState("");
+  const [showWelcomeWA, setShowWelcomeWA] = useState(false);
   const [error,   setError]   = useState("");
   const [success, setSuccess] = useState(false);
 
@@ -137,8 +150,11 @@ export default function NewPatientPage() {
 
     if (insErr) { setError(insErr.message); return; }
 
+    setSavedPhone(phone.trim());
+    setSavedName(firstName.trim() || lastName.trim());
+    setShowWelcomeWA(!!phone.trim());
     setSuccess(true);
-    setTimeout(() => router.push("/mobile/patients"), 800);
+    if (!phone.trim()) setTimeout(() => router.push("/mobile/patients"), 800);
   }
 
   /* ─── RENDER ─────────────────────────────────────────────────────── */
@@ -246,11 +262,31 @@ export default function NewPatientPage() {
 
         {/* Successo */}
         {success && (
-          <div style={{
-            padding: "12px 16px", borderRadius: 12, marginBottom: 14,
-            background: "rgba(22,163,74,0.08)", border: "1.5px solid rgba(22,163,74,0.3)",
-            color: THEME.green, fontWeight: 700, fontSize: 14, textAlign: "center",
-          }}>✅ Paziente creato! Reindirizzo…</div>
+          <div style={{ padding: "14px 16px", borderRadius: 12, marginBottom: 14,
+            background: "rgba(22,163,74,0.08)", border: "1.5px solid rgba(22,163,74,0.3)" }}>
+            <div style={{ color: THEME.green, fontWeight: 800, fontSize: 15, marginBottom: showWelcomeWA ? 12 : 0, textAlign: "center" }}>
+              ✅ Paziente creato!
+            </div>
+            {showWelcomeWA && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <button type="button" onClick={() => {
+                  const nome = savedName || "Paziente";
+                  const msg = "Buongiorno " + nome + ",\n\nbenvenuto/a nello studio del Dr. Marco Turchetta!\n\nSiamo lieti di averla come nuovo paziente. A presto!\n\nDr. Marco Turchetta\nFisioterapia e Osteopatia";
+                  openWA(savedPhone, msg);
+                  setShowWelcomeWA(false);
+                  setTimeout(() => router.push("/mobile/patients"), 800);
+                }} style={{ width: "100%", padding: "12px", borderRadius: 10, border: "none",
+                  background: "#25D366", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
+                  💬 Invia benvenuto WA
+                </button>
+                <button type="button" onClick={() => { setShowWelcomeWA(false); router.push("/mobile/patients"); }}
+                  style={{ width: "100%", padding: "10px", borderRadius: 10, border: "1.5px solid #e2e8f0",
+                    background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                  Vai alla lista →
+                </button>
+              </div>
+            )}
+          </div>
         )}
 
         <form onSubmit={onSubmit}>

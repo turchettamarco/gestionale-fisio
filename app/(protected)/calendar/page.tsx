@@ -1613,11 +1613,12 @@ function cleanPhoneForWA(phone: string): string {
 }
 
 // Apre WhatsApp Web su desktop senza dipendere da window.open (bloccato dai browser)
-// Usa api.whatsapp.com che funziona sia su desktop che mobile
+// Apre app nativa su mobile, WhatsApp Web su desktop — nessun popup
 function openWhatsApp(phone: string, message: string): boolean {
   const clean = cleanPhoneForWA(phone);
   if (!clean) return false;
-  const url = `https://api.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`;
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
+  const url = (isMobile ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(message);
   const a = document.createElement("a");
   a.href = url;
   a.target = "_blank";

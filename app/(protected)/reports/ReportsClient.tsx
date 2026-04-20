@@ -8,7 +8,8 @@ function openWADirect(phone: string, message: string = ""): void {
   if (p.startsWith("00")) p = p.slice(2);
   if (p.startsWith("0")) p = "39" + p;
   if (!p.startsWith("39") && p.length <= 10) p = "39" + p;
-  const url = "https://api.whatsapp.com/send?phone=" + p + (message ? "&text=" + encodeURIComponent(message) : "");
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
+  const url = (isMobile ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + p + (message ? "&text=" + encodeURIComponent(message) : "");
   const a = document.createElement("a");
   a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
   document.body.appendChild(a); a.click();

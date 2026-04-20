@@ -1,5 +1,17 @@
 "use client";
 
+function openWA(phone: string, message: string = ""): void {
+  const p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
+  const n = p.startsWith("00") ? p.slice(2) : p.startsWith("0") ? "39" + p : !p.startsWith("39") && p.length <= 10 ? "39" + p : p;
+  const text = message ? "&text=" + encodeURIComponent(message) : "";
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
+  const url = isMobile
+    ? "https://api.whatsapp.com/send?phone=" + n + text
+    : "https://web.whatsapp.com/send?phone=" + n + text;
+  const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+  document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200);
+}
+
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
@@ -451,7 +463,7 @@ export default function MobilePatientsPage() {
                         )}
                         {/* WhatsApp */}
                         {waPhone&&(
-                          <a href={`https://api.whatsapp.com/send?phone=${waPhone}`} target="_blank" rel="noreferrer"
+                          <a href="#" onClick={e=>{e.preventDefault();openWA(waPhone);}}
                             style={{
                               width:34,height:34,borderRadius:10,flexShrink:0,
                               display:"flex",alignItems:"center",justifyContent:"center",

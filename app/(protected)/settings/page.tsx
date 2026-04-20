@@ -216,7 +216,6 @@ export default function SettingsPage() {
 
   // Sezioni accordion
   const [showDurations,  setShowDurations]  = useState(false);
-  const [showBooking,    setShowBooking]    = useState(false);
   const [showGestione,   setShowGestione]   = useState(false);
   const [showPassword,   setShowPassword]   = useState(false);
   const [showBackup,     setShowBackup]     = useState(false);
@@ -979,17 +978,25 @@ export default function SettingsPage() {
           )}
         </div>
 
-        {/* ── SEZIONE TEMPLATE ─────────────────────────────────────────────── */}
+        {/* ── SEZIONE MESSAGGI WHATSAPP ────────────────────────────────────────── */}
         <div style={cardStyle}>
           <div style={sectionHead} onClick={() => setShowTemplates(!showTemplates)}>
             <div>
-              <div style={{ fontWeight:700, fontSize:15, color:THEME.text }}>Template WhatsApp</div>
-              <div style={{ fontSize:12, color:THEME.muted, marginTop:2 }}>{templates.length} template configurati</div>
+              <div style={{ fontWeight:700, fontSize:15, color:THEME.text }}>💬 Messaggi WhatsApp</div>
+              <div style={{ fontSize:12, color:THEME.muted, marginTop:2 }}>Template promemoria · Messaggi automatici · Benvenuto</div>
             </div>
             <span style={{ color:THEME.muted, fontSize:12, transform:showTemplates?"rotate(180deg)":"none", transition:"transform 0.2s" }}>▾</span>
           </div>
 
           {showTemplates && (
+            <div style={{ padding:"20px", display:"flex", flexDirection:"column", gap:28 }}>
+
+              {/* ─── Template promemoria calendario ────────────────────────────── */}
+              <div>
+                <div style={{ fontSize:13, fontWeight:800, color:THEME.text, marginBottom:14, paddingBottom:8, borderBottom:`1.5px solid ${THEME.border}` }}>
+                  📋 Template promemoria calendario
+                  <div style={{ fontSize:11, fontWeight:500, color:THEME.muted, marginTop:3 }}>Usati dai bottoni WA nel calendario · Variabili: {"{nome}"} {"{data_relativa}"} {"{ora}"} {"{luogo}"}</div>
+                </div>
             <div style={{ padding:"20px" }}>
 
               {/* Placeholder info */}
@@ -1093,6 +1100,64 @@ export default function SettingsPage() {
                 </div>
               )}
             </div>
+              </div>
+
+              {/* ─── Messaggi automatici ─────────────────────────────────────────── */}
+              <div>
+                <div style={{ fontSize:13, fontWeight:800, color:THEME.text, marginBottom:14, paddingBottom:8, borderBottom:`1.5px solid ${THEME.border}` }}>
+                  🤖 Messaggi automatici
+                  <div style={{ fontSize:11, fontWeight:500, color:THEME.muted, marginTop:3 }}>Benvenuto nuovo paziente · Conferma prenotazione online</div>
+                </div>
+            <div style={{ padding:"20px", display:"flex", flexDirection:"column", gap:16 }}>
+              <div>
+                <label style={labelStyle}>Messaggio benvenuto nuovo paziente (WhatsApp)</label>
+                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato automaticamente al primo appuntamento. Usa: {"{nome}"}</div>
+                <textarea value={welcomeMsg} onChange={e=>setWelcomeMsg(e.target.value)} rows={4}
+                  placeholder={"Benvenuto/a {nome}! Siamo lieti di averla come paziente. Per qualsiasi informazione siamo a sua disposizione.\nDr. Marco Turchetta"}
+                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
+              </div>
+              <div>
+                <label style={labelStyle}>Messaggio conferma prenotazione online (WhatsApp)</label>
+                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato quando confermi una prenotazione dal sito. Usa: {"{nome}"} {"{data}"} {"{ora}"}</div>
+                <textarea value={bookingConfirmMsg} onChange={e=>setBookingConfirmMsg(e.target.value)} rows={4}
+                  placeholder={"Gentile {nome}, la sua prenotazione per il {data} alle {ora} è confermata.\nA presto, Dr. Marco Turchetta"}
+                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
+              </div>
+              <div>
+                <label style={labelStyle}>Promemoria appuntamento (WhatsApp)</label>
+                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato come promemoria. Usa: {"{nome}"} {"{data}"} {"{ora}"} {"{luogo}"}</div>
+                <textarea value={reminderMsg} onChange={e=>setReminderMsg(e.target.value)} rows={4}
+                  placeholder={"Buongiorno {nome},\nLe ricordiamo l'appuntamento di {data} alle {ora}.\n📍 {luogo}\nA presto, Dr. Marco Turchetta"}
+                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
+              </div>
+              <div>
+                <label style={labelStyle}>Sollecito pagamento (WhatsApp)</label>
+                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Per pazienti con saldo aperto. Usa: {"{nome}"} {"{importo}"}</div>
+                <textarea value={paymentMsg} onChange={e=>setPaymentMsg(e.target.value)} rows={4}
+                  placeholder={"Gentile {nome},\nLe ricordiamo un saldo aperto di €{importo} per le sedute effettuate.\nPer info contatti lo studio.\nGrazie, Dr. Marco Turchetta"}
+                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
+              </div>
+              <div>
+                <label style={labelStyle}>Auguri compleanno (WhatsApp)</label>
+                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato dal widget compleanni in dashboard. Usa: {"{nome}"}</div>
+                <textarea value={birthdayMsg} onChange={e=>setBirthdayMsg(e.target.value)} rows={3}
+                  placeholder={"Tanti auguri {nome}! 🎉\nDr. Marco Turchetta e tutto lo staff le augurano una splendida giornata!"}
+                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
+              </div>
+              <div>
+                <label style={labelStyle}>Questionario soddisfazione (WhatsApp)</label>
+                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato al termine del ciclo. Usa: {"{nome}"} {"{link}"}</div>
+                <textarea value={satisfactionMsg} onChange={e=>setSatisfactionMsg(e.target.value)} rows={3}
+                  placeholder={"Gentile {nome}, il suo ciclo di trattamento è terminato.\nSaremmo grati se volesse rispondere a 3 domande:\n{link}\nGrazie, Dr. Marco Turchetta"}
+                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
+              </div>
+              <div style={{ display:"flex", justifyContent:"flex-end" }}>
+                {btnPrimary(savingPractice?"Salvataggio…":"Salva messaggi", ()=>void savePracticeSettings(), savingPractice)}
+              </div>
+            </div>
+              </div>
+
+            </div>
           )}
         </div>
 
@@ -1167,66 +1232,6 @@ export default function SettingsPage() {
               {btnPrimary(savingPractice?"Salvataggio…":"Salva preferenze", ()=>void savePracticeSettings(), savingPractice)}
             </div>
           </div>
-        </div>
-
-        {/* ── SEZIONE MESSAGGI AUTOMATICI ─────────────────────────────────── */}
-        <div style={cardStyle}>
-          <div style={sectionHead} onClick={() => setShowBooking(!showBooking)}>
-            <div>
-              <div style={{ fontWeight:700, fontSize:15, color:THEME.text }}>Messaggi Automatici</div>
-              <div style={{ fontSize:12, color:THEME.muted, marginTop:2 }}>Benvenuto nuovo paziente · Conferma prenotazione online</div>
-            </div>
-            <span style={{ color:THEME.muted, fontSize:12, transform:showBooking?"rotate(180deg)":"none", transition:"transform 0.2s" }}>▾</span>
-          </div>
-          {showBooking && (
-            <div style={{ padding:"20px", display:"flex", flexDirection:"column", gap:16 }}>
-              <div>
-                <label style={labelStyle}>Messaggio benvenuto nuovo paziente (WhatsApp)</label>
-                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato automaticamente al primo appuntamento. Usa: {"{nome}"}</div>
-                <textarea value={welcomeMsg} onChange={e=>setWelcomeMsg(e.target.value)} rows={4}
-                  placeholder={"Benvenuto/a {nome}! Siamo lieti di averla come paziente. Per qualsiasi informazione siamo a sua disposizione.\nDr. Marco Turchetta"}
-                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
-              </div>
-              <div>
-                <label style={labelStyle}>Messaggio conferma prenotazione online (WhatsApp)</label>
-                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato quando confermi una prenotazione dal sito. Usa: {"{nome}"} {"{data}"} {"{ora}"}</div>
-                <textarea value={bookingConfirmMsg} onChange={e=>setBookingConfirmMsg(e.target.value)} rows={4}
-                  placeholder={"Gentile {nome}, la sua prenotazione per il {data} alle {ora} è confermata.\nA presto, Dr. Marco Turchetta"}
-                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
-              </div>
-              <div>
-                <label style={labelStyle}>Promemoria appuntamento (WhatsApp)</label>
-                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato come promemoria. Usa: {"{nome}"} {"{data}"} {"{ora}"} {"{luogo}"}</div>
-                <textarea value={reminderMsg} onChange={e=>setReminderMsg(e.target.value)} rows={4}
-                  placeholder={"Buongiorno {nome},\nLe ricordiamo l'appuntamento di {data} alle {ora}.\n📍 {luogo}\nA presto, Dr. Marco Turchetta"}
-                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
-              </div>
-              <div>
-                <label style={labelStyle}>Sollecito pagamento (WhatsApp)</label>
-                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Per pazienti con saldo aperto. Usa: {"{nome}"} {"{importo}"}</div>
-                <textarea value={paymentMsg} onChange={e=>setPaymentMsg(e.target.value)} rows={4}
-                  placeholder={"Gentile {nome},\nLe ricordiamo un saldo aperto di €{importo} per le sedute effettuate.\nPer info contatti lo studio.\nGrazie, Dr. Marco Turchetta"}
-                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
-              </div>
-              <div>
-                <label style={labelStyle}>Auguri compleanno (WhatsApp)</label>
-                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato dal widget compleanni in dashboard. Usa: {"{nome}"}</div>
-                <textarea value={birthdayMsg} onChange={e=>setBirthdayMsg(e.target.value)} rows={3}
-                  placeholder={"Tanti auguri {nome}! 🎉\nDr. Marco Turchetta e tutto lo staff le augurano una splendida giornata!"}
-                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
-              </div>
-              <div>
-                <label style={labelStyle}>Questionario soddisfazione (WhatsApp)</label>
-                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato al termine del ciclo. Usa: {"{nome}"} {"{link}"}</div>
-                <textarea value={satisfactionMsg} onChange={e=>setSatisfactionMsg(e.target.value)} rows={3}
-                  placeholder={"Gentile {nome}, il suo ciclo di trattamento è terminato.\nSaremmo grati se volesse rispondere a 3 domande:\n{link}\nGrazie, Dr. Marco Turchetta"}
-                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
-              </div>
-              <div style={{ display:"flex", justifyContent:"flex-end" }}>
-                {btnPrimary(savingPractice?"Salvataggio…":"Salva messaggi", ()=>void savePracticeSettings(), savingPractice)}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* ── SEZIONE SERVIZI PRENOTABILI ──────────────────────────────────── */}

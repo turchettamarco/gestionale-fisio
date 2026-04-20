@@ -219,7 +219,7 @@ export default function NoleggioPage() {
   function openWADirect(phone: string, message: string): void {
     const clean = cleanPhoneWA(phone);
     if (!clean) { alert("Numero non valido."); return; }
-    const url = "https://api.whatsapp.com/send?phone=" + clean + "&text=" + encodeURIComponent(message);
+    const url = ((/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "")) ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(message);
     const a = document.createElement("a");
     a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
     document.body.appendChild(a); a.click();

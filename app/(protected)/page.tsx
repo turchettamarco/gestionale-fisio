@@ -102,7 +102,8 @@ const fmtPhone = cleanPhoneWA; // alias compatibilità
 function openWA(phone: string, message: string): void {
   const clean = cleanPhoneWA(phone);
   if (!clean) { alert("Numero non valido."); return; }
-  const url = "https://api.whatsapp.com/send?phone=" + clean + "&text=" + encodeURIComponent(message);
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
+  const url = (isMobile ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(message);
   const a = document.createElement("a");
   a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
   document.body.appendChild(a); a.click();
@@ -651,7 +652,7 @@ export default function HomePage() {
                   <a href={`tel:${webPopup.patient_phone}`} style={{fontSize:13,color:THEME.teal,fontWeight:700,textDecoration:"none"}}>📞 {webPopup.patient_phone}</a>
                   {webPopup.patient_email&&<div style={{fontSize:11,color:THEME.muted,marginTop:1}}>{webPopup.patient_email}</div>}
                 </div>
-                <a href={`https://wa.me/${webPopup.patient_phone.replace(/\D/g,"")}`} target="_blank" rel="noopener noreferrer"
+                <a href="#" onClick={(e)=>{e.preventDefault();openWA(webPopup.patient_phone,"");}} target="_blank" rel="noopener noreferrer"
                   style={{padding:"8px 14px",borderRadius:8,background:"#25d366",color:"#fff",fontWeight:700,fontSize:12,textDecoration:"none"}}>WA</a>
               </div>
               {/* Dettagli appuntamento */}
