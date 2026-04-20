@@ -343,26 +343,29 @@ export default function HomePage() {
   const fetchInactive=useCallback(async()=>{
     try{
       setInactiveLoading(true);
-      // Filtra lato server: solo appuntamenti precedenti alla soglia di inattività
-      const cutoff=new Date(startOfDay(new Date()).getTime()-inactiveThreshold*86400000).toISOString();
+      // Prende TUTTI gli appuntamenti done degli ultimi 2 anni
+      // Filtra lato client: pazienti la cui ULTIMA seduta è > soglia giorni fa
+      // (la vecchia logica filtrava col .lt() server-side e mostrava sedute vecchie
+      //  anche per pazienti che ne avevano di più recenti non ancora nella query)
+      const twoYearsAgo=new Date(Date.now()-730*86400000).toISOString();
       const{data,error}=await supabase
         .from("appointments")
         .select("patient_id,start_at,patients:patient_id!inner(first_name,last_name,phone,status)")
         .eq("status","done")
-        .lt("start_at",cutoff)
+        .gte("start_at",twoYearsAgo)
         .order("start_at",{ascending:false})
-        .limit(500);
+        .limit(1000);
       if(error) throw new Error(error.message);
       const rows=(data||[]) as any[];
-      // Tieni solo l'appuntamento più recente per paziente
+      // Tieni solo l'appuntamento PIÙ RECENTE per paziente
       const byP=new Map<string,any>();
       for(const r of rows){ if(r.patient_id&&!byP.has(r.patient_id)) byP.set(r.patient_id,r); }
-      // Use Date.now() for accurate days since last appointment
+      // Filtra: solo chi non ha sedute da > inactiveThreshold giorni
       const list:InactivePatientRow[]=[];
       for(const[pid,r] of byP.entries()){
         const p=pickPatient(r.patients);
         if((p?.status||"").toString().toLowerCase()==="inactive") continue;
-        const days=Math.round((Date.now()-new Date(r.start_at).getTime())/86400000);
+        const days=Math.floor((Date.now()-new Date(r.start_at).getTime())/86400000);
         if(days>inactiveThreshold) list.push({patient_id:pid,first_name:p?.first_name||"",last_name:p?.last_name||"",phone:p?.phone??null,last_done_at:r.start_at,days_since_last:days});
       }
       list.sort((a,b)=>b.days_since_last-a.days_since_last);
