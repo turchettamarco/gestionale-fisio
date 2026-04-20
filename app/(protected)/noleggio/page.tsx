@@ -111,6 +111,11 @@ export default function NoleggioPage() {
 
   // Filter
   const [filter, setFilter] = useState<"all"|"active"|"expiring"|"expired"|"returned">("active");
+  const [editingId,    setEditingId]    = useState<string|null>(null);
+  const [editName,     setEditName]     = useState("");
+  const [editPhone,    setEditPhone]    = useState("");
+  const [editSaving,   setEditSaving]   = useState(false);
+  const [creatingPatient, setCreatingPatient] = useState<string|null>(null);
 
   // ── Load ───────────────────────────────────────────────────────────────────
   async function loadNoleggios() {
@@ -207,6 +212,41 @@ export default function NoleggioPage() {
     await supabase.from("noleggios").delete().eq("id", id);
     setNoleggios(p=>p.filter(n=>n.id!==id));
   }
+
+  // ── Modifica nome/telefono noleggio ──────────────────────────────────────
+  async function saveEditNoleggio(id: string) {
+    if (!editName.trim()) { alert("Il nome non può essere vuoto."); return; }
+    setEditSaving(true);
+    const { error } = await supabase.from("noleggios").update({
+      patient_name: editName.trim(),
+      patient_phone: editPhone.trim() || null,
+    }).eq("id", id);
+    setEditSaving(false);
+    if (error) { alert("Errore: " + error.message); return; }
+    setEditingId(null);
+    await loadNoleggios();
+  }
+
+  // ── Crea paziente da noleggio ──────────────────────────────────────────────
+  async function createPatientFromNoleggio(n: NoleggioRow) {
+    if (!confirm(`Creare paziente "${n.patient_name}" in anagrafica?`)) return;
+    setCreatingPatient(n.id);
+    try {
+      const parts = n.patient_name.trim().split(/\s+/);
+      const last_name = parts[0] || n.patient_name;
+      const first_name = parts.slice(1).join(" ") || "";
+      const { data, error } = await supabase.from("patients").insert({
+        first_name, last_name,
+        phone: n.patient_phone || "",
+      }).select("id").single();
+      if (error) { alert("Errore: " + error.message); return; }
+      // Link patient_id to noleggio
+      await supabase.from("noleggios").update({ patient_id: data.id }).eq("id", n.id);
+      await loadNoleggios();
+      alert(`✅ Paziente creato e collegato al noleggio!`);
+    } finally { setCreatingPatient(null); }
+  }
+
 
   function cleanPhoneWA(phone: string): string {
     if (!phone) return "";
@@ -618,8 +658,44 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
 
               {/* Info */}
               <div style={{ flex:1, minWidth:200 }}>
-                <div style={{ fontWeight:800, fontSize:15, color:THEME.text, marginBottom:2 }}>{n.patient_name}</div>
-                {n.patient_phone&&<div style={{ fontSize:12, color:THEME.muted }}>{n.patient_phone}</div>}
+                {editingId === n.id ? (
+                  <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                    <input value={editName} onChange={e=>setEditName(e.target.value)}
+                      placeholder="Cognome Nome" autoFocus
+                      style={{ padding:"7px 10px", borderRadius:7, border:`1.5px solid ${THEME.teal}`, fontSize:14, fontWeight:700, outline:"none", width:"100%", boxSizing:"border-box" }}/>
+                    <input value={editPhone} onChange={e=>setEditPhone(e.target.value)}
+                      placeholder="Telefono (es. 320...)" type="tel"
+                      style={{ padding:"7px 10px", borderRadius:7, border:`1.5px solid ${THEME.border}`, fontSize:13, outline:"none", width:"100%", boxSizing:"border-box" }}/>
+                    <div style={{ display:"flex", gap:6 }}>
+                      <button onClick={()=>saveEditNoleggio(n.id)} disabled={editSaving}
+                        style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"none", background:THEME.teal, color:"#fff", fontWeight:700, fontSize:12, cursor:"pointer", opacity:editSaving?0.6:1 }}>
+                        {editSaving?"Salvo…":"✓ Salva"}
+                      </button>
+                      <button onClick={()=>setEditingId(null)}
+                        style={{ padding:"6px 10px", borderRadius:6, border:`1px solid ${THEME.border}`, background:"#fff", color:THEME.muted, fontWeight:700, fontSize:12, cursor:"pointer" }}>
+                        Annulla
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:2 }}>
+                      <div style={{ fontWeight:800, fontSize:15, color:THEME.text }}>{n.patient_name}</div>
+                      <button onClick={()=>{ setEditingId(n.id); setEditName(n.patient_name); setEditPhone(n.patient_phone||""); }}
+                        style={{ background:"none", border:"none", cursor:"pointer", color:THEME.muted, fontSize:13, padding:2, lineHeight:1 }} title="Modifica nome/telefono">✏️</button>
+                    </div>
+                    {n.patient_phone
+                      ? <div style={{ fontSize:12, color:THEME.muted }}>{n.patient_phone}</div>
+                      : <div style={{ fontSize:11, color:THEME.amber, fontWeight:600 }}>⚠️ Nessun telefono</div>
+                    }
+                    {!n.patient_id && (
+                      <button onClick={()=>createPatientFromNoleggio(n)} disabled={creatingPatient===n.id}
+                        style={{ marginTop:6, padding:"4px 10px", borderRadius:6, border:`1.5px solid ${THEME.blue}`, background:"rgba(37,99,235,0.06)", color:THEME.blue, fontWeight:700, fontSize:11, cursor:"pointer", opacity:creatingPatient===n.id?0.6:1 }}>
+                        {creatingPatient===n.id?"Creando…":"👤 Crea in anagrafica"}
+                      </button>
+                    )}
+                  </>
+                )}
                 <div style={{ fontSize:12, color:THEME.muted, marginTop:4 }}>
                   <strong style={{ color:THEME.purple }}>{n.device_name}</strong>
                   {" · "}{fmtDate(n.start_date)} → {fmtDate(n.end_date)}
