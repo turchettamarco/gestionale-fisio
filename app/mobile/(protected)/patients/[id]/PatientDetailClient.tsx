@@ -15,6 +15,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
 import { ClinicalScalesSection } from "@/app/(protected)/patients/[id]/ClinicalScales";
+import { SOAPNotesEditor } from "@/app/(protected)/calendar/components/SOAPNotes";
 import { PhotoGallerySection } from "@/app/(protected)/patients/[id]/PhotoGallery";
 
 /* ─── Types ───────────────────────────────────────────────────────────── */
@@ -284,7 +285,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState("");
   const [patient,   setPatient]   = useState<Patient | null>(null);
-  const [activeTab, setActiveTab] = useState<"info" | "clinical" | "therapies" | "docs" | "esercizi" | "scales" | "photos" | "portal">("info");
+  const [activeTab, setActiveTab] = useState<"info" | "clinical" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal">("info");
 
   /* user */
   const [userEmail,    setUserEmail]    = useState<string | null>(null);
@@ -828,10 +829,11 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
           { id: "therapies", label: "Sedute",  icon: "📋" },
           { id: "docs",      label: "Referti", icon: "📁" },
           { id: "esercizi",  label: "Esercizi", icon: "🏋️" },
+          { id: "note",      label: "Note",    icon: "📝" },
           { id: "scales",    label: "Scale",   icon: "📊" },
           { id: "photos",    label: "Foto",    icon: "📷" },
           { id: "portal",    label: "Portale", icon: "🔑" },
-        ] as { id: "info" | "clinical" | "therapies" | "docs" | "esercizi" | "scales" | "photos" | "portal"; label: string; icon: string }[]).map(tab => (
+        ] as { id: "info" | "clinical" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal"; label: string; icon: string }[]).map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
             padding: "11px 14px", background: "none", border: "none",
             borderBottom: `2.5px solid ${activeTab === tab.id ? T.blue : "transparent"}`,
@@ -1216,6 +1218,11 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
           <MobileEserciziTab patientId={patient.id} patientName={`${patient.last_name ?? ""} ${patient.first_name ?? ""}`.trim()} />
         )}
 
+        {/* ─── NOTE SOAP ─── */}
+        {activeTab === "note" && (
+          <MobileSOAPTab patientId={patient.id} />
+        )}
+
         {/* ─── SCALE ─── */}
         {activeTab === "scales" && (
           <div style={{ padding:"14px 12px" }}>
@@ -1582,6 +1589,193 @@ function MobilePortalTab({ patient }: { patient: any }) {
         style={{width:"100%",padding:"12px",borderRadius:10,border:`1.5px solid ${T2.border}`,background:T2.panelSoft,color:copied?T2.green:T2.muted,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>
         {copied?"✓ Link copiato!":"📋 Copia link (senza inviare)"}
       </button>
+    </div>
+  );
+}
+
+/* ─── SOAP Notes Tab (mobile) ─────────────────────────────────────────── */
+function MobileSOAPTab({ patientId }: { patientId: string }) {
+  const T2 = {
+    teal:"#0d9488", blue:"#2563eb", text:"#0f172a", muted:"#64748b",
+    border:"#e2e8f0", green:"#16a34a", red:"#dc2626", amber:"#f59e0b",
+    panelSoft:"#f8fafc", panelBg:"#fff",
+  };
+  const [notes, setNotes] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [showForm, setShowForm] = React.useState(false);
+  const [selectedApptId, setSelectedApptId] = React.useState<string | null>(null);
+  const [appointments, setAppointments] = React.useState<any[]>([]);
+  const [loadingAppts, setLoadingAppts] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    const { data } = await supabase.from("session_notes")
+      .select("*, appointments(start_at, status)")
+      .eq("patient_id", patientId)
+      .order("created_at", { ascending: false });
+    setNotes(data || []);
+    setLoading(false);
+  }, [patientId]);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  async function openForm() {
+    setLoadingAppts(true);
+    setShowForm(true);
+    const { data } = await supabase.from("appointments")
+      .select("id, start_at, status")
+      .eq("patient_id", patientId)
+      .neq("status", "cancelled")
+      .order("start_at", { ascending: false })
+      .limit(20);
+    setAppointments(data || []);
+    setSelectedApptId(data?.[0]?.id ?? null);
+    setLoadingAppts(false);
+  }
+
+  const vasColor = (v: number | null | undefined) =>
+    v == null ? T2.muted : v <= 3 ? T2.green : v <= 6 ? T2.amber : T2.red;
+
+  // VAS chart
+  const vasData = [...notes].reverse().filter(n => n.vas_before != null || n.vas_after != null);
+
+  return (
+    <div style={{ padding: "14px 12px", display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ fontSize: 15, fontWeight: 800, color: T2.text }}>📝 Diario clinico</div>
+        <button onClick={openForm} style={{
+          padding: "8px 16px", borderRadius: 8, border: "none",
+          background: `linear-gradient(135deg, ${T2.teal}, ${T2.blue})`,
+          color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer",
+        }}>+ Aggiungi nota</button>
+      </div>
+
+      {/* VAS chart */}
+      {vasData.length >= 2 && (
+        <div style={{ background: "rgba(13,148,136,0.05)", border: `1px solid ${T2.border}`, borderRadius: 10, padding: "12px 14px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T2.teal, marginBottom: 8 }}>📉 Andamento VAS</div>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 50, borderBottom: `1px solid ${T2.border}`, paddingBottom: 4 }}>
+            {vasData.map((n, i) => {
+              const v = n.vas_after ?? n.vas_before;
+              const h = v == null ? 0 : (v / 10) * 100;
+              const col = vasColor(v);
+              return (
+                <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: col }}>{v ?? "-"}</div>
+                  <div style={{ width: "100%", height: `${h}%`, background: col, borderRadius: "2px 2px 0 0", minHeight: 2 }} />
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 3, fontSize: 9, color: T2.muted }}>
+            <span>prima</span><span>ultima</span>
+          </div>
+        </div>
+      )}
+
+      {/* Notes list */}
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 24, color: T2.muted, fontSize: 13 }}>Caricamento…</div>
+      ) : notes.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 24, color: T2.muted, fontSize: 13, background: T2.panelSoft, borderRadius: 10 }}>
+          Nessuna nota ancora. Aggiungi la prima nota di seduta.
+        </div>
+      ) : (
+        notes.map(n => {
+          const apptDate = n.appointments?.start_at ? new Date(n.appointments.start_at) : new Date(n.created_at);
+          const hasSOAP = n.soap_s || n.soap_o || n.soap_a || n.soap_p;
+          return (
+            <div key={n.id} style={{ background: T2.panelBg, border: `1px solid ${T2.border}`, borderRadius: 10, padding: "12px 14px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: T2.text }}>
+                    {apptDate.toLocaleDateString("it-IT", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
+                  </div>
+                  <div style={{ fontSize: 11, color: T2.muted }}>
+                    {apptDate.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}
+                  </div>
+                </div>
+                {(n.vas_before != null || n.vas_after != null) && (
+                  <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
+                    {n.vas_before != null && (
+                      <div style={{ padding: "2px 7px", borderRadius: 5, background: "rgba(100,116,139,0.08)", fontSize: 11, fontWeight: 700, color: T2.muted }}>
+                        prima: <span style={{ color: vasColor(n.vas_before) }}>{n.vas_before}</span>
+                      </div>
+                    )}
+                    {n.vas_after != null && (
+                      <div style={{ padding: "2px 7px", borderRadius: 5, background: "rgba(100,116,139,0.08)", fontSize: 11, fontWeight: 700, color: T2.muted }}>
+                        dopo: <span style={{ color: vasColor(n.vas_after) }}>{n.vas_after}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              {n.quick_note && (
+                <div style={{ fontSize: 13, color: T2.text, whiteSpace: "pre-wrap", padding: "8px 10px", background: T2.panelSoft, borderRadius: 7, marginBottom: hasSOAP ? 8 : 0 }}>
+                  {n.quick_note}
+                </div>
+              )}
+              {hasSOAP && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {([
+                    { k: "soap_s", l: "S — Soggettivo", color: T2.blue },
+                    { k: "soap_o", l: "O — Oggettivo",  color: T2.teal },
+                    { k: "soap_a", l: "A — Assessment", color: "#7c3aed" },
+                    { k: "soap_p", l: "P — Piano",      color: T2.green },
+                  ] as const).map(f => (n as any)[f.k] && (
+                    <div key={f.k} style={{ background: T2.panelSoft, borderRadius: 7, padding: "7px 10px", borderLeft: `3px solid ${f.color}` }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: f.color, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 2 }}>{f.l}</div>
+                      <div style={{ fontSize: 12, color: T2.text, whiteSpace: "pre-wrap" }}>{(n as any)[f.k]}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+
+      {/* Modal aggiungi nota */}
+      {showForm && (
+        <div onClick={() => setShowForm(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999, display: "flex", alignItems: "flex-end" }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ width: "100%", background: T2.panelBg, borderRadius: "16px 16px 0 0", padding: "20px 16px", maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: T2.text }}>📝 Nuova nota di seduta</div>
+              <button onClick={() => setShowForm(false)}
+                style={{ background: "none", border: "none", fontSize: 20, color: T2.muted, cursor: "pointer", padding: 4 }}>✕</button>
+            </div>
+            {/* Seleziona appuntamento */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: T2.muted, textTransform: "uppercase", letterSpacing: 0.4, display: "block", marginBottom: 6 }}>
+                Seleziona seduta
+              </label>
+              {loadingAppts ? (
+                <div style={{ color: T2.muted, fontSize: 12 }}>Caricamento sedute…</div>
+              ) : (
+                <select value={selectedApptId || ""} onChange={e => setSelectedApptId(e.target.value)}
+                  style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${T2.border}`, fontSize: 13, background: "#fff", outline: "none" }}>
+                  {appointments.map(a => (
+                    <option key={a.id} value={a.id}>
+                      {new Date(a.start_at).toLocaleDateString("it-IT", { weekday: "short", day: "2-digit", month: "short" })} — {new Date(a.start_at).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}
+                    </option>
+                  ))}
+                  <option value="__new__">Nota generica (senza seduta)</option>
+                </select>
+              )}
+            </div>
+            {selectedApptId && !loadingAppts && (
+              <SOAPNotesEditor
+                appointmentId={selectedApptId === "__new__" ? `generic-${patientId}-${Date.now()}` : selectedApptId}
+                patientId={patientId}
+                onSaved={() => { setShowForm(false); load(); }}
+              />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
