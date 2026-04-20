@@ -1588,8 +1588,7 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
     const msg = "Gentile " + nome + ",\n\nle ho attivato la sua area personale FisioHub dove puo vedere:\n- i suoi prossimi appuntamenti\n- la scheda esercizi da casa\n- i contatti dello studio\n\nIl suo link personale (valido 6 mesi):\n" + link + "\n\nCordiali saluti,\nDr. Marco Turchetta";
     const clean = cleanPhoneWA(phone);
     const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(msg);
-    const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
-    document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
+    const w = window.open(url, "_blank", "noopener,noreferrer"); if (!w) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
   }
 
   async function copyPortalLink() {
@@ -1620,8 +1619,7 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
     const msg = `Gentile ${firstName},\nil suo ciclo di trattamento è terminato.\n\nLe saremmo grati se volesse rispondere a 3 brevi domande:\n${link}\n\nGrazie, Dr. Marco Turchetta`;
     const clean = cleanPhoneWA(phone);
     const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(msg);
-    const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
-    document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
+    const w = window.open(url, "_blank", "noopener,noreferrer"); if (!w) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
   }
 
   // ── Auguri compleanno ────────────────────────────────────────────────────
@@ -1631,8 +1629,7 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
     const msg = `Buon compleanno ${nome}! 🎂\n\nTutto lo staff di FisioHub le augura una splendida giornata.\nSe ha bisogno di noi, siamo a sua disposizione.\n\nCordiali saluti,\nDr. Marco Turchetta`;
     const clean = cleanPhoneWA(phone);
     const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(msg);
-    const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
-    document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
+    const w = window.open(url, "_blank", "noopener,noreferrer"); if (!w) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
   }
 
   // ── Promemoria pagamento ──────────────────────────────────────────────────
@@ -1643,8 +1640,7 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
     const msg = `Gentile ${nome},\n\nle ricordiamo un saldo aperto di €${importo} per le sedute effettuate.\n\nPer qualsiasi informazione non esiti a contattarci.\n\nCordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
     const clean = cleanPhoneWA(phone);
     const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(msg);
-    const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
-    document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
+    const w = window.open(url, "_blank", "noopener,noreferrer"); if (!w) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
   }
 
   // ── Export scheda paziente completa PDF ──────────────────────────────────
@@ -2999,8 +2995,7 @@ ${rows}
                     <button onClick={()=>{
                         const msg = `Gentile ${lastName} ${firstName},\nEcco la sua scheda esercizi domiciliari:\n${pubLink}\n\nClicchi il link per vedere gli esercizi e i video dimostrativi.\nDr. Marco Turchetta`;
                         const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?text=" + encodeURIComponent(msg);
-                        const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
-                        document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
+                        const w = window.open(url, "_blank", "noopener,noreferrer"); if (!w) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
                       }}
                       style={{ padding:"7px 12px", borderRadius:7, border:"1px solid #16a34a", background:"rgba(37,211,102,0.1)", color:"#15803d", fontWeight:700, fontSize:11, cursor:"pointer", flexShrink:0 }}>
                       💬 Invia WA

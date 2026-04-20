@@ -232,8 +232,7 @@ export default function NewPatientPage() {
                     const n = p.startsWith("00")?p.slice(2):p.startsWith("0")?"39"+p:!p.startsWith("39")&&p.length<=10?"39"+p:p;
                     const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
                     const url = (isMobile ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + n + "&text=" + encodeURIComponent(msg);
-                    const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
-                    document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
+                    const w = window.open(url, "_blank", "noopener,noreferrer"); if (!w) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
                     setShowWelcomeWA(false);
                   }} style={{ padding: "10px 18px", borderRadius: 8, border: "none", background: "#25D366", color: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
                     💬 Invia benvenuto WA

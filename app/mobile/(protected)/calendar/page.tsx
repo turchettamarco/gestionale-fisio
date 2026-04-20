@@ -8,8 +8,13 @@ function openWA(phone: string, message: string = ""): void {
   const url = isMobile
     ? "https://api.whatsapp.com/send?phone=" + n + text
     : "https://web.whatsapp.com/send?phone=" + n + text;
-  const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
-  document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200);
+  // Safari iOS blocca a.click() da funzioni async — window.open è più affidabile
+  const w = window.open(url, "_blank", "noopener,noreferrer");
+  if (!w) {
+    // fallback se popup bloccato
+    const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+    document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200);
+  }
 }
 
 import Link from "next/link";
@@ -576,15 +581,8 @@ function CalendarPageInner() {
     const appointment = events.find(e=>e.id===appointmentId);
     if (!appointment) return;
 
-    const templateName = isConfirmation?"Appuntamento":"Promemoria";
-    const {data:tplData} = await supabase.from("message_templates")
-      .select("template").eq("name",templateName).maybeSingle();
-
-    let tpl = isConfirmation
-      ? `Grazie per averci scelto.\nRicordiamo il prossimo appuntamento fissato per {data_relativa} alle {ora}.\n\nA presto,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`
-      : `Buongiorno {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore ⏰ {ora}.\n\n📍 {luogo}\n\nCordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
-    if (tplData?.template) tpl = tplData.template;
-
+    // Costruisci il messaggio con template di default (sincrono)
+    // Poi aggiorna con template custom dal DB senza bloccare l'apertura WA
     const cleanPhone   = formatPhoneForWA(patientPhone);
     const dataRelativa = formatDateRelative(appointment.start);
     const ora          = fmtTime(appointment.start);
@@ -593,14 +591,21 @@ function CalendarPageInner() {
       : `Presso il suo domicilio (${appointment.domicile_address??""})`;
     const nomePaziente = (patientFirstName&&patientFirstName.trim())?patientFirstName.trim():"Cliente";
 
-    const message = tpl
+    const defaultTpl = isConfirmation
+      ? `Grazie per averci scelto.\nRicordiamo il prossimo appuntamento fissato per {data_relativa} alle {ora}.\n\nA presto,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`
+      : `Buongiorno {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore ⏰ {ora}.\n\n📍 {luogo}\n\nCordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
+
+    const buildMsg = (tpl: string) => tpl
       .replace(/{nome}/g,          nomePaziente)
       .replace(/{data_relativa}/g, dataRelativa)
       .replace(/{ora}/g,           ora)
       .replace(/{luogo}/g,         luogo);
 
-    openWA(cleanPhone, message);
+    // ⚠️ SAFARI FIX: window.open DEVE essere chiamato in modo sincrono
+    // prima di qualsiasi await — apriamo subito con template di default
+    openWA(cleanPhone, buildMsg(defaultTpl));
 
+    // Poi aggiorniamo il DB in background (non blocca l'apertura WA)
     const nowIso = new Date().toISOString();
     await supabase.from("appointments").update({whatsapp_sent_at:nowIso,whatsapp_sent:true}).eq("id",appointmentId);
     setEvents(prev=>prev.map(ev=>ev.id===appointmentId?{...ev,whatsapp_sent_at:nowIso}:ev));

@@ -8,8 +8,7 @@ function openWA(phone: string, message: string = ""): void {
   const url = isMobile
     ? "https://api.whatsapp.com/send?phone=" + n + text
     : "https://web.whatsapp.com/send?phone=" + n + text;
-  const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
-  document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200);
+  const w = window.open(url, "_blank", "noopener,noreferrer"); if (!w) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
 }
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
