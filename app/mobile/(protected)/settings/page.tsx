@@ -59,6 +59,7 @@ export default function MobileSettingsPage() {
   // ── Goals ──
   const [monthlyGoal, setMonthlyGoal] = useState("2000");
   const [inactiveThresh, setInactiveThresh] = useState("45");
+  const [overlapMode, setOverlapMode] = useState<"block"|"warn"|"visual">("warn");
 
   // ── Password ──
   const [pwNew, setPwNew] = useState("");
@@ -98,6 +99,7 @@ export default function MobileSettingsPage() {
           });
           setMonthlyGoal(String((data as any).monthly_revenue_goal||2000));
           setInactiveThresh(String((data as any).inactive_threshold_days||45));
+          setOverlapMode(((data as any).overlap_mode ?? "warn") as "block"|"warn"|"visual");
         }
         const { data: wh } = await supabase.from("working_hours").select("*").order("day_of_week");
         if (wh && wh.length) {
@@ -131,6 +133,7 @@ export default function MobileSettingsPage() {
         duration_tens:parseInt(durations.tens)||20,
         monthly_revenue_goal:parseFloat(monthlyGoal)||2000,
         inactive_threshold_days:parseInt(inactiveThresh)||45,
+        overlap_mode: overlapMode,
       },{ onConflict:"owner_id" });
       // Save working hours
       if (hours.length) {
@@ -256,6 +259,31 @@ export default function MobileSettingsPage() {
           <div style={{ display:"flex", flexDirection:"column", gap:12, paddingTop:14 }}>
             <div><label style={lbl}>Obiettivo fatturato mensile (€)</label><input type="number" value={monthlyGoal} onChange={e=>setMonthlyGoal(e.target.value)} style={{ ...inp, textAlign:"right", fontWeight:700 }}/></div>
             <div><label style={lbl}>Soglia paziente inattivo (giorni)</label><input type="number" value={inactiveThresh} onChange={e=>setInactiveThresh(e.target.value)} style={{ ...inp, textAlign:"right", fontWeight:700 }}/></div>
+            <div>
+              <label style={lbl}>Gestione sovrapposizione appuntamenti</label>
+              <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:8 }}>
+                {([
+                  { k:"block",  icon:"⛔", label:"Blocco duro",       desc:"Impedisce la creazione se c'è sovrapposizione" },
+                  { k:"warn",   icon:"⚠️", label:"Avviso + conferma", desc:"Avvisa ma lascia procedere" },
+                  { k:"visual", icon:"👁️", label:"Solo visuale",      desc:"Nessun blocco" },
+                ] as const).map(opt => (
+                  <button key={opt.k} onClick={() => setOverlapMode(opt.k)}
+                    style={{
+                      width:"100%", padding:"11px 14px", borderRadius:10, cursor:"pointer", fontFamily:"inherit",
+                      border: overlapMode===opt.k ? `2px solid ${opt.k==="block"?"#dc2626":opt.k==="warn"?"#f59e0b":THEME.teal}` : `1.5px solid ${THEME.border}`,
+                      background: overlapMode===opt.k ? (opt.k==="block"?"rgba(220,38,38,0.06)":opt.k==="warn"?"rgba(245,158,11,0.06)":"rgba(13,148,136,0.06)") : "#fff",
+                      textAlign:"left", display:"flex", alignItems:"center", gap:10,
+                    }}>
+                    <span style={{ fontSize:18 }}>{opt.icon}</span>
+                    <div>
+                      <div style={{ fontWeight:700, fontSize:13, color:THEME.text }}>{opt.label}</div>
+                      <div style={{ fontSize:11, color:THEME.muted }}>{opt.desc}</div>
+                    </div>
+                    {overlapMode===opt.k && <span style={{ marginLeft:"auto", fontSize:14 }}>✓</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </Section>
 

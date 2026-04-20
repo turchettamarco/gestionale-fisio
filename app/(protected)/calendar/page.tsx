@@ -56,6 +56,7 @@ type PracticeSettings = {
   auto_apply_prices: boolean | null;
   google_review_link: string | null;
   default_appointment_status: "confirmed" | "booked" | null;
+  overlap_mode: "block" | "warn" | "visual" | null;
 };
 
 type CalendarEvent = {
@@ -399,7 +400,7 @@ const handleLogout = useCallback(async () => {
       setPracticeSettingsLoaded(false);
       const { data, error } = await supabase
         .from("practice_settings")
-        .select("standard_invoice, standard_cash, machine_invoice, machine_cash, auto_apply_prices, google_review_link, default_appointment_status")
+        .select("standard_invoice, standard_cash, machine_invoice, machine_cash, auto_apply_prices, google_review_link, default_appointment_status, overlap_mode")
         .eq("owner_id", userId)
         .maybeSingle();
 
@@ -413,6 +414,7 @@ const handleLogout = useCallback(async () => {
         auto_apply_prices: data?.auto_apply_prices ?? null,
         google_review_link: data?.google_review_link ?? null,
         default_appointment_status: (data?.default_appointment_status ?? "confirmed") as "confirmed"|"booked",
+        overlap_mode: ((data as any)?.overlap_mode ?? "warn") as "block"|"warn"|"visual",
       });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -5144,20 +5146,24 @@ return (
                 <div style={{ marginTop: 6, fontSize: 13, color: THEME.muted, fontWeight: 600, letterSpacing: 0.3 }}>
                   {createStartISO ? `${fmtTime(createStartISO)} → ${fmtTime(createEndISO)} • ${selectedDuration} ora${selectedDuration === "1" ? "" : "e"}` : "Seleziona orario"}
                 </div>
-                {overlapWarning && (
-                  <div style={{
-                    marginTop: 8,
-                    padding: "8px 12px",
-                    borderRadius: 8,
-                    background: "rgba(220,38,38,0.08)",
-                    border: `1px solid rgba(220,38,38,0.25)`,
-                    color: THEME.red,
-                    fontSize: 12,
-                    fontWeight: 600,
-                  }}>
-                    {overlapWarning}
-                  </div>
-                )}
+                {overlapWarning && (() => {
+                  const mode = practiceSettings?.overlap_mode ?? "warn";
+                  const isBlock = mode === "block";
+                  const isVisual = mode === "visual";
+                  if (isVisual) return null;
+                  return (
+                    <div style={{
+                      marginTop: 8, padding: "8px 12px", borderRadius: 8,
+                      background: isBlock ? "rgba(220,38,38,0.08)" : "rgba(245,158,11,0.08)",
+                      border: `1px solid ${isBlock ? "rgba(220,38,38,0.25)" : "rgba(245,158,11,0.3)"}`,
+                      color: isBlock ? THEME.red : "#92400e",
+                      fontSize: 12, fontWeight: 600,
+                    }}>
+                      {isBlock ? "⛔" : "⚠️"} {overlapWarning}
+                      {isBlock && <div style={{ fontSize:11, marginTop:3, fontWeight:500 }}>Modifica l'orario per procedere.</div>}
+                    </div>
+                  );
+                })()}
               </div>
 
               <button
@@ -5865,17 +5871,17 @@ return (
 
               <button
                 onClick={() => setShowWhatsAppConfirm(true)}
-                disabled={creating || !selectedPatient}
+                disabled={creating || !selectedPatient || ((practiceSettings?.overlap_mode ?? "warn") === "block" && !!overlapWarning)}
                 style={{
                   padding: "12px 22px",
                   borderRadius: 10,
                   border: "none",
-                  background: creating || !selectedPatient ? THEME.gray : "linear-gradient(135deg, #0d9488, #2563eb)",
+                  background: creating || !selectedPatient || ((practiceSettings?.overlap_mode ?? "warn") === "block" && !!overlapWarning) ? THEME.gray : "linear-gradient(135deg, #0d9488, #2563eb)",
                   color: "#fff",
-                  cursor: creating || !selectedPatient ? "not-allowed" : "pointer",
+                  cursor: creating || !selectedPatient || ((practiceSettings?.overlap_mode ?? "warn") === "block" && !!overlapWarning) ? "not-allowed" : "pointer",
                   fontWeight: 700,
                   minWidth: 200,
-                  opacity: creating || !selectedPatient ? 0.6 : 1,
+                  opacity: creating || !selectedPatient || ((practiceSettings?.overlap_mode ?? "warn") === "block" && !!overlapWarning) ? 0.6 : 1,
                   fontSize: 13,
                   letterSpacing: 0.3,
                   boxShadow: creating || !selectedPatient ? "none" : "0 4px 16px rgba(37,99,235,0.3)",

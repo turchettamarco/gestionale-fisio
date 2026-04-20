@@ -71,6 +71,7 @@ type PracticeSettingsRow = {
   logo_base64: string | null;
   // Stato default appuntamenti
   default_appointment_status: string | null;
+  overlap_mode: string | null;
   // Gestione
   monthly_revenue_goal: number | null;
   inactive_threshold_days: number | null;
@@ -169,6 +170,7 @@ export default function SettingsPage() {
   const [practiceName,   setPracticeName]   = useState("");
   const [logoBase64,     setLogoBase64]     = useState("");  // base64 logo studio
   const [defaultApptStatus, setDefaultApptStatus] = useState<"confirmed"|"booked">("confirmed");
+  const [overlapMode, setOverlapMode] = useState<"block"|"warn"|"visual">("warn");
   const [ownerFullName,  setOwnerFullName]  = useState("");
   const [vatNumber,      setVatNumber]      = useState("");
   const [address,        setAddress]        = useState("");
@@ -465,7 +467,7 @@ export default function SettingsPage() {
       const uid = await requireUserId();
       const { data, error } = await supabase
         .from("practice_settings")
-        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, logo_base64, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices, reminder_message, payment_message, birthday_message, satisfaction_message, default_appointment_status")
+        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, logo_base64, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices, reminder_message, payment_message, birthday_message, satisfaction_message, default_appointment_status, overlap_mode")
         .eq("owner_id", uid)
         .maybeSingle();
       if (error) throw new Error(error.message);
@@ -474,7 +476,7 @@ export default function SettingsPage() {
         if (uErr) throw new Error(uErr.message);
         const u = uData?.user;
         const fullName = ((u?.user_metadata?.full_name || u?.user_metadata?.name || [u?.user_metadata?.first_name, u?.user_metadata?.last_name].filter(Boolean).join(" ") || u?.email || "Titolare") + "").trim() || "Titolare";
-        const seed: PracticeSettingsRow = { owner_id: uid, practice_name: "FisioHub", owner_full_name: fullName, vat_number: "", address: "", pec_email: "", phone: "", google_review_link: "", logo_base64: null, standard_invoice: 40, standard_cash: 35, machine_invoice: 25, machine_cash: 20, laser_invoice: 30, laser_cash: 25, tecar_invoice: 30, tecar_cash: 25, onde_urto_invoice: 40, onde_urto_cash: 35, tens_invoice: 20, tens_cash: 15, duration_seduta: 60, duration_macchinario: 30, duration_laser: 20, duration_tecar: 30, duration_onde_urto: 15, duration_tens: 20, welcome_message: null, booking_confirm_message: null, reminder_message: null, payment_message: null, birthday_message: null, satisfaction_message: null, default_appointment_status: "confirmed", monthly_revenue_goal: 2000, inactive_threshold_days: 45, reminder_hours_before: 24, auto_apply_prices: true };
+        const seed: PracticeSettingsRow = { owner_id: uid, practice_name: "FisioHub", owner_full_name: fullName, vat_number: "", address: "", pec_email: "", phone: "", google_review_link: "", logo_base64: null, standard_invoice: 40, standard_cash: 35, machine_invoice: 25, machine_cash: 20, laser_invoice: 30, laser_cash: 25, tecar_invoice: 30, tecar_cash: 25, onde_urto_invoice: 40, onde_urto_cash: 35, tens_invoice: 20, tens_cash: 15, duration_seduta: 60, duration_macchinario: 30, duration_laser: 20, duration_tecar: 30, duration_onde_urto: 15, duration_tens: 20, welcome_message: null, booking_confirm_message: null, reminder_message: null, payment_message: null, birthday_message: null, satisfaction_message: null, default_appointment_status: "confirmed", overlap_mode: "warn", monthly_revenue_goal: 2000, inactive_threshold_days: 45, reminder_hours_before: 24, auto_apply_prices: true };
         const { error: upsertErr } = await supabase.from("practice_settings").upsert(seed, { onConflict: "owner_id" });
         if (upsertErr) throw new Error(upsertErr.message);
         return await loadPracticeSettings();
@@ -513,6 +515,7 @@ export default function SettingsPage() {
       setBirthdayMsg((data as any).birthday_message ?? "");
       setSatisfactionMsg((data as any).satisfaction_message ?? "");
       setDefaultApptStatus(((data as any).default_appointment_status ?? "confirmed") as "confirmed"|"booked");
+      setOverlapMode(((data as any).overlap_mode ?? "warn") as "block"|"warn"|"visual");
       setMonthlyGoal(String((data as any).monthly_revenue_goal ?? 2000));
       setInactiveThresh(String((data as any).inactive_threshold_days ?? 45));
       setReminderHours(String((data as any).reminder_hours_before ?? 24));
@@ -564,6 +567,7 @@ export default function SettingsPage() {
         birthday_message:         birthdayMsg.trim() || null,
         satisfaction_message:     satisfactionMsg.trim() || null,
         default_appointment_status: defaultApptStatus,
+        overlap_mode: overlapMode,
         monthly_revenue_goal:  parseFloat(monthlyGoal) || 2000,
         inactive_threshold_days: parseInt(inactiveThresh) || 45,
         reminder_hours_before: parseInt(reminderHours) || 24,
@@ -1228,6 +1232,34 @@ export default function SettingsPage() {
             <div style={{ marginTop:14, padding:"10px 14px", borderRadius:8, background:"rgba(13,148,136,0.04)", border:`1px solid rgba(13,148,136,0.15)`, fontSize:11, color:THEME.muted }}>
               Vale sia per desktop che per mobile. Puoi sempre modificare lo stato di un singolo appuntamento dopo averlo creato.
             </div>
+
+            {/* ── Gestione sovrapposizione ── */}
+            <div style={{ marginTop:20 }}>
+              <label style={labelStyle}>Gestione sovrapposizione appuntamenti</label>
+              <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:8 }}>
+                {([
+                  { k:"block",  icon:"⛔", label:"Blocco duro",       desc:"Impedisce la creazione se c'è già un appuntamento in quell'orario", color:"#dc2626", bg:"rgba(220,38,38,0.07)" },
+                  { k:"warn",   icon:"⚠️", label:"Avviso + conferma", desc:"Avvisa della sovrapposizione ma lascia procedere",                  color:"#f59e0b", bg:"rgba(245,158,11,0.07)" },
+                  { k:"visual", icon:"👁️", label:"Solo visuale",      desc:"Nessun blocco, gli appuntamenti sovrapposti appaiono affiancati",   color:THEME.teal, bg:"rgba(13,148,136,0.07)" },
+                ] as const).map(opt => (
+                  <button key={opt.k} onClick={() => setOverlapMode(opt.k)}
+                    style={{
+                      width:"100%", padding:"12px 16px", borderRadius:10, cursor:"pointer",
+                      border: overlapMode===opt.k ? `2px solid ${opt.color}` : `1.5px solid ${THEME.border}`,
+                      background: overlapMode===opt.k ? opt.bg : "#fff",
+                      textAlign:"left", fontFamily:"inherit", display:"flex", alignItems:"center", gap:12,
+                    }}>
+                    <span style={{ fontSize:20, flexShrink:0 }}>{opt.icon}</span>
+                    <div>
+                      <div style={{ fontWeight:800, fontSize:13, color:overlapMode===opt.k?opt.color:THEME.text }}>{opt.label}</div>
+                      <div style={{ fontSize:11, color:THEME.muted, marginTop:2 }}>{opt.desc}</div>
+                    </div>
+                    {overlapMode===opt.k && <span style={{ marginLeft:"auto", color:opt.color, fontWeight:800, fontSize:12 }}>✓</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div style={{ display:"flex", justifyContent:"flex-end", marginTop:14 }}>
               {btnPrimary(savingPractice?"Salvataggio…":"Salva preferenze", ()=>void savePracticeSettings(), savingPractice)}
             </div>

@@ -270,6 +270,7 @@ function CalendarPageInner() {
   const [createDuration,        setCreateDuration]        = useState(60);
   const [createStatus,          setCreateStatus]          = useState<Status>("confirmed");
   const [defaultStatus,         setDefaultStatus]         = useState<"confirmed"|"booked">("confirmed");
+  const [overlapMode,            setOverlapMode]            = useState<"block"|"warn"|"visual">("warn");
   const [createLocation,        setCreateLocation]        = useState<LocationType>("studio");
   const [createClinicSite,      setCreateClinicSite]      = useState(DEFAULT_CLINIC);
   const [createDomicileAddress, setCreateDomicileAddress] = useState("");
@@ -295,8 +296,11 @@ function CalendarPageInner() {
   useEffect(() => {
     supabase.auth.getUser().then(({data}) => setUserEmail(data?.user?.email??null)).catch(()=>{});
     // Load default appointment status
-    supabase.from("practice_settings").select("default_appointment_status").maybeSingle()
-      .then(({data})=>{ if(data?.default_appointment_status) setDefaultStatus(data.default_appointment_status as "confirmed"|"booked"); }, ()=>{});
+    supabase.from("practice_settings").select("default_appointment_status, overlap_mode").maybeSingle()
+      .then(({data})=>{
+        if(data?.default_appointment_status) setDefaultStatus(data.default_appointment_status as "confirmed"|"booked");
+        if(data?.overlap_mode) setOverlapMode(data.overlap_mode as "block"|"warn"|"visual");
+      }, ()=>{});
   }, []);
   useEffect(() => {
     const fn = (e: MouseEvent) => {
@@ -720,6 +724,28 @@ function CalendarPageInner() {
         amount,
       });
     }
+    // Overlap check
+    if (overlapMode !== "visual" && !createRecurring) {
+      const startDt = new Date(buildDateTime(createDate, createTime));
+      const endDt = new Date(startDt); endDt.setMinutes(endDt.getMinutes() + Number(createDuration));
+      const conflict = events.find(ev =>
+        ev.status !== "cancelled" &&
+        ev.start < endDt && ev.end > startDt
+      );
+      if (conflict) {
+        const t = (d: Date) => d.toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
+        const msg = `Sovrapposizione con ${conflict.patient_name} (${t(conflict.start)}-${t(conflict.end)})`;
+        if (overlapMode === "block") {
+          setError("⛔ " + msg + " — modifica l'orario.");
+          setBusy(false); return;
+        }
+        if (overlapMode === "warn") {
+          const ok = window.confirm("⚠️ " + msg + "\n\nVuoi procedere comunque?");
+          if (!ok) { setBusy(false); return; }
+        }
+      }
+    }
+
     const {error:e}=await supabase.from("appointments").insert(toInsert);
     if (e){setError(e.message);setBusy(false);return;}
     setBusy(false);setCreateOpen(false);
@@ -727,7 +753,7 @@ function CalendarPageInner() {
     await loadAppointments(currentDate);
   }, [selectedPatient,createDuration,createDate,createTime,createStatus,createNote,
       createLocation,createClinicSite,createDomicileAddress,createAmount,currentDate,loadAppointments,
-      createRecurring,createRecurringCount,createRecurringInterval]);
+      createRecurring,createRecurringCount,createRecurringInterval,overlapMode,events]);
 
   /* ── Move appointment (drag) ─────────────── */
   const moveAppointment = useCallback(async (id:string,newStart:Date) => {
