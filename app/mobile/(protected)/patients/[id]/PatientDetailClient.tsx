@@ -1547,12 +1547,20 @@ function MobilePortalTab({ patient }: { patient: any }) {
   }
 
   async function sendWA() {
+    if(!patient.phone) return;
+    // ⚠️ Safari fix: apri finestra vuota PRIMA di qualsiasi await
+    const waWindow = window.open("about:blank", "_blank");
     const url = link || await generate();
-    if(!url||!patient.phone) return;
+    if(!url){ if(waWindow) waWindow.close(); return; }
     const nome = patient.first_name?.trim()||"Paziente";
     const msg = "Gentile "+nome+",\n\nle ho attivato la sua area personale FisioHub dove puo vedere:\n- i suoi prossimi appuntamenti\n- la scheda esercizi da casa\n- i contatti dello studio\n\nIl suo link personale (valido 6 mesi):\n"+url+"\n\nCordiali saluti,\nDr. Marco Turchetta";
     const clean = cleanPhone(patient.phone);
-    openWA(clean, msg);
+    const p = clean.replace(/[\s\(\)\-\.]/g,"").replace(/^\+/,"");
+    const n = p.startsWith("00")?p.slice(2):p.startsWith("0")?"39"+p:!p.startsWith("39")&&p.length<=10?"39"+p:p;
+    const isMob = /iPhone|iPad|iPod|Android/i.test(typeof navigator!=="undefined"?navigator.userAgent:"");
+    const waUrl = (isMob?"https://api.whatsapp.com/send":"https://web.whatsapp.com/send")+"?phone="+n+"&text="+encodeURIComponent(msg);
+    if(waWindow){ waWindow.location.href = waUrl; }
+    else { const a=document.createElement("a"); a.href=waUrl; a.target="_blank"; a.rel="noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200); }
   }
 
   async function copy() {
