@@ -1410,7 +1410,7 @@ function MobileEserciziTab({ patientId, patientName }: { patientId: string; pati
       }));
       setEsercizi(withVideos);
       // Salva
-      const token = Math.random().toString(36).slice(2,14);
+      const token = crypto.randomUUID();
       const payload = { patient_id:patientId, patient_name:patientName, esercizi:JSON.stringify(withVideos), token, expires_at:new Date(Date.now()+90*24*60*60*1000).toISOString() };
       if (schedaId) {
         await supabase.from("schede_esercizi_pubbliche").update(payload).eq("id", schedaId);

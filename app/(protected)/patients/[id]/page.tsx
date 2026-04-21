@@ -1507,7 +1507,7 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
       // Salva automaticamente nel DB
       setTimeout(async () => {
         try {
-          const token = Math.random().toString(36).slice(2, 14);
+          const token = crypto.randomUUID();
           const payload = {
             patient_id: patientId,
             patient_name: `${lastName} ${firstName}`.trim(),
@@ -1606,7 +1606,7 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
   async function sendSatisfactionSurvey() {
     if (!patient) return;
     if (!phone) { alert("Nessun numero di telefono per questo paziente."); return; }
-    const token = Math.random().toString(36).slice(2, 14);
+    const token = crypto.randomUUID();
     try {
       // Save token in survey_tokens table
       await fetch("/api/survey", {
@@ -1827,7 +1827,7 @@ ${rows}
         await supabase.from("schede_esercizi_pubbliche").update(payload).eq("id", schedaId);
       } else {
         // Crea nuova
-        const token = Math.random().toString(36).slice(2, 14);
+        const token = crypto.randomUUID();
         const { data } = await supabase.from("schede_esercizi_pubbliche").insert({ ...payload, token }).select("id,token").single();
         if (data) { setSchedaId(data.id); setPubLink(`${window.location.origin}/esercizi/${data.token}`); }
       }

@@ -1637,50 +1637,98 @@ function openWhatsApp(phone: string, message: string): boolean {
     const appointment = events.find(e => e.id === appointmentId);
     if (!appointment) return;
 
-    const templateName = isConfirmation ? "Appuntamento" : "Promemoria";
-    const { data: templateData } = await supabase.from("message_templates").select("template").eq("name", templateName).maybeSingle();
+    // ⚠️ SAFARI iOS FIX
+    // Apriamo SUBITO una nuova finestra vuota in modo sincrono (direttamente dal click).
+    // Poi possiamo fare fetch/await e aggiornare la URL della finestra aperta.
+    // Se chiamassimo window.open DOPO un await, Safari lo bloccherebbe come popup.
+    const waWindow = typeof window !== "undefined"
+      ? window.open("about:blank", "_blank")
+      : null;
 
-    let templateText = isConfirmation
-      ? "Grazie per averci scelto.\nRicordiamo il prossimo appuntamento fissato per {data_relativa} alle {ora}.\n\nA presto,\nDr. Marco Turchetta\nFisioterapia e Osteopatia"
-      : "Buongiorno {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore {ora}.\n\n📍 {luogo}\n\nCordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia";
+    try {
+      // 1. Genera token di conferma sicuro (UUID lato server)
+      let linkConferma = "";
+      try {
+        const r = await fetch("/api/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ appointment_id: appointmentId }),
+        });
+        const j = await r.json();
+        if (r.ok && j.token) {
+          const originBase = typeof window !== "undefined" ? window.location.origin : "";
+          linkConferma = `${originBase}/conferma/${j.token}`;
+        }
+      } catch (e) {
+        console.warn("Impossibile generare token conferma, proseguo senza link:", e);
+      }
 
-    if (templateData?.template) templateText = templateData.template;
+      // 2. Carica template
+      const templateName = isConfirmation ? "Appuntamento" : "Promemoria";
+      const { data: templateData } = await supabase.from("message_templates")
+        .select("template").eq("name", templateName).maybeSingle();
 
-    const dataRelativa = formatDateRelative(appointment.start);
-    const ora = fmtTime(appointment.start.toISOString());
-    const nomePaziente = (patientFirstName?.trim()) || "Cliente";
-    let luogo = "";
-    if (appointment.location === "studio") {
-      luogo = CLINIC_ADDRESSES[appointment.clinic_site || ""] || appointment.clinic_site || "Pontecorvo, Via Galileo Galilei 5";
-    } else {
-      luogo = `Presso il suo domicilio (${appointment.domicile_address})`;
+      let templateText = isConfirmation
+        ? "Grazie per averci scelto.\nRicordiamo il prossimo appuntamento fissato per {data_relativa} alle {ora}.\n\nA presto,\nDr. Marco Turchetta\nFisioterapia e Osteopatia"
+        : "Buongiorno {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore {ora}.\n\n📍 {luogo}\n\nCordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia";
+
+      if (templateData?.template) templateText = templateData.template;
+
+      // 3. Costruisci messaggio
+      const dataRelativa = formatDateRelative(appointment.start);
+      const ora = fmtTime(appointment.start.toISOString());
+      const nomePaziente = (patientFirstName?.trim()) || "Cliente";
+      let luogo = "";
+      if (appointment.location === "studio") {
+        luogo = CLINIC_ADDRESSES[appointment.clinic_site || ""] || appointment.clinic_site || "Pontecorvo, Via Galileo Galilei 5";
+      } else {
+        luogo = `Presso il suo domicilio (${appointment.domicile_address})`;
+      }
+
+      let message = templateText
+        .replace(/{nome}/g, nomePaziente)
+        .replace(/{data_relativa}/g, dataRelativa)
+        .replace(/{data}/g, dataRelativa)
+        .replace(/{ora}/g, ora)
+        .replace(/{luogo}/g, luogo)
+        .replace(/{link_conferma}/g, linkConferma)
+        .replace(/{link}/g, linkConferma);
+
+      // Aggiungi link alla fine se il template non lo contiene
+      if (!isConfirmation && linkConferma && !message.includes(linkConferma)) {
+        message += `\n\n👉 Conferma o annulla con un click:\n${linkConferma}`;
+      }
+
+      // 4. Costruisci URL WhatsApp e lo carica nella finestra aperta sopra
+      const clean = cleanPhoneForWA(patientPhone);
+      if (!clean) {
+        if (waWindow) waWindow.close();
+        alert("Numero di telefono non valido.");
+        return;
+      }
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
+      const waUrl = (isMobile ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send")
+        + "?phone=" + clean + "&text=" + encodeURIComponent(message);
+
+      if (waWindow) {
+        waWindow.location.href = waUrl;
+      } else {
+        // Fallback: popup bloccato → prova con anchor
+        const a = document.createElement("a");
+        a.href = waUrl; a.target = "_blank"; a.rel = "noopener noreferrer";
+        document.body.appendChild(a); a.click();
+        setTimeout(() => document.body.removeChild(a), 200);
+      }
+
+      // 5. Aggiorna stato "whatsapp_sent" (in background, non blocca nulla)
+      const nowIso = new Date().toISOString();
+      await supabase.from("appointments").update({ whatsapp_sent_at: nowIso, whatsapp_sent: true }).eq("id", appointmentId);
+      setEvents(prev => prev.map(ev => ev.id === appointmentId ? { ...ev, whatsapp_sent_at: new Date(nowIso), whatsapp_sent: true } : ev));
+    } catch (e) {
+      console.error("Errore invio promemoria:", e);
+      if (waWindow) waWindow.close();
+      alert("Errore durante l'invio del promemoria.");
     }
-
-    // Genera link di conferma
-    const originBase = typeof window !== "undefined" ? window.location.origin : "";
-    const confirmToken = typeof window !== "undefined" ? btoa(appointmentId).replace(/\+/g,"-").replace(/\//g,"_").replace(/=/g,"") : "";
-    const linkConferma = `${originBase}/conferma/${confirmToken}`;
-
-    let message = templateText
-      .replace(/{nome}/g, nomePaziente)
-      .replace(/{data_relativa}/g, dataRelativa)
-      .replace(/{data}/g, dataRelativa)
-      .replace(/{ora}/g, ora)
-      .replace(/{luogo}/g, luogo)
-      .replace(/{link_conferma}/g, linkConferma)
-      .replace(/{link}/g, linkConferma);
-
-    // Se il template non contiene già il link, aggiungilo alla fine per i promemoria
-    if (!isConfirmation && !message.includes(linkConferma)) {
-      message += `\n\n👉 Conferma o annulla con un click:\n${linkConferma}`;
-    }
-
-    const opened = openWhatsApp(patientPhone, message);
-    if (!opened) { alert("Numero di telefono non valido."); return; }
-
-    const nowIso = new Date().toISOString();
-    await supabase.from("appointments").update({ whatsapp_sent_at: nowIso, whatsapp_sent: true }).eq("id", appointmentId);
-    setEvents(prev => prev.map(ev => ev.id === appointmentId ? { ...ev, whatsapp_sent_at: new Date(nowIso), whatsapp_sent: true } : ev));
   }, [events]);
 
   // ── Chiedi Recensione Google via WhatsApp ──────────────────────────

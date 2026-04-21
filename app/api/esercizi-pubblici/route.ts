@@ -1,17 +1,27 @@
 // app/api/esercizi-pubblici/route.ts
+// Schede esercizi pubbliche condivise con il paziente.
+//
+// POST { esercizi, patient_id?, patient_name?, note?, token? }
+//   Senza token → crea nuova scheda con token UUID sicuro (valido 90 giorni)
+//   Con token   → aggiorna scheda esistente
+// GET  ?token=... → ritorna scheda
+//
+// SICUREZZA:
+// - Token UUID v4 (128 bit random)
+// - Scadenza 90 giorni
+// - Nessun fallback ad anon key
+
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { randomUUID } from "crypto";
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-
-function generateToken(): string {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let token = "";
-  for (let i = 0; i < 12; i++) token += chars[Math.floor(Math.random() * chars.length)];
-  return token;
+function getAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error("Configurazione mancante: SUPABASE_SERVICE_ROLE_KEY richiesta");
+  }
+  return createClient(url, key, { auth: { persistSession: false } });
 }
 
 export async function POST(req: NextRequest) {
@@ -20,12 +30,14 @@ export async function POST(req: NextRequest) {
     const { patient_id, patient_name, esercizi, note } = body;
 
     if (!esercizi || !Array.isArray(esercizi)) {
-      return NextResponse.json({ error: "esercizi required" }, { status: 400 });
+      return NextResponse.json({ error: "esercizi richiesti" }, { status: 400 });
     }
 
-    // Check if updating existing token
+    const db = getAdmin();
+
+    // Aggiornamento scheda esistente
     if (body.token) {
-      const { error } = await supabaseAdmin
+      const { error } = await db
         .from("schede_esercizi_pubbliche")
         .update({ esercizi: JSON.stringify(esercizi), note: note ?? null })
         .eq("token", body.token);
@@ -33,10 +45,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ token: body.token, url: `/esercizi/${body.token}` });
     }
 
-    const token = generateToken();
+    // Nuova scheda con token UUID sicuro
+    const token = randomUUID();
     const expires_at = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
 
-    const { error } = await supabaseAdmin.from("schede_esercizi_pubbliche").insert({
+    const { error } = await db.from("schede_esercizi_pubbliche").insert({
       token,
       patient_id: patient_id ?? null,
       patient_name: patient_name ?? "Paziente",
@@ -46,7 +59,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (error) {
-      console.error("[esercizi-pubblici POST] insert error:", error.message, error.details);
+      console.error("[esercizi-pubblici POST] insert error:", error.message);
       throw error;
     }
 
@@ -60,17 +73,15 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   try {
     const token = req.nextUrl.searchParams.get("token");
-    if (!token) return NextResponse.json({ error: "token required" }, { status: 400 });
+    if (!token) return NextResponse.json({ error: "Token richiesto" }, { status: 400 });
 
-    console.log("[esercizi-pubblici GET] looking for token:", token);
+    const db = getAdmin();
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from("schede_esercizi_pubbliche")
       .select("*")
       .eq("token", token)
       .maybeSingle();
-
-    console.log("[esercizi-pubblici GET] result:", data ? "found" : "not found", error?.message);
 
     if (error) throw error;
     if (!data) return NextResponse.json({ error: "Scheda non trovata o scaduta" }, { status: 404 });
@@ -79,7 +90,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Questa scheda è scaduta" }, { status: 410 });
     }
 
-    let esercizi = [];
+    let esercizi: any[] = [];
     try {
       esercizi = JSON.parse(data.esercizi ?? "[]");
     } catch {
