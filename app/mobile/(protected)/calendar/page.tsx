@@ -268,6 +268,11 @@ function CalendarPageInner() {
   const [editTime,      setEditTime]      = useState("09:00");
   const [editDuration,  setEditDuration]  = useState(60);
 
+  // Cache link conferma e template (per apertura sincrona WA su iOS)
+  const [confirmLinks, setConfirmLinks] = useState<Record<string, string>>({});
+  const [reminderTplCache, setReminderTplCache] = useState<string | null>(null);
+  const [confirmTplCache, setConfirmTplCache] = useState<string | null>(null);
+
   /* create modal */
   const [createOpen,            setCreateOpen]            = useState(false);
   const [createDate,            setCreateDate]            = useState(toISODateLocal(new Date()));
@@ -345,6 +350,36 @@ function CalendarPageInner() {
       };
     });
     setEvents(mapped); setLoading(false);
+
+    // Pre-cache template + link conferma per apertura WA sincrona su iOS.
+    // In background, non blocca nulla. Se l'utente clicca WA prima che finisca,
+    // il messaggio parte senza link conferma (fallback); al prossimo refresh avrà il link.
+    (async () => {
+      // Carica entrambi i template
+      const [promRes, confRes] = await Promise.all([
+        supabase.from("message_templates").select("template").eq("name", "Promemoria").maybeSingle(),
+        supabase.from("message_templates").select("template").eq("name", "Appuntamento").maybeSingle(),
+      ]);
+      if (promRes.data?.template) setReminderTplCache(promRes.data.template);
+      if (confRes.data?.template) setConfirmTplCache(confRes.data.template);
+
+      // Pre-genera token conferma per tutti gli eventi caricati (in parallelo)
+      const links: Record<string, string> = {};
+      await Promise.all(mapped.map(async (ev) => {
+        try {
+          const r = await fetch("/api/confirm", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ appointment_id: ev.id }),
+          });
+          const j = await r.json();
+          if (r.ok && j.token) {
+            links[ev.id] = `${window.location.origin}/conferma/${j.token}`;
+          }
+        } catch {}
+      }));
+      setConfirmLinks(prev => ({ ...prev, ...links }));
+    })();
   }, []);
 
   useEffect(() => { loadAppointments(currentDate); }, [currentDate, loadAppointments]);
@@ -583,72 +618,47 @@ function CalendarPageInner() {
   }, [searchQuery,searchOpen]);
 
   /* ── WhatsApp ────────────────────────────── */
-  const sendReminder = useCallback(async (
+  // SENDREMINDER — versione sincrona per preservare il user gesture su iOS.
+  // Link conferma e template sono pre-caricati in background al load degli eventi,
+  // così il click può invocare direttamente l'anchor tag → WhatsApp app apre DIRETTAMENTE
+  // senza passare dalla landing api.whatsapp.com.
+  const sendReminder = useCallback((
     appointmentId:string, patientPhone?:string, patientFirstName?:string, isConfirmation?:boolean,
   ) => {
     if (!patientPhone) { alert("Nessun telefono registrato per questo paziente"); return; }
     const appointment = events.find(e=>e.id===appointmentId);
     if (!appointment) return;
 
+    // Usa link conferma pre-generato (o stringa vuota se non ancora pronto)
+    const linkConferma = !isConfirmation ? (confirmLinks[appointmentId] || "") : "";
+    const template = isConfirmation ? confirmTplCache : reminderTplCache;
+
+    const message = buildReminderMessage({
+      appointment: appointment as any,
+      patientFirstName,
+      template: template ?? undefined,
+      isConfirmation: !!isConfirmation,
+      linkConferma,
+      studioAddress: currentStudio?.address,
+      signatureName: currentStudio?.signature_name,
+      signatureTitle: currentStudio?.signature_title,
+    });
+
+    // Apri WhatsApp con anchor tag sincrono — iOS riconosce il gesture utente
+    // e apre DIRETTAMENTE l'app WhatsApp (nessuna landing api.whatsapp.com orfana).
     const cleanPhone = formatPhoneForWA(patientPhone);
+    const url = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
+    const a = document.createElement("a");
+    a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+    document.body.appendChild(a); a.click();
+    setTimeout(() => document.body.removeChild(a), 200);
 
-    // ⚠️ SAFARI FIX: apri finestra vuota PRIMA di await per non perdere il user gesture
-    const waWindow = window.open("about:blank", "_blank");
-
-    try {
-      // 1. Genera token di conferma sicuro (solo per i promemoria, non per le conferme iniziali)
-      let linkConferma = "";
-      if (!isConfirmation) {
-        try {
-          const r = await fetch("/api/confirm", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ appointment_id: appointmentId }),
-          });
-          const j = await r.json();
-          if (r.ok && j.token) {
-            const originBase = typeof window !== "undefined" ? window.location.origin : "";
-            linkConferma = `${originBase}/conferma/${j.token}`;
-          }
-        } catch (e) {
-          console.warn("Impossibile generare token conferma:", e);
-        }
-      }
-
-      // 2. Carica template dal DB (stesso comportamento del desktop)
-      const templateName = isConfirmation ? "Appuntamento" : "Promemoria";
-      const { data: templateData } = await supabase
-        .from("message_templates")
-        .select("template")
-        .eq("name", templateName)
-        .maybeSingle();
-
-      // 3. Usa la stessa utility del desktop per costruire il messaggio
-      const message = buildReminderMessage({
-        appointment: appointment as any,
-        patientFirstName,
-        template: templateData?.template ?? undefined,
-        isConfirmation: !!isConfirmation,
-        linkConferma,
-        studioAddress: currentStudio?.address,
-        signatureName: currentStudio?.signature_name,
-        signatureTitle: currentStudio?.signature_title,
-      });
-
-      const url = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
-      if (waWindow) waWindow.location.href = url;
-      else window.open(url, "_blank", "noopener,noreferrer");
-
-      // Aggiorna DB in background
-      const nowIso = new Date().toISOString();
-      await supabase.from("appointments").update({whatsapp_sent_at:nowIso,whatsapp_sent:true}).eq("id",appointmentId);
-      setEvents(prev=>prev.map(ev=>ev.id===appointmentId?{...ev,whatsapp_sent_at:nowIso}:ev));
-      setSelectedEvent(prev=>prev?.id===appointmentId?{...prev,whatsapp_sent_at:nowIso}:prev);
-    } catch (e) {
-      console.error("Errore invio promemoria:", e);
-      if (waWindow) waWindow.close();
-    }
-  }, [events, currentStudio]);
+    // Aggiorna DB in background (non blocca l'apertura WA)
+    const nowIso = new Date().toISOString();
+    supabase.from("appointments").update({whatsapp_sent_at:nowIso,whatsapp_sent:true}).eq("id",appointmentId).then(()=>{});
+    setEvents(prev=>prev.map(ev=>ev.id===appointmentId?{...ev,whatsapp_sent_at:nowIso}:ev));
+    setSelectedEvent(prev=>prev?.id===appointmentId?{...prev,whatsapp_sent_at:nowIso}:prev);
+  }, [events, confirmLinks, reminderTplCache, confirmTplCache, currentStudio]);
 
   /* ── Open / Save / Delete ────────────────── */
   const openEvent = useCallback((ev:CalendarEvent) => {
