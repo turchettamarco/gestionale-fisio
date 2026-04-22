@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
+import { useCurrentStudioId } from "@/src/contexts/StudioContext";
 
 // --- TIPI ---
 type Plan = "invoice" | "no_invoice";
@@ -92,6 +93,9 @@ const buttonStyle: React.CSSProperties = {
 export default function NewPatientPage() {
   const router = useRouter();
 
+  // Studio corrente (multi-tenancy)
+  const currentStudioId = useCurrentStudioId();
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [okMsg, setOkMsg] = useState("");
@@ -156,6 +160,8 @@ export default function NewPatientPage() {
       medical_diagnosis: medicalDiagnosis.trim() || null,
       expected_frequency: expectedFrequency.trim() ? Number(expectedFrequency) : null,
       package_size: packageSize.trim() ? Number(packageSize) : null,
+
+      studio_id: currentStudioId,  // multi-tenancy
     });
     setSaving(false);
 

@@ -13,6 +13,7 @@ import Link from "next/link";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
+import { useCurrentStudioId } from "@/src/contexts/StudioContext";
 
 type Plan = "invoice" | "no_invoice";
 
@@ -68,6 +69,9 @@ function FG({ label, required, children }: {
 /* ─── Page ────────────────────────────────────────────────────────────── */
 export default function NewPatientPage() {
   const router = useRouter();
+
+  // Studio corrente (multi-tenancy)
+  const currentStudioId = useCurrentStudioId();
 
   const [saving,  setSaving]  = useState(false);
   const [savedPhone, setSavedPhone] = useState("");
@@ -144,6 +148,7 @@ export default function NewPatientPage() {
       phone:          phone.trim(),
       birth_date:     birthDate.trim() || null,
       preferred_plan: preferredPlan,
+      studio_id:      currentStudioId,  // multi-tenancy
     });
     setSaving(false);
 

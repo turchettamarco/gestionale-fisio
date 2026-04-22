@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
+import { useCurrentStudioId } from "@/src/contexts/StudioContext";
 
 const THEME = {
   appBg:"#f1f5f9", panelBg:"#ffffff", text:"#0f172a", muted:"#334155",
@@ -29,6 +30,10 @@ function alertLevel(dr:number,wd:number):"expired"|"urgent"|"warning"|"ok"{ if(d
 
 export default function MobileNoleggioPage() {
   const router = useRouter();
+
+  // Studio corrente (multi-tenancy)
+  const currentStudioId = useCurrentStudioId();
+
   const [noleggios, setNoleggios] = useState<NoleggioRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -97,7 +102,7 @@ export default function MobileNoleggioPage() {
     if(fromYMD(formEnd)<fromYMD(formStart)){ setError("Data fine deve essere dopo data inizio."); return; }
     setFormSaving(true); setError("");
     try{
-      await supabase.from("noleggios").insert({ patient_id:formPatientId||null, patient_name:name, patient_phone:formPhone.trim()||null, device_name:formDevice.trim()||"Magnetoterapia", start_date:formStart, end_date:formEnd, price_per_day:parseFloat(formPrice)||defaultPrice, total_amount:formTotal, is_paid:false, is_returned:false, notes:formNotes.trim()||null });
+      await supabase.from("noleggios").insert({ patient_id:formPatientId||null, patient_name:name, patient_phone:formPhone.trim()||null, device_name:formDevice.trim()||"Magnetoterapia", start_date:formStart, end_date:formEnd, price_per_day:parseFloat(formPrice)||defaultPrice, total_amount:formTotal, is_paid:false, is_returned:false, notes:formNotes.trim()||null, studio_id:currentStudioId });
       setSuccess("Noleggio salvato."); setTimeout(()=>setSuccess(""),2500);
       setShowForm(false); setFormQuery(""); setFormPatientId(null); setFormName(""); setFormPhone(""); setFormDevice("Magnetoterapia"); setFormStart(toYMD(new Date())); setFormEnd(toYMD(new Date(Date.now()+14*86400000))); setFormPrice(String(defaultPrice)); setFormNotes("");
       await load();
@@ -122,7 +127,7 @@ export default function MobileNoleggioPage() {
     setCreatingPatient(n.id);
     try {
       const parts=n.patient_name.trim().split(/\s+/);
-      const {data,error}=await supabase.from("patients").insert({first_name:parts.slice(1).join(" ")||"",last_name:parts[0]||n.patient_name,phone:n.patient_phone||""}).select("id").single();
+      const {data,error}=await supabase.from("patients").insert({first_name:parts.slice(1).join(" ")||"",last_name:parts[0]||n.patient_name,phone:n.patient_phone||"",studio_id:currentStudioId}).select("id").single();
       if(error){alert("Errore: "+error.message);return;}
       await supabase.from("noleggios").update({patient_id:data.id}).eq("id",n.id);
       setNoleggios(p=>p.map(x=>x.id===n.id?{...x,patient_id:data.id}:x));

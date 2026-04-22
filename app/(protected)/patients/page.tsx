@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
+import { useCurrentStudioId } from "@/src/contexts/StudioContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Plan = "invoice" | "no_invoice";
@@ -40,6 +41,9 @@ const THEME = {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function PatientsPage() {
+
+  // Studio corrente (multi-tenancy)
+  const currentStudioId = useCurrentStudioId();
 
   // ── Auth / user menu ──────────────────────────────────────────────────────
   const [userEmail, setUserEmail]       = useState<string | null>(null);
@@ -172,6 +176,7 @@ export default function PatientsPage() {
       medical_diagnosis:   medicalDiagnosis.trim() || null,
       expected_frequency:  expectedFrequency.trim() ? Number(expectedFrequency) : null,
       package_size:        packageSize.trim() ? Number(packageSize) : null,
+      studio_id:           currentStudioId,  // multi-tenancy
     });
     setSaving(false);
     if (!error) { closeDrawer(); await loadPatients(); }

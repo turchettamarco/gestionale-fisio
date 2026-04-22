@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
+import { useCurrentStudioId } from "@/src/contexts/StudioContext";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const THEME = {
@@ -60,6 +61,10 @@ function getAlertLevel(daysRemaining: number, warningDays: number): "expired"|"u
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function NoleggioPage() {
   const router = useRouter();
+
+  // Studio corrente (multi-tenancy)
+  const currentStudioId = useCurrentStudioId();
+
   const [userEmail, setUserEmail] = useState<string|null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement|null>(null);
@@ -181,6 +186,7 @@ export default function NoleggioPage() {
         is_paid: false,
         is_returned: false,
         notes: formNotes.trim()||null,
+        studio_id: currentStudioId,  // multi-tenancy
       });
       if (error) throw error;
       setSuccess("Noleggio salvato.");
@@ -238,6 +244,7 @@ export default function NoleggioPage() {
       const { data, error } = await supabase.from("patients").insert({
         first_name, last_name,
         phone: n.patient_phone || "",
+        studio_id: currentStudioId,  // multi-tenancy
       }).select("id").single();
       if (error) { alert("Errore: " + error.message); return; }
       // Link patient_id to noleggio
