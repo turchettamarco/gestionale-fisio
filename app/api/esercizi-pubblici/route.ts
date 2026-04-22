@@ -97,12 +97,31 @@ export async function GET(req: NextRequest) {
       esercizi = [];
     }
 
+    // Recupera studio via patient_id
+    let studio = null;
+    if ((data as any).patient_id) {
+      const { data: p } = await db
+        .from("patients")
+        .select("studio_id")
+        .eq("id", (data as any).patient_id)
+        .maybeSingle();
+      if (p?.studio_id) {
+        const studioRes = await db
+          .from("studios")
+          .select("name,address,phone,signature_name,signature_title,google_review_link,website")
+          .eq("id", p.studio_id)
+          .maybeSingle();
+        studio = studioRes.data || null;
+      }
+    }
+
     return NextResponse.json({
       patient_name: data.patient_name,
       esercizi,
       note: data.note,
       created_at: data.created_at,
       expires_at: data.expires_at,
+      studio,
     });
   } catch (e: any) {
     console.error("[esercizi-pubblici GET] exception:", e?.message);

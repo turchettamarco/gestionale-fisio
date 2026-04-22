@@ -16,8 +16,13 @@ export default function PortalPage() {
     }).finally(()=>setLoading(false));
   },[token]);
 
-  if (loading) return <Wrap><div style={{textAlign:"center",padding:40,color:"#64748b"}}>Caricamento…</div></Wrap>;
-  if (error || !data) return <Wrap><div style={{textAlign:"center",padding:40}}>
+  const studio = data?.studio;
+  const headerTitle = studio
+    ? [studio.name, studio.signature_name].filter(Boolean).join(" · ")
+    : "Area Paziente";
+
+  if (loading) return <Wrap headerTitle="Area Paziente"><div style={{textAlign:"center",padding:40,color:"#64748b"}}>Caricamento…</div></Wrap>;
+  if (error || !data) return <Wrap headerTitle="Area Paziente"><div style={{textAlign:"center",padding:40}}>
     <div style={{fontSize:48,marginBottom:12}}>⚠️</div>
     <h2 style={{margin:"0 0 8px",fontSize:20,color:"#dc2626"}}>Accesso non disponibile</h2>
     <p style={{color:"#64748b",fontSize:13}}>{error}</p>
@@ -26,7 +31,7 @@ export default function PortalPage() {
   const patientName = data.patient ? `${data.patient.first_name} ${data.patient.last_name}`.trim() : "Paziente";
   const upcoming = data.upcoming || [];
 
-  return <Wrap>
+  return <Wrap headerTitle={headerTitle}>
     <div style={{padding:"24px 20px"}}>
       <div style={{textAlign:"center",marginBottom:24}}>
         <div style={{fontSize:12,color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}}>Area riservata</div>
@@ -81,13 +86,18 @@ export default function PortalPage() {
         </section>
       )}
 
-      {/* Info contatti */}
+      {/* Info contatti — dinamico dallo studio */}
       <section style={{marginBottom:20}}>
         <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10}}>📞 Contatti studio</h2>
         <div style={{background:"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:10,padding:"14px 16px",fontSize:13,color:"#0f172a",lineHeight:1.6}}>
-          <div><strong>Dr. Marco Turchetta</strong></div>
-          <div>Fisioterapista &amp; Osteopata</div>
-          <div style={{color:"#64748b",fontSize:12,marginTop:4}}>Via Galileo Galilei 5, Pontecorvo (FR)</div>
+          {studio?.signature_name && <div><strong>{studio.signature_name}</strong></div>}
+          {studio?.signature_title && <div>{studio.signature_title}</div>}
+          {studio?.address && <div style={{color:"#64748b",fontSize:12,marginTop:4}}>📍 {studio.address}</div>}
+          {studio?.phone && <div style={{color:"#64748b",fontSize:12,marginTop:2}}>📞 {studio.phone}</div>}
+          {studio?.website && <div style={{marginTop:6}}>
+            <a href={studio.website} target="_blank" rel="noopener noreferrer" style={{color:"#2563eb",fontSize:12,textDecoration:"none"}}>🌐 Visita il sito</a>
+          </div>}
+          {!studio && <div style={{color:"#64748b",fontSize:12}}>Contatta il tuo studio per informazioni.</div>}
         </div>
       </section>
 
@@ -98,11 +108,11 @@ export default function PortalPage() {
   </Wrap>;
 }
 
-function Wrap({children}:{children:React.ReactNode}) {
+function Wrap({children, headerTitle}:{children:React.ReactNode; headerTitle:string}) {
   return (
     <div style={{minHeight:"100vh",background:"#f8fafc",fontFamily:"'Segoe UI',system-ui,sans-serif"}}>
       <div style={{background:"linear-gradient(135deg,#0d9488,#2563eb)",padding:"16px 20px",textAlign:"center"}}>
-        <div style={{fontSize:11,color:"rgba(255,255,255,0.7)",fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>FisioHub · Dr. Marco Turchetta</div>
+        <div style={{fontSize:11,color:"rgba(255,255,255,0.7)",fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>{headerTitle}</div>
       </div>
       <div style={{maxWidth:560,margin:"0 auto"}}>{children}</div>
     </div>

@@ -49,12 +49,23 @@ export async function GET(req: NextRequest) {
 
     const { data: appt, error: apptErr } = await db
       .from("appointments")
-      .select("id, start_at, status, location, clinic_site, domicile_address, patients(first_name,last_name)")
+      .select("id, start_at, status, location, clinic_site, domicile_address, studio_id, patients(first_name,last_name)")
       .eq("id", tk.appointment_id)
       .maybeSingle();
 
     if (apptErr || !appt) {
       return NextResponse.json({ error: "Appuntamento non trovato" }, { status: 404 });
+    }
+
+    // Recupera dati studio per branding
+    let studio = null;
+    if ((appt as any).studio_id) {
+      const studioRes = await db
+        .from("studios")
+        .select("name,address,phone,signature_name,signature_title,google_review_link,website")
+        .eq("id", (appt as any).studio_id)
+        .maybeSingle();
+      studio = studioRes.data || null;
     }
 
     return NextResponse.json({
@@ -66,6 +77,7 @@ export async function GET(req: NextRequest) {
       domicile_address: appt.domicile_address,
       patient: Array.isArray(appt.patients) ? appt.patients[0] : appt.patients,
       already_used: !!tk.used_at,
+      studio,
     });
   } catch (e: any) {
     console.error("[confirm GET] exception:", e?.message);

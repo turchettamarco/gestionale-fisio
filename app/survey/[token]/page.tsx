@@ -10,12 +10,14 @@ export default function SurveyPage() {
   const [q2,  setQ2]      = useState(0); // risultati 1-5
   const [q3,  setQ3]      = useState(""); // testo libero
   const [name, setName]   = useState("");
+  const [studio, setStudio] = useState<any>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(()=>{
     if(!token) return;
     fetch(`/api/survey?token=${token}`).then(r=>r.json()).then(d=>{
       if(d.patient_name) setName(d.patient_name);
+      if(d.studio) setStudio(d.studio);
     }).catch(()=>{});
   },[token]);
 
@@ -51,7 +53,7 @@ export default function SurveyPage() {
   return (
     <div style={{minHeight:"100vh",background:"#f8fafc",fontFamily:"'Segoe UI',system-ui,sans-serif"}}>
       <div style={{background:"linear-gradient(135deg,#0d9488,#2563eb)",padding:"24px 20px",textAlign:"center"}}>
-        <div style={{fontSize:13,color:"rgba(255,255,255,0.7)",fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>FisioHub — Dr. Marco Turchetta</div>
+        <div style={{fontSize:13,color:"rgba(255,255,255,0.7)",fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>{studio ? [studio.name, studio.signature_name].filter(Boolean).join(" — ") : "Questionario"}</div>
         <h1 style={{margin:0,fontSize:20,fontWeight:800,color:"#fff"}}>Questionario di soddisfazione</h1>
         {name&&<div style={{fontSize:14,color:"rgba(255,255,255,0.85)",marginTop:6}}>Caro/a {name}</div>}
       </div>
@@ -75,7 +77,7 @@ export default function SurveyPage() {
           style={{width:"100%",padding:"14px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#0d9488,#2563eb)",color:"#fff",fontWeight:800,fontSize:16,cursor:(!q1||!q2)?"not-allowed":"pointer",opacity:(!q1||!q2)?0.6:1,fontFamily:"inherit"}}>
           {saving?"Invio…":"Invia il questionario →"}
         </button>
-        <div style={{textAlign:"center",marginTop:12,fontSize:11,color:"#94a3b8"}}>Dr. Marco Turchetta — Via Galileo Galilei 5, Pontecorvo (FR)</div>
+        <div style={{textAlign:"center",marginTop:12,fontSize:11,color:"#94a3b8"}}>{studio ? `${studio.signature_name || ""}${studio.address ? ` — ${studio.address}` : ""}` : ""}</div>
       </div>
     </div>
   );

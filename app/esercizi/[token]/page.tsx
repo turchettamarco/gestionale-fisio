@@ -48,6 +48,7 @@ export default function SchedaEserciziPubblica() {
   const [esercizi,    setEsercizi]    = useState<Esercizio[]>([]);
   const [nota,        setNota]        = useState("");
   const [createdAt,   setCreatedAt]   = useState("");
+  const [studio,      setStudio]      = useState<any>(null);
   const [expanded,    setExpanded]    = useState<string|null>(null);
   const [videoOpen,   setVideoOpen]   = useState<string|null>(null);
 
@@ -58,6 +59,7 @@ export default function SchedaEserciziPubblica() {
         if(d.error){setError(d.error);return;}
         setPatientName(d.patient_name); setEsercizi(d.esercizi??[]); setNota(d.note??"");
         setCreatedAt(d.created_at?new Date(d.created_at).toLocaleDateString("it-IT",{day:"2-digit",month:"long",year:"numeric"}):"");
+        setStudio(d.studio || null);
       }).catch(()=>setError("Errore caricamento")).finally(()=>setLoading(false));
   },[token]);
 
@@ -85,7 +87,7 @@ export default function SchedaEserciziPubblica() {
 
       {/* Header */}
       <div style={{background:"linear-gradient(135deg,#0d9488,#2563eb)",padding:"24px 20px 28px",textAlign:"center"}}>
-        <div style={{fontSize:12,fontWeight:700,color:"rgba(255,255,255,0.7)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>FisioHub — Dr. Marco Turchetta</div>
+        <div style={{fontSize:12,fontWeight:700,color:"rgba(255,255,255,0.7)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>{studio ? [studio.name, studio.signature_name].filter(Boolean).join(" — ") : "Scheda Esercizi"}</div>
         <div style={{fontSize:22,fontWeight:800,color:"#fff",marginBottom:4}}>Programma Esercizi Domiciliari</div>
         <div style={{fontSize:15,color:"rgba(255,255,255,0.9)",fontWeight:600}}>{patientName}</div>
         {createdAt&&<div style={{fontSize:12,color:"rgba(255,255,255,0.65)",marginTop:6}}>Emesso il {createdAt}</div>}
@@ -163,8 +165,8 @@ export default function SchedaEserciziPubblica() {
 
         {/* Footer */}
         <div style={{textAlign:"center",padding:"24px 0 40px",fontSize:12,color:"#94a3b8"}}>
-          <div style={{fontWeight:700,color:"#334155",marginBottom:4}}>Dr. Marco Turchetta — Fisioterapista & Osteopata</div>
-          Via Galileo Galilei 5, Pontecorvo (FR)
+          {studio && <div style={{fontWeight:700,color:"#334155",marginBottom:4}}>{[studio.signature_name, studio.signature_title].filter(Boolean).join(" — ")}</div>}
+          {studio?.address && <div>{studio.address}</div>}
           <div className="no-print" style={{marginTop:16}}>
             <button onClick={()=>window.print()} style={{padding:"10px 24px",background:"#0d9488",color:"#fff",border:"none",borderRadius:8,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>🖨️ Stampa / Salva PDF</button>
           </div>

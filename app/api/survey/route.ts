@@ -30,11 +30,32 @@ export async function GET(req: NextRequest) {
   try {
     const db = getAdmin();
     const { data } = await db.from("survey_tokens")
-      .select("patient_name")
+      .select("patient_name, patient_id")
       .eq("token", token)
       .maybeSingle();
 
-    return NextResponse.json({ patient_name: data?.patient_name ?? "" });
+    // Recupera dati studio via patient_id
+    let studio = null;
+    if ((data as any)?.patient_id) {
+      const { data: p } = await db
+        .from("patients")
+        .select("studio_id")
+        .eq("id", (data as any).patient_id)
+        .maybeSingle();
+      if (p?.studio_id) {
+        const studioRes = await db
+          .from("studios")
+          .select("name,address,phone,signature_name,signature_title,google_review_link,website")
+          .eq("id", p.studio_id)
+          .maybeSingle();
+        studio = studioRes.data || null;
+      }
+    }
+
+    return NextResponse.json({
+      patient_name: data?.patient_name ?? "",
+      studio,
+    });
   } catch (e: any) {
     console.error("[survey GET] exception:", e?.message);
     return NextResponse.json({ error: e?.message ?? "Errore server" }, { status: 500 });
