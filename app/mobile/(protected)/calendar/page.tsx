@@ -21,6 +21,7 @@ import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
+import { useCurrentStudioId } from "@/src/contexts/StudioContext";
 
 /* ─── Types ───────────────────────────────────────────────────────────── */
 type Status = "booked" | "confirmed" | "done" | "cancelled" | "not_paid";
@@ -191,6 +192,9 @@ export default function CalendarPage() {
 function CalendarPageInner() {
   const router       = useRouter();
   const searchParams = useSearchParams();
+
+  // Studio corrente (multi-tenancy)
+  const currentStudioId = useCurrentStudioId();
 
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
@@ -722,6 +726,7 @@ function CalendarPageInner() {
         clinic_site:createLocation==="studio"?(createClinicSite.trim()||DEFAULT_CLINIC):null,
         domicile_address:createLocation==="domicile"?(createDomicileAddress.trim()||null):null,
         amount,
+        studio_id: currentStudioId,  // multi-tenancy
       });
     }
     // Overlap check

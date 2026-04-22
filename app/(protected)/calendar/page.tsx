@@ -62,6 +62,9 @@ import { exportWeekToPDF } from "./utils/exportPDF";
 // ─── Costruzione messaggio promemoria WA — utils/reminderMessage.ts ──────────
 import { buildReminderMessage } from "./utils/reminderMessage";
 
+// ─── Studio context (multi-tenancy) ──────────────────────────────────────────
+import { useCurrentStudioId } from "@/src/contexts/StudioContext";
+
 export default function CalendarPage() {
   return (
     <Suspense fallback={<div style={{ padding: 40, textAlign: "center", color: "#7b8fa3", fontFamily: "Inter, -apple-system, sans-serif", fontSize: 15 }}>Caricamento calendario…</div>}>
@@ -72,6 +75,10 @@ export default function CalendarPage() {
 
 
 function CalendarPageInner() {
+
+  // Studio corrente dell'utente loggato (multi-tenancy).
+  // Viene passato nelle INSERT degli appuntamenti.
+  const currentStudioId = useCurrentStudioId();
 
   const params = useSearchParams();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -1091,6 +1098,7 @@ diagnosis: patient?.diagnosis ?? null,
         clinic_site:      isHome ? null : DEFAULT_CLINIC_SITE,
         domicile_address: isHome ? (req.notes ?? "da definire") : null,
         calendar_note:    note,
+        studio_id:        currentStudioId,  // multi-tenancy
       });
       if (insErr) { alert("Errore creazione appuntamento: " + insErr.message); return; }
 
@@ -1611,6 +1619,7 @@ Fisioterapia e Osteopatia`;
     treatment_type: treatmentType,
     price_type: priceType,
     amount: amount,
+    studio_id: currentStudioId,  // multi-tenancy
   };
 
   try {
