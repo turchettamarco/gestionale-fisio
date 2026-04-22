@@ -765,13 +765,16 @@ export default function PatientDetailPage({
     window.open(url, "_blank", "noopener,noreferrer");
   }, []);
 
-  // Applica i placeholder al template (gestisce anche {firma})
+  // Applica i placeholder al template (gestisce anche {firma} e {saluto})
   const applyTemplate = useCallback((tpl: string, vars: Record<string, string>): string => {
     let result = tpl;
     // Firma dinamica
     const firma = [currentStudio?.signature_name, currentStudio?.signature_title]
       .filter(Boolean).join("\n");
     result = result.replace(/{firma}/g, firma);
+    // Saluto dinamico (Buongiorno/Buonasera in base all'ora)
+    const saluto = new Date().getHours() < 14 ? "Buongiorno" : "Buonasera";
+    result = result.replace(/{saluto}/g, saluto);
     // Tutti gli altri placeholder
     Object.entries(vars).forEach(([k, v]) => {
       result = result.replace(new RegExp(`{${k}}`, "g"), v ?? "");

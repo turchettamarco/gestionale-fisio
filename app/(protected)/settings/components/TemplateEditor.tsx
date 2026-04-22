@@ -18,6 +18,7 @@ export type PlaceholderDef = {
 };
 
 export const DEFAULT_PLACEHOLDERS: PlaceholderDef[] = [
+  { key: "saluto",        label: "Saluto (Buongiorno/Buonasera)", icon: "👋", example: "Buongiorno" },
   { key: "nome",          label: "Nome paziente",   icon: "👤", example: "Mario" },
   { key: "data_relativa", label: "Data (Oggi/Domani/Mer 5 giu)", icon: "📅", example: "Domani" },
   { key: "data",          label: "Data completa",   icon: "📅", example: "05/06/2026" },

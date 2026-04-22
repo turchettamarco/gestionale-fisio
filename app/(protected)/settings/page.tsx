@@ -1330,7 +1330,7 @@ export default function SettingsPage() {
                 onChange={setWelcomeMsg}
                 rows={4}
                 helperText="Inviato automaticamente al primo appuntamento."
-                placeholders={DEFAULT_PLACEHOLDERS.filter(p => ["nome"].includes(p.key))}
+                placeholders={DEFAULT_PLACEHOLDERS.filter(p => ["saluto","nome"].includes(p.key))}
                 signature={dynamicSignature}
                 galleryKey="welcome"
                 messageKind="benvenuto nuovo paziente"
@@ -1341,7 +1341,7 @@ export default function SettingsPage() {
                 onChange={setBookingConfirmMsg}
                 rows={4}
                 helperText="Inviato quando confermi una prenotazione arrivata dal sito."
-                placeholders={DEFAULT_PLACEHOLDERS.filter(p => ["nome","data","ora"].includes(p.key))}
+                placeholders={DEFAULT_PLACEHOLDERS.filter(p => ["saluto","nome","data","ora"].includes(p.key))}
                 signature={dynamicSignature}
                 galleryKey="booking"
                 messageKind="conferma prenotazione"
@@ -1352,7 +1352,7 @@ export default function SettingsPage() {
                 onChange={setReminderMsg}
                 rows={4}
                 helperText="Inviato come promemoria prima dell'appuntamento."
-                placeholders={DEFAULT_PLACEHOLDERS.filter(p => ["nome","data","ora","luogo"].includes(p.key))}
+                placeholders={DEFAULT_PLACEHOLDERS.filter(p => ["saluto","nome","data","ora","luogo"].includes(p.key))}
                 signature={dynamicSignature}
                 galleryKey="reminder"
                 messageKind="promemoria appuntamento"

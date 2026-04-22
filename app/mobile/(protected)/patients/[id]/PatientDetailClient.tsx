@@ -8,7 +8,16 @@ function openWA(phone: string, message: string = ""): void {
   const url = isMobile
     ? "https://api.whatsapp.com/send?phone=" + n + text
     : "https://web.whatsapp.com/send?phone=" + n + text;
-  const w = window.open(url, "_blank", "noopener,noreferrer"); if (!w) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
+
+  if (isMobile) {
+    window.location.href = url;
+  } else {
+    const w = window.open(url, "_blank", "noopener,noreferrer");
+    if (!w) {
+      const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+      document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200);
+    }
+  }
 }
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -260,12 +269,14 @@ function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, fi
       {actions.map(a => (
         <a key={a.label} href={a.href}
           onClick={e => {
+            // Saluto dinamico (Buongiorno/Buonasera)
+            const saluto = new Date().getHours() < 14 ? "Buongiorno" : "Buonasera";
             if (a.href === "#birthday" && phone) {
               e.preventDefault();
               const nome = firstName?.trim() || "Paziente";
               let msg: string;
               if (birthdayTpl?.trim()) {
-                msg = birthdayTpl.replace(/{nome}/g, nome).replace(/{firma}/g, firma);
+                msg = birthdayTpl.replace(/{nome}/g, nome).replace(/{firma}/g, firma).replace(/{saluto}/g, saluto);
               } else {
                 const staffLine = studioName ? `Tutto lo staff di ${studioName}` : "Tutto lo staff";
                 msg = `Buon compleanno ${nome}! 🎂\n\n${staffLine} le augura una splendida giornata.\nSe ha bisogno di noi siamo a sua disposizione.${firma ? `\n\n${firma}` : ""}`;
@@ -277,7 +288,7 @@ function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, fi
               const importo = unpaidAmount.toLocaleString("it-IT", { minimumFractionDigits: 2 });
               let msg: string;
               if (paymentTpl?.trim()) {
-                msg = paymentTpl.replace(/{nome}/g, nome).replace(/{importo}/g, importo).replace(/{firma}/g, firma);
+                msg = paymentTpl.replace(/{nome}/g, nome).replace(/{importo}/g, importo).replace(/{firma}/g, firma).replace(/{saluto}/g, saluto);
               } else {
                 msg = `Gentile ${nome},\n\nle ricordiamo un saldo aperto di €${importo} per le sedute effettuate.\n\nCordiali saluti${firma ? `,\n${firma}` : ""}`;
               }

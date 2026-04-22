@@ -8,12 +8,18 @@ function openWA(phone: string, message: string = ""): void {
   const url = isMobile
     ? "https://api.whatsapp.com/send?phone=" + n + text
     : "https://web.whatsapp.com/send?phone=" + n + text;
-  // Safari iOS blocca a.click() da funzioni async — window.open è più affidabile
-  const w = window.open(url, "_blank", "noopener,noreferrer");
-  if (!w) {
-    // fallback se popup bloccato
-    const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
-    document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200);
+
+  if (isMobile) {
+    // Su mobile: apri nella stessa tab. WhatsApp intercetterà l'URL e aprirà l'app.
+    // Quando l'utente torna al browser trova la pagina originale, non la tab api.whatsapp.com vuota.
+    window.location.href = url;
+  } else {
+    // Desktop: apri web.whatsapp.com in nuova tab
+    const w = window.open(url, "_blank", "noopener,noreferrer");
+    if (!w) {
+      const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+      document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200);
+    }
   }
 }
 
@@ -593,37 +599,57 @@ function CalendarPageInner() {
 
     const cleanPhone = formatPhoneForWA(patientPhone);
 
-    // ⚠️ SAFARI FIX: apri finestra vuota PRIMA di await per non perdere il user gesture
-    const waWindow = window.open("about:blank", "_blank");
+    try {
+      // 1. Genera token di conferma sicuro (solo per i promemoria, non per le conferme iniziali)
+      let linkConferma = "";
+      if (!isConfirmation) {
+        try {
+          const r = await fetch("/api/confirm", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ appointment_id: appointmentId }),
+          });
+          const j = await r.json();
+          if (r.ok && j.token) {
+            const originBase = typeof window !== "undefined" ? window.location.origin : "";
+            linkConferma = `${originBase}/conferma/${j.token}`;
+          }
+        } catch (e) {
+          console.warn("Impossibile generare token conferma:", e);
+        }
+      }
 
-    // Carica template dal DB (stesso comportamento del desktop)
-    const templateName = isConfirmation ? "Appuntamento" : "Promemoria";
-    const { data: templateData } = await supabase
-      .from("message_templates")
-      .select("template")
-      .eq("name", templateName)
-      .maybeSingle();
+      // 2. Carica template dal DB (stesso comportamento del desktop)
+      const templateName = isConfirmation ? "Appuntamento" : "Promemoria";
+      const { data: templateData } = await supabase
+        .from("message_templates")
+        .select("template")
+        .eq("name", templateName)
+        .maybeSingle();
 
-    // Usa la stessa utility del desktop per costruire il messaggio
-    const message = buildReminderMessage({
-      appointment: appointment as any,
-      patientFirstName,
-      template: templateData?.template ?? undefined,
-      isConfirmation: !!isConfirmation,
-      studioAddress: currentStudio?.address,
-      signatureName: currentStudio?.signature_name,
-      signatureTitle: currentStudio?.signature_title,
-    });
+      // 3. Usa la stessa utility del desktop per costruire il messaggio
+      const message = buildReminderMessage({
+        appointment: appointment as any,
+        patientFirstName,
+        template: templateData?.template ?? undefined,
+        isConfirmation: !!isConfirmation,
+        linkConferma,
+        studioAddress: currentStudio?.address,
+        signatureName: currentStudio?.signature_name,
+        signatureTitle: currentStudio?.signature_title,
+      });
 
-    const url = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
-    if (waWindow) waWindow.location.href = url;
-    else window.open(url, "_blank", "noopener,noreferrer");
+      // Aggiorna DB prima di navigare via (non blocca il redirect)
+      const nowIso = new Date().toISOString();
+      supabase.from("appointments").update({whatsapp_sent_at:nowIso,whatsapp_sent:true}).eq("id",appointmentId).then(()=>{});
+      setEvents(prev=>prev.map(ev=>ev.id===appointmentId?{...ev,whatsapp_sent_at:nowIso}:ev));
+      setSelectedEvent(prev=>prev?.id===appointmentId?{...prev,whatsapp_sent_at:nowIso}:prev);
 
-    // Aggiorna DB in background
-    const nowIso = new Date().toISOString();
-    await supabase.from("appointments").update({whatsapp_sent_at:nowIso,whatsapp_sent:true}).eq("id",appointmentId);
-    setEvents(prev=>prev.map(ev=>ev.id===appointmentId?{...ev,whatsapp_sent_at:nowIso}:ev));
-    setSelectedEvent(prev=>prev?.id===appointmentId?{...prev,whatsapp_sent_at:nowIso}:prev);
+      // 4. Naviga a WhatsApp usando openWA (stessa tab su mobile, nuova su desktop)
+      openWA(patientPhone, message);
+    } catch (e) {
+      console.error("Errore invio promemoria:", e);
+    }
   }, [events, currentStudio]);
 
   /* ── Open / Save / Delete ────────────────── */

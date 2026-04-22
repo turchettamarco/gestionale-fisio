@@ -5,6 +5,13 @@ import type { CalendarEvent } from "./types";
 import { CLINIC_ADDRESSES } from "./constants";
 import { formatDateRelative, fmtTime } from "./dateHelpers";
 
+// Calcola saluto dinamico in base all'ora corrente di invio.
+// Prima delle 14:00 → "Buongiorno", dalle 14:00 in poi → "Buonasera"
+export function getGreeting(now: Date = new Date()): string {
+  const hour = now.getHours();
+  return hour < 14 ? "Buongiorno" : "Buonasera";
+}
+
 // Costruisce un template di default basato sui dati dello studio corrente.
 // Se signature_name/title mancano, usa "Cordiali saluti" generico.
 export function defaultTemplateConferma(signatureName?: string | null, signatureTitle?: string | null): string {
@@ -19,13 +26,13 @@ export function defaultTemplateConferma(signatureName?: string | null, signature
 export function defaultTemplatePromemoria(signatureName?: string | null, signatureTitle?: string | null): string {
   const firma = [signatureName, signatureTitle].filter(Boolean).join("\n");
   return (
-    "Buongiorno {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore {ora}." +
+    "{saluto} {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore {ora}." +
     "\n\n📍 {luogo}\n\nCordiali saluti" +
     (firma ? `,\n${firma}` : "")
   );
 }
 
-// Placeholders supportati dal template: {nome} {data_relativa} {data} {ora} {luogo} {link_conferma} {link}
+// Placeholders supportati dal template: {saluto} {nome} {data_relativa} {data} {ora} {luogo} {link_conferma} {link} {firma}
 export function buildReminderMessage(params: {
   appointment: CalendarEvent;
   patientFirstName?: string;
@@ -33,9 +40,9 @@ export function buildReminderMessage(params: {
   isConfirmation: boolean;
   linkConferma?: string;
   // ─── Branding studio (multi-tenancy) ───
-  studioAddress?: string | null;        // indirizzo studio per fallback
-  signatureName?: string | null;        // "Dr. Marco Turchetta"
-  signatureTitle?: string | null;       // "Fisioterapia e Osteopatia"
+  studioAddress?: string | null;
+  signatureName?: string | null;
+  signatureTitle?: string | null;
 }): string {
   const {
     appointment, patientFirstName, template, isConfirmation, linkConferma = "",
@@ -51,6 +58,7 @@ export function buildReminderMessage(params: {
   const dataRelativa = formatDateRelative(appointment.start);
   const ora = fmtTime(appointment.start.toISOString());
   const nomePaziente = (patientFirstName?.trim()) || "Cliente";
+  const saluto = getGreeting();
 
   let luogo = "";
   if (appointment.location === "studio") {
@@ -66,6 +74,7 @@ export function buildReminderMessage(params: {
   const firma = [signatureName, signatureTitle].filter(Boolean).join("\n");
 
   let message = templateText
+    .replace(/{saluto}/g, saluto)
     .replace(/{nome}/g, nomePaziente)
     .replace(/{data_relativa}/g, dataRelativa)
     .replace(/{data}/g, dataRelativa)
@@ -74,6 +83,13 @@ export function buildReminderMessage(params: {
     .replace(/{link_conferma}/g, linkConferma)
     .replace(/{link}/g, linkConferma)
     .replace(/{firma}/g, firma);
+
+  // Se nel template esiste un "Buongiorno" hardcoded (vecchi template senza {saluto}),
+  // lo sostituiamo dinamicamente in base all'ora corrente.
+  // Questo gestisce backward-compat senza forzare l'utente a modificare i template.
+  if (saluto === "Buonasera") {
+    message = message.replace(/^Buongiorno\b/m, "Buonasera");
+  }
 
   // Aggiungi link conferma alla fine del messaggio se il template non lo contiene
   if (!isConfirmation && linkConferma && !message.includes(linkConferma)) {
