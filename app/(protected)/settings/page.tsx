@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
+import TemplateEditor, { DEFAULT_PLACEHOLDERS } from "./components/TemplateEditor";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const THEME = {
@@ -157,9 +159,60 @@ export default function SettingsPage() {
 
   // Section open/close
   const [showPractice,  setShowPractice]  = useState(true);
+  const [showStudio,    setShowStudio]    = useState(true);
   const [showPrices,    setShowPrices]    = useState(true);
   const [showHours,     setShowHours]     = useState(true);
   const [showTemplates, setShowTemplates] = useState(true);
+
+  // ─── Studio branding (tabella studios, multi-tenancy) ──────────────────────
+  const { studio, refresh: refreshStudio } = useCurrentStudio();
+  const [studioName, setStudioName] = useState("");
+  const [studioAddress, setStudioAddress] = useState("");
+  const [studioPhone, setStudioPhone] = useState("");
+  const [studioEmail, setStudioEmail] = useState("");
+  const [studioGoogleReview, setStudioGoogleReview] = useState("");
+  const [studioSignatureName, setStudioSignatureName] = useState("");
+  const [studioSignatureTitle, setStudioSignatureTitle] = useState("");
+  const [studioWebsite, setStudioWebsite] = useState("");
+  const [savingStudio, setSavingStudio] = useState(false);
+
+  // Popola i campi studio quando arriva il contesto
+  useEffect(() => {
+    if (!studio) return;
+    setStudioName(studio.name || "");
+    setStudioAddress(studio.address || "");
+    setStudioPhone(studio.phone || "");
+    setStudioEmail(studio.email || "");
+    setStudioGoogleReview(studio.google_review_link || "");
+    setStudioSignatureName(studio.signature_name || "");
+    setStudioSignatureTitle(studio.signature_title || "");
+    setStudioWebsite(studio.website || "");
+  }, [studio]);
+
+  const saveStudio = useCallback(async () => {
+    if (!studio?.id) { alert("Studio non disponibile"); return; }
+    if (!studioName.trim()) { alert("Il nome dello studio è obbligatorio"); return; }
+    setSavingStudio(true);
+    try {
+      const { error } = await supabase.from("studios").update({
+        name:               studioName.trim(),
+        address:            studioAddress.trim() || null,
+        phone:              studioPhone.trim() || null,
+        email:              studioEmail.trim() || null,
+        google_review_link: studioGoogleReview.trim() || null,
+        signature_name:     studioSignatureName.trim() || null,
+        signature_title:    studioSignatureTitle.trim() || null,
+        website:            studioWebsite.trim() || null,
+      }).eq("id", studio.id);
+      if (error) { alert("Errore: " + error.message); return; }
+      await refreshStudio();
+      flashSuccess("Studio salvato.");
+    } finally {
+      setSavingStudio(false);
+    }
+  }, [studio, studioName, studioAddress, studioPhone, studioEmail,
+      studioGoogleReview, studioSignatureName, studioSignatureTitle, studioWebsite,
+      refreshStudio]);
 
   // Working hours state — 7 righe (1 per giorno della settimana, 0-6)
   const [workingHours, setWorkingHours] = useState<WorkingHourRow[]>([]);
@@ -760,6 +813,167 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* ── SEZIONE STUDIO (branding multi-tenancy) ──────────────────────── */}
+        <div style={cardStyle}>
+          <div style={sectionHead} onClick={() => setShowStudio(!showStudio)}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: THEME.text }}>
+                🏥 Il tuo Studio
+              </div>
+              <div style={{ fontSize: 12, color: THEME.muted, marginTop: 2 }}>
+                Nome, indirizzo, firma messaggi · Usato in WhatsApp, PDF, link pubblici
+              </div>
+            </div>
+            <span style={{ color: THEME.muted, fontSize: 12, transform: showStudio ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
+          </div>
+
+          {showStudio && (
+            <div style={{ padding: "20px" }}>
+              <div style={{ padding: "12px 16px", borderRadius: 8, background: "rgba(13,148,136,0.05)", border: `1px solid rgba(13,148,136,0.2)`, marginBottom: 20, fontSize: 12, color: THEME.muted }}>
+                <strong style={{ color: THEME.teal }}>💡 Suggerimento:</strong> questi dati vengono usati automaticamente nei messaggi WhatsApp, nei PDF e nelle pagine pubbliche (portale paziente, conferma appuntamenti). Compila soprattutto la firma — sarà il nome mostrato ai tuoi pazienti.
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={labelStyle}>Nome studio *</label>
+                  <input
+                    value={studioName}
+                    onChange={e => setStudioName(e.target.value)}
+                    placeholder="Es. FisioHub"
+                    style={inputStyle}
+                  />
+                  <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>
+                    Nome che identifica il tuo studio nel sistema
+                  </div>
+                </div>
+
+                <div style={{ gridColumn: "1 / -1", marginTop: 8, paddingTop: 16, borderTop: `1px solid ${THEME.border}` }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: THEME.text, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    Firma nei messaggi WhatsApp
+                  </div>
+                </div>
+
+                <div>
+                  <label style={labelStyle}>Nome operatore *</label>
+                  <input
+                    value={studioSignatureName}
+                    onChange={e => setStudioSignatureName(e.target.value)}
+                    placeholder="Es. Dr. Marco Turchetta"
+                    style={inputStyle}
+                  />
+                  <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>
+                    Firma dell'operatore nei messaggi
+                  </div>
+                </div>
+
+                <div>
+                  <label style={labelStyle}>Qualifica professionale</label>
+                  <input
+                    value={studioSignatureTitle}
+                    onChange={e => setStudioSignatureTitle(e.target.value)}
+                    placeholder="Es. Fisioterapia e Osteopatia"
+                    style={inputStyle}
+                  />
+                  <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>
+                    Specialità/disciplina sotto la firma
+                  </div>
+                </div>
+
+                <div style={{ gridColumn: "1 / -1", marginTop: 8, paddingTop: 16, borderTop: `1px solid ${THEME.border}` }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: THEME.text, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    Contatti e indirizzo
+                  </div>
+                </div>
+
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={labelStyle}>Indirizzo studio</label>
+                  <input
+                    value={studioAddress}
+                    onChange={e => setStudioAddress(e.target.value)}
+                    placeholder="Es. Via Roma 10, 20100 Milano (MI)"
+                    style={inputStyle}
+                  />
+                  <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>
+                    Indirizzo mostrato nei messaggi di promemoria
+                  </div>
+                </div>
+
+                <div>
+                  <label style={labelStyle}>Telefono</label>
+                  <input
+                    value={studioPhone}
+                    onChange={e => setStudioPhone(e.target.value)}
+                    placeholder="Es. +39 333 1234567"
+                    style={inputStyle}
+                  />
+                </div>
+
+                <div>
+                  <label style={labelStyle}>Email</label>
+                  <input
+                    type="email"
+                    value={studioEmail}
+                    onChange={e => setStudioEmail(e.target.value)}
+                    placeholder="info@fisiohub.it"
+                    style={inputStyle}
+                  />
+                </div>
+
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={labelStyle}>Sito web (opzionale)</label>
+                  <input
+                    value={studioWebsite}
+                    onChange={e => setStudioWebsite(e.target.value)}
+                    placeholder="https://www.miostudio.it"
+                    style={inputStyle}
+                  />
+                </div>
+
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={labelStyle}>Link recensioni Google</label>
+                  <input
+                    value={studioGoogleReview}
+                    onChange={e => setStudioGoogleReview(e.target.value)}
+                    placeholder="https://g.page/r/..."
+                    style={inputStyle}
+                  />
+                  {studioGoogleReview && (
+                    <div style={{ marginTop: 6, fontSize: 11, color: THEME.teal, fontWeight: 600 }}>
+                      ✓ Configurato — sarà usato nel messaggio di richiesta recensione
+                    </div>
+                  )}
+                  {!studioGoogleReview && (
+                    <div style={{ marginTop: 6, fontSize: 11, color: THEME.muted }}>
+                      Copialo dalla tua pagina Google Business. Serve per chiedere recensioni ai pazienti via WhatsApp.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Anteprima firma */}
+              {(studioSignatureName || studioSignatureTitle) && (
+                <div style={{
+                  marginTop: 20, padding: 14, borderRadius: 8,
+                  background: "#f8fafc", border: `1px solid ${THEME.border}`,
+                }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    Anteprima firma nei messaggi
+                  </div>
+                  <div style={{ fontSize: 13, color: THEME.textSoft, lineHeight: 1.6, whiteSpace: "pre-line" }}>
+                    Cordiali saluti,{"\n"}
+                    <strong>{studioSignatureName || "[Nome operatore]"}</strong>{"\n"}
+                    {studioSignatureTitle || "[Qualifica]"}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+                {btnPrimary(savingStudio ? "Salvataggio…" : "Salva dati studio", () => void saveStudio(), savingStudio)}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* ── SEZIONE STUDIO ─────────────────────────────────────────────── */}
         <div style={cardStyle}>
           <div style={sectionHead} onClick={() => setShowPractice(!showPractice)}>
@@ -999,20 +1213,9 @@ export default function SettingsPage() {
               <div>
                 <div style={{ fontSize:13, fontWeight:800, color:THEME.text, marginBottom:14, paddingBottom:8, borderBottom:`1.5px solid ${THEME.border}` }}>
                   📋 Template promemoria calendario
-                  <div style={{ fontSize:11, fontWeight:500, color:THEME.muted, marginTop:3 }}>Usati dai bottoni WA nel calendario · Variabili: {"{nome}"} {"{data_relativa}"} {"{ora}"} {"{luogo}"}</div>
+                  <div style={{ fontSize:11, fontWeight:500, color:THEME.muted, marginTop:3 }}>Usati dai bottoni WhatsApp nel calendario</div>
                 </div>
             <div style={{ padding:"20px" }}>
-
-              {/* Placeholder info */}
-              <div style={{ padding:"12px 16px", borderRadius:8, background:THEME.panelSoft, border:`1px solid ${THEME.border}`, marginBottom:16 }}>
-                <div style={{ fontSize:12, fontWeight:700, color:THEME.muted, marginBottom:8, textTransform:"uppercase", letterSpacing:0.4 }}>Placeholder disponibili</div>
-                <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-                  {["{nome}", "{data_relativa}", "{ora}", "{luogo}"].map(p => (
-                    <code key={p} style={{ background:THEME.text, color:"#fff", padding:"3px 8px", borderRadius:5, fontSize:12, fontWeight:600 }}>{p}</code>
-                  ))}
-                </div>
-                <div style={{ marginTop:8, fontSize:11, color:THEME.muted }}>Vengono sostituiti automaticamente con i dati del paziente e dell&apos;appuntamento.</div>
-              </div>
 
               {/* Aggiungi nuovo */}
               <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:addingNew ? 12 : 16 }}>
@@ -1028,15 +1231,14 @@ export default function SettingsPage() {
                     <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Es. Promemoria standard" style={inputStyle} autoFocus />
                   </div>
                   <div style={{ marginBottom:12 }}>
-                    <label style={labelStyle}>Messaggio *</label>
-                    <textarea value={newTemplate} onChange={e => setNewTemplate(e.target.value)} rows={6} style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }} />
+                    <TemplateEditor
+                      label="Messaggio *"
+                      value={newTemplate}
+                      onChange={setNewTemplate}
+                      rows={6}
+                      helperText="Clicca i bottoni sopra per inserire i dati del paziente nel messaggio."
+                    />
                   </div>
-                  {newTemplate && (
-                    <div style={{ marginBottom:12, padding:12, borderRadius:8, background:"#fff", border:`1px solid ${THEME.border}` }}>
-                      <div style={{ fontSize:11, fontWeight:700, color:THEME.muted, marginBottom:6, textTransform:"uppercase", letterSpacing:0.4 }}>Anteprima</div>
-                      <div style={{ fontSize:13, whiteSpace:"pre-wrap", color:THEME.textSoft, lineHeight:1.5 }}>{formatPreview(newTemplate)}</div>
-                    </div>
-                  )}
                   <div style={{ display:"flex", justifyContent:"flex-end", gap:8 }}>
                     {btnOutline("Annulla", () => { setNewName(""); setNewTemplate(""); setAddingNew(false); })}
                     {btnPrimary("Crea template", () => void createNewTemplate())}
@@ -1067,15 +1269,13 @@ export default function SettingsPage() {
                             <input value={editName} onChange={e => setEditName(e.target.value)} style={inputStyle} />
                           </div>
                           <div style={{ marginBottom:10 }}>
-                            <label style={labelStyle}>Messaggio</label>
-                            <textarea value={editTemplate} onChange={e => setEditTemplate(e.target.value)} rows={6} style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }} />
+                            <TemplateEditor
+                              label="Messaggio"
+                              value={editTemplate}
+                              onChange={setEditTemplate}
+                              rows={6}
+                            />
                           </div>
-                          {editTemplate && (
-                            <div style={{ marginBottom:10, padding:12, borderRadius:8, background:THEME.panelSoft, border:`1px solid ${THEME.border}` }}>
-                              <div style={{ fontSize:11, fontWeight:700, color:THEME.muted, marginBottom:6, textTransform:"uppercase", letterSpacing:0.4 }}>Anteprima</div>
-                              <div style={{ fontSize:13, whiteSpace:"pre-wrap", color:THEME.textSoft, lineHeight:1.5 }}>{formatPreview(editTemplate)}</div>
-                            </div>
-                          )}
                           <div style={{ display:"flex", justifyContent:"flex-end", gap:8 }}>
                             {btnOutline("Annulla", () => setEditingId(null))}
                             {btnPrimary("Salva modifiche", () => void saveTemplate(template.id))}
@@ -1112,49 +1312,61 @@ export default function SettingsPage() {
                   🤖 Messaggi automatici
                   <div style={{ fontSize:11, fontWeight:500, color:THEME.muted, marginTop:3 }}>Benvenuto nuovo paziente · Conferma prenotazione online</div>
                 </div>
-            <div style={{ padding:"20px", display:"flex", flexDirection:"column", gap:16 }}>
-              <div>
-                <label style={labelStyle}>Messaggio benvenuto nuovo paziente (WhatsApp)</label>
-                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato automaticamente al primo appuntamento. Usa: {"{nome}"}</div>
-                <textarea value={welcomeMsg} onChange={e=>setWelcomeMsg(e.target.value)} rows={4}
-                  placeholder={"Benvenuto/a {nome}! Siamo lieti di averla come paziente. Per qualsiasi informazione siamo a sua disposizione.\nDr. Marco Turchetta"}
-                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
-              </div>
-              <div>
-                <label style={labelStyle}>Messaggio conferma prenotazione online (WhatsApp)</label>
-                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato quando confermi una prenotazione dal sito. Usa: {"{nome}"} {"{data}"} {"{ora}"}</div>
-                <textarea value={bookingConfirmMsg} onChange={e=>setBookingConfirmMsg(e.target.value)} rows={4}
-                  placeholder={"Gentile {nome}, la sua prenotazione per il {data} alle {ora} è confermata.\nA presto, Dr. Marco Turchetta"}
-                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
-              </div>
-              <div>
-                <label style={labelStyle}>Promemoria appuntamento (WhatsApp)</label>
-                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato come promemoria. Usa: {"{nome}"} {"{data}"} {"{ora}"} {"{luogo}"}</div>
-                <textarea value={reminderMsg} onChange={e=>setReminderMsg(e.target.value)} rows={4}
-                  placeholder={"Buongiorno {nome},\nLe ricordiamo l'appuntamento di {data} alle {ora}.\n📍 {luogo}\nA presto, Dr. Marco Turchetta"}
-                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
-              </div>
-              <div>
-                <label style={labelStyle}>Sollecito pagamento (WhatsApp)</label>
-                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Per pazienti con saldo aperto. Usa: {"{nome}"} {"{importo}"}</div>
-                <textarea value={paymentMsg} onChange={e=>setPaymentMsg(e.target.value)} rows={4}
-                  placeholder={"Gentile {nome},\nLe ricordiamo un saldo aperto di €{importo} per le sedute effettuate.\nPer info contatti lo studio.\nGrazie, Dr. Marco Turchetta"}
-                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
-              </div>
-              <div>
-                <label style={labelStyle}>Auguri compleanno (WhatsApp)</label>
-                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato dal widget compleanni in dashboard. Usa: {"{nome}"}</div>
-                <textarea value={birthdayMsg} onChange={e=>setBirthdayMsg(e.target.value)} rows={3}
-                  placeholder={"Tanti auguri {nome}! 🎉\nDr. Marco Turchetta e tutto lo staff le augurano una splendida giornata!"}
-                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
-              </div>
-              <div>
-                <label style={labelStyle}>Questionario soddisfazione (WhatsApp)</label>
-                <div style={{ fontSize:11, color:THEME.muted, marginBottom:6 }}>Inviato al termine del ciclo. Usa: {"{nome}"} {"{link}"}</div>
-                <textarea value={satisfactionMsg} onChange={e=>setSatisfactionMsg(e.target.value)} rows={3}
-                  placeholder={"Gentile {nome}, il suo ciclo di trattamento è terminato.\nSaremmo grati se volesse rispondere a 3 domande:\n{link}\nGrazie, Dr. Marco Turchetta"}
-                  style={{ ...inputStyle, resize:"vertical", fontFamily:"monospace", lineHeight:1.5 }}/>
-              </div>
+            <div style={{ padding:"20px", display:"flex", flexDirection:"column", gap:20 }}>
+              <TemplateEditor
+                label="Messaggio benvenuto nuovo paziente"
+                value={welcomeMsg}
+                onChange={setWelcomeMsg}
+                rows={4}
+                helperText="Inviato automaticamente al primo appuntamento."
+                placeholders={DEFAULT_PLACEHOLDERS.filter(p => ["nome"].includes(p.key))}
+              />
+              <TemplateEditor
+                label="Messaggio conferma prenotazione online"
+                value={bookingConfirmMsg}
+                onChange={setBookingConfirmMsg}
+                rows={4}
+                helperText="Inviato quando confermi una prenotazione arrivata dal sito."
+                placeholders={DEFAULT_PLACEHOLDERS.filter(p => ["nome","data","ora"].includes(p.key))}
+              />
+              <TemplateEditor
+                label="Promemoria appuntamento"
+                value={reminderMsg}
+                onChange={setReminderMsg}
+                rows={4}
+                helperText="Inviato come promemoria prima dell'appuntamento."
+                placeholders={DEFAULT_PLACEHOLDERS.filter(p => ["nome","data","ora","luogo"].includes(p.key))}
+              />
+              <TemplateEditor
+                label="Sollecito pagamento"
+                value={paymentMsg}
+                onChange={setPaymentMsg}
+                rows={4}
+                helperText="Per pazienti con saldo aperto."
+                placeholders={[
+                  ...DEFAULT_PLACEHOLDERS.filter(p => p.key === "nome"),
+                  { key: "importo", label: "Importo €", icon: "💶", example: "120" },
+                ]}
+              />
+              <TemplateEditor
+                label="Auguri compleanno"
+                value={birthdayMsg}
+                onChange={setBirthdayMsg}
+                rows={3}
+                helperText="Inviato dal widget compleanni in dashboard."
+                placeholders={DEFAULT_PLACEHOLDERS.filter(p => p.key === "nome")}
+              />
+              <TemplateEditor
+                label="Questionario soddisfazione"
+                value={satisfactionMsg}
+                onChange={setSatisfactionMsg}
+                rows={3}
+                helperText="Inviato al termine del ciclo di trattamento."
+                placeholders={[
+                  ...DEFAULT_PLACEHOLDERS.filter(p => p.key === "nome"),
+                  { key: "link", label: "Link questionario", icon: "🔗", example: "https://gestionale.app/survey/abc123" },
+                ]}
+              />
               <div style={{ display:"flex", justifyContent:"flex-end" }}>
                 {btnPrimary(savingPractice?"Salvataggio…":"Salva messaggi", ()=>void savePracticeSettings(), savingPractice)}
               </div>

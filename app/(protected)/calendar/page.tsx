@@ -63,7 +63,7 @@ import { exportWeekToPDF } from "./utils/exportPDF";
 import { buildReminderMessage } from "./utils/reminderMessage";
 
 // ─── Studio context (multi-tenancy) ──────────────────────────────────────────
-import { useCurrentStudioId } from "@/src/contexts/StudioContext";
+import { useCurrentStudio, useCurrentStudioId } from "@/src/contexts/StudioContext";
 
 export default function CalendarPage() {
   return (
@@ -77,8 +77,9 @@ export default function CalendarPage() {
 function CalendarPageInner() {
 
   // Studio corrente dell'utente loggato (multi-tenancy).
-  // Viene passato nelle INSERT degli appuntamenti.
-  const currentStudioId = useCurrentStudioId();
+  // Viene passato nelle INSERT degli appuntamenti e nei messaggi WA.
+  const { studio: currentStudio } = useCurrentStudio();
+  const currentStudioId = currentStudio?.id ?? null;
 
   const params = useSearchParams();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -1190,6 +1191,9 @@ diagnosis: patient?.diagnosis ?? null,
         template: templateData?.template ?? undefined,
         isConfirmation: !!isConfirmation,
         linkConferma,
+        studioAddress: currentStudio?.address,
+        signatureName: currentStudio?.signature_name,
+        signatureTitle: currentStudio?.signature_title,
       });
 
       // 4. Costruisci URL WhatsApp e lo carica nella finestra aperta sopra
@@ -1222,13 +1226,19 @@ diagnosis: patient?.diagnosis ?? null,
       if (waWindow) waWindow.close();
       alert("Errore durante l'invio del promemoria.");
     }
-  }, [events]);
+  }, [events, currentStudio]);
 
   // ── Chiedi Recensione Google via WhatsApp ──────────────────────────
   const sendGoogleReview = useCallback(async (patientPhone?: string, patientFirstName?: string) => {
     if (!patientPhone) { alert("Nessun telefono registrato per questo paziente"); return; }
     const nomePaziente = (patientFirstName?.trim()) || "Cliente";
-    const googleLink = practiceSettings?.google_review_link || GOOGLE_REVIEW_LINK_FALLBACK;
+    // Preferisci il link studio (multi-tenancy); fallback a practice_settings; ultimo fallback locale
+    const googleLink =
+      currentStudio?.google_review_link ||
+      practiceSettings?.google_review_link ||
+      GOOGLE_REVIEW_LINK_FALLBACK;
+    const firma = [currentStudio?.signature_name, currentStudio?.signature_title]
+      .filter(Boolean).join("\n");
     const message = `Buongiorno ${nomePaziente},
 
 Grazie per aver scelto il nostro studio! 🙏
@@ -1239,12 +1249,10 @@ ${googleLink}
 
 La sua opinione ci aiuta a migliorare e a farci conoscere.
 
-Grazie di cuore,
-Dr. Marco Turchetta
-Fisioterapia e Osteopatia`;
-    
+Grazie di cuore${firma ? `,\n${firma}` : ""}`;
+
     openWhatsApp(patientPhone, message);
-  }, [practiceSettings]);
+  }, [practiceSettings, currentStudio]);
   const toggleBulkSelect = useCallback((id: string) => {
     setBulkSelected(prev => {
       const next = new Set(prev);
@@ -1649,21 +1657,22 @@ Fisioterapia e Osteopatia`;
             if (createLocation === 'studio') {
               luogo = CLINIC_ADDRESSES[createClinicSite] || 
                       createClinicSite || 
-                      "Pontecorvo, Via Galileo Galilei 5, dietro il Bar Principe";
+                      currentStudio?.address ||
+                      "";
             } else {
               luogo = `Presso il suo domicilio (${createDomicileAddress})`;
             }
             
             const nomePaziente = selectedPatient.first_name || "Cliente";
+            const firma = [currentStudio?.signature_name, currentStudio?.signature_title]
+              .filter(Boolean).join("\n");
             
             const message = `Grazie per averci scelto.
 Ricordiamo il prossimo appuntamento fissato per ${dataRelativa} alle ${ora}.
 
 📍 ${luogo}
 
-A presto,
-Dr. Marco Turchetta
-Fisioterapia e Osteopatia`;
+A presto${firma ? `,\n${firma}` : ""}`;
             
             openWhatsApp(selectedPatient.phone || "", message);
 
@@ -5484,12 +5493,10 @@ return (
                   maxHeight: 150,
                   overflowY: "auto",
                 }}>
-                  Grazie per averci scelto.
-                  Ricordiamo il prossimo appuntamento fissato per {formatDateRelative(new Date(createStartISO))} alle {fmtTime(createStartISO)}.
+                  {`Grazie per averci scelto.
+Ricordiamo il prossimo appuntamento fissato per ${formatDateRelative(new Date(createStartISO))} alle ${fmtTime(createStartISO)}.
 
-                  A presto,
-                  Dr. Marco Turchetta
-                  Fisioterapia e Osteopatia
+A presto${[currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n") ? `,\n${[currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n")}` : ""}`}
                 </div>
                 <div style={{ marginTop: 8, fontSize: 12, color: THEME.muted, fontWeight: 600 }}>
                   Destinatario: {selectedPatient?.phone}

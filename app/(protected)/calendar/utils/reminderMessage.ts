@@ -5,12 +5,25 @@ import type { CalendarEvent } from "./types";
 import { CLINIC_ADDRESSES } from "./constants";
 import { formatDateRelative, fmtTime } from "./dateHelpers";
 
-// Template di default usati se il template personalizzato dal DB è assente
-export const DEFAULT_TEMPLATE_CONFERMA =
-  "Grazie per averci scelto.\nRicordiamo il prossimo appuntamento fissato per {data_relativa} alle {ora}.\n\nA presto,\nDr. Marco Turchetta\nFisioterapia e Osteopatia";
+// Costruisce un template di default basato sui dati dello studio corrente.
+// Se signature_name/title mancano, usa "Cordiali saluti" generico.
+export function defaultTemplateConferma(signatureName?: string | null, signatureTitle?: string | null): string {
+  const firma = [signatureName, signatureTitle].filter(Boolean).join("\n");
+  return (
+    "Grazie per averci scelto.\nRicordiamo il prossimo appuntamento fissato per {data_relativa} alle {ora}." +
+    "\n\nA presto" +
+    (firma ? `,\n${firma}` : "")
+  );
+}
 
-export const DEFAULT_TEMPLATE_PROMEMORIA =
-  "Buongiorno {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore {ora}.\n\n📍 {luogo}\n\nCordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia";
+export function defaultTemplatePromemoria(signatureName?: string | null, signatureTitle?: string | null): string {
+  const firma = [signatureName, signatureTitle].filter(Boolean).join("\n");
+  return (
+    "Buongiorno {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore {ora}." +
+    "\n\n📍 {luogo}\n\nCordiali saluti" +
+    (firma ? `,\n${firma}` : "")
+  );
+}
 
 // Placeholders supportati dal template: {nome} {data_relativa} {data} {ora} {luogo} {link_conferma} {link}
 export function buildReminderMessage(params: {
@@ -19,12 +32,21 @@ export function buildReminderMessage(params: {
   template?: string;
   isConfirmation: boolean;
   linkConferma?: string;
+  // ─── Branding studio (multi-tenancy) ───
+  studioAddress?: string | null;        // indirizzo studio per fallback
+  signatureName?: string | null;        // "Dr. Marco Turchetta"
+  signatureTitle?: string | null;       // "Fisioterapia e Osteopatia"
 }): string {
-  const { appointment, patientFirstName, template, isConfirmation, linkConferma = "" } = params;
+  const {
+    appointment, patientFirstName, template, isConfirmation, linkConferma = "",
+    studioAddress, signatureName, signatureTitle,
+  } = params;
 
   const templateText =
     template ||
-    (isConfirmation ? DEFAULT_TEMPLATE_CONFERMA : DEFAULT_TEMPLATE_PROMEMORIA);
+    (isConfirmation
+      ? defaultTemplateConferma(signatureName, signatureTitle)
+      : defaultTemplatePromemoria(signatureName, signatureTitle));
 
   const dataRelativa = formatDateRelative(appointment.start);
   const ora = fmtTime(appointment.start.toISOString());
@@ -35,7 +57,8 @@ export function buildReminderMessage(params: {
     luogo =
       CLINIC_ADDRESSES[appointment.clinic_site || ""] ||
       appointment.clinic_site ||
-      "Pontecorvo, Via Galileo Galilei 5";
+      studioAddress ||
+      "";
   } else {
     luogo = `Presso il suo domicilio (${appointment.domicile_address})`;
   }
@@ -50,10 +73,14 @@ export function buildReminderMessage(params: {
     .replace(/{link}/g, linkConferma);
 
   // Aggiungi link conferma alla fine del messaggio se il template non lo contiene
-  // (solo per i promemoria, non per le conferme di nuovo appuntamento)
   if (!isConfirmation && linkConferma && !message.includes(linkConferma)) {
     message += `\n\n👉 Conferma o annulla con un click:\n${linkConferma}`;
   }
 
   return message;
 }
+
+// Backward compatibility: i vecchi consumatori che importano queste costanti
+// ricevono un template senza firma (vuoto). Preferibile usare le funzioni sopra.
+export const DEFAULT_TEMPLATE_CONFERMA = defaultTemplateConferma();
+export const DEFAULT_TEMPLATE_PROMEMORIA = defaultTemplatePromemoria();
