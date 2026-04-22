@@ -333,9 +333,20 @@ export default function MobileHomePage() {
           .maybeSingle();
         if (tplData?.template) setReminderTpl(tplData.template);
 
-        // Pre-genera token conferma per ogni appuntamento (in parallelo)
-        const links: Record<string, string> = {};
-        await Promise.all(allAppts.map(async (a: any) => {
+        // Pre-genera token conferma per ogni appuntamento (in parallelo).
+        // Aggiorniamo confirmLinks DOPO OGNI singola risposta, così se Marco
+        // clicca WA su un appt specifico, il link appare appena pronto (non deve
+        // aspettare che TUTTI gli altri siano finiti).
+        // Dà priorità agli appuntamenti di OGGI (li fetcha per primi).
+        const today = allAppts.filter((a: any) => {
+          const d = new Date(a.start_at);
+          const now = new Date();
+          return d.toDateString() === now.toDateString();
+        });
+        const others = allAppts.filter((a: any) => !today.includes(a));
+        const ordered = [...today, ...others];
+
+        await Promise.all(ordered.map(async (a: any) => {
           try {
             const r = await fetch("/api/confirm", {
               method: "POST",
@@ -344,11 +355,13 @@ export default function MobileHomePage() {
             });
             const j = await r.json();
             if (r.ok && j.token) {
-              links[a.id] = `${window.location.origin}/conferma/${j.token}`;
+              setConfirmLinks(prev => ({
+                ...prev,
+                [a.id]: `${window.location.origin}/conferma/${j.token}`,
+              }));
             }
           } catch {}
         }));
-        setConfirmLinks(links);
       })();
     } catch (e: any) {
       setError(e?.message ?? "Errore imprevisto");
@@ -1072,7 +1085,25 @@ export default function MobileHomePage() {
                       transition: "opacity 0.15s",
                       animation: `fadeIn 0.15s ease ${idx * 0.02}s both`,
                     }}
-                    onClick={() => setExpandedId(isExpanded ? null : a.id)}
+                    onClick={() => {
+                      const willExpand = !isExpanded;
+                      setExpandedId(willExpand ? a.id : null);
+                      // Se espandiamo e il link conferma non è in cache, fetchalo ora in priorità
+                      if (willExpand && !confirmLinks[a.id]) {
+                        fetch("/api/confirm", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ appointment_id: a.id }),
+                        }).then(r => r.json()).then(j => {
+                          if (j.token) {
+                            setConfirmLinks(prev => ({
+                              ...prev,
+                              [a.id]: `${window.location.origin}/conferma/${j.token}`,
+                            }));
+                          }
+                        }).catch(() => {});
+                      }
+                    }}
                   >
                     {/* ── Main row: info + micro actions ── */}
                     <div style={{

@@ -363,8 +363,8 @@ function CalendarPageInner() {
       if (promRes.data?.template) setReminderTplCache(promRes.data.template);
       if (confRes.data?.template) setConfirmTplCache(confRes.data.template);
 
-      // Pre-genera token conferma per tutti gli eventi caricati (in parallelo)
-      const links: Record<string, string> = {};
+      // Pre-genera token conferma per tutti gli eventi (update progressivo).
+      // Ogni link diventa disponibile appena fetchato — non aspetta che TUTTI siano finiti.
       await Promise.all(mapped.map(async (ev) => {
         try {
           const r = await fetch("/api/confirm", {
@@ -374,11 +374,13 @@ function CalendarPageInner() {
           });
           const j = await r.json();
           if (r.ok && j.token) {
-            links[ev.id] = `${window.location.origin}/conferma/${j.token}`;
+            setConfirmLinks(prev => ({
+              ...prev,
+              [ev.id]: `${window.location.origin}/conferma/${j.token}`,
+            }));
           }
         } catch {}
       }));
-      setConfirmLinks(prev => ({ ...prev, ...links }));
     })();
   }, []);
 
@@ -667,7 +669,37 @@ function CalendarPageInner() {
     setEditDate(toISODateLocal(ev.start));
     setEditTime(`${pad2(ev.start.getHours())}:${pad2(ev.start.getMinutes())}`);
     setEditDuration(Math.max(15,Math.round((ev.end.getTime()-ev.start.getTime())/60_000)));
-  }, []);
+
+    // Pre-fetch link conferma AL MOMENTO dell'apertura del modal.
+    // Marco apre il modal, guarda i dettagli (1-2 secondi), poi clicca WA → il link è pronto.
+    // Se già in cache, non rifacciamo la chiamata.
+    if (!confirmLinks[ev.id]) {
+      (async () => {
+        try {
+          const r = await fetch("/api/confirm", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ appointment_id: ev.id }),
+          });
+          const j = await r.json();
+          if (r.ok && j.token) {
+            setConfirmLinks(prev => ({
+              ...prev,
+              [ev.id]: `${window.location.origin}/conferma/${j.token}`,
+            }));
+          }
+        } catch {}
+      })();
+    }
+    // Carica anche i template se non ancora in cache
+    if (!reminderTplCache) {
+      (async () => {
+        const { data } = await supabase.from("message_templates")
+          .select("template").eq("name", "Promemoria").maybeSingle();
+        if (data?.template) setReminderTplCache(data.template);
+      })();
+    }
+  }, [confirmLinks, reminderTplCache]);
 
   const saveEvent = useCallback(async () => {
     if (!selectedEvent) return;
