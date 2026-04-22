@@ -743,9 +743,15 @@ export default function PatientDetailPage({
 
   useEffect(() => {
     (async () => {
+      // Recupera l'utente autenticato per filtrare solo le sue impostazioni
+      const { data: userData } = await supabase.auth.getUser();
+      const ownerId = userData?.user?.id;
+      if (!ownerId) return;
+
       const { data } = await supabase
         .from("practice_settings")
         .select("welcome_message, booking_confirm_message, payment_message, birthday_message, satisfaction_message")
+        .eq("owner_id", ownerId)
         .maybeSingle();
       if (data) setTemplateMessages(data as any);
     })();

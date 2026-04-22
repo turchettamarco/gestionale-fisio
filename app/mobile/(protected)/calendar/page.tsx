@@ -304,13 +304,20 @@ function CalendarPageInner() {
 
   /* ── User ────────────────────────────────── */
   useEffect(() => {
-    supabase.auth.getUser().then(({data}) => setUserEmail(data?.user?.email??null)).catch(()=>{});
-    // Load default appointment status
-    supabase.from("practice_settings").select("default_appointment_status, overlap_mode").maybeSingle()
-      .then(({data})=>{
-        if(data?.default_appointment_status) setDefaultStatus(data.default_appointment_status as "confirmed"|"booked");
-        if(data?.overlap_mode) setOverlapMode(data.overlap_mode as "block"|"warn"|"visual");
-      }, ()=>{});
+    (async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      setUserEmail(userData?.user?.email ?? null);
+      const ownerId = userData?.user?.id;
+      if (!ownerId) return;
+      // Load default appointment status filtrato per owner
+      const { data } = await supabase
+        .from("practice_settings")
+        .select("default_appointment_status, overlap_mode")
+        .eq("owner_id", ownerId)
+        .maybeSingle();
+      if (data?.default_appointment_status) setDefaultStatus(data.default_appointment_status as "confirmed"|"booked");
+      if (data?.overlap_mode) setOverlapMode(data.overlap_mode as "block"|"warn"|"visual");
+    })().catch(() => {});
   }, []);
   useEffect(() => {
     const fn = (e: MouseEvent) => {

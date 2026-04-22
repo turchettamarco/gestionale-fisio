@@ -315,9 +315,14 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   const [paymentTpl, setPaymentTpl] = useState<string | null>(null);
   useEffect(() => {
     (async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      const ownerId = userData?.user?.id;
+      if (!ownerId) return;
+
       const { data } = await supabase
         .from("practice_settings")
         .select("birthday_message, payment_message")
+        .eq("owner_id", ownerId)
         .maybeSingle();
       if (data) {
         setBirthdayTpl((data as any).birthday_message ?? null);

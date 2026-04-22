@@ -101,9 +101,14 @@ export default function NewPatientPage() {
   const [welcomeTpl, setWelcomeTpl] = useState<string | null>(null);
   useEffect(() => {
     (async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      const ownerId = userData?.user?.id;
+      if (!ownerId) return;
+
       const { data } = await supabase
         .from("practice_settings")
         .select("welcome_message")
+        .eq("owner_id", ownerId)
         .maybeSingle();
       setWelcomeTpl((data as any)?.welcome_message ?? null);
     })();
