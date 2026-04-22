@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/src/lib/supabaseServer";
 import GlobalSearch from "./components/GlobalSearch";
+import ProtectedProviders from "@/src/contexts/ProtectedProviders";
 
 export default async function ProtectedLayout({
   children,
@@ -13,9 +14,9 @@ export default async function ProtectedLayout({
   if (!user) redirect("/login");
 
   return (
-    <>
+    <ProtectedProviders>
       {children}
       <GlobalSearch />
-    </>
+    </ProtectedProviders>
   );
 }

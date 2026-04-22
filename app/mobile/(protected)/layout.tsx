@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
+import { StudioProvider } from "@/src/contexts/StudioContext";
 
 export default function MobileProtectedLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -25,5 +26,5 @@ export default function MobileProtectedLayout({ children }: { children: React.Re
   }, [router]);
 
   if (!ready) return null;
-  return <>{children}</>;
+  return <StudioProvider>{children}</StudioProvider>;
 }
