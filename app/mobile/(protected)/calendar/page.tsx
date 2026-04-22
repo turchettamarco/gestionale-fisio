@@ -3,22 +3,16 @@
 function openWA(phone: string, message: string = ""): void {
   const p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
   const n = p.startsWith("00") ? p.slice(2) : p.startsWith("0") ? "39" + p : !p.startsWith("39") && p.length <= 10 ? "39" + p : p;
-  const text = message ? "?text=" + encodeURIComponent(message) : "";
-  const textWeb = message ? "&text=" + encodeURIComponent(message) : "";
+  const text = message ? "&text=" + encodeURIComponent(message) : "";
   const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
-
-  if (isMobile) {
-    // wa.me/ su mobile apre DIRETTAMENTE l'app WhatsApp (senza passare da api.whatsapp.com)
-    // e rimaniamo nella stessa tab così quando l'utente torna trova il gestionale
-    window.location.href = "https://wa.me/" + n + text;
-  } else {
-    // Desktop: web.whatsapp.com in nuova tab
-    const url = "https://web.whatsapp.com/send?phone=" + n + textWeb;
-    const w = window.open(url, "_blank", "noopener,noreferrer");
-    if (!w) {
-      const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
-      document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200);
-    }
+  const url = isMobile
+    ? "https://api.whatsapp.com/send?phone=" + n + text
+    : "https://web.whatsapp.com/send?phone=" + n + text;
+  // Apre in nuova tab — comportamento originale che funzionava
+  const w = window.open(url, "_blank", "noopener,noreferrer");
+  if (!w) {
+    const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+    document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200);
   }
 }
 
@@ -598,6 +592,9 @@ function CalendarPageInner() {
 
     const cleanPhone = formatPhoneForWA(patientPhone);
 
+    // ⚠️ SAFARI FIX: apri finestra vuota PRIMA di await per non perdere il user gesture
+    const waWindow = window.open("about:blank", "_blank");
+
     try {
       // 1. Genera token di conferma sicuro (solo per i promemoria, non per le conferme iniziali)
       let linkConferma = "";
@@ -638,16 +635,18 @@ function CalendarPageInner() {
         signatureTitle: currentStudio?.signature_title,
       });
 
-      // Aggiorna DB prima di navigare via (non blocca il redirect)
+      const url = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
+      if (waWindow) waWindow.location.href = url;
+      else window.open(url, "_blank", "noopener,noreferrer");
+
+      // Aggiorna DB in background
       const nowIso = new Date().toISOString();
-      supabase.from("appointments").update({whatsapp_sent_at:nowIso,whatsapp_sent:true}).eq("id",appointmentId).then(()=>{});
+      await supabase.from("appointments").update({whatsapp_sent_at:nowIso,whatsapp_sent:true}).eq("id",appointmentId);
       setEvents(prev=>prev.map(ev=>ev.id===appointmentId?{...ev,whatsapp_sent_at:nowIso}:ev));
       setSelectedEvent(prev=>prev?.id===appointmentId?{...prev,whatsapp_sent_at:nowIso}:prev);
-
-      // 4. Naviga a WhatsApp usando openWA (stessa tab su mobile, nuova su desktop)
-      openWA(patientPhone, message);
     } catch (e) {
       console.error("Errore invio promemoria:", e);
+      if (waWindow) waWindow.close();
     }
   }, [events, currentStudio]);
 

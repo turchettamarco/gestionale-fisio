@@ -73,7 +73,22 @@ export function buildReminderMessage(params: {
 
   const firma = [signatureName, signatureTitle].filter(Boolean).join("\n");
 
-  let message = templateText
+  // Auto-fix per template salvati nel DB con emoji corrotti.
+  // Il carattere replacement Unicode (U+FFFD, che appare come � o come ?) compare
+  // quando un emoji UTF-8 a 4 byte viene troncato durante il salvataggio.
+  // Gli emoji più comuni nei template sono: 📍 per il luogo e 👉 per il link conferma.
+  // Tentiamo un recupero basato sul contesto testuale adiacente.
+  const fixCorruptedEmojis = (s: string): string => {
+    return s
+      // "� {luogo}" o "� Pontecorvo" → "📍 {luogo}"
+      .replace(/\uFFFD(\s*(?:\{luogo\}|Pontecorvo|Presso|Studio))/g, "📍$1")
+      // "� Conferma" → "👉 Conferma"
+      .replace(/\uFFFD(\s*Conferma)/g, "👉$1")
+      // Fallback: qualsiasi replacement char rimanente all'inizio di una riga "di indicazione"
+      .replace(/^\uFFFD\s+/gm, "📍 ");
+  };
+
+  let message = fixCorruptedEmojis(templateText)
     .replace(/{saluto}/g, saluto)
     .replace(/{nome}/g, nomePaziente)
     .replace(/{data_relativa}/g, dataRelativa)

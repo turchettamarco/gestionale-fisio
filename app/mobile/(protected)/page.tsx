@@ -370,6 +370,9 @@ export default function MobileHomePage() {
     const phone = appt.patients?.phone;
     if (!phone) { alert("Nessun numero registrato."); return; }
 
+    // ⚠️ SAFARI FIX: apri finestra vuota PRIMA di await per non perdere il user gesture
+    const waWindow = window.open("about:blank", "_blank");
+
     setSendingWA(appt.id);
 
     try {
@@ -395,8 +398,6 @@ export default function MobileHomePage() {
         .maybeSingle();
 
       // 3. Costruisci messaggio con utility condivisa
-      // L'Appointment della home non è tipizzato come CalendarEvent, ma buildReminderMessage usa solo
-      // start, location, clinic_site, domicile_address — tutti presenti.
       const fakeEvent = {
         start: new Date(appt.start_at),
         end: new Date(appt.start_at),
@@ -416,34 +417,30 @@ export default function MobileHomePage() {
         signatureTitle: currentStudio?.signature_title,
       });
 
-      // 4. Aggiorna DB prima di navigare (non bloccante, perché stiamo per lasciare la pagina)
-      const nowIso = new Date().toISOString();
-      supabase.from("appointments")
-        .update({ whatsapp_sent_at: nowIso, whatsapp_sent: true })
-        .eq("id", appt.id)
-        .then(() => {
-          const updater = (prev: Appointment[]) => prev.map(a =>
-            a.id === appt.id ? { ...a, whatsapp_sent_at: nowIso } : a
-          );
-          setDayAppts(updater);
-          setWeekAppts(updater);
-        });
-
-      // 5. Apri WhatsApp — stessa tab su mobile, nuova tab su desktop
+      // 4. Apri WhatsApp nella tab aperta sopra
       const clean = formatPhoneForWA(phone);
       const isMobile = /iPhone|iPad|iPod|Android/i.test(
         typeof navigator !== "undefined" ? navigator.userAgent : ""
       );
       const url = isMobile
-        ? `https://wa.me/${clean}?text=${encodeURIComponent(message)}`
+        ? `https://api.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`
         : `https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`;
+      if (waWindow) waWindow.location.href = url;
+      else window.open(url, "_blank", "noopener,noreferrer");
 
-      if (isMobile) {
-        // Stessa tab: quando l'utente torna indietro, trova il gestionale
-        window.location.href = url;
-      } else {
-        window.open(url, "_blank", "noopener,noreferrer");
-      }
+      // 5. Aggiorna DB
+      const nowIso = new Date().toISOString();
+      await supabase.from("appointments")
+        .update({ whatsapp_sent_at: nowIso, whatsapp_sent: true })
+        .eq("id", appt.id);
+      const updater = (prev: Appointment[]) => prev.map(a =>
+        a.id === appt.id ? { ...a, whatsapp_sent_at: nowIso } : a
+      );
+      setDayAppts(updater);
+      setWeekAppts(updater);
+    } catch (e) {
+      console.error("Errore invio promemoria:", e);
+      if (waWindow) waWindow.close();
     } finally {
       setSendingWA(null);
     }
