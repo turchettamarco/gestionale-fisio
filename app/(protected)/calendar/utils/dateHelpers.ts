@@ -127,3 +127,60 @@ export function formatDateRelative(date: Date): string {
 
   return `${giornoSettimana} ${giorno} ${mese}`;
 }
+
+// Calcola i 42 giorni (6 settimane) da mostrare nella vista mensile,
+// partendo dal lunedì della settimana che contiene il 1° del mese
+export function getMonthGridDays(currentDate: Date): Date[] {
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+
+  // Start from Monday before or on the 1st
+  const startOffset = firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1;
+  const calStart = addDays(firstDay, -startOffset);
+
+  const days: Date[] = [];
+  for (let i = 0; i < 42; i++) {
+    days.push(addDays(calStart, i));
+  }
+  return days;
+}
+
+// Calcola gli slot liberi in un giorno lavorativo (8-20) dato un array di
+// eventi della giornata. Utile per suggerire orari liberi in fase di creazione.
+export function getAvailableSlotsInDay(
+  day: Date,
+  dayEvents: { start: Date; end: Date; status?: string }[],
+): { start: Date; end: Date }[] {
+  const WORK_START = 8, WORK_END = 20;
+  const filtered = dayEvents
+    .filter(ev => ev.status !== "cancelled")
+    .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+  const slots: { start: Date; end: Date }[] = [];
+  let cursor = new Date(day); cursor.setHours(WORK_START, 0, 0, 0);
+  const workEnd = new Date(day); workEnd.setHours(WORK_END, 0, 0, 0);
+
+  for (const ev of filtered) {
+    if (ev.start > cursor) slots.push({ start: new Date(cursor), end: new Date(ev.start) });
+    if (ev.end > cursor) cursor = new Date(ev.end);
+  }
+  if (cursor < workEnd) slots.push({ start: new Date(cursor), end: new Date(workEnd) });
+  return slots;
+}
+
+// Posizione verticale in pixel di un evento all'interno della griglia oraria
+// che parte dalle 7:00. Usata dalla vista settimana e giorno.
+export function getEventYPosition(
+  start: Date,
+  end: Date,
+  pxPerMinute: number = 1,
+): { top: number; height: number } {
+  const startHour = start.getHours();
+  const startMinute = start.getMinutes();
+  const endHour = end.getHours();
+  const endMinute = end.getMinutes();
+  const top = ((startHour - 7) * 60 + startMinute) * pxPerMinute;
+  const height = ((endHour - startHour) * 60 + (endMinute - startMinute)) * pxPerMinute;
+  return { top, height };
+}
