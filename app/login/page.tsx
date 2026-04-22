@@ -251,6 +251,13 @@ export default function LoginPage() {
                 )}
               </button>
 
+              <div style={{ textAlign: "center", marginTop: 12, fontSize: 13, color: "#64748b" }}>
+                Non hai un account?{" "}
+                <a href="/signup" style={{ color: "#2563eb", fontWeight: 600, textDecoration: "none" }}>
+                  Registrati
+                </a>
+              </div>
+
               <div className="micro">
                 Usando FisioHub accetti di lavorare in modo più ordinato di ieri. (È un contratto morale.)
               </div>
