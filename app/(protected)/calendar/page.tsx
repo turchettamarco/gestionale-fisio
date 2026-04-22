@@ -7,318 +7,51 @@ import { SOAPNotesEditor } from "./components/SOAPNotes";
 
 import { useSearchParams } from "next/navigation";
 
+// ─── Types estratti in utils/types.ts ────────────────────────────────────────
+import type {
+  Status,
+  LocationType,
+  TreatmentType,
+  BookingRequest,
+  AppointmentRow,
+  PatientLite,
+  PracticeSettings,
+  CalendarEvent,
+} from "./utils/types";
 
-type Status = "booked" | "confirmed" | "done" | "cancelled" | "not_paid";
+// ─── Theme, costanti e status/treatment helpers — utils/constants.ts ─────────
+import {
+  THEME,
+  DEFAULT_CLINIC_SITE,
+  GOOGLE_REVIEW_LINK_FALLBACK,
+  CLINIC_ADDRESSES,
+  ALL_TREATMENTS,
+  statusColor,
+  statusBg,
+  statusLabel,
+  getTreatmentColor,
+  getTreatmentLabel,
+  asTreatmentType,
+  asPriceType,
+} from "./utils/constants";
 
-type BookingRequest = {
-  id: string;
-  service_name: string;
-  service_duration: number;
-  requested_date: string;
-  requested_time: string;
-  patient_name: string;
-  patient_phone: string;
-  patient_email: string | null;
-  notes: string | null;
-  status: "pending" | "confirmed" | "cancelled";
-  created_at: string;
-};
+// ─── Utility pure su date e formattazione — utils/dateHelpers.ts ─────────────
+import {
+  fmtTime,
+  pad2,
+  startOfISOWeekMonday,
+  addDays,
+  addWeeks,
+  formatDMY,
+  toDateInputValue,
+  parseDateInput,
+  autoNameFontSize,
+  generateRecurringStarts,
+  formatDateRelative,
+} from "./utils/dateHelpers";
 
-type LocationType = "studio" | "domicile";
-
-type AppointmentRow = {
-  id: string;
-  patient_id: string;
-  start_at: string;
-  end_at: string;
-  status: Status;
-  calendar_note: string | null;
-  location: LocationType;
-  clinic_site: string | null;
-  domicile_address: string | null;
-  patients: { first_name: string; last_name: string } | null;
-};
-
-type PatientLite = { 
-  id: string; 
-  first_name: string; 
-  last_name: string; 
-  phone?: string | null;
-  treatment?: string | null;
-  diagnosis?: string | null;
-};
-
-type PracticeSettings = {
-  standard_invoice: number | null;
-  standard_cash: number | null;
-  machine_invoice: number | null;
-  machine_cash: number | null;
-  auto_apply_prices: boolean | null;
-  google_review_link: string | null;
-  default_appointment_status: "confirmed" | "booked" | null;
-  overlap_mode: "block" | "warn" | "visual" | null;
-};
-
-type CalendarEvent = {
-  id: string;
-  patient_id: string;
-  title: string;
-  start: Date;
-  end: Date;
-  status: Status;
-  calendar_note: string | null;
-  location: LocationType | null;
-  clinic_site: string | null;
-  domicile_address: string | null;
-  treatment_type: string | null;
-  price_type: string | null;
-  amount: number | null;
-  expected_price: number | null;
-  is_paid: boolean;
-  reminder_sent_at: Date | null;
-  reminder_status: string | null;
-  whatsapp_sent_at: Date | null;
-  patient_name: string;
-  patient_first_name: string | null;
-  patient_last_name: string | null;
-  patient_phone: string | null;
-  treatment: string | null;
-  diagnosis: string | null;
-};
-
-const THEME = {
-  appBg: "#f1f5f9",
-  panelBg: "#ffffff",
-  panelSoft: "#f7f9fd",
-  cardBg: "#ffffff",
-
-  text: "#0f172a",
-  textSoft: "#1e293b",
-  muted: "#334155",
-
-  border: "#cbd5e1",
-  borderSoft: "#94a3b8",
-
-  blue: "#2563eb",
-  blueDark: "#1e40af",
-  green: "#16a34a",
-  greenDark: "#15803d",
-  teal: "#0d9488",
-  tealDark: "#0f766e",
-  patientsAccent: "#0d9488",
-  purple: "#7c3aed",
-
-  red: "#dc2626",
-  amber: "#f97316",
-  gray: "#94a3b8",
-};
-
-const DEFAULT_CLINIC_SITE = "Studio Pontecorvo";
-
-// ── Google Review ──────────────────────────────────────────
-// Sostituire con il link reale della pagina Google Business
-const GOOGLE_REVIEW_LINK_FALLBACK = "https://www.google.com/maps/place//data=!4m3!3m2!1s0x133ab7000a9c53d3:0xf706ba51f69901bf!12e1?source=g.page.m.ia._&laa=nmx-review-solicitation-ia2";
-
-function statusColor(status: Status) {
-  switch (status) {
-    case "done":
-      return THEME.green;
-    case "confirmed":
-      return THEME.blue;
-    case "not_paid":
-      return THEME.amber;
-    case "cancelled":
-      return THEME.gray;
-    case "booked":
-    default:
-      return THEME.red;
-  }
-}
-
-function statusBg(status: Status) {
-  switch (status) {
-    case "done":      return "#16a34a";
-    case "confirmed": return "#2563eb";
-    case "not_paid":  return "#f97316";
-    case "cancelled": return "#94a3b8";
-    case "booked":
-    default:          return "#dc2626";
-  }
-}
-
-
-function statusLabel(status: Status) {
-  switch (status) {
-    case "confirmed":
-      return "Confermato";
-    case "done":
-      return "Eseguito";
-    case "not_paid":
-      return "Non pagata";
-    case "cancelled":
-      return "Annullato";
-    default:
-      return "Prenotato";
-  }
-}
-
-// Auto-fit font size for patient full name inside event blocks without breaking layout
-function autoNameFontSize(fullName?: string | null) {
-  const n = ((fullName ?? "") as string).trim().length;
-  if (n <= 14) return 13;
-  if (n <= 20) return 12;
-  if (n <= 28) return 11;
-  if (n <= 36) return 10;
-  return 9;
-}
-
-type TreatmentType = "seduta" | "macchinario" | "laser" | "tecar" | "onde_urto" | "tens";
-const ALL_TREATMENTS: { value: TreatmentType; label: string; color: string }[] = [
-  { value: "seduta",     label: "Seduta",       color: "#0d9488" },
-  { value: "macchinario",label: "Macchinario",  color: "#2563eb" },
-  { value: "laser",      label: "Laser",        color: "#d97706" },
-  { value: "tecar",      label: "Tecar",        color: "#ea580c" },
-  { value: "onde_urto",  label: "Onde d'urto",  color: "#7c3aed" },
-  { value: "tens",       label: "TENS",         color: "#059669" },
-];
-function getTreatmentColor(tt: string | null | undefined): string {
-  const found = ALL_TREATMENTS.find(t => t.value === tt);
-  return found ? found.color : "#2563eb";
-}
-function getTreatmentLabel(tt: string | null | undefined): string {
-  const found = ALL_TREATMENTS.find(t => t.value === tt);
-  return found ? found.label : "Seduta";
-}
-function asTreatmentType(v: string | null | undefined): TreatmentType {
-  const found = ALL_TREATMENTS.find(t => t.value === v);
-  return found ? found.value : "seduta";
-}
-
-function asPriceType(v: string | null | undefined): "invoiced" | "cash" {
-  return v === "cash" ? "cash" : "invoiced";
-}
-
-
-function fmtTime(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
-}
-
-function pad2(n: number) {
-  return String(n).padStart(2, "0");
-}
-
-function startOfISOWeekMonday(d: Date) {
-  const date = new Date(d);
-  const day = date.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  date.setDate(date.getDate() + diff);
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
-
-function addDays(d: Date, days: number) {
-  const x = new Date(d);
-  x.setDate(x.getDate() + days);
-  return x;
-}
-
-function formatDMY(d: Date) {
-  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
-}
-
-function addWeeks(d: Date, w: number) {
-  return addDays(d, w * 7);
-}
-
-function toDateInputValue(d: Date) {
-  const year = d.getFullYear();
-  const month = pad2(d.getMonth() + 1);
-  const day = pad2(d.getDate());
-  return `${year}-${month}-${day}`;
-}
-
-function parseDateInput(value: string) {
-  const [y, m, d] = value.split("-").map(Number);
-  const out = new Date();
-  out.setFullYear(y, m - 1, d);
-  out.setHours(0, 0, 0, 0);
-  return out;
-}
-
-function generateRecurringStarts(params: {
-  firstStart: Date;
-  untilDate: Date;
-  weekDays: number[];
-  frequency?: number; // every N weeks (default 1)
-}) {
-  const { firstStart, untilDate, weekDays, frequency = 1 } = params;
-  const hh = firstStart.getHours();
-  const mm = firstStart.getMinutes();
-  const ss = firstStart.getSeconds();
-  const ms = firstStart.getMilliseconds();
-
-  const startDay = new Date(firstStart);
-  const endDay = new Date(untilDate);
-  endDay.setHours(23, 59, 59, 999);
-
-  const results: Date[] = [];
-  
-  // Calculate which week we're in relative to the start
-  const weekStart = startOfISOWeekMonday(startDay);
-
-  for (let d = new Date(startDay); d <= endDay; d = addDays(d, 1)) {
-    const dow = d.getDay();
-    if (dow === 0) continue;
-    if (!weekDays.includes(dow)) continue;
-
-    // Check if this day is in a valid week based on frequency
-    if (frequency > 1) {
-      const thisWeekStart = startOfISOWeekMonday(d);
-      const weeksDiff = Math.round((thisWeekStart.getTime() - weekStart.getTime()) / (7 * 24 * 60 * 60 * 1000));
-      if (weeksDiff % frequency !== 0) continue;
-    }
-
-    const occ = new Date(d);
-    occ.setHours(hh, mm, ss, ms);
-    if (occ < firstStart) continue;
-
-    results.push(occ);
-  }
-
-  return results;
-}
-
-function formatDateRelative(date: Date): string {
-  const oggi = new Date();
-  oggi.setHours(0, 0, 0, 0);
-  
-  const domani = new Date(oggi);
-  domani.setDate(oggi.getDate() + 1);
-  
-  const dataAppuntamento = new Date(date);
-  dataAppuntamento.setHours(0, 0, 0, 0);
-  
-  if (dataAppuntamento.getTime() === oggi.getTime()) {
-    return "Oggi";
-  } else if (dataAppuntamento.getTime() === domani.getTime()) {
-    return "Domani";
-  } else {
-    const giorni = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
-    const mesi = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", 
-                  "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"];
-    
-    const giornoSettimana = giorni[dataAppuntamento.getDay()];
-    const giorno = dataAppuntamento.getDate();
-    const mese = mesi[dataAppuntamento.getMonth()];
-    
-    return `${giornoSettimana} ${giorno} ${mese}`;
-  }
-}
-
-const CLINIC_ADDRESSES: Record<string, string> = {
-  "Studio Pontecorvo": "Pontecorvo, Via Galileo Galilei 5, dietro il Bar Principe",
-};
+// ─── Utility WhatsApp — utils/whatsapp.ts ────────────────────────────────────
+import { cleanPhoneForWA, openWhatsApp } from "./utils/whatsapp";
 
 export default function CalendarPage() {
   return (
@@ -1587,49 +1320,8 @@ ${days.map((day, di) => {
     }
   }, [events]);
 
-// ── Utility WhatsApp — unica funzione usata ovunque ──────────────────────────
-// Restituisce SOLO cifre senza + (es. "393331234567")
-// api.whatsapp.com/send?phone= vuole il numero senza + né spazi
-function cleanPhoneForWA(phone: string): string {
-  if (!phone) return "";
-  // 1. Rimuovi tutto tranne cifre e +
-  let c = phone.trim().replace(/[\s\(\)\-\.\/]/g, "");
-  // 2. 00xx → +xx
-  if (c.startsWith("00")) c = "+" + c.slice(2);
-  // 3. Rimuovi il + per lavorare solo con cifre
-  if (c.startsWith("+")) c = c.slice(1);
-  // 4. Rimuovi qualsiasi residuo non numerico
-  c = c.replace(/\D/g, "");
-  if (!c) return "";
-  // 5. Doppio prefisso 39 (es. 003939xxx) → togli il primo
-  if (c.startsWith("3939") && c.length > 13) c = c.slice(2);
-  // 6. Già con prefisso 39 e lunghezza corretta (11 fisso, 12 mobile)
-  if (c.startsWith("39") && (c.length === 11 || c.length === 12)) return c;
-  // 7. Mobile italiano 3xx (10 cifre) → aggiungi 39
-  if (c.startsWith("3") && c.length === 10) return "39" + c;
-  // 8. Fisso italiano 0xx (9-11 cifre) → sostituisci 0 iniziale con 39
-  if (c.startsWith("0") && c.length >= 9 && c.length <= 11) return "39" + c.slice(1);
-  // 9. Numero corto/incompleto → aggiungi 39
-  if (c.length <= 10) return "39" + c;
-  return c;
-}
-
-// Apre WhatsApp Web su desktop senza dipendere da window.open (bloccato dai browser)
-// Apre app nativa su mobile, WhatsApp Web su desktop — nessun popup
-function openWhatsApp(phone: string, message: string): boolean {
-  const clean = cleanPhoneForWA(phone);
-  if (!clean) return false;
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
-  const url = (isMobile ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(message);
-  const a = document.createElement("a");
-  a.href = url;
-  a.target = "_blank";
-  a.rel = "noopener noreferrer";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  return true;
-}
+// ── Utility WhatsApp → vedi ./utils/whatsapp.ts ──
+// (cleanPhoneForWA e openWhatsApp sono importate dal file all'inizio)
 // ─────────────────────────────────────────────────────────────────────────────
 
   const sendReminder = useCallback(async (appointmentId: string, patientPhone?: string, patientFirstName?: string, isConfirmation?: boolean) => {
