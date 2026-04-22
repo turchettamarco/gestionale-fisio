@@ -91,9 +91,9 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const db = getAdmin();
 
-    // CASO 1: genera nuovo token
-    if (body.appointment_id && !body.token) {
-      const { appointment_id } = body;
+    // CASO 1: genera nuovo token (oppure salva un token fornito dal client)
+    if (body.appointment_id && !body.action) {
+      const { appointment_id, client_token } = body;
 
       const { data: appt } = await db
         .from("appointments")
@@ -105,17 +105,22 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Appuntamento non trovato" }, { status: 404 });
       }
 
-      const token = randomUUID();
+      // Se il client ha generato il token, usiamo quello. Altrimenti ne generiamo uno.
+      // Questo permette al frontend mobile di costruire il link WhatsApp SINCRONAMENTE
+      // senza aspettare la response del server (che viene salvato in background).
+      // Se il token esiste già (retry), restituiamo quello esistente.
+      const token = client_token || randomUUID();
       const expires_at = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-      const { error } = await db.from("confirm_tokens").insert({
+      // Upsert: se il token esiste già non fa nulla, altrimenti inserisce
+      const { error } = await db.from("confirm_tokens").upsert({
         token,
         appointment_id,
         expires_at,
-      });
+      }, { onConflict: "token" });
 
       if (error) {
-        console.error("[confirm POST create] insert error:", error.message);
+        console.error("[confirm POST create] upsert error:", error.message);
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
 

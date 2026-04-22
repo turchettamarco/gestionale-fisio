@@ -751,9 +751,8 @@ export default function PatientDetailPage({
     })();
   }, []);
 
-  // Helper: apre WhatsApp sincrono (Safari-safe).
-  // Si usa window.location.assign se si è già in un tab aperto da click utente,
-  // altrimenti apre nuova tab. NON usa entrambi window.open e a.click (bug doppia apertura).
+  // Helper: apre WhatsApp. Usa anchor tag <a> che è il metodo più affidabile
+  // per evitare popup blocker su desktop e aprire direttamente l'app su mobile.
   const openWhatsAppSafe = useCallback((phone: string, message: string) => {
     const clean = cleanPhoneWA(phone);
     if (!clean) { alert("Numero non valido"); return; }
@@ -762,7 +761,10 @@ export default function PatientDetailPage({
     );
     const base = isMobile ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send";
     const url = `${base}?phone=${clean}&text=${encodeURIComponent(message)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+    const a = document.createElement("a");
+    a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+    document.body.appendChild(a); a.click();
+    setTimeout(() => document.body.removeChild(a), 200);
   }, []);
 
   // Applica i placeholder al template (gestisce anche {firma} e {saluto})

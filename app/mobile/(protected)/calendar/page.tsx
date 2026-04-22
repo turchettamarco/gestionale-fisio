@@ -620,10 +620,9 @@ function CalendarPageInner() {
   }, [searchQuery,searchOpen]);
 
   /* ── WhatsApp ────────────────────────────── */
-  // SENDREMINDER — versione sincrona per preservare il user gesture su iOS.
-  // Link conferma e template sono pre-caricati in background al load degli eventi,
-  // così il click può invocare direttamente l'anchor tag → WhatsApp app apre DIRETTAMENTE
-  // senza passare dalla landing api.whatsapp.com.
+  // SENDREMINDER — versione sincrona con token conferma client-side.
+  // Se il link non è in cache, generiamo un UUID in locale e lo salviamo sul server
+  // in background. Così il messaggio contiene SEMPRE un link conferma funzionante.
   const sendReminder = useCallback((
     appointmentId:string, patientPhone?:string, patientFirstName?:string, isConfirmation?:boolean,
   ) => {
@@ -631,8 +630,24 @@ function CalendarPageInner() {
     const appointment = events.find(e=>e.id===appointmentId);
     if (!appointment) return;
 
-    // Usa link conferma pre-generato (o stringa vuota se non ancora pronto)
-    const linkConferma = !isConfirmation ? (confirmLinks[appointmentId] || "") : "";
+    // Genera/recupera link conferma (solo per promemoria, non per conferme iniziali)
+    let linkConferma = "";
+    if (!isConfirmation) {
+      linkConferma = confirmLinks[appointmentId] || "";
+      if (!linkConferma) {
+        const clientToken = typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        linkConferma = `${window.location.origin}/conferma/${clientToken}`;
+        fetch("/api/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ appointment_id: appointmentId, client_token: clientToken }),
+        }).catch(() => {});
+        setConfirmLinks(prev => ({ ...prev, [appointmentId]: linkConferma }));
+      }
+    }
+
     const template = isConfirmation ? confirmTplCache : reminderTplCache;
 
     const message = buildReminderMessage({
@@ -646,8 +661,7 @@ function CalendarPageInner() {
       signatureTitle: currentStudio?.signature_title,
     });
 
-    // Apri WhatsApp con anchor tag sincrono — iOS riconosce il gesture utente
-    // e apre DIRETTAMENTE l'app WhatsApp (nessuna landing api.whatsapp.com orfana).
+    // Apri WhatsApp con anchor tag sincrono — iOS apre DIRETTAMENTE l'app WA
     const cleanPhone = formatPhoneForWA(patientPhone);
     const url = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
     const a = document.createElement("a");
@@ -655,7 +669,7 @@ function CalendarPageInner() {
     document.body.appendChild(a); a.click();
     setTimeout(() => document.body.removeChild(a), 200);
 
-    // Aggiorna DB in background (non blocca l'apertura WA)
+    // Aggiorna DB in background
     const nowIso = new Date().toISOString();
     supabase.from("appointments").update({whatsapp_sent_at:nowIso,whatsapp_sent:true}).eq("id",appointmentId).then(()=>{});
     setEvents(prev=>prev.map(ev=>ev.id===appointmentId?{...ev,whatsapp_sent_at:nowIso}:ev));

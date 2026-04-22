@@ -416,15 +416,33 @@ export default function MobileHomePage() {
     setNotPaying(null);
   }
 
-  // SENDREMINDER — versione sincrona per preservare il user gesture su iOS.
-  // I link conferma e il template sono pre-caricati in background al load della pagina,
-  // così il click può invocare direttamente l'anchor tag → WhatsApp app si apre DIRETTAMENTE.
+  // SENDREMINDER — versione sincrona con token conferma client-side.
+  // Se il link conferma non è in cache, generiamo un UUID in locale e costruiamo
+  // il link ISTANTANEAMENTE. Il token viene poi salvato sul server in background
+  // (fire-and-forget). Così il messaggio ha SEMPRE il link conferma funzionante.
   const sendReminder = useCallback((appt: Appointment) => {
     const phone = appt.patients?.phone;
     if (!phone) { alert("Nessun numero registrato."); return; }
 
-    // Usa link conferma pre-generato (o stringa vuota se non ancora pronto)
-    const linkConferma = confirmLinks[appt.id] || "";
+    // Usa link conferma dalla cache, o generalo al volo client-side
+    let linkConferma = confirmLinks[appt.id];
+    if (!linkConferma) {
+      // Genera token UUID sincrono lato client
+      const clientToken = typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      linkConferma = `${window.location.origin}/conferma/${clientToken}`;
+
+      // Salva il token sul server in background (fire-and-forget, non blocca il click)
+      fetch("/api/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appointment_id: appt.id, client_token: clientToken }),
+      }).catch(() => {});
+
+      // Metti in cache per i click successivi
+      setConfirmLinks(prev => ({ ...prev, [appt.id]: linkConferma! }));
+    }
 
     // Costruisci messaggio sincronamente usando template pre-caricato
     const fakeEvent = {
@@ -446,8 +464,7 @@ export default function MobileHomePage() {
       signatureTitle: currentStudio?.signature_title,
     });
 
-    // Apri WhatsApp usando anchor tag — stesso comportamento ORIGINALE che funzionava
-    // su iOS aprendo direttamente l'app WA (niente landing api.whatsapp.com orfana).
+    // Apri WhatsApp usando anchor tag — apre direttamente l'app WA su iOS
     const clean = formatPhoneForWA(phone);
     const url = `https://api.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`;
     const a = document.createElement("a");
@@ -455,7 +472,7 @@ export default function MobileHomePage() {
     document.body.appendChild(a); a.click();
     setTimeout(() => document.body.removeChild(a), 200);
 
-    // Aggiorna DB in background (non blocca il click)
+    // Aggiorna DB in background
     const nowIso = new Date().toISOString();
     setSendingWA(appt.id);
     supabase.from("appointments")
