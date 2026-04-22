@@ -63,6 +63,8 @@ export function buildReminderMessage(params: {
     luogo = `Presso il suo domicilio (${appointment.domicile_address})`;
   }
 
+  const firma = [signatureName, signatureTitle].filter(Boolean).join("\n");
+
   let message = templateText
     .replace(/{nome}/g, nomePaziente)
     .replace(/{data_relativa}/g, dataRelativa)
@@ -70,7 +72,8 @@ export function buildReminderMessage(params: {
     .replace(/{ora}/g, ora)
     .replace(/{luogo}/g, luogo)
     .replace(/{link_conferma}/g, linkConferma)
-    .replace(/{link}/g, linkConferma);
+    .replace(/{link}/g, linkConferma)
+    .replace(/{firma}/g, firma);
 
   // Aggiungi link conferma alla fine del messaggio se il template non lo contiene
   if (!isConfirmation && linkConferma && !message.includes(linkConferma)) {

@@ -176,6 +176,11 @@ export default function SettingsPage() {
   const [studioWebsite, setStudioWebsite] = useState("");
   const [savingStudio, setSavingStudio] = useState(false);
 
+  // Firma dinamica per TemplateEditor
+  const dynamicSignature = useMemo(() => {
+    return [studioSignatureName, studioSignatureTitle].filter(s => s.trim()).join("\n");
+  }, [studioSignatureName, studioSignatureTitle]);
+
   // Popola i campi studio quando arriva il contesto
   useEffect(() => {
     if (!studio) return;
@@ -1237,6 +1242,9 @@ export default function SettingsPage() {
                       onChange={setNewTemplate}
                       rows={6}
                       helperText="Clicca i bottoni sopra per inserire i dati del paziente nel messaggio."
+                      signature={dynamicSignature}
+                      galleryKey="reminder"
+                      messageKind="promemoria appuntamento"
                     />
                   </div>
                   <div style={{ display:"flex", justifyContent:"flex-end", gap:8 }}>
@@ -1274,6 +1282,9 @@ export default function SettingsPage() {
                               value={editTemplate}
                               onChange={setEditTemplate}
                               rows={6}
+                              signature={dynamicSignature}
+                              galleryKey="reminder"
+                              messageKind="promemoria appuntamento"
                             />
                           </div>
                           <div style={{ display:"flex", justifyContent:"flex-end", gap:8 }}>
@@ -1320,6 +1331,9 @@ export default function SettingsPage() {
                 rows={4}
                 helperText="Inviato automaticamente al primo appuntamento."
                 placeholders={DEFAULT_PLACEHOLDERS.filter(p => ["nome"].includes(p.key))}
+                signature={dynamicSignature}
+                galleryKey="welcome"
+                messageKind="benvenuto nuovo paziente"
               />
               <TemplateEditor
                 label="Messaggio conferma prenotazione online"
@@ -1328,6 +1342,9 @@ export default function SettingsPage() {
                 rows={4}
                 helperText="Inviato quando confermi una prenotazione arrivata dal sito."
                 placeholders={DEFAULT_PLACEHOLDERS.filter(p => ["nome","data","ora"].includes(p.key))}
+                signature={dynamicSignature}
+                galleryKey="booking"
+                messageKind="conferma prenotazione"
               />
               <TemplateEditor
                 label="Promemoria appuntamento"
@@ -1336,6 +1353,9 @@ export default function SettingsPage() {
                 rows={4}
                 helperText="Inviato come promemoria prima dell'appuntamento."
                 placeholders={DEFAULT_PLACEHOLDERS.filter(p => ["nome","data","ora","luogo"].includes(p.key))}
+                signature={dynamicSignature}
+                galleryKey="reminder"
+                messageKind="promemoria appuntamento"
               />
               <TemplateEditor
                 label="Sollecito pagamento"
@@ -1347,6 +1367,9 @@ export default function SettingsPage() {
                   ...DEFAULT_PLACEHOLDERS.filter(p => p.key === "nome"),
                   { key: "importo", label: "Importo €", icon: "💶", example: "120" },
                 ]}
+                signature={dynamicSignature}
+                galleryKey="payment"
+                messageKind="sollecito pagamento cortese"
               />
               <TemplateEditor
                 label="Auguri compleanno"
@@ -1355,6 +1378,9 @@ export default function SettingsPage() {
                 rows={3}
                 helperText="Inviato dal widget compleanni in dashboard."
                 placeholders={DEFAULT_PLACEHOLDERS.filter(p => p.key === "nome")}
+                signature={dynamicSignature}
+                galleryKey="birthday"
+                messageKind="auguri compleanno"
               />
               <TemplateEditor
                 label="Questionario soddisfazione"
@@ -1366,6 +1392,9 @@ export default function SettingsPage() {
                   ...DEFAULT_PLACEHOLDERS.filter(p => p.key === "nome"),
                   { key: "link", label: "Link questionario", icon: "🔗", example: "https://gestionale.app/survey/abc123" },
                 ]}
+                signature={dynamicSignature}
+                galleryKey="satisfaction"
+                messageKind="questionario soddisfazione"
               />
               <div style={{ display:"flex", justifyContent:"flex-end" }}>
                 {btnPrimary(savingPractice?"Salvataggio…":"Salva messaggi", ()=>void savePracticeSettings(), savingPractice)}
