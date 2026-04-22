@@ -20,6 +20,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { buildReminderMessage } from "@/app/(protected)/calendar/utils/reminderMessage";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -365,42 +366,88 @@ export default function MobileHomePage() {
     setNotPaying(null);
   }
 
-  const sendReminder = useCallback((appt: Appointment) => {
+  const sendReminder = useCallback(async (appt: Appointment) => {
     const phone = appt.patients?.phone;
     if (!phone) { alert("Nessun numero registrato."); return; }
 
-    const luogo = appt.location === "studio"
-      ? (CLINIC_ADDRESSES[appt.clinic_site ?? ""] || appt.clinic_site || currentStudio?.address || "Studio")
-      : `Presso il suo domicilio (${appt.domicile_address ?? ""})`;
-
-    const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
-    const firmaLine = firma ? `Cordiali saluti,\n${firma}` : "Cordiali saluti";
-
-    const message =
-      `Buongiorno ${(appt.patients?.first_name ?? "").trim() || "gentile paziente"},\n\n` +
-      `Le ricordiamo il suo appuntamento di ${formatDateRelative(new Date(appt.start_at))} ` +
-      `alle ore ⏰ ${fmtTime(appt.start_at)}.\n\n` +
-      `📍 ${luogo}\n\n` +
-      firmaLine;
-
-    const clean = formatPhoneForWA(phone);
-    const url = `https://api.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`;
-    const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
-    document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
-
-    const nowIso = new Date().toISOString();
     setSendingWA(appt.id);
-    supabase.from("appointments")
-      .update({ whatsapp_sent_at: nowIso, whatsapp_sent: true }).eq("id", appt.id)
-      .then(() => {
-        const updater = (prev: Appointment[]) => prev.map(a =>
-          a.id === appt.id ? { ...a, whatsapp_sent_at: nowIso } : a
-        );
-        setDayAppts(updater);
-        setWeekAppts(updater);
-        setSendingWA(null);
+
+    try {
+      // 1. Genera link conferma
+      let linkConferma = "";
+      try {
+        const r = await fetch("/api/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ appointment_id: appt.id }),
+        });
+        const j = await r.json();
+        if (r.ok && j.token) {
+          linkConferma = `${window.location.origin}/conferma/${j.token}`;
+        }
+      } catch (e) { console.warn("Token conferma fallito:", e); }
+
+      // 2. Carica template dal DB (stesso comportamento del desktop)
+      const { data: templateData } = await supabase
+        .from("message_templates")
+        .select("template")
+        .eq("name", "Promemoria")
+        .maybeSingle();
+
+      // 3. Costruisci messaggio con utility condivisa
+      // L'Appointment della home non è tipizzato come CalendarEvent, ma buildReminderMessage usa solo
+      // start, location, clinic_site, domicile_address — tutti presenti.
+      const fakeEvent = {
+        start: new Date(appt.start_at),
+        end: new Date(appt.start_at),
+        location: appt.location,
+        clinic_site: appt.clinic_site,
+        domicile_address: appt.domicile_address,
+      } as any;
+
+      const message = buildReminderMessage({
+        appointment: fakeEvent,
+        patientFirstName: appt.patients?.first_name ?? undefined,
+        template: templateData?.template ?? undefined,
+        isConfirmation: false,
+        linkConferma,
+        studioAddress: currentStudio?.address,
+        signatureName: currentStudio?.signature_name,
+        signatureTitle: currentStudio?.signature_title,
       });
-  }, []);
+
+      // 4. Aggiorna DB prima di navigare (non bloccante, perché stiamo per lasciare la pagina)
+      const nowIso = new Date().toISOString();
+      supabase.from("appointments")
+        .update({ whatsapp_sent_at: nowIso, whatsapp_sent: true })
+        .eq("id", appt.id)
+        .then(() => {
+          const updater = (prev: Appointment[]) => prev.map(a =>
+            a.id === appt.id ? { ...a, whatsapp_sent_at: nowIso } : a
+          );
+          setDayAppts(updater);
+          setWeekAppts(updater);
+        });
+
+      // 5. Apri WhatsApp — stessa tab su mobile, nuova tab su desktop
+      const clean = formatPhoneForWA(phone);
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(
+        typeof navigator !== "undefined" ? navigator.userAgent : ""
+      );
+      const url = isMobile
+        ? `https://wa.me/${clean}?text=${encodeURIComponent(message)}`
+        : `https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`;
+
+      if (isMobile) {
+        // Stessa tab: quando l'utente torna indietro, trova il gestionale
+        window.location.href = url;
+      } else {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+    } finally {
+      setSendingWA(null);
+    }
+  }, [currentStudio]);
 
   // ─── Edit modal ───────────────────────────────────────────────────────────
 
