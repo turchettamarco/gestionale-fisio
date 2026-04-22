@@ -236,10 +236,12 @@ function DocThumbnail({ doc }: { doc: PatientDoc }) {
 }
 
 /* ─── QuickActionBar ──────────────────────────────────────────────────── */
-function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, firstName, currentStudio }: {
+function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, firstName, currentStudio, birthdayTpl, paymentTpl }: {
   phone: string | null; waPhone: string | null; patientId: string;
   unpaidAmount: number; birthDate: string | null; firstName: string | null;
   currentStudio: { name: string; signature_name: string | null; signature_title: string | null } | null;
+  birthdayTpl: string | null;
+  paymentTpl: string | null;
 }) {
   const actions = [
     phone    ? { label: "Chiama",    icon: "📞", href: `tel:${phone}`,                          color: T.blue  } : null,
@@ -261,14 +263,24 @@ function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, fi
             if (a.href === "#birthday" && phone) {
               e.preventDefault();
               const nome = firstName?.trim() || "Paziente";
-              const staffLine = studioName ? `Tutto lo staff di ${studioName}` : "Tutto lo staff";
-              const msg = `Buon compleanno ${nome}! 🎂\n\n${staffLine} le augura una splendida giornata.\nSe ha bisogno di noi siamo a sua disposizione.${firma ? `\n\n${firma}` : ""}`;
+              let msg: string;
+              if (birthdayTpl?.trim()) {
+                msg = birthdayTpl.replace(/{nome}/g, nome).replace(/{firma}/g, firma);
+              } else {
+                const staffLine = studioName ? `Tutto lo staff di ${studioName}` : "Tutto lo staff";
+                msg = `Buon compleanno ${nome}! 🎂\n\n${staffLine} le augura una splendida giornata.\nSe ha bisogno di noi siamo a sua disposizione.${firma ? `\n\n${firma}` : ""}`;
+              }
               openWA(phone, msg);
             } else if (a.href === "#payment" && phone) {
               e.preventDefault();
               const nome = firstName?.trim() || "Paziente";
               const importo = unpaidAmount.toLocaleString("it-IT", { minimumFractionDigits: 2 });
-              const msg = `Gentile ${nome},\n\nle ricordiamo un saldo aperto di €${importo} per le sedute effettuate.\n\nCordiali saluti${firma ? `,\n${firma}` : ""}`;
+              let msg: string;
+              if (paymentTpl?.trim()) {
+                msg = paymentTpl.replace(/{nome}/g, nome).replace(/{importo}/g, importo).replace(/{firma}/g, firma);
+              } else {
+                msg = `Gentile ${nome},\n\nle ricordiamo un saldo aperto di €${importo} per le sedute effettuate.\n\nCordiali saluti${firma ? `,\n${firma}` : ""}`;
+              }
               openWA(phone, msg);
             }
           }}
@@ -291,6 +303,22 @@ function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, fi
 export default function PatientDetailClient({ patientId }: { patientId: string }) {
   // Studio corrente (multi-tenancy)
   const { studio: currentStudio } = useCurrentStudio();
+
+  // Template messaggi dalle impostazioni
+  const [birthdayTpl, setBirthdayTpl] = useState<string | null>(null);
+  const [paymentTpl, setPaymentTpl] = useState<string | null>(null);
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("practice_settings")
+        .select("birthday_message, payment_message")
+        .maybeSingle();
+      if (data) {
+        setBirthdayTpl((data as any).birthday_message ?? null);
+        setPaymentTpl((data as any).payment_message ?? null);
+      }
+    })();
+  }, []);
 
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState("");
@@ -827,6 +855,8 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
                 signature_name: currentStudio.signature_name,
                 signature_title: currentStudio.signature_title,
               } : null}
+              birthdayTpl={birthdayTpl}
+              paymentTpl={paymentTpl}
             />
           );
         })()}

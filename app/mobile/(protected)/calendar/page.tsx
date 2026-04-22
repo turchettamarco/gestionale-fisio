@@ -22,6 +22,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { buildReminderMessage } from "@/app/(protected)/calendar/utils/reminderMessage";
 
 /* ─── Types ───────────────────────────────────────────────────────────── */
 type Status = "booked" | "confirmed" | "done" | "cancelled" | "not_paid";
@@ -590,33 +591,35 @@ function CalendarPageInner() {
     const appointment = events.find(e=>e.id===appointmentId);
     if (!appointment) return;
 
-    // Costruisci il messaggio con template di default (sincrono)
-    // Poi aggiorna con template custom dal DB senza bloccare l'apertura WA
-    const cleanPhone   = formatPhoneForWA(patientPhone);
-    const dataRelativa = formatDateRelative(appointment.start);
-    const ora          = fmtTime(appointment.start);
-    const luogo = appointment.location==="studio"
-      ? (CLINIC_ADDRESSES[appointment.clinic_site??""] || appointment.clinic_site || currentStudio?.address || "")
-      : `Presso il suo domicilio (${appointment.domicile_address??""})`;
-    const nomePaziente = (patientFirstName&&patientFirstName.trim())?patientFirstName.trim():"Cliente";
-    const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
-    const firmaSuffix = firma ? `,\n${firma}` : "";
+    const cleanPhone = formatPhoneForWA(patientPhone);
 
-    const defaultTpl = isConfirmation
-      ? `Grazie per averci scelto.\nRicordiamo il prossimo appuntamento fissato per {data_relativa} alle {ora}.\n\nA presto${firmaSuffix}`
-      : `Buongiorno {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore ⏰ {ora}.\n\n📍 {luogo}\n\nCordiali saluti${firmaSuffix}`;
+    // ⚠️ SAFARI FIX: apri finestra vuota PRIMA di await per non perdere il user gesture
+    const waWindow = window.open("about:blank", "_blank");
 
-    const buildMsg = (tpl: string) => tpl
-      .replace(/{nome}/g,          nomePaziente)
-      .replace(/{data_relativa}/g, dataRelativa)
-      .replace(/{ora}/g,           ora)
-      .replace(/{luogo}/g,         luogo);
+    // Carica template dal DB (stesso comportamento del desktop)
+    const templateName = isConfirmation ? "Appuntamento" : "Promemoria";
+    const { data: templateData } = await supabase
+      .from("message_templates")
+      .select("template")
+      .eq("name", templateName)
+      .maybeSingle();
 
-    // ⚠️ SAFARI FIX: window.open DEVE essere chiamato in modo sincrono
-    // prima di qualsiasi await — apriamo subito con template di default
-    openWA(cleanPhone, buildMsg(defaultTpl));
+    // Usa la stessa utility del desktop per costruire il messaggio
+    const message = buildReminderMessage({
+      appointment: appointment as any,
+      patientFirstName,
+      template: templateData?.template ?? undefined,
+      isConfirmation: !!isConfirmation,
+      studioAddress: currentStudio?.address,
+      signatureName: currentStudio?.signature_name,
+      signatureTitle: currentStudio?.signature_title,
+    });
 
-    // Poi aggiorniamo il DB in background (non blocca l'apertura WA)
+    const url = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
+    if (waWindow) waWindow.location.href = url;
+    else window.open(url, "_blank", "noopener,noreferrer");
+
+    // Aggiorna DB in background
     const nowIso = new Date().toISOString();
     await supabase.from("appointments").update({whatsapp_sent_at:nowIso,whatsapp_sent:true}).eq("id",appointmentId);
     setEvents(prev=>prev.map(ev=>ev.id===appointmentId?{...ev,whatsapp_sent_at:nowIso}:ev));
@@ -1698,6 +1701,12 @@ function CalendarPageInner() {
                 disabled={!normalizePhone(selectedEvent.patient_phone)}>
                 💬 WhatsApp
               </LightBtn>
+              {selectedEvent.patient_id && (
+                <LightBtn v="ghost"
+                  onClick={()=>router.push(`/mobile/patients/${selectedEvent.patient_id}`)}>
+                  👤 Scheda paziente
+                </LightBtn>
+              )}
               <LightBtn v="danger" onClick={deleteEvent} disabled={busy}>🗑 Elimina</LightBtn>
               <LightBtn v="ghost" onClick={()=>setSelectedEvent(null)}>Chiudi</LightBtn>
             </div>

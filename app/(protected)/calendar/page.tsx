@@ -693,10 +693,23 @@ const { data, error } = await supabase
       else if (eventDurationHours === 2) setSelectedDuration("2");
       
       // Pre-seleziona il paziente direttamente — nessuna ricerca manuale
+      // Usa i dati del paziente se presenti, altrimenti splitta patient_name come fallback
+      let firstName = duplicateEvent.patient_first_name || '';
+      let lastName = duplicateEvent.patient_last_name || '';
+      if (!firstName && !lastName && duplicateEvent.patient_name) {
+        // patient_name è tipicamente "Cognome Nome" → splitta
+        const parts = duplicateEvent.patient_name.trim().split(/\s+/);
+        if (parts.length >= 2) {
+          lastName = parts[0];
+          firstName = parts.slice(1).join(" ");
+        } else {
+          lastName = duplicateEvent.patient_name;
+        }
+      }
       const patientFromEvent = {
         id: duplicateEvent.patient_id,
-        first_name: duplicateEvent.patient_first_name || '',
-        last_name: duplicateEvent.patient_last_name || '',
+        first_name: firstName,
+        last_name: lastName,
         phone: duplicateEvent.patient_phone || null,
       };
       setSelectedPatient(patientFromEvent);
@@ -2075,6 +2088,12 @@ return (
           .cal-period-btns { flex-wrap: wrap !important; gap: 3px !important; }
           .cal-period-btns button { font-size: 10px !important; padding: 5px 8px !important; min-height: 36px !important; }
           .cal-sidebar { width: 280px !important; min-width: 280px !important; }
+          /* Card appuntamento: su iPad riduci padding/font per far stare tutto */
+          .cal-event-card { padding: 6px 7px !important; }
+          .cal-event-card .ev-header { font-size: 10px !important; margin-bottom: 2px !important; }
+          .cal-event-card .ev-name { font-size: 12px !important; margin-bottom: 2px !important; }
+          .cal-event-card .ev-meta { font-size: 10px !important; margin-bottom: 4px !important; }
+          .cal-event-card .ev-actions button { font-size: 10px !important; padding: 3px 0 !important; }
         }
         @media print { .no-print { display: none !important; } .print-wrap { margin: 0 !important; padding: 4px !important; } }
       `}</style>
@@ -4556,11 +4575,12 @@ return (
                               cursor: "pointer",
                               transition: "all 0.12s",
                             }}
+                            className="cal-event-card"
                             onMouseEnter={e => { e.currentTarget.style.background = statusBg(ev.status) + "30"; }}
                             onMouseLeave={e => { e.currentTarget.style.background = statusBg(ev.status) + "18"; }}
                           >
                             {/* Orario + badge */}
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                            <div className="ev-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                               <span style={{ fontSize: 12, fontWeight: 800, color: statusColor(ev.status) }}>
                                 {fmtTime(ev.start.toISOString())}
                                 <span style={{ fontWeight: 500, color: THEME.muted }}> – {fmtTime(ev.end.toISOString())}</span>
@@ -4572,12 +4592,12 @@ return (
                             </div>
 
                             {/* Nome paziente */}
-                            <div style={{ fontSize: 13, fontWeight: 700, color: THEME.text, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            <div className="ev-name" style={{ fontSize: 13, fontWeight: 700, color: THEME.text, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               {ev.patient_name}
                             </div>
 
                             {/* Tipo + importo */}
-                            <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 6 }}>
+                            <div className="ev-meta" style={{ fontSize: 11, color: THEME.muted, marginBottom: 6 }}>
                               {ev.treatment_type === "macchinario" ? "Macchinario" : "Seduta"}
                               {ev.location === "domicile" ? " · 🏠 Domicilio" : ""}
                               {ev.amount ? ` · €${ev.amount}` : ""}

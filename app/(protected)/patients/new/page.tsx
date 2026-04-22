@@ -97,6 +97,18 @@ export default function NewPatientPage() {
   const { studio: currentStudio } = useCurrentStudio();
   const currentStudioId = currentStudio?.id ?? null;
 
+  // Template welcome message
+  const [welcomeTpl, setWelcomeTpl] = useState<string | null>(null);
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("practice_settings")
+        .select("welcome_message")
+        .maybeSingle();
+      setWelcomeTpl((data as any)?.welcome_message ?? null);
+    })();
+  }, []);
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [okMsg, setOkMsg] = useState("");
@@ -234,15 +246,26 @@ export default function NewPatientPage() {
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button type="button" onClick={() => {
                     const nome = savedName || "Paziente";
-                    const nomeOpEntry = currentStudio?.signature_name || "nostro studio";
                     const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
-                    const firmaLine = firma ? `\n\n${firma}` : "";
-                    const msg = `Buongiorno ${nome},\n\nbenvenuto/a nello studio di ${nomeOpEntry}!\n\nSiamo lieti di averla come nuovo paziente. A presto!${firmaLine}`;
+
+                    let msg: string;
+                    if (welcomeTpl?.trim()) {
+                      // Usa il template dalle Impostazioni
+                      msg = welcomeTpl
+                        .replace(/{nome}/g, nome)
+                        .replace(/{firma}/g, firma);
+                    } else {
+                      // Fallback: messaggio di default
+                      const nomeOpEntry = currentStudio?.signature_name || "nostro studio";
+                      const firmaLine = firma ? `\n\n${firma}` : "";
+                      msg = `Buongiorno ${nome},\n\nbenvenuto/a nello studio di ${nomeOpEntry}!\n\nSiamo lieti di averla come nuovo paziente. A presto!${firmaLine}`;
+                    }
+
                     const p = savedPhone.replace(/[\s\(\)\-\.]/g,"").replace(/^\+/,"");
                     const n = p.startsWith("00")?p.slice(2):p.startsWith("0")?"39"+p:!p.startsWith("39")&&p.length<=10?"39"+p:p;
                     const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
                     const url = (isMobile ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + n + "&text=" + encodeURIComponent(msg);
-                    const w = window.open(url, "_blank", "noopener,noreferrer"); if (!w) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
+                    window.open(url, "_blank", "noopener,noreferrer");
                     setShowWelcomeWA(false);
                   }} style={{ padding: "10px 18px", borderRadius: 8, border: "none", background: "#25D366", color: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
                     💬 Invia benvenuto WA

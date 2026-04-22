@@ -730,6 +730,55 @@ export default function PatientDetailPage({
   const [error,   setError]   = useState("");
   const [patient, setPatient] = useState<Patient | null>(null);
 
+  // ── Template messaggi dalle impostazioni ─────────────────────────────────
+  // Caricati dalla tabella practice_settings, usati per i bottoni WhatsApp
+  // (compleanno, pagamento, soddisfazione, welcome, booking)
+  const [templateMessages, setTemplateMessages] = useState<{
+    welcome_message: string | null;
+    booking_confirm_message: string | null;
+    payment_message: string | null;
+    birthday_message: string | null;
+    satisfaction_message: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("practice_settings")
+        .select("welcome_message, booking_confirm_message, payment_message, birthday_message, satisfaction_message")
+        .maybeSingle();
+      if (data) setTemplateMessages(data as any);
+    })();
+  }, []);
+
+  // Helper: apre WhatsApp sincrono (Safari-safe).
+  // Si usa window.location.assign se si è già in un tab aperto da click utente,
+  // altrimenti apre nuova tab. NON usa entrambi window.open e a.click (bug doppia apertura).
+  const openWhatsAppSafe = useCallback((phone: string, message: string) => {
+    const clean = cleanPhoneWA(phone);
+    if (!clean) { alert("Numero non valido"); return; }
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(
+      typeof navigator !== "undefined" ? navigator.userAgent : ""
+    );
+    const base = isMobile ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send";
+    const url = `${base}?phone=${clean}&text=${encodeURIComponent(message)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }, []);
+
+  // Applica i placeholder al template (gestisce anche {firma})
+  const applyTemplate = useCallback((tpl: string, vars: Record<string, string>): string => {
+    let result = tpl;
+    // Firma dinamica
+    const firma = [currentStudio?.signature_name, currentStudio?.signature_title]
+      .filter(Boolean).join("\n");
+    result = result.replace(/{firma}/g, firma);
+    // Tutti gli altri placeholder
+    Object.entries(vars).forEach(([k, v]) => {
+      result = result.replace(new RegExp(`{${k}}`, "g"), v ?? "");
+    });
+    return result;
+  }, [currentStudio]);
+
   // ── Anagrafica form ───────────────────────────────────────────────────────
   const [demoEditMode,    setDemoEditMode]    = useState(false);
   const [savingDemo,      setSavingDemo]      = useState(false);
@@ -1639,8 +1688,18 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
       });
     } catch {}
     const link = `${window.location.origin}/survey/${token}`;
-    const firma = buildFirma(false);
-    const msg = `Gentile ${firstName},\nil suo ciclo di trattamento è terminato.\n\nLe saremmo grati se volesse rispondere a 3 brevi domande:\n${link}\n\nGrazie${firma ? `, ${firma}` : ""}`;
+
+    let msg: string;
+    if (templateMessages?.satisfaction_message?.trim()) {
+      msg = applyTemplate(templateMessages.satisfaction_message, {
+        nome: firstName || "Paziente",
+        link,
+      });
+    } else {
+      const firma = buildFirma(false);
+      msg = `Gentile ${firstName},\nil suo ciclo di trattamento è terminato.\n\nLe saremmo grati se volesse rispondere a 3 brevi domande:\n${link}\n\nGrazie${firma ? `, ${firma}` : ""}`;
+    }
+
     const clean = cleanPhoneWA(phone);
     const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(msg);
     if (waWindow) { waWindow.location.href = url; }
@@ -1651,14 +1710,20 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
   function sendBirthdayMsg() {
     if (!patient || !phone) { alert("Nessun numero di telefono."); return; }
     const nome = firstName?.trim() || "Paziente";
-    const studioNameInline = currentStudio?.name || "";
-    const firma = buildFirma(false);
-    const firmaLine = firma ? `\n\nCordiali saluti,\n${firma}` : "\n\nCordiali saluti";
-    const staffLine = studioNameInline ? `Tutto lo staff di ${studioNameInline}` : "Tutto lo staff";
-    const msg = `Buon compleanno ${nome}! 🎂\n\n${staffLine} le augura una splendida giornata.\nSe ha bisogno di noi, siamo a sua disposizione.${firmaLine}`;
-    const clean = cleanPhoneWA(phone);
-    const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(msg);
-    const w = window.open(url, "_blank", "noopener,noreferrer"); if (!w) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
+
+    let msg: string;
+    if (templateMessages?.birthday_message?.trim()) {
+      // Usa il template dalle Impostazioni
+      msg = applyTemplate(templateMessages.birthday_message, { nome });
+    } else {
+      // Fallback: template di default se l'utente non ne ha salvato uno
+      const firma = buildFirma(false);
+      const firmaLine = firma ? `\n\nCordiali saluti,\n${firma}` : "\n\nCordiali saluti";
+      const staffLine = currentStudio?.name ? `Tutto lo staff di ${currentStudio.name}` : "Tutto lo staff";
+      msg = `Buon compleanno ${nome}! 🎂\n\n${staffLine} le augura una splendida giornata.\nSe ha bisogno di noi, siamo a sua disposizione.${firmaLine}`;
+    }
+
+    openWhatsAppSafe(phone, msg);
   }
 
   // ── Promemoria pagamento ──────────────────────────────────────────────────
@@ -1666,12 +1731,17 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
     if (!patient || !phone) { alert("Nessun numero di telefono."); return; }
     const nome = firstName?.trim() || "Paziente";
     const importo = unpaidAmount.toLocaleString("it-IT", { minimumFractionDigits: 2 });
-    const firma = buildFirma(true);
-    const firmaLine = firma ? `\n\nCordiali saluti,\n${firma}` : "\n\nCordiali saluti";
-    const msg = `Gentile ${nome},\n\nle ricordiamo un saldo aperto di €${importo} per le sedute effettuate.\n\nPer qualsiasi informazione non esiti a contattarci.${firmaLine}`;
-    const clean = cleanPhoneWA(phone);
-    const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(msg);
-    const w = window.open(url, "_blank", "noopener,noreferrer"); if (!w) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
+
+    let msg: string;
+    if (templateMessages?.payment_message?.trim()) {
+      msg = applyTemplate(templateMessages.payment_message, { nome, importo });
+    } else {
+      const firma = buildFirma(true);
+      const firmaLine = firma ? `\n\nCordiali saluti,\n${firma}` : "\n\nCordiali saluti";
+      msg = `Gentile ${nome},\n\nle ricordiamo un saldo aperto di €${importo} per le sedute effettuate.\n\nPer qualsiasi informazione non esiti a contattarci.${firmaLine}`;
+    }
+
+    openWhatsAppSafe(phone, msg);
   }
 
   // ── Export scheda paziente completa PDF ──────────────────────────────────

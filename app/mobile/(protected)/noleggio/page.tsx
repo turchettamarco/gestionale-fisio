@@ -44,6 +44,9 @@ export default function MobileNoleggioPage() {
   const [editingId,setEditingId]=useState<string|null>(null);
   const [editName,setEditName]=useState("");
   const [editPhone,setEditPhone]=useState("");
+  const [editStart,setEditStart]=useState("");
+  const [editEnd,setEditEnd]=useState("");
+  const [editPricePerDay,setEditPricePerDay]=useState("");
   const [editSaving,setEditSaving]=useState(false);
   const [creatingPatient,setCreatingPatient]=useState<string|null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -115,12 +118,26 @@ export default function MobileNoleggioPage() {
   async function del(id:string){ if(!confirm("Eliminare?"))return; await supabase.from("noleggios").delete().eq("id",id); setNoleggios(p=>p.filter(n=>n.id!==id)); }
   async function saveEditNoleggio(id:string) {
     if(!editName.trim()){alert("Il nome non può essere vuoto.");return;}
+    if(!editStart||!editEnd){alert("Date obbligatorie.");return;}
+    if(new Date(editEnd)<new Date(editStart)){alert("La data di fine non può essere prima della data di inizio.");return;}
+    const pday = parseFloat(editPricePerDay)||0;
+    if(pday<=0){alert("Prezzo al giorno non valido.");return;}
+    const days = Math.max(1, Math.round((new Date(editEnd+"T12:00:00").getTime()-new Date(editStart+"T12:00:00").getTime())/86400000));
+    const total = Math.round(days*pday*100)/100;
+
     setEditSaving(true);
-    const {error}=await supabase.from("noleggios").update({patient_name:editName.trim(),patient_phone:editPhone.trim()||null}).eq("id",id);
+    const {error}=await supabase.from("noleggios").update({
+      patient_name:editName.trim(),
+      patient_phone:editPhone.trim()||null,
+      start_date:editStart,
+      end_date:editEnd,
+      price_per_day:pday,
+      total_amount:total,
+    }).eq("id",id);
     setEditSaving(false);
     if(error){alert("Errore: "+error.message);return;}
     setEditingId(null);
-    setNoleggios(p=>p.map(n=>n.id===id?{...n,patient_name:editName.trim(),patient_phone:editPhone.trim()||null}:n));
+    setNoleggios(p=>p.map(n=>n.id===id?{...n,patient_name:editName.trim(),patient_phone:editPhone.trim()||null,start_date:editStart,end_date:editEnd,price_per_day:pday,total_amount:total}:n));
   }
   async function createPatientFromNoleggio(n:NoleggioRow) {
     if(!confirm(`Creare paziente "${n.patient_name}" in anagrafica?`)) return;
@@ -274,6 +291,32 @@ export default function MobileNoleggioPage() {
                       <input value={editPhone} onChange={e=>setEditPhone(e.target.value)}
                         placeholder="Telefono" type="tel"
                         style={{padding:"7px 10px",borderRadius:7,border:`1.5px solid ${THEME.border}`,fontSize:13,outline:"none",width:"100%",boxSizing:"border-box" as const,color:"#0f172a",background:"#fff"}}/>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                        <div>
+                          <label style={{fontSize:10,fontWeight:700,color:THEME.muted,textTransform:"uppercase"}}>Inizio</label>
+                          <input type="date" value={editStart} onChange={e=>setEditStart(e.target.value)}
+                            style={{padding:"7px 10px",borderRadius:7,border:`1.5px solid ${THEME.border}`,fontSize:13,outline:"none",width:"100%",boxSizing:"border-box" as const,color:"#0f172a",background:"#fff"}}/>
+                        </div>
+                        <div>
+                          <label style={{fontSize:10,fontWeight:700,color:THEME.muted,textTransform:"uppercase"}}>Fine</label>
+                          <input type="date" value={editEnd} onChange={e=>setEditEnd(e.target.value)}
+                            style={{padding:"7px 10px",borderRadius:7,border:`1.5px solid ${THEME.border}`,fontSize:13,outline:"none",width:"100%",boxSizing:"border-box" as const,color:"#0f172a",background:"#fff"}}/>
+                        </div>
+                      </div>
+                      <div>
+                        <label style={{fontSize:10,fontWeight:700,color:THEME.muted,textTransform:"uppercase"}}>Prezzo/giorno €</label>
+                        <input type="number" step="0.01" value={editPricePerDay} onChange={e=>setEditPricePerDay(e.target.value)}
+                          style={{padding:"7px 10px",borderRadius:7,border:`1.5px solid ${THEME.border}`,fontSize:13,outline:"none",width:"100%",boxSizing:"border-box" as const,color:"#0f172a",background:"#fff"}}/>
+                      </div>
+                      {editStart && editEnd && editPricePerDay && (() => {
+                        const d1 = new Date(editStart + "T12:00:00");
+                        const d2 = new Date(editEnd + "T12:00:00");
+                        if (d2 < d1) return <div style={{fontSize:11,color:THEME.red,fontWeight:600}}>⚠ Fine prima dell&apos;inizio</div>;
+                        const days = Math.max(1, Math.round((d2.getTime()-d1.getTime())/86400000));
+                        const pday = parseFloat(editPricePerDay)||0;
+                        const total = Math.round(days*pday*100)/100;
+                        return <div style={{fontSize:11,color:THEME.teal,fontWeight:600}}>→ {days} giorni · Totale €{total.toFixed(2)}</div>;
+                      })()}
                       <div style={{display:"flex",gap:6}}>
                         <button onClick={()=>saveEditNoleggio(n.id)} disabled={editSaving}
                           style={{flex:1,padding:"8px",borderRadius:7,border:"none",background:THEME.teal,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",opacity:editSaving?0.6:1}}>
@@ -289,7 +332,14 @@ export default function MobileNoleggioPage() {
                     <>
                       <div style={{display:"flex",alignItems:"center",gap:6}}>
                         <div style={{fontWeight:800,fontSize:15,color:THEME.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.patient_name}</div>
-                        <button onClick={()=>{setEditingId(n.id);setEditName(n.patient_name);setEditPhone(n.patient_phone||"");}}
+                        <button onClick={()=>{
+                          setEditingId(n.id);
+                          setEditName(n.patient_name);
+                          setEditPhone(n.patient_phone||"");
+                          setEditStart(n.start_date);
+                          setEditEnd(n.end_date);
+                          setEditPricePerDay(String(n.price_per_day));
+                        }}
                           style={{background:"none",border:"none",cursor:"pointer",color:THEME.muted,fontSize:13,padding:2,flexShrink:0}}>✏️</button>
                       </div>
                       {n.patient_phone
