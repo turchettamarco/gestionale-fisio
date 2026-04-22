@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
-import { useCurrentStudioId } from "@/src/contexts/StudioContext";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const THEME = {
@@ -63,7 +63,8 @@ export default function NoleggioPage() {
   const router = useRouter();
 
   // Studio corrente (multi-tenancy)
-  const currentStudioId = useCurrentStudioId();
+  const { studio: currentStudio } = useCurrentStudio();
+  const currentStudioId = currentStudio?.id ?? null;
 
   const [userEmail, setUserEmail] = useState<string|null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -277,13 +278,15 @@ export default function NoleggioPage() {
     if (!n.patient_phone) { alert("Nessun numero di telefono per questo paziente."); return; }
     const dr = getDaysRemaining(n.end_date);
     const scad = new Date(n.end_date+"T12:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"numeric"});
+    const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+    const firmaLine = firma ? `\nGrazie,\n${firma}` : "\nGrazie";
     let msg = "";
     if (dr < 0) {
-      msg = `Gentile ${n.patient_name},\nLe ricordiamo che il noleggio del dispositivo *${n.device_name}* è scaduto il ${scad}.\nLa preghiamo di contattarci per la restituzione.\nGrazie, Dr. Marco Turchetta`;
+      msg = `Gentile ${n.patient_name},\nLe ricordiamo che il noleggio del dispositivo *${n.device_name}* è scaduto il ${scad}.\nLa preghiamo di contattarci per la restituzione.${firmaLine}`;
     } else if (dr === 0) {
-      msg = `Gentile ${n.patient_name},\nLe ricordiamo che il noleggio del dispositivo *${n.device_name}* scade *oggi*.\nPer informazioni o proroga contatti lo studio.\nGrazie, Dr. Marco Turchetta`;
+      msg = `Gentile ${n.patient_name},\nLe ricordiamo che il noleggio del dispositivo *${n.device_name}* scade *oggi*.\nPer informazioni o proroga contatti lo studio.${firmaLine}`;
     } else {
-      msg = `Gentile ${n.patient_name},\nLe ricordiamo che il noleggio del dispositivo *${n.device_name}* scadrà il *${scad}* (tra ${dr} giorni).\nPer informazioni o proroga contatti lo studio.\nGrazie, Dr. Marco Turchetta`;
+      msg = `Gentile ${n.patient_name},\nLe ricordiamo che il noleggio del dispositivo *${n.device_name}* scadrà il *${scad}* (tra ${dr} giorni).\nPer informazioni o proroga contatti lo studio.${firmaLine}`;
     }
     openWADirect(n.patient_phone, msg);
   }
@@ -315,7 +318,7 @@ export default function NoleggioPage() {
   @media print{body{padding:20px;}button{display:none!important;}}
 </style></head><body>
 <div class="header">
-  <div><div class="logo">Fisio<span>Hub</span></div><div style="font-size:12px;color:#64748b;margin-top:4px;">Dr. Marco Turchetta<br>Fisioterapista &amp; Osteopata<br>Via Galileo Galilei 5, Pontecorvo (FR)</div></div>
+  <div><div class="logo">${currentStudio?.name || "Studio"}</div><div style="font-size:12px;color:#64748b;margin-top:4px;">${[currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("<br>") || ""}${currentStudio?.address ? `<br>${currentStudio.address}` : ""}</div></div>
   <div><div class="doc-title">RICEVUTA NOLEGGIO</div><div class="doc-num">Data emissione: ${oggi}</div>${n.is_paid?'<div class="paid-badge">✓ PAGATO</div>':'<div class="unpaid-badge">⏳ DA PAGARE</div>'}</div>
 </div>
 <h2>Dati paziente</h2>
@@ -340,8 +343,8 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
   <button onclick="window.print()" style="padding:10px 28px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">🖨️ Stampa / Salva PDF</button>
 </div>
 <div class="footer">
-  Dr. Marco Turchetta — Fisioterapista & Osteopata<br>
-  Via Galileo Galilei 5, 03037 Pontecorvo (FR) — Tel: disponibile su richiesta<br>
+  ${[currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join(" — ") || ""}<br>
+  ${currentStudio?.address || ""}${currentStudio?.phone ? ` — Tel: ${currentStudio.phone}` : ""}<br>
   Documento generato il ${oggi}
 </div>
 </body></html>`;
@@ -374,7 +377,7 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
   @media print{button{display:none!important;}}
 </style></head><body>
 <h1>Contratto di Noleggio — Magnetoterapia</h1>
-<div class="sub">Dr. Marco Turchetta — Fisioterapista &amp; Osteopata · Via Galileo Galilei 5, Pontecorvo (FR) · Emesso il ${oggi}</div>
+<div class="sub">${[currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join(" — ") || ""}${currentStudio?.address ? ` · ${currentStudio.address}` : ""} · Emesso il ${oggi}</div>
 <div class="section"><h2>Dati del locatario</h2>
 <div class="box grid">
   <div class="field"><label>Cognome e Nome</label><span>${n.patient_name}</span></div>
@@ -396,7 +399,7 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
 <div class="art"><strong>Art. 4 – Pagamento</strong>L'importo è dovuto secondo le modalità concordate al momento della consegna.</div>
 </div>
 <div class="firma">
-  <div class="firma-box"><div style="font-weight:700;margin-bottom:36px">Il locatore</div>Dr. Marco Turchetta<br>Fisioterapista &amp; Osteopata</div>
+  <div class="firma-box"><div style="font-weight:700;margin-bottom:36px">Il locatore</div>${currentStudio?.signature_name || ""}${currentStudio?.signature_title ? `<br>${currentStudio.signature_title}` : ""}</div>
   <div class="firma-box"><div style="font-weight:700;margin-bottom:36px">Il locatario — firma per accettazione</div>${n.patient_name}</div>
 </div>
 <div style="text-align:center;margin-top:32px;"><button onclick="window.print()" style="padding:10px 28px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🖨️ Stampa / Salva PDF</button></div>

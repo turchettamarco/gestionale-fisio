@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
-import { useCurrentStudioId } from "@/src/contexts/StudioContext";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
 
 // --- TIPI ---
 type Plan = "invoice" | "no_invoice";
@@ -94,7 +94,8 @@ export default function NewPatientPage() {
   const router = useRouter();
 
   // Studio corrente (multi-tenancy)
-  const currentStudioId = useCurrentStudioId();
+  const { studio: currentStudio } = useCurrentStudio();
+  const currentStudioId = currentStudio?.id ?? null;
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -233,7 +234,10 @@ export default function NewPatientPage() {
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button type="button" onClick={() => {
                     const nome = savedName || "Paziente";
-                    const msg = `Buongiorno ${nome},\n\nbenvenuto/a nello studio del Dr. Marco Turchetta!\n\nSiamo lieti di averla come nuovo paziente. A presto!\n\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
+                    const nomeOpEntry = currentStudio?.signature_name || "nostro studio";
+                    const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+                    const firmaLine = firma ? `\n\n${firma}` : "";
+                    const msg = `Buongiorno ${nome},\n\nbenvenuto/a nello studio di ${nomeOpEntry}!\n\nSiamo lieti di averla come nuovo paziente. A presto!${firmaLine}`;
                     const p = savedPhone.replace(/[\s\(\)\-\.]/g,"").replace(/^\+/,"");
                     const n = p.startsWith("00")?p.slice(2):p.startsWith("0")?"39"+p:!p.startsWith("39")&&p.length<=10?"39"+p:p;
                     const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");

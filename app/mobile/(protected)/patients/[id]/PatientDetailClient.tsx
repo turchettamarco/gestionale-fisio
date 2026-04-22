@@ -14,6 +14,7 @@ function openWA(phone: string, message: string = ""): void {
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { ClinicalScalesSection } from "@/app/(protected)/patients/[id]/ClinicalScales";
 import { SOAPNotesEditor } from "@/app/(protected)/calendar/components/SOAPNotes";
 import { PhotoGallerySection } from "@/app/(protected)/patients/[id]/PhotoGallery";
@@ -235,9 +236,10 @@ function DocThumbnail({ doc }: { doc: PatientDoc }) {
 }
 
 /* ─── QuickActionBar ──────────────────────────────────────────────────── */
-function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, firstName }: {
+function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, firstName, currentStudio }: {
   phone: string | null; waPhone: string | null; patientId: string;
   unpaidAmount: number; birthDate: string | null; firstName: string | null;
+  currentStudio: { name: string; signature_name: string | null; signature_title: string | null } | null;
 }) {
   const actions = [
     phone    ? { label: "Chiama",    icon: "📞", href: `tel:${phone}`,                          color: T.blue  } : null,
@@ -247,6 +249,10 @@ function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, fi
     (unpaidAmount > 0 && phone) ? { label: `€${unpaidAmount % 1 === 0 ? unpaidAmount.toFixed(0) : unpaidAmount.toFixed(2)}`, icon: "💶", href: `#payment`, color: "#dc2626" } : null,
   ].filter(Boolean) as { label: string; icon: string; href: string; color: string }[];
 
+  // Helper firma
+  const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+  const studioName = currentStudio?.name || "";
+
   return (
     <div style={{ display: "grid", gridTemplateColumns: `repeat(${actions.length},1fr)`, gap: 8, marginTop: 12 }}>
       {actions.map(a => (
@@ -255,13 +261,14 @@ function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, fi
             if (a.href === "#birthday" && phone) {
               e.preventDefault();
               const nome = firstName?.trim() || "Paziente";
-              const msg = `Buon compleanno ${nome}! 🎂\n\nTutto lo staff di FisioHub le augura una splendida giornata.\nSe ha bisogno di noi siamo a sua disposizione.\n\nDr. Marco Turchetta`;
+              const staffLine = studioName ? `Tutto lo staff di ${studioName}` : "Tutto lo staff";
+              const msg = `Buon compleanno ${nome}! 🎂\n\n${staffLine} le augura una splendida giornata.\nSe ha bisogno di noi siamo a sua disposizione.${firma ? `\n\n${firma}` : ""}`;
               openWA(phone, msg);
             } else if (a.href === "#payment" && phone) {
               e.preventDefault();
               const nome = firstName?.trim() || "Paziente";
               const importo = unpaidAmount.toLocaleString("it-IT", { minimumFractionDigits: 2 });
-              const msg = `Gentile ${nome},\n\nle ricordiamo un saldo aperto di €${importo} per le sedute effettuate.\n\nCordiali saluti,\nDr. Marco Turchetta`;
+              const msg = `Gentile ${nome},\n\nle ricordiamo un saldo aperto di €${importo} per le sedute effettuate.\n\nCordiali saluti${firma ? `,\n${firma}` : ""}`;
               openWA(phone, msg);
             }
           }}
@@ -282,6 +289,9 @@ function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, fi
 
 /* ─── Main ────────────────────────────────────────────────────────────── */
 export default function PatientDetailClient({ patientId }: { patientId: string }) {
+  // Studio corrente (multi-tenancy)
+  const { studio: currentStudio } = useCurrentStudio();
+
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState("");
   const [patient,   setPatient]   = useState<Patient | null>(null);
@@ -812,6 +822,11 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
               unpaidAmount={_unpaid}
               birthDate={patient.birth_date ?? null}
               firstName={patient.first_name ?? null}
+              currentStudio={currentStudio ? {
+                name: currentStudio.name,
+                signature_name: currentStudio.signature_name,
+                signature_title: currentStudio.signature_title,
+              } : null}
             />
           );
         })()}
@@ -1215,7 +1230,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
 
         {/* ─── TAB REFERTI ─── */}
         {activeTab === "esercizi" && (
-          <MobileEserciziTab patientId={patient.id} patientName={`${patient.last_name ?? ""} ${patient.first_name ?? ""}`.trim()} />
+          <MobileEserciziTab patientId={patient.id} patientName={`${patient.last_name ?? ""} ${patient.first_name ?? ""}`.trim()} currentStudio={currentStudio ? { signature_name: currentStudio.signature_name, signature_title: currentStudio.signature_title } : null} />
         )}
 
         {/* ─── NOTE SOAP ─── */}
@@ -1241,7 +1256,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
 
         {/* ─── PORTALE ─── */}
         {activeTab === "portal" && (
-          <MobilePortalTab patient={patient} />
+          <MobilePortalTab patient={patient} currentStudio={currentStudio ? { name: currentStudio.name, signature_name: currentStudio.signature_name, signature_title: currentStudio.signature_title } : null} />
         )}
 
         {activeTab === "docs" && (
@@ -1360,7 +1375,11 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
 }
 
 // ── Scheda Esercizi Mobile ─────────────────────────────────────────────────
-function MobileEserciziTab({ patientId, patientName }: { patientId: string; patientName: string }) {
+function MobileEserciziTab({ patientId, patientName, currentStudio }: {
+  patientId: string;
+  patientName: string;
+  currentStudio: { signature_name: string | null; signature_title: string | null } | null;
+}) {
   const [esercizi, setEsercizi] = React.useState<any[]>([]);
   const [schedaId, setSchedaId] = React.useState<string|null>(null);
   const [pubLink,  setPubLink]  = React.useState("");
@@ -1425,7 +1444,8 @@ function MobileEserciziTab({ patientId, patientName }: { patientId: string; pati
 
   function sendWA() {
     if (!pubLink) return;
-    const msg = `Gentile ${patientName},\nEcco la sua scheda esercizi domiciliari:\n${pubLink}\n\nDr. Marco Turchetta`;
+    const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+    const msg = `Gentile ${patientName},\nEcco la sua scheda esercizi domiciliari:\n${pubLink}${firma ? `\n\n${firma}` : ""}`;
     const a = document.createElement("a");
     a.href = (typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? 'https://api.whatsapp.com' : 'https://web.whatsapp.com') + '/send?text=' + encodeURIComponent(msg);
     a.target = "_blank"; document.body.appendChild(a); a.click(); document.body.removeChild(a);
@@ -1520,7 +1540,10 @@ function MobileEserciziTab({ patientId, patientName }: { patientId: string; pati
 }
 
 /* ─── Portal Tab (mobile) ─────────────────────────────────────────────── */
-function MobilePortalTab({ patient }: { patient: any }) {
+function MobilePortalTab({ patient, currentStudio }: {
+  patient: any;
+  currentStudio: { name: string; signature_name: string | null; signature_title: string | null } | null;
+}) {
   const T2 = { teal:"#0d9488", blue:"#2563eb", text:"#0f172a", muted:"#64748b", border:"#e2e8f0", green:"#16a34a", panelBg:"#fff", panelSoft:"#f8fafc" };
   const [loading, setLoading] = useState(false);
   const [link, setLink] = useState("");
@@ -1553,7 +1576,9 @@ function MobilePortalTab({ patient }: { patient: any }) {
     const url = link || await generate();
     if(!url){ if(waWindow) waWindow.close(); return; }
     const nome = patient.first_name?.trim()||"Paziente";
-    const msg = "Gentile "+nome+",\n\nle ho attivato la sua area personale FisioHub dove puo vedere:\n- i suoi prossimi appuntamenti\n- la scheda esercizi da casa\n- i contatti dello studio\n\nIl suo link personale (valido 6 mesi):\n"+url+"\n\nCordiali saluti,\nDr. Marco Turchetta";
+    const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+    const studioNameInline = currentStudio?.name ? ` ${currentStudio.name}` : "";
+    const msg = "Gentile "+nome+",\n\nle ho attivato la sua area personale"+studioNameInline+" dove puo vedere:\n- i suoi prossimi appuntamenti\n- la scheda esercizi da casa\n- i contatti dello studio\n\nIl suo link personale (valido 6 mesi):\n"+url+(firma ? `\n\nCordiali saluti,\n${firma}` : "\n\nCordiali saluti");
     const clean = cleanPhone(patient.phone);
     const p = clean.replace(/[\s\(\)\-\.]/g,"").replace(/^\+/,"");
     const n = p.startsWith("00")?p.slice(2):p.startsWith("0")?"39"+p:!p.startsWith("39")&&p.length<=10?"39"+p:p;

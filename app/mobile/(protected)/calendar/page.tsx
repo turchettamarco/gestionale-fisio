@@ -21,7 +21,7 @@ import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
-import { useCurrentStudioId } from "@/src/contexts/StudioContext";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
 
 /* ─── Types ───────────────────────────────────────────────────────────── */
 type Status = "booked" | "confirmed" | "done" | "cancelled" | "not_paid";
@@ -194,7 +194,8 @@ function CalendarPageInner() {
   const searchParams = useSearchParams();
 
   // Studio corrente (multi-tenancy)
-  const currentStudioId = useCurrentStudioId();
+  const { studio: currentStudio } = useCurrentStudio();
+  const currentStudioId = currentStudio?.id ?? null;
 
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
@@ -595,13 +596,15 @@ function CalendarPageInner() {
     const dataRelativa = formatDateRelative(appointment.start);
     const ora          = fmtTime(appointment.start);
     const luogo = appointment.location==="studio"
-      ? (CLINIC_ADDRESSES[appointment.clinic_site??""] || appointment.clinic_site || "Pontecorvo, Via Galileo Galilei 5, dietro il Bar Principe")
+      ? (CLINIC_ADDRESSES[appointment.clinic_site??""] || appointment.clinic_site || currentStudio?.address || "")
       : `Presso il suo domicilio (${appointment.domicile_address??""})`;
     const nomePaziente = (patientFirstName&&patientFirstName.trim())?patientFirstName.trim():"Cliente";
+    const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+    const firmaSuffix = firma ? `,\n${firma}` : "";
 
     const defaultTpl = isConfirmation
-      ? `Grazie per averci scelto.\nRicordiamo il prossimo appuntamento fissato per {data_relativa} alle {ora}.\n\nA presto,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`
-      : `Buongiorno {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore ⏰ {ora}.\n\n📍 {luogo}\n\nCordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
+      ? `Grazie per averci scelto.\nRicordiamo il prossimo appuntamento fissato per {data_relativa} alle {ora}.\n\nA presto${firmaSuffix}`
+      : `Buongiorno {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore ⏰ {ora}.\n\n📍 {luogo}\n\nCordiali saluti${firmaSuffix}`;
 
     const buildMsg = (tpl: string) => tpl
       .replace(/{nome}/g,          nomePaziente)
@@ -618,7 +621,7 @@ function CalendarPageInner() {
     await supabase.from("appointments").update({whatsapp_sent_at:nowIso,whatsapp_sent:true}).eq("id",appointmentId);
     setEvents(prev=>prev.map(ev=>ev.id===appointmentId?{...ev,whatsapp_sent_at:nowIso}:ev));
     setSelectedEvent(prev=>prev?.id===appointmentId?{...prev,whatsapp_sent_at:nowIso}:prev);
-  }, [events]);
+  }, [events, currentStudio]);
 
   /* ── Open / Save / Delete ────────────────── */
   const openEvent = useCallback((ev:CalendarEvent) => {

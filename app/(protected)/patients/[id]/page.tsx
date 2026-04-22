@@ -3,6 +3,7 @@
 import Link from "next/link";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { ClinicalScalesSection } from "./ClinicalScales";
 import { PhotoGallerySection } from "./PhotoGallery";
 
@@ -680,6 +681,18 @@ export default function PatientDetailPage({
 }) {
   const resolvedParams = React.use(params as any) as { id: string };
   const patientId = resolvedParams.id;
+
+  // Studio corrente (multi-tenancy) — per firma e indirizzo nei messaggi
+  const { studio: currentStudio } = useCurrentStudio();
+
+  // Helper: costruisce la firma per i messaggi WA
+  const buildFirma = useCallback((withTitle: boolean = true): string => {
+    const name = currentStudio?.signature_name;
+    const title = currentStudio?.signature_title;
+    if (withTitle && name && title) return `${name}\n${title}`;
+    if (name) return name;
+    return "";
+  }, [currentStudio]);
 
   // ── Auth / user menu ──────────────────────────────────────────────────────
   const [userEmail, setUserEmail]     = useState<string | null>(null);
@@ -1587,7 +1600,13 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
     const link = await generatePortalLink();
     if (!link) { if (waWindow) waWindow.close(); return; }
     const nome = firstName?.trim() || lastName?.trim() || "Paziente";
-    const msg = "Gentile " + nome + ",\n\nle ho attivato la sua area personale FisioHub dove puo vedere:\n- i suoi prossimi appuntamenti\n- la scheda esercizi da casa\n- i contatti dello studio\n\nIl suo link personale (valido 6 mesi):\n" + link + "\n\nCordiali saluti,\nDr. Marco Turchetta";
+    const studioNameInline = currentStudio?.name || "";
+    const firma = buildFirma(false); // solo nome, senza titolo per questo msg
+    const firmaLine = firma ? `\n\nCordiali saluti,\n${firma}` : "\n\nCordiali saluti";
+    const msg = "Gentile " + nome + ",\n\nle ho attivato la sua area personale" +
+      (studioNameInline ? ` ${studioNameInline}` : "") +
+      " dove puo vedere:\n- i suoi prossimi appuntamenti\n- la scheda esercizi da casa\n- i contatti dello studio\n\nIl suo link personale (valido 6 mesi):\n" + link +
+      firmaLine;
     const clean = cleanPhoneWA(phone);
     const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(msg);
     if (waWindow) { waWindow.location.href = url; }
@@ -1620,7 +1639,8 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
       });
     } catch {}
     const link = `${window.location.origin}/survey/${token}`;
-    const msg = `Gentile ${firstName},\nil suo ciclo di trattamento è terminato.\n\nLe saremmo grati se volesse rispondere a 3 brevi domande:\n${link}\n\nGrazie, Dr. Marco Turchetta`;
+    const firma = buildFirma(false);
+    const msg = `Gentile ${firstName},\nil suo ciclo di trattamento è terminato.\n\nLe saremmo grati se volesse rispondere a 3 brevi domande:\n${link}\n\nGrazie${firma ? `, ${firma}` : ""}`;
     const clean = cleanPhoneWA(phone);
     const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(msg);
     if (waWindow) { waWindow.location.href = url; }
@@ -1631,7 +1651,11 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
   function sendBirthdayMsg() {
     if (!patient || !phone) { alert("Nessun numero di telefono."); return; }
     const nome = firstName?.trim() || "Paziente";
-    const msg = `Buon compleanno ${nome}! 🎂\n\nTutto lo staff di FisioHub le augura una splendida giornata.\nSe ha bisogno di noi, siamo a sua disposizione.\n\nCordiali saluti,\nDr. Marco Turchetta`;
+    const studioNameInline = currentStudio?.name || "";
+    const firma = buildFirma(false);
+    const firmaLine = firma ? `\n\nCordiali saluti,\n${firma}` : "\n\nCordiali saluti";
+    const staffLine = studioNameInline ? `Tutto lo staff di ${studioNameInline}` : "Tutto lo staff";
+    const msg = `Buon compleanno ${nome}! 🎂\n\n${staffLine} le augura una splendida giornata.\nSe ha bisogno di noi, siamo a sua disposizione.${firmaLine}`;
     const clean = cleanPhoneWA(phone);
     const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(msg);
     const w = window.open(url, "_blank", "noopener,noreferrer"); if (!w) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
@@ -1642,7 +1666,9 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
     if (!patient || !phone) { alert("Nessun numero di telefono."); return; }
     const nome = firstName?.trim() || "Paziente";
     const importo = unpaidAmount.toLocaleString("it-IT", { minimumFractionDigits: 2 });
-    const msg = `Gentile ${nome},\n\nle ricordiamo un saldo aperto di €${importo} per le sedute effettuate.\n\nPer qualsiasi informazione non esiti a contattarci.\n\nCordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
+    const firma = buildFirma(true);
+    const firmaLine = firma ? `\n\nCordiali saluti,\n${firma}` : "\n\nCordiali saluti";
+    const msg = `Gentile ${nome},\n\nle ricordiamo un saldo aperto di €${importo} per le sedute effettuate.\n\nPer qualsiasi informazione non esiti a contattarci.${firmaLine}`;
     const clean = cleanPhoneWA(phone);
     const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(msg);
     const w = window.open(url, "_blank", "noopener,noreferrer"); if (!w) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
@@ -1675,7 +1701,7 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
   @media print{button{display:none!important;}.no-print{display:none!important;}}
 </style></head><body>
 <h1>${nomeCompleto}</h1>
-<div class="sub">Scheda clinica completa — esportata il ${oggi} · Dr. Marco Turchetta</div>
+<div class="sub">Scheda clinica completa — esportata il ${oggi}${currentStudio?.signature_name ? ` · ${currentStudio.signature_name}` : ""}</div>
 <h2>Anagrafica</h2>
 <div class="box grid">
   <div class="field"><label>Data di nascita</label><span>${birthDate?new Date(birthDate+"T12:00:00").toLocaleDateString("it-IT"):"—"} (${eta})</span></div>
@@ -1758,8 +1784,8 @@ ${esercizi.length>0?`
 </style></head><body>
 <div class="header">
   <div>
-    <div class="logo">Fisio<span>Hub</span></div>
-    <div class="studio">Dr. Marco Turchetta — Fisioterapista &amp; Osteopata<br>Via Galileo Galilei 5, 03037 Pontecorvo (FR)</div>
+    <div class="logo">${currentStudio?.name || "Studio"}</div>
+    <div class="studio">${[currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join(" — ") || ""}${currentStudio?.address ? `<br>${currentStudio.address}` : ""}</div>
   </div>
   <div class="doc-info">
     <h2>Programma Esercizi Domiciliari</h2>
@@ -1778,8 +1804,8 @@ ${rows}
     <div class="firma-label">Data: ___________</div>
   </div>
   <div class="footer-info">
-    Dr. Marco Turchetta — Fisioterapista &amp; Osteopata<br>
-    Via Galileo Galilei 5, Pontecorvo (FR)<br>
+    ${[currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join(" — ") || ""}<br>
+    ${currentStudio?.address || ""}<br>
     Documento generato il ${oggi}
   </div>
 </div>
@@ -2998,7 +3024,8 @@ ${rows}
                       📋 Copia
                     </button>
                     <button onClick={()=>{
-                        const msg = `Gentile ${lastName} ${firstName},\nEcco la sua scheda esercizi domiciliari:\n${pubLink}\n\nClicchi il link per vedere gli esercizi e i video dimostrativi.\nDr. Marco Turchetta`;
+                        const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+                        const msg = `Gentile ${lastName} ${firstName},\nEcco la sua scheda esercizi domiciliari:\n${pubLink}\n\nClicchi il link per vedere gli esercizi e i video dimostrativi.${firma ? `\n${firma}` : ""}`;
                         const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?text=" + encodeURIComponent(msg);
                         const w = window.open(url, "_blank", "noopener,noreferrer"); if (!w) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
                       }}

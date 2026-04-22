@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
 
 type Status       = "booked" | "confirmed" | "done" | "cancelled" | "not_paid";
 type LocationType = "studio" | "domicile";
@@ -135,6 +136,10 @@ function useCountdown(targetISO: string | null) {
 
 export default function HomePage() {
   const router = useRouter();
+
+  // Studio corrente (multi-tenancy)
+  const { studio: currentStudio } = useCurrentStudio();
+
   const [userEmail,setUserEmail]=useState<string|null>(null);
   const [userMenuOpen,setUserMenuOpen]=useState(false);
   const userMenuRef=useRef<HTMLDivElement|null>(null);
@@ -1183,7 +1188,9 @@ export default function HomePage() {
                   function sendWA(){
                     const ph=n.patient_phone; if(!ph) return;
                     const scad=new Date(n.end_date+"T12:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"numeric"});
-                    const msg=expired?`Gentile ${n.patient_name},\nLe ricordiamo che il noleggio del dispositivo *${n.device_name}* è scaduto il ${scad}.\nLa preghiamo di contattarci per la restituzione.\nGrazie, Dr. Marco Turchetta`:`Gentile ${n.patient_name},\nLe ricordiamo che il noleggio del dispositivo *${n.device_name}* scadrà il *${scad}*${n.days_remaining>0?` (tra ${n.days_remaining} giorni)`:""  }.\nPer informazioni contatti lo studio.\nGrazie, Dr. Marco Turchetta`;
+                    const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+                    const firmaLine = firma ? `\nGrazie,\n${firma}` : "\nGrazie";
+                    const msg=expired?`Gentile ${n.patient_name},\nLe ricordiamo che il noleggio del dispositivo *${n.device_name}* è scaduto il ${scad}.\nLa preghiamo di contattarci per la restituzione.${firmaLine}`:`Gentile ${n.patient_name},\nLe ricordiamo che il noleggio del dispositivo *${n.device_name}* scadrà il *${scad}*${n.days_remaining>0?` (tra ${n.days_remaining} giorni)`:""  }.\nPer informazioni contatti lo studio.${firmaLine}`;
                     openWA(ph, msg);
                   }
                   return (
@@ -1281,7 +1288,9 @@ export default function HomePage() {
                 ?<div style={{color:THEME.green,fontSize:12,padding:"12px 2px",fontWeight:600}}>Nessun saldo aperto ✓</div>
                 :openBalanceGroups.map((g,i)=>{
                   const clean=g.phone?fmtPhone(g.phone):"";
-                  const waMsg=`Gentile ${g.patient_name.split(" ")[1]||g.patient_name},\n\nLe ricordiamo che risultano ${g.sessions} seduta${g.sessions>1?"e":""} non ancora saldate per un totale di ${g.total.toLocaleString("it-IT")}€.\n\nPer qualsiasi informazione siamo a disposizione.\n\nCordiali saluti,\nDr. Marco Turchetta`;
+                  const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+                  const firmaLine = firma ? `\n\nCordiali saluti,\n${firma}` : "\n\nCordiali saluti";
+                  const waMsg=`Gentile ${g.patient_name.split(" ")[1]||g.patient_name},\n\nLe ricordiamo che risultano ${g.sessions} seduta${g.sessions>1?"e":""} non ancora saldate per un totale di ${g.total.toLocaleString("it-IT")}€.\n\nPer qualsiasi informazione siamo a disposizione.${firmaLine}`;
                   return(
                     <div key={g.patient_id} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 4px",borderBottom:i<openBalanceGroups.length-1?`1px solid ${THEME.border}`:"none"}}>
                       {/* Avatar */}
@@ -1332,7 +1341,9 @@ export default function HomePage() {
                 ?<div style={{color:THEME.muted,fontSize:12,padding:"12px 2px",fontWeight:500}}>Nessun compleanno questa settimana.</div>
                 :birthdays.map((b,i)=>{
                   const waClean=b.phone?fmtPhone(b.phone):"";
-                  const waText=`Gentile ${b.first_name},\n\nLe auguriamo un felice compleanno!\n\nCordiali saluti,\nDr. Marco Turchetta`;
+                  const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+                  const firmaLine = firma ? `\n\nCordiali saluti,\n${firma}` : "\n\nCordiali saluti";
+                  const waText=`Gentile ${b.first_name},\n\nLe auguriamo un felice compleanno!${firmaLine}`;
                   return(
                     <div key={b.patient_id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 4px",borderBottom:i<birthdays.length-1?`1px solid ${THEME.border}`:"none"}}>
                       <div style={{width:32,height:32,borderRadius:8,flexShrink:0,background:b.isToday?"rgba(249,115,22,0.12)":"rgba(37,99,235,0.07)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🎂</div>

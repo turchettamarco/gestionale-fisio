@@ -13,7 +13,7 @@ import Link from "next/link";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
-import { useCurrentStudioId } from "@/src/contexts/StudioContext";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
 
 type Plan = "invoice" | "no_invoice";
 
@@ -71,7 +71,8 @@ export default function NewPatientPage() {
   const router = useRouter();
 
   // Studio corrente (multi-tenancy)
-  const currentStudioId = useCurrentStudioId();
+  const { studio: currentStudio } = useCurrentStudio();
+  const currentStudioId = currentStudio?.id ?? null;
 
   const [saving,  setSaving]  = useState(false);
   const [savedPhone, setSavedPhone] = useState("");
@@ -275,7 +276,10 @@ export default function NewPatientPage() {
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 <button type="button" onClick={() => {
                   const nome = savedName || "Paziente";
-                  const msg = "Buongiorno " + nome + ",\n\nbenvenuto/a nello studio del Dr. Marco Turchetta!\n\nSiamo lieti di averla come nuovo paziente. A presto!\n\nDr. Marco Turchetta\nFisioterapia e Osteopatia";
+                  const nomeOpEntry = currentStudio?.signature_name || "nostro studio";
+                  const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+                  const firmaLine = firma ? `\n\n${firma}` : "";
+                  const msg = "Buongiorno " + nome + ",\n\nbenvenuto/a nello studio di " + nomeOpEntry + "!\n\nSiamo lieti di averla come nuovo paziente. A presto!" + firmaLine;
                   openWA(savedPhone, msg);
                   setShowWelcomeWA(false);
                   setTimeout(() => router.push("/mobile/patients"), 800);

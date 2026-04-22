@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
     }
 
     const [patientRes, apptRes, exercisesRes] = await Promise.all([
-      db.from("patients").select("first_name,last_name").eq("id", tk.patient_id).maybeSingle(),
+      db.from("patients").select("first_name,last_name,studio_id").eq("id", tk.patient_id).maybeSingle(),
       db.from("appointments")
         .select("id,start_at,end_at,status,location,clinic_site,domicile_address,treatment_type")
         .eq("patient_id", tk.patient_id)
@@ -59,10 +59,23 @@ export async function GET(req: NextRequest) {
         .limit(1),
     ]);
 
+    // Recupera dati studio (branding) — usa il campo studio_id del paziente
+    let studio = null;
+    const studioId = (patientRes.data as any)?.studio_id;
+    if (studioId) {
+      const studioRes = await db
+        .from("studios")
+        .select("name,address,phone,signature_name,signature_title,google_review_link,website")
+        .eq("id", studioId)
+        .maybeSingle();
+      studio = studioRes.data || null;
+    }
+
     return NextResponse.json({
       patient: patientRes.data,
       upcoming: apptRes.data || [],
       exercise_token: exercisesRes.data?.[0]?.token || null,
+      studio,
     });
   } catch (e: any) {
     console.error("[portal GET] exception:", e?.message);

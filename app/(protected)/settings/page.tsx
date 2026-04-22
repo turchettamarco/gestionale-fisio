@@ -858,7 +858,7 @@ export default function SettingsPage() {
                   <input
                     value={studioSignatureName}
                     onChange={e => setStudioSignatureName(e.target.value)}
-                    placeholder="Es. Dr. Marco Turchetta"
+                    placeholder="Es. Dr. Mario Rossi"
                     style={inputStyle}
                   />
                   <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>

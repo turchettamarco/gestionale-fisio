@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -121,6 +122,9 @@ const WORK_HOURS = Array.from({ length: 24 }, (_, i) => {
 
 export default function MobileHomePage() {
   const router = useRouter();
+
+  // Studio corrente (multi-tenancy)
+  const { studio: currentStudio } = useCurrentStudio();
 
   const nowRef   = useRef<Date>(new Date());
   const todayYMD = useMemo(() => toYMD(new Date()), []);
@@ -366,15 +370,18 @@ export default function MobileHomePage() {
     if (!phone) { alert("Nessun numero registrato."); return; }
 
     const luogo = appt.location === "studio"
-      ? (CLINIC_ADDRESSES[appt.clinic_site ?? ""] || appt.clinic_site || "Studio")
+      ? (CLINIC_ADDRESSES[appt.clinic_site ?? ""] || appt.clinic_site || currentStudio?.address || "Studio")
       : `Presso il suo domicilio (${appt.domicile_address ?? ""})`;
+
+    const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+    const firmaLine = firma ? `Cordiali saluti,\n${firma}` : "Cordiali saluti";
 
     const message =
       `Buongiorno ${(appt.patients?.first_name ?? "").trim() || "gentile paziente"},\n\n` +
       `Le ricordiamo il suo appuntamento di ${formatDateRelative(new Date(appt.start_at))} ` +
       `alle ore ⏰ ${fmtTime(appt.start_at)}.\n\n` +
       `📍 ${luogo}\n\n` +
-      `Cordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
+      firmaLine;
 
     const clean = formatPhoneForWA(phone);
     const url = `https://api.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`;
@@ -564,14 +571,16 @@ export default function MobileHomePage() {
       // Auto-send WhatsApp confirmation
       if (patientPhone) {
         const patientName = patientFirst || "gentile paziente";
-        const luogo = CLINIC_ADDRESSES["Studio Pontecorvo"] || "Studio Pontecorvo";
+        const luogo = CLINIC_ADDRESSES["Studio Pontecorvo"] || currentStudio?.address || "Studio";
+        const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+        const firmaLine = firma ? `Cordiali saluti,\n${firma}` : "Cordiali saluti";
         const confMsg =
           `Buongiorno ${patientName},\n\n` +
           `Le confermiamo il suo appuntamento di ${formatDateRelative(startDate)} ` +
           `alle ore ⏰ ${qaTime}.\n\n` +
           `📍 ${luogo}\n\n` +
           `Per qualsiasi necessità non esiti a contattarci.\n\n` +
-          `Cordiali saluti,\nDr. Marco Turchetta\nFisioterapia e Osteopatia`;
+          firmaLine;
 
         const clean = formatPhoneForWA(patientPhone);
         const url = `https://api.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(confMsg)}`;
