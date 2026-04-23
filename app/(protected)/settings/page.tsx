@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
 import TemplateEditor, { DEFAULT_PLACEHOLDERS } from "./components/TemplateEditor";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { usePlanLimits } from "@/src/hooks/usePlanLimits";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const THEME = {
@@ -166,6 +167,7 @@ export default function SettingsPage() {
 
   // ─── Studio branding (tabella studios, multi-tenancy) ──────────────────────
   const { studio, refresh: refreshStudio } = useCurrentStudio();
+  const planLimits = usePlanLimits();
   const [studioName, setStudioName] = useState("");
   const [studioAddress, setStudioAddress] = useState("");
   const [studioPhone, setStudioPhone] = useState("");
@@ -805,6 +807,114 @@ export default function SettingsPage() {
           <h1 style={{ margin:0, fontWeight:800, fontSize:24, color:THEME.text, letterSpacing:-0.4 }}>Impostazioni</h1>
           <p style={{ margin:"4px 0 0", fontSize:13, color:THEME.muted }}>Dati studio · Tariffe trattamenti · Template WhatsApp</p>
         </div>
+
+        {/* ━━━ PIANO E ABBONAMENTO (card riepilogo) ━━━ */}
+        <Link
+          href="/piano"
+          style={{
+            display: "block",
+            background: THEME.panelBg,
+            border: `1px solid ${THEME.border}`,
+            borderRadius: 12,
+            padding: "20px 24px",
+            marginBottom: 20,
+            textDecoration: "none",
+            color: "inherit",
+            transition: "border-color 0.15s, box-shadow 0.15s",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = THEME.teal;
+            e.currentTarget.style.boxShadow = "0 4px 12px rgba(13,148,136,0.08)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = THEME.border;
+            e.currentTarget.style.boxShadow = "none";
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: THEME.muted,
+                  letterSpacing: 1.2,
+                  textTransform: "uppercase",
+                  marginBottom: 4,
+                }}
+              >
+                Piano e abbonamento
+              </div>
+              {planLimits.loading ? (
+                <div style={{ fontSize: 16, color: THEME.muted }}>Caricamento…</div>
+              ) : planLimits.plan?.plan_id ? (
+                <>
+                  <div
+                    style={{
+                      fontSize: 20,
+                      fontWeight: 700,
+                      color: THEME.text,
+                      letterSpacing: -0.3,
+                    }}
+                  >
+                    {planLimits.plan.plan_name}
+                    {planLimits.plan.price_monthly_cents ? (
+                      <span style={{ fontSize: 14, fontWeight: 500, color: THEME.muted, marginLeft: 8 }}>
+                        €{(planLimits.plan.price_monthly_cents / 100).toFixed(0)}/mese
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 14, fontWeight: 500, color: THEME.muted, marginLeft: 8 }}>
+                        Gratuito
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 13, color: THEME.muted, marginTop: 4 }}>
+                    {planLimits.usage.patients}
+                    <span style={{ color: "#94a3b8" }}>
+                      /{planLimits.plan.max_patients ?? "∞"}
+                    </span>{" "}
+                    pazienti · {planLimits.usage.appointments_this_month}
+                    <span style={{ color: "#94a3b8" }}>
+                      /{planLimits.plan.max_appointments_per_month ?? "∞"}
+                    </span>{" "}
+                    appuntamenti/mese
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div
+                    style={{
+                      fontSize: 20,
+                      fontWeight: 700,
+                      color: THEME.text,
+                      letterSpacing: -0.3,
+                    }}
+                  >
+                    Nessun piano attivo
+                  </div>
+                  <div style={{ fontSize: 13, color: THEME.amber, marginTop: 4, fontWeight: 600 }}>
+                    → Configura ora il tuo piano
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                color: THEME.teal,
+                fontSize: 14,
+                fontWeight: 600,
+                flexShrink: 0,
+              }}
+            >
+              Gestisci
+              <span style={{ fontSize: 18 }}>→</span>
+            </div>
+          </div>
+        </Link>
 
         {/* Feedback banners */}
         {error && (

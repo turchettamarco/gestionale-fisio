@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
     // ─── 2. Valida invite code ─────────────────────────────────────────────
     const { data: invite, error: invErr } = await db
       .from("invite_codes")
-      .select("code, max_uses, uses_count, used_at, expires_at, revoked_at, recipient_name")
+      .select("code, max_uses, uses_count, used_at, expires_at, revoked_at, recipient_name, plan_id")
       .eq("code", code)
       .maybeSingle();
 
@@ -202,6 +202,26 @@ export async function POST(req: NextRequest) {
     }
 
     const studioId = studioData.id;
+
+    // ─── 5b. Assegna il piano dal codice invito (se specificato) ──────────
+    // Se il codice ha un plan_id preassegnato, usa quello.
+    // Altrimenti usa il piano di default della piattaforma (is_default = true).
+    const invitePlanId: string | null = (invite as { plan_id?: string | null }).plan_id ?? null;
+
+    if (invitePlanId) {
+      // Piano preassegnato dal codice
+      await db.from("studios").update({ plan_id: invitePlanId }).eq("id", studioId);
+    } else {
+      // Nessun piano preassegnato → usa default
+      const { data: defaultPlan } = await db
+        .from("plans")
+        .select("id")
+        .eq("is_default", true)
+        .maybeSingle();
+      if (defaultPlan) {
+        await db.from("studios").update({ plan_id: defaultPlan.id }).eq("id", studioId);
+      }
+    }
 
     // ─── 6. Associa utente allo studio come owner ──────────────────────────
     const { error: memberErr } = await db.from("studio_members").insert({

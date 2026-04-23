@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { usePlanLimits } from "@/src/hooks/usePlanLimits";
+import UpgradeBanner from "@/src/components/UpgradeBanner";
 
 // --- TIPI ---
 type Plan = "invoice" | "no_invoice";
@@ -97,6 +99,11 @@ export default function NewPatientPage() {
   const { studio: currentStudio } = useCurrentStudio();
   const currentStudioId = currentStudio?.id ?? null;
 
+  // Plan limits (Fase B — sistema piani)
+  const planLimits = usePlanLimits();
+  const patientCheck = planLimits.canCreatePatient();
+  const isBlockedHard = !patientCheck.allowed;
+
   // Template welcome message
   const [welcomeTpl, setWelcomeTpl] = useState<string | null>(null);
   useEffect(() => {
@@ -152,6 +159,12 @@ export default function NewPatientPage() {
     e.preventDefault();
     setError("");
     setOkMsg("");
+
+    // Blocco piano: hard limit raggiunto
+    if (isBlockedHard) {
+      setError(patientCheck.reason ?? "Hai raggiunto il limite di pazienti del tuo piano.");
+      return;
+    }
 
     if (!firstName.trim() || !lastName.trim() || !phone.trim() || !birthDate.trim()) {
       setError("Compila almeno Nome, Cognome, Telefono e Data di nascita.");
@@ -283,6 +296,14 @@ export default function NewPatientPage() {
               )}
             </div>
           ) : null}
+
+          {/* Banner di warning se stai per raggiungere o hai raggiunto il limite */}
+          {(planLimits.checks.patients.status === "over" ||
+            planLimits.checks.patients.status === "near") && (
+            <div style={{ marginBottom: 16 }}>
+              <UpgradeBanner />
+            </div>
+          )}
 
           <form onSubmit={onSubmit}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -465,8 +486,18 @@ export default function NewPatientPage() {
             </div>
 
             <div style={{ marginTop: 16, display: "flex", gap: 10 }}>
-              <button type="submit" disabled={saving} style={{ ...buttonStyle, opacity: saving ? 0.7 : 1 }}>
-                {saving ? "Salvataggio..." : "REGISTRA"}
+              <button
+                type="submit"
+                disabled={saving || isBlockedHard}
+                style={{
+                  ...buttonStyle,
+                  opacity: saving || isBlockedHard ? 0.5 : 1,
+                  cursor: saving || isBlockedHard ? "not-allowed" : "pointer",
+                  background: isBlockedHard ? "#94a3b8" : buttonStyle.background,
+                }}
+                title={isBlockedHard ? patientCheck.reason : undefined}
+              >
+                {saving ? "Salvataggio..." : isBlockedHard ? "🔒 LIMITE RAGGIUNTO" : "REGISTRA"}
               </button>
               <button
                 type="button"
