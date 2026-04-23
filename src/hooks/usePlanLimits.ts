@@ -119,42 +119,72 @@ export function usePlanLimits(): PlanLimits {
 
     try {
       // 1. Piano effettivo dalla view v_studio_plan_effective
-      const { data: planData, error: planErr } = await supabase
-        .from("v_studio_plan_effective")
-        .select("*")
-        .eq("studio_id", studioId)
-        .maybeSingle();
+      //    Protezione DIFENSIVA: se la view non esiste, non ha permessi RLS,
+      //    o la query fallisce per qualsiasi motivo, NON propaghiamo l'errore.
+      //    Ritorniamo plan=null e continuiamo. Questo previene che il crash
+      //    dell'hook rompa il rendering di tutte le pagine che lo usano.
+      try {
+        const { data: planData, error: planErr } = await supabase
+          .from("v_studio_plan_effective")
+          .select("*")
+          .eq("studio_id", studioId)
+          .maybeSingle();
 
-      if (planErr) throw planErr;
-      setPlan(planData as EffectivePlan | null);
+        if (planErr) {
+          console.warn("[usePlanLimits] View non accessibile:", planErr.message);
+          setPlan(null);
+        } else {
+          setPlan(planData as EffectivePlan | null);
+        }
+      } catch (viewErr) {
+        console.warn("[usePlanLimits] Errore lettura view:", viewErr);
+        setPlan(null);
+      }
 
-      // 2. Uso corrente
+      // 2. Uso corrente (difensivo anche qui: ogni count fallito diventa 0)
       const firstOfMonth = new Date();
       firstOfMonth.setDate(1);
       firstOfMonth.setHours(0, 0, 0, 0);
 
-      const [patientsRes, apptRes, membersRes] = await Promise.all([
-        supabase
-          .from("patients")
-          .select("id", { count: "exact", head: true })
-          .eq("studio_id", studioId),
-        supabase
-          .from("appointments")
-          .select("id", { count: "exact", head: true })
-          .eq("studio_id", studioId)
-          .gte("start_at", firstOfMonth.toISOString()),
-        supabase
-          .from("studio_members")
-          .select("user_id", { count: "exact", head: true })
-          .eq("studio_id", studioId),
+      const safeCount = async (promise: PromiseLike<{ count: number | null }>): Promise<number> => {
+        try {
+          const r = await promise;
+          return r.count ?? 0;
+        } catch {
+          return 0;
+        }
+      };
+
+      const [patientsCount, apptCount, membersCount] = await Promise.all([
+        safeCount(
+          supabase
+            .from("patients")
+            .select("id", { count: "exact", head: true })
+            .eq("studio_id", studioId)
+        ),
+        safeCount(
+          supabase
+            .from("appointments")
+            .select("id", { count: "exact", head: true })
+            .eq("studio_id", studioId)
+            .gte("start_at", firstOfMonth.toISOString())
+        ),
+        safeCount(
+          supabase
+            .from("studio_members")
+            .select("user_id", { count: "exact", head: true })
+            .eq("studio_id", studioId)
+        ),
       ]);
 
       setUsage({
-        patients: patientsRes.count ?? 0,
-        appointments_this_month: apptRes.count ?? 0,
-        operators: membersRes.count ?? 0,
+        patients: patientsCount,
+        appointments_this_month: apptCount,
+        operators: membersCount,
       });
     } catch (e) {
+      // Extra-safety: anche qualunque errore non previsto non rompe il caller
+      console.warn("[usePlanLimits] Errore generico:", e);
       setError(e instanceof Error ? e.message : "Errore caricamento piano");
     } finally {
       setLoading(false);
