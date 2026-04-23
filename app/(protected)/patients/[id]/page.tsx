@@ -6,6 +6,7 @@ import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { ClinicalScalesSection } from "./ClinicalScales";
 import { PhotoGallerySection } from "./PhotoGallery";
+import { openHtmlWindow } from "@/src/lib/openHtmlWindow";
 
 function cleanPhoneWA(phone: string): string {
   if (!phone) return "";
@@ -322,8 +323,7 @@ function PainMapSection({ patientName, gender }: { patientName: string; gender?:
       <span>FisioHub · Body Chart Pro</span><span>Generato: ${new Date().toLocaleString("it-IT")}</span></div>
     <button onclick="window.print()" style="margin-top:20px;padding:10px 28px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🖨 Stampa referto</button>
     </body></html>`;
-    const w = window.open("","_blank","width=900,height=700");
-    if (w) { w.document.write(html); w.document.close(); }
+    openHtmlWindow(html, { width: 900, height: 700 });
   };
 
   const btnSm = (label: string, active: boolean, onClick: ()=>void, color="#2563eb") => (
@@ -1814,7 +1814,7 @@ ${esercizi.length>0?`
   <button onclick="window.print()" style="padding:10px 28px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">🖨️ Stampa / Salva PDF</button>
 </div>
 </body></html>`;
-    const w=window.open("","_blank","width=900,height:1000"); if(w){w.document.write(html);w.document.close();}
+    openHtmlWindow(html, { width: 900, height: 1000 });
   }
 
   function stampaEsercizi() {
@@ -1895,8 +1895,7 @@ ${rows}
 </div>
 </body></html>`;
 
-    const w = window.open("", "_blank", "width=900,height=1000");
-    if (w) { w.document.write(html); w.document.close(); }
+    openHtmlWindow(html, { width: 900, height: 1000 });
   }
 
   // ── Carica/salva scheda esercizi nel DB ─────────────────────────────────

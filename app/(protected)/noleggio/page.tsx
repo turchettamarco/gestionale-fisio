@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { openHtmlWindow } from "@/src/lib/openHtmlWindow";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const THEME = {
@@ -367,8 +368,7 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
   Documento generato il ${oggi}
 </div>
 </body></html>`;
-    const w = window.open("","_blank","width=800,height=900");
-    if(w){ w.document.write(html); w.document.close(); }
+    openHtmlWindow(html, { width: 800, height: 900 });
   }
 
   function printContratto(n: NoleggioRow) {
@@ -423,7 +423,7 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
 </div>
 <div style="text-align:center;margin-top:32px;"><button onclick="window.print()" style="padding:10px 28px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🖨️ Stampa / Salva PDF</button></div>
 </body></html>`;
-    const w=window.open("","_blank","width=820,height:950"); if(w){w.document.write(html);w.document.close();}
+    openHtmlWindow(html, { width: 820, height: 950 });
   }
 
   async function saveSettings() {
