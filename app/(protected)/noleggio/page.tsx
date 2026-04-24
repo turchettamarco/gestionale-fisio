@@ -481,7 +481,7 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
             <span style={{ fontWeight:700, fontSize:15, color:"#fff", letterSpacing:0.5, textTransform:"uppercase" }}>Fisio<span style={{ fontWeight:800 }}>Hub</span></span>
           </Link>
           <nav style={{ display:"flex", gap:2 }}>
-            {([{href:"/",label:"Home"},{href:"/calendar",label:"Calendario"},{href:"/reports",label:"Report"},{href:"/patients",label:"Pazienti"},{href:"/noleggio",label:"Noleggio",active:true},{href:"/piano",label:"💎 Piano"},{href:"/settings",label:"Impostazioni"}] as const).map(item=>(
+            {([{href:"/",label:"Home"},{href:"/calendar",label:"Calendario"},{href:"/reports",label:"Report"},{href:"/patients",label:"Pazienti"},{href:"/noleggio",label:"Noleggio",active:true},{href:"/settings",label:"Impostazioni"}] as const).map(item=>(
               <Link key={item.href} href={item.href} style={{ padding:"6px 12px", borderRadius:8, fontSize:12, fontWeight:700, background:(item as any).active?"rgba(255,255,255,0.2)":"transparent", color:(item as any).active?"#fff":"rgba(255,255,255,0.8)", letterSpacing:0.3 }}>{item.label}</Link>
             ))}
           </nav>
@@ -490,6 +490,7 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
           <button onClick={()=>setUserMenuOpen(v=>!v)} style={{ width:32, height:32, borderRadius:8, border:"1.5px solid rgba(255,255,255,0.35)", background:"rgba(255,255,255,0.2)", color:"#fff", fontWeight:800, fontSize:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>{userInitials}</button>
           {userMenuOpen&&(<div style={{ position:"absolute", right:0, top:"calc(100% + 8px)", width:200, background:"#fff", border:`1px solid ${THEME.border}`, borderRadius:10, boxShadow:"0 8px 24px rgba(15,23,42,0.10)", overflow:"hidden", zIndex:60 }}>
             <div style={{ padding:"11px 16px", borderBottom:`1px solid ${THEME.border}`, fontSize:12, color:THEME.muted }}>{userEmail}</div>
+            <Link href="/piano" onClick={()=>setUserMenuOpen(false)} style={{ display:"block", padding:"11px 16px", color:THEME.text, textDecoration:"none", fontSize:13, fontWeight:600, borderBottom:`1px solid ${THEME.border}` }}>💎 Piano</Link>
             <button onClick={handleLogout} style={{ width:"100%", padding:"11px 16px", background:"transparent", border:"none", cursor:"pointer", color:THEME.red, fontWeight:600, fontSize:13, textAlign:"left" }}>Logout</button>
           </div>)}
         </div>

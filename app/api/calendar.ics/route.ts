@@ -150,6 +150,9 @@ export async function GET(req: NextRequest) {
     const calDesc = `Agenda di ${studio.name || "FisioHub"}`;
 
     // ─── 6. Genera ICS ────────────────────────────────────────────────────
+    // Colore "Basilico" (verde) impostato a livello calendario.
+    // Google Calendar legge X-APPLE-CALENDAR-COLOR per il colore del calendario;
+    // per i singoli eventi usa X-GOOGLE-COLOR-ID se vogliamo override.
     const lines: string[] = [
       "BEGIN:VCALENDAR",
       "VERSION:2.0",
@@ -157,6 +160,9 @@ export async function GET(req: NextRequest) {
       `X-WR-CALNAME:${escapeICS(calName)}`,
       `X-WR-CALDESC:${escapeICS(calDesc)}`,
       "X-WR-TIMEZONE:Europe/Rome",
+      // Colore "Basilico" — verde Google Calendar (#33B679)
+      "X-APPLE-CALENDAR-COLOR:#33B679",
+      "COLOR:33:182:121",
       "CALSCALE:GREGORIAN",
       "METHOD:PUBLISH",
       // Timezone definition per ora legale/solare italiana

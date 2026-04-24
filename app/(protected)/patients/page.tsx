@@ -472,7 +472,7 @@ export default function PatientsPage() {
           </div>
           <nav style={{ display: "flex", gap: 2 }}>
             {([
-              {href:"/",label:"Home"},{href:"/calendar",label:"Calendario"},{href:"/reports",label:"Report"},{href:"/noleggio",label:"Noleggio"},{href:"/patients",label:"Pazienti",active:true},{href:"/piano",label:"💎 Piano"},
+              {href:"/",label:"Home"},{href:"/calendar",label:"Calendario"},{href:"/reports",label:"Report"},{href:"/noleggio",label:"Noleggio"},{href:"/patients",label:"Pazienti",active:true},
             ] as {href:string;label:string;active?:boolean}[]).map(item => (
               <Link key={item.href} href={item.href} style={{
                 padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700,
@@ -532,6 +532,11 @@ export default function PatientsPage() {
                   color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
                   borderBottom: `1px solid ${THEME.border}`,
                 }}>Impostazioni</Link>
+                <Link href="/piano" onClick={() => setUserMenuOpen(false)} style={{
+                  display: "flex", alignItems: "center", gap: 8, padding: "11px 16px",
+                  color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
+                  borderBottom: `1px solid ${THEME.border}`,
+                }}>💎 Piano</Link>
                 <button onClick={handleLogout} style={{
                   width: "100%", display: "flex", alignItems: "center", gap: 8,
                   padding: "11px 16px", background: "transparent", border: "none",

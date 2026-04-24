@@ -509,7 +509,7 @@ export default function HomePage() {
             <span style={{fontWeight:700,fontSize:14,color:"#fff",letterSpacing:0.8,textTransform:"uppercase"}}>Fisio<span style={{fontWeight:800}}>Hub</span></span>
           </div>
           <nav style={{display:"flex",gap:1}}>
-            {([{href:"/",label:"Home",active:true},{href:"/calendar",label:"Calendario",active:false},{href:"/reports",label:"Report",active:false},{href:"/noleggio",label:"Noleggio",active:false},{href:"/patients",label:"Pazienti",active:false},{href:"/piano",label:"💎 Piano",active:false}] as const).map(item=>(
+            {([{href:"/",label:"Home",active:true},{href:"/calendar",label:"Calendario",active:false},{href:"/reports",label:"Report",active:false},{href:"/noleggio",label:"Noleggio",active:false},{href:"/patients",label:"Pazienti",active:false},] as const).map(item=>(
               <Link key={item.href} href={item.href} style={{padding:"5px 11px",borderRadius:7,fontSize:12,fontWeight:700,background:item.active?"rgba(255,255,255,0.22)":"transparent",color:item.active?"#fff":"rgba(255,255,255,0.78)",letterSpacing:0.2}}>{item.label}</Link>
             ))}
           </nav>
@@ -533,6 +533,7 @@ export default function HomePage() {
               <div style={{position:"absolute",right:0,top:"calc(100% + 8px)",width:196,background:"#fff",border:`1px solid ${THEME.border}`,borderRadius:10,boxShadow:"0 8px 28px rgba(15,23,42,0.12)",overflow:"hidden",zIndex:60}}>
                 <div style={{padding:"10px 15px",borderBottom:`1px solid ${THEME.border}`,fontSize:12,color:THEME.muted}}>{userEmail}</div>
                 <Link href="/settings" onClick={()=>setUserMenuOpen(false)} style={{display:"block",padding:"10px 15px",color:THEME.text,fontSize:13,fontWeight:600,borderBottom:`1px solid ${THEME.border}`}}>Impostazioni</Link>
+                <Link href="/piano" onClick={()=>setUserMenuOpen(false)} style={{display:"block",padding:"10px 15px",color:THEME.text,fontSize:13,fontWeight:600,borderBottom:`1px solid ${THEME.border}`,textDecoration:"none"}}>💎 Piano</Link>
                 <button onClick={handleLogout} style={{width:"100%",padding:"10px 15px",background:"transparent",border:"none",cursor:"pointer",color:THEME.red,fontWeight:600,fontSize:13,textAlign:"left"}}>Logout</button>
               </div>
             )}

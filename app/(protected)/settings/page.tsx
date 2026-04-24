@@ -862,6 +862,7 @@ export default function SettingsPage() {
             {userMenuOpen && (
               <div style={{ position:"absolute", right:0, top:"calc(100% + 8px)", width:200, background:"#fff", border:`1px solid ${THEME.border}`, borderRadius:10, boxShadow:"0 8px 24px rgba(15,23,42,0.10)", overflow:"hidden", zIndex:60 }}>
                 <div style={{ padding:"11px 16px", borderBottom:`1px solid ${THEME.border}`, fontSize:12, color:THEME.muted }}>{userEmail}</div>
+                <Link href="/piano" onClick={() => setUserMenuOpen(false)} style={{ display:"block", padding:"11px 16px", color:THEME.text, textDecoration:"none", fontSize:13, fontWeight:600, borderBottom:`1px solid ${THEME.border}` }}>💎 Piano</Link>
                 <button onClick={handleLogout} style={{ width:"100%", display:"flex", alignItems:"center", gap:8, padding:"11px 16px", background:"transparent", border:"none", cursor:"pointer", color:THEME.red, fontWeight:600, fontSize:13 }}>Logout</button>
               </div>
             )}

@@ -2125,7 +2125,7 @@ return (
             <span className="mob-hide" style={{ fontWeight: 700, fontSize: 15, color: "#fff", letterSpacing: 0.5, textTransform: "uppercase" }}>Fisio<span style={{ color: "#fff", fontWeight: 800 }}>Hub</span></span>
           </div>
           <nav className="mob-hide" style={{ display: "flex", gap: 2 }}>
-            {([{href:"/",label:"Home"},{href:"/calendar",label:"Calendario",active:true},{href:"/reports",label:"Report"},{href:"/noleggio",label:"Noleggio"},{href:"/patients",label:"Pazienti"},{href:"/piano",label:"💎 Piano"}] as const).map(item=>(
+            {([{href:"/",label:"Home"},{href:"/calendar",label:"Calendario",active:true},{href:"/reports",label:"Report"},{href:"/noleggio",label:"Noleggio"},{href:"/patients",label:"Pazienti"},] as const).map(item=>(
               <Link key={item.href} href={item.href} style={{ padding:"6px 12px", borderRadius:8, fontSize:12, fontWeight:700, textDecoration:"none", background:(item as any).active?"rgba(255,255,255,0.2)":"transparent", color:(item as any).active?"#fff":"rgba(255,255,255,0.8)", letterSpacing:0.3 }}>{item.label}</Link>
             ))}
           </nav>
@@ -2353,6 +2353,11 @@ return (
                   color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
                   borderBottom: `1.5px solid ${THEME.border}`,
                 }}>⚙️ Impostazioni</Link>
+                <Link href="/piano" onClick={() => setUserMenuOpen(false)} style={{
+                  display: "flex", alignItems: "center", gap: 8, padding: "12px 16px",
+                  color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
+                  borderBottom: `1.5px solid ${THEME.border}`,
+                }}>💎 Piano</Link>
                 <button type="button" onClick={handleLogout} style={{
                   width: "100%", display: "flex", alignItems: "center", gap: 8,
                   padding: "12px 16px", background: "transparent", border: "none", cursor: "pointer",

@@ -2207,6 +2207,11 @@ ${rows}
                   color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
                   borderBottom: `1.5px solid ${THEME.border}`,
                 }}>⚙️ Impostazioni</Link>
+                <Link href="/piano" onClick={() => setUserMenuOpen(false)} style={{
+                  display: "flex", alignItems: "center", gap: 8, padding: "12px 16px",
+                  color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
+                  borderBottom: `1.5px solid ${THEME.border}`,
+                }}>💎 Piano</Link>
                 <button onClick={handleLogout} style={{
                   width: "100%", display: "flex", alignItems: "center", gap: 8,
                   padding: "12px 16px", background: "transparent", border: "none",
