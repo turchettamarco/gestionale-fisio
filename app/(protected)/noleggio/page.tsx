@@ -418,10 +418,28 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
   }
 
   async function saveSettings() {
+    if (!currentStudioId) { alert("Studio non identificato. Ricarica la pagina."); return; }
     const wd = parseInt(warningInput)||3;
     const pd = parseFloat(priceInput)||5;
     setWarningDays(wd); setDefaultPrice(pd); setFormPricePerDay(String(pd));
-    await supabase.from("noleggio_settings").upsert({ id: 1, warning_days: wd, price_per_day: pd });
+
+    // Cerca se esiste già un record per questo studio
+    const { data: existing } = await supabase
+      .from("noleggio_settings")
+      .select("id")
+      .eq("studio_id", currentStudioId)
+      .maybeSingle();
+
+    if (existing) {
+      const { error } = await supabase.from("noleggio_settings")
+        .update({ warning_days: wd, price_per_day: pd })
+        .eq("id", existing.id);
+      if (error) { alert("Errore salvataggio: " + error.message); return; }
+    } else {
+      const { error } = await supabase.from("noleggio_settings")
+        .insert({ warning_days: wd, price_per_day: pd, studio_id: currentStudioId });
+      if (error) { alert("Errore salvataggio: " + error.message); return; }
+    }
     setEditingWarning(false); setEditingPrice(false);
     setSuccess("Impostazioni salvate."); setTimeout(()=>setSuccess(""),2000);
   }

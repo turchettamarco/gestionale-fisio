@@ -36,6 +36,7 @@ type MessageTemplate = {
 
 type PracticeSettingsRow = {
   owner_id: string;
+  studio_id?: string | null;
   practice_name: string | null;
   owner_full_name: string | null;
   vat_number: string | null;
@@ -472,9 +473,11 @@ export default function SettingsPage() {
   }
   async function addService() {
     if (!newSvcName.trim()) return;
+    if (!studio?.id) { setError("Studio non identificato. Ricarica la pagina."); return; }
     setSavingSvc(true);
     try {
-      await supabase.from("booking_services").insert({ name: newSvcName.trim(), duration: parseInt(newSvcDuration)||60, price: parseFloat(newSvcPrice)||40 });
+      const { error } = await supabase.from("booking_services").insert({ name: newSvcName.trim(), duration: parseInt(newSvcDuration)||60, price: parseFloat(newSvcPrice)||40, studio_id: studio.id });
+      if (error) throw new Error(error.message);
       setNewSvcName(""); setNewSvcDuration("60"); setNewSvcPrice("40");
       await loadServices();
     } catch(e:any) { setError(e?.message||"Errore"); }
@@ -497,9 +500,11 @@ export default function SettingsPage() {
   }
   async function addBlockDay() {
     if (!newBlockDate) return;
+    if (!studio?.id) { setError("Studio non identificato. Ricarica la pagina."); return; }
     setSavingBlock(true);
     try {
-      await supabase.from("blocked_days").insert({ date: newBlockDate, label: newBlockLabel.trim() || "Chiuso" });
+      const { error } = await supabase.from("blocked_days").insert({ date: newBlockDate, label: newBlockLabel.trim() || "Chiuso", studio_id: studio.id });
+      if (error) throw new Error(error.message);
       setNewBlockDate(""); setNewBlockLabel("");
       await loadBlockDays();
     } catch(e:any) { setError(e?.message||"Errore"); }
@@ -606,7 +611,7 @@ export default function SettingsPage() {
         if (uErr) throw new Error(uErr.message);
         const u = uData?.user;
         const fullName = ((u?.user_metadata?.full_name || u?.user_metadata?.name || [u?.user_metadata?.first_name, u?.user_metadata?.last_name].filter(Boolean).join(" ") || u?.email || "Titolare") + "").trim() || "Titolare";
-        const seed: PracticeSettingsRow = { owner_id: uid, practice_name: "FisioHub", owner_full_name: fullName, vat_number: "", address: "", pec_email: "", phone: "", google_review_link: "", logo_base64: null, standard_invoice: 40, standard_cash: 35, machine_invoice: 25, machine_cash: 20, laser_invoice: 30, laser_cash: 25, tecar_invoice: 30, tecar_cash: 25, onde_urto_invoice: 40, onde_urto_cash: 35, tens_invoice: 20, tens_cash: 15, duration_seduta: 60, duration_macchinario: 30, duration_laser: 20, duration_tecar: 30, duration_onde_urto: 15, duration_tens: 20, welcome_message: null, booking_confirm_message: null, reminder_message: null, payment_message: null, birthday_message: null, satisfaction_message: null, default_appointment_status: "confirmed", overlap_mode: "warn", monthly_revenue_goal: 2000, inactive_threshold_days: 45, reminder_hours_before: 24, auto_apply_prices: true };
+        const seed: PracticeSettingsRow = { owner_id: uid, studio_id: studio?.id ?? null, practice_name: "FisioHub", owner_full_name: fullName, vat_number: "", address: "", pec_email: "", phone: "", google_review_link: "", logo_base64: null, standard_invoice: 40, standard_cash: 35, machine_invoice: 25, machine_cash: 20, laser_invoice: 30, laser_cash: 25, tecar_invoice: 30, tecar_cash: 25, onde_urto_invoice: 40, onde_urto_cash: 35, tens_invoice: 20, tens_cash: 15, duration_seduta: 60, duration_macchinario: 30, duration_laser: 20, duration_tecar: 30, duration_onde_urto: 15, duration_tens: 20, welcome_message: null, booking_confirm_message: null, reminder_message: null, payment_message: null, birthday_message: null, satisfaction_message: null, default_appointment_status: "confirmed", overlap_mode: "warn", monthly_revenue_goal: 2000, inactive_threshold_days: 45, reminder_hours_before: 24, auto_apply_prices: true };
         const { error: upsertErr } = await supabase.from("practice_settings").upsert(seed, { onConflict: "owner_id" });
         if (upsertErr) throw new Error(upsertErr.message);
         return await loadPracticeSettings();
@@ -663,6 +668,7 @@ export default function SettingsPage() {
       const uid = await requireUserId();
       const payload: PracticeSettingsRow = {
         owner_id:        uid,
+        studio_id:       studio?.id ?? null,
         practice_name:   practiceName.trim() || "FisioHub",
         logo_base64:     logoBase64 || null,
         owner_full_name: ownerFullName.trim() || "Titolare",
@@ -771,9 +777,10 @@ export default function SettingsPage() {
 
   async function createNewTemplate() {
     if (!newName.trim() || !newTemplate.trim()) { setError("Nome e template sono obbligatori"); return; }
+    if (!studio?.id) { setError("Studio non identificato. Ricarica la pagina."); return; }
     setError("");
     try {
-      const { error } = await supabase.from("message_templates").insert({ name: newName.trim(), template: newTemplate.trim(), is_default: templates.length === 0 });
+      const { error } = await supabase.from("message_templates").insert({ name: newName.trim(), template: newTemplate.trim(), is_default: templates.length === 0, studio_id: studio.id });
       if (error) throw new Error(error.message);
       flashSuccess("Nuovo template creato.");
       setNewName(""); setNewTemplate(""); setAddingNew(false);

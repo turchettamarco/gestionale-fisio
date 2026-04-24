@@ -137,6 +137,7 @@ export default function OnboardingPage() {
         if (userId) {
           await supabase.from("practice_settings").upsert({
             owner_id: existing?.owner_id ?? userId,
+            studio_id: studio.id,
             standard_invoice: Number(rateSeduta) || 40,
             standard_cash: Number(rateSeduta) || 40,
             machine_invoice: Number(rateMacchinario) || 25,
@@ -155,8 +156,8 @@ export default function OnboardingPage() {
         // Upsert nei message_templates
         await supabase.from("message_templates").upsert(
           [
-            { name: "Promemoria", template: finalReminder },
-            { name: "Appuntamento", template: finalConfirm },
+            { name: "Promemoria", template: finalReminder, studio_id: studio.id },
+            { name: "Appuntamento", template: finalConfirm, studio_id: studio.id },
           ],
           { onConflict: "name" }
         );

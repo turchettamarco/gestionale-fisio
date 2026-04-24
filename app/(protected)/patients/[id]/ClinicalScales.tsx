@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
 
 const T = { teal:"#0d9488", blue:"#2563eb", text:"#0f172a", muted:"#64748b", border:"#e2e8f0",
   green:"#16a34a", red:"#dc2626", amber:"#f59e0b", panelSoft:"#f8fafc" };
@@ -69,6 +70,7 @@ const SCALES: ScaleDef[] = [
 ];
 
 export function ClinicalScalesSection({ patientId }: { patientId: string }) {
+  const { studio } = useCurrentStudio();
   const [scales, setScales] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalScale, setModalScale] = useState<ScaleDef | null>(null);
@@ -94,12 +96,14 @@ export function ClinicalScalesSection({ patientId }: { patientId: string }) {
 
   async function saveScale() {
     if (!modalScale) return;
+    if (!studio?.id) { alert("Studio non identificato. Ricarica la pagina."); return; }
     const score = answers.reduce((a,b)=>a+b, 0);
     setSaving(true);
     const { error } = await supabase.from("clinical_scales").insert({
       patient_id: patientId, scale_type: modalScale.id, score,
       details: { answers, questions: modalScale.questions.map(q=>q.label) },
       note: note || null,
+      studio_id: studio.id,
     });
     setSaving(false);
     if (error) { alert("Errore: "+error.message); return; }

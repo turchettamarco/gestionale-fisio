@@ -1188,7 +1188,7 @@ export default function PatientDetailPage({
     const path = `${patientId}/${Date.now()}_${safeName}`;
     const up = await supabase.storage.from("patient_docs").upload(path, file, { upsert: false });
     if (up.error) { setError(`Upload fallito: ${up.error.message}`); setUploading(false); return; }
-    const ins = await supabase.from("patient_documents").insert({ patient_id: patientId, doc_type: docType, file_name: file.name, storage_path: path });
+    const ins = await supabase.from("patient_documents").insert({ patient_id: patientId, doc_type: docType, file_name: file.name, storage_path: path, studio_id: currentStudio?.id });
     if (ins.error) { setError(`Errore DB: ${ins.error.message}`); setUploading(false); return; }
     setFile(null);
     setUploading(false);
@@ -2012,7 +2012,7 @@ ${rows}
       const path = `${patientId}/${doc.fname}`;
       const up   = await supabase.storage.from("patient_docs").upload(path, blob, { upsert: false, contentType: "text/html" });
       if (up.error)  { setConsentError(`Upload fallito: ${up.error.message}`);  setConsentSaving(false); return; }
-      const ins  = await supabase.from("patient_documents").insert({ patient_id: patientId, doc_type: doc.docType, file_name: doc.fname, storage_path: path });
+      const ins  = await supabase.from("patient_documents").insert({ patient_id: patientId, doc_type: doc.docType, file_name: doc.fname, storage_path: path, studio_id: currentStudio?.id });
       if (ins.error) { setConsentError(`Errore DB: ${ins.error.message}`); setConsentSaving(false); return; }
     }
     setConsentSaving(false); setConsentSaved(true);
