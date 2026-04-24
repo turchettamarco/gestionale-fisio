@@ -1,12 +1,18 @@
 "use client";
 
 function openWA(phone: string, message: string = ""): void {
+  if (!phone) return;
   const p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
   const n = p.startsWith("00") ? p.slice(2) : p.startsWith("0") ? "39" + p : !p.startsWith("39") && p.length <= 10 ? "39" + p : p;
-  const text = message ? "?text=" + encodeURIComponent(message) : "";
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
-  const url = "https://wa.me/" + n + text;
-  const w = window.open(url, "_blank", "noopener,noreferrer"); if (!w) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
+  const enc = message ? encodeURIComponent(message) : "";
+  // SCHEMA URI NATIVO: bypassa Safari, apre l'app WhatsApp direttamente.
+  // Se l'app non è installata, fallback a wa.me (download) dopo 1.5s.
+  const nativeUrl = "whatsapp://send?phone=" + n + (enc ? "&text=" + enc : "");
+  const fallbackUrl = "https://wa.me/" + n + (enc ? "?text=" + enc : "");
+  window.location.href = nativeUrl;
+  setTimeout(() => {
+    if (!document.hidden) { window.location.href = fallbackUrl; }
+  }, 1500);
 }
 
 import Link from "next/link";

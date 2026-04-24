@@ -80,12 +80,21 @@ export function buildReminderMessage(params: {
   // Tentiamo un recupero basato sul contesto testuale adiacente.
   const fixCorruptedEmojis = (s: string): string => {
     return s
-      // "� {luogo}" o "� Pontecorvo" → "📍 {luogo}"
-      .replace(/\uFFFD(\s*(?:\{luogo\}|Pontecorvo|Presso|Studio))/g, "📍$1")
-      // "� Conferma" → "👉 Conferma"
-      .replace(/\uFFFD(\s*Conferma)/g, "👉$1")
-      // Fallback: qualsiasi replacement char rimanente all'inizio di una riga "di indicazione"
-      .replace(/^\uFFFD\s+/gm, "📍 ");
+      // PRIORITY 1 — pattern specifici contestuali (più sicuri)
+      // "� {luogo}" o "� Pontecorvo" o "� Studio" o "� Presso" → "📍"
+      .replace(/\uFFFD(\s*(?:\{luogo\}|Pontecorvo|Presso|Studio|Domicilio|Cassino|Roma|Frosinone|Via\s|Piazza\s|Viale\s|Corso\s))/g, "📍$1")
+      // "� Conferma" o "� Annulla" o "� Click" → "👉"
+      .replace(/\uFFFD(\s*(?:Conferma|Annulla|Click|Clicca))/g, "👉$1")
+      // PRIORITY 2 — replacement char in altre posizioni note
+      // ⏰ (orologio) prima di un orario tipo "09:00"
+      .replace(/\uFFFD(\s*\d{1,2}[:.]\d{2})/g, "⏰$1")
+      // PRIORITY 3 — sequenze multiple di replacement (capita con emoji compositi tipo bandiere)
+      .replace(/\uFFFD{2,}/g, "")
+      // PRIORITY 4 — un singolo replacement char sopravvissuto, prova posizioni comuni
+      // a inizio riga seguito da spazio = quasi sicuramente un'icona inutile, rimuovi
+      .replace(/^\uFFFD\s+/gm, "")
+      // residuo mid-line: spazia
+      .replace(/\uFFFD/g, "");
   };
 
   let message = fixCorruptedEmojis(templateText)

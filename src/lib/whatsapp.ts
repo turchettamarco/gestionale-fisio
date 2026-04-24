@@ -78,17 +78,15 @@ export function normalizePhoneForWA(phone: string | null | undefined): string {
  * Apre WhatsApp verso un numero con un messaggio precompilato.
  *
  * Strategia di apertura per device:
+ *  - Mobile (iOS/Android) → whatsapp://send?phone=…&text=…
+ *    Schema URI NATIVO che bypassa il browser e apre DIRETTAMENTE l'app.
+ *    Se l'app non è installata, fallback a https://wa.me/ dopo 1.5s.
+ *    Questo è l'unico modo affidabile per evitare che Safari mostri
+ *    la pagina di api.whatsapp.com con "Apri l'app / Scarica".
  *  - Desktop (Win/Mac/Linux) → https://web.whatsapp.com/send?phone=…
  *    Apre direttamente WhatsApp Web senza pagina intermedia di scelta.
- *  - Mobile (iOS/Android) → https://wa.me/…
- *    Apre l'app WhatsApp diretto sulla chat anche se il contatto non
- *    è salvato in rubrica (MAI schermata "scegli contatto").
  *
- * Ritorna true se il numero era valido e l'apertura è stata tentata,
- * false altrimenti.
- *
- * NON usa window.open() (bloccato da popup blocker): usa un <a> click sintetico
- * che il browser considera "user-initiated" e apre sempre correttamente.
+ * Ritorna true se il numero era valido e l'apertura è stata tentata.
  */
 export function openWhatsApp(phone: string | null | undefined, message: string = ""): boolean {
   const clean = normalizePhoneForWA(phone);
@@ -100,11 +98,29 @@ export function openWhatsApp(phone: string | null | undefined, message: string =
   const isMobile = typeof navigator !== "undefined"
     && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
-  // Mobile: wa.me bypassa la rubrica e apre direttamente la chat
-  // Desktop: web.whatsapp.com diretto (no pagina "Apri con WA Desktop / Continua web")
-  const url = isMobile
-    ? `https://wa.me/${clean}${message ? "?text=" + encodeURIComponent(message) : ""}`
-    : `https://web.whatsapp.com/send?phone=${clean}${message ? "&text=" + encodeURIComponent(message) : ""}`;
+  if (isMobile) {
+    // MOBILE: usa schema URI nativo whatsapp://
+    // Questo è gestito dall'OS direttamente, senza passare dal browser.
+    // Bypassa completamente la pagina api.whatsapp.com di Safari.
+    const nativeUrl = `whatsapp://send?phone=${clean}${message ? "&text=" + encodeURIComponent(message) : ""}`;
+    const fallbackUrl = `https://wa.me/${clean}${message ? "?text=" + encodeURIComponent(message) : ""}`;
+
+    // Tenta apertura nativa
+    window.location.href = nativeUrl;
+
+    // Fallback: se dopo 1.5s siamo ancora qui (= app non installata),
+    // apri il link wa.me che almeno offre il download dell'app
+    setTimeout(() => {
+      // Se la pagina è ancora visibile, l'app non è installata
+      if (!document.hidden) {
+        window.location.href = fallbackUrl;
+      }
+    }, 1500);
+    return true;
+  }
+
+  // DESKTOP: web.whatsapp.com diretto (no pagina "Apri con WA Desktop / Continua web")
+  const url = `https://web.whatsapp.com/send?phone=${clean}${message ? "&text=" + encodeURIComponent(message) : ""}`;
 
   // Anchor click sincrono = non viene bloccato
   const a = document.createElement("a");
