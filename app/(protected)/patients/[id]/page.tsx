@@ -1117,6 +1117,7 @@ export default function PatientDetailPage({
       file_name:   displayName,
       storage_path: path,
       uploaded_at: new Date().toISOString(),
+      studio_id:   currentStudio?.id,          // ← FIX: richiesto da RLS multi-tenant
     });
     if (ins.error) { setError(`Errore DB: ${ins.error.message}`); setSavingClinicalDoc(null); return; }
     setClinicalUploadTitle("");

@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
 
 const T = { teal:"#0d9488", blue:"#2563eb", text:"#0f172a", muted:"#64748b", border:"#e2e8f0",
   green:"#16a34a", red:"#dc2626", panelSoft:"#f8fafc" };
@@ -24,6 +25,7 @@ const VIEWS = [
 ];
 
 export function PhotoGallerySection({ patientId }: { patientId: string }) {
+  const { studio } = useCurrentStudio();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -74,6 +76,7 @@ export function PhotoGallerySection({ patientId }: { patientId: string }) {
       const { error } = await supabase.from("patient_photos").insert({
         patient_id: patientId, photo_base64: resized,
         phase: newPhotoPhase, view_type: newPhotoView, note: newPhotoNote || null,
+        studio_id: studio?.id,          // ← FIX: richiesto da RLS multi-tenant
       });
       if (error) { alert("Errore salvataggio: "+error.message); return; }
       setNewPhotoNote("");

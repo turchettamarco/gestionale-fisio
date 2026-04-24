@@ -289,6 +289,26 @@ export async function POST(req: NextRequest) {
       })
       .eq("code", code);
 
+    // ─── 9. Email di benvenuto (best-effort, non blocca il signup) ──────────
+    // Importiamo dinamicamente per non fare crash se la utility non è caricata
+    try {
+      const { sendEmail } = await import("@/src/lib/email");
+      const appUrl = process.env.APP_URL || "https://gestionale-fisio.vercel.app";
+      await sendEmail({
+        template: "welcome",
+        to: emailNorm,
+        studioId: studioId,
+        data: {
+          studioName,
+          ownerName: operatorName,
+          appUrl,
+        },
+      });
+    } catch (emailErr) {
+      // Logga ma NON blocca il signup
+      console.warn("[signup] email benvenuto fallita:", emailErr);
+    }
+
     return NextResponse.json({
       ok: true,
       user_id: userId,

@@ -99,8 +99,65 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Errore salvataggio. Riprova." }, { status: 500 });
   }
 
-  // (Opzionale) Notifica SMS via Twilio — decommentare quando configurato
-  // await sendSmsConfirmation(body);
+  // ─── Email notifica all'owner dello studio (best-effort) ──────────────
+  // Mandiamo la notifica al primo studio attivo. Se hai multi-studio,
+  // qui andrà aggiunto un meccanismo di routing per destinatario.
+  try {
+    const { sendEmail } = await import("@/src/lib/email");
+    const { createClient: createAdmin } = await import("@supabase/supabase-js");
+    const adminUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const adminKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (adminUrl && adminKey) {
+      const admin = createAdmin(adminUrl, adminKey, { auth: { persistSession: false } });
+
+      // Trova primo studio (in futuro: routing per studio_id se booking_requests
+      // viene esteso a multi-tenancy)
+      const { data: firstStudio } = await admin
+        .from("studios")
+        .select("id, name")
+        .limit(1)
+        .maybeSingle();
+
+      if (firstStudio) {
+        const { data: owner } = await admin
+          .from("studio_members")
+          .select("user_id")
+          .eq("studio_id", firstStudio.id)
+          .eq("role", "owner")
+          .maybeSingle();
+
+        if (owner) {
+          const { data: ownerUser } = await admin.auth.admin.getUserById(owner.user_id);
+          const ownerEmail = ownerUser?.user?.email;
+          if (ownerEmail) {
+            // Format data italiano: "Lunedì 15 Marzo 2026 alle 10:30"
+            const dateObj = new Date(`${body.requested_date}T${body.requested_time}:00`);
+            const dateStr = dateObj.toLocaleDateString("it-IT", {
+              weekday: "long", day: "numeric", month: "long", year: "numeric"
+            }) + " alle " + body.requested_time;
+
+            const appUrl = process.env.APP_URL || "https://gestionale-fisio.vercel.app";
+            await sendEmail({
+              template: "booking_received",
+              to: ownerEmail,
+              studioId: firstStudio.id,
+              data: {
+                studioName: firstStudio.name,
+                patientName: body.patient_name,
+                patientPhone: body.patient_phone,
+                appointmentDate: dateStr,
+                treatmentType: body.service_name,
+                note: body.notes,
+                appUrl,
+              },
+            });
+          }
+        }
+      }
+    }
+  } catch (emailErr) {
+    console.warn("[booking] email notifica fallita:", emailErr);
+  }
 
   return NextResponse.json({
     success: true,

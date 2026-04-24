@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
 
 const THEME = {
   teal: "#0d9488", blue: "#2563eb", text: "#0f172a",
@@ -12,6 +13,7 @@ export type SOAPNote = {
   id?: string;
   appointment_id: string;
   patient_id: string;
+  studio_id?: string;
   soap_s?: string; soap_o?: string; soap_a?: string; soap_p?: string;
   vas_before?: number | null; vas_after?: number | null;
   quick_note?: string;
@@ -20,6 +22,7 @@ export type SOAPNote = {
 export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
   appointmentId: string; patientId: string; onSaved?: () => void;
 }) {
+  const { studio } = useCurrentStudio();
   const [note, setNote] = useState<SOAPNote>({ appointment_id: appointmentId, patient_id: patientId });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -40,10 +43,15 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
   useEffect(() => { load(); }, [load]);
 
   async function save() {
+    if (!studio?.id) {
+      alert("Studio non identificato. Ricarica la pagina.");
+      return;
+    }
     setSaving(true); setSaved(false);
     const payload: any = {
       appointment_id: appointmentId,
       patient_id: patientId,
+      studio_id: studio.id,          // ← FIX: richiesto da RLS multi-tenant
       soap_s: note.soap_s || null,
       soap_o: note.soap_o || null,
       soap_a: note.soap_a || null,
@@ -54,9 +62,11 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
       updated_at: new Date().toISOString(),
     };
     if (note.id) {
-      await supabase.from("session_notes").update(payload).eq("id", note.id);
+      const { error } = await supabase.from("session_notes").update(payload).eq("id", note.id);
+      if (error) { alert("Errore salvataggio note: " + error.message); setSaving(false); return; }
     } else {
-      const { data } = await supabase.from("session_notes").insert(payload).select().maybeSingle();
+      const { data, error } = await supabase.from("session_notes").insert(payload).select().maybeSingle();
+      if (error) { alert("Errore salvataggio note: " + error.message); setSaving(false); return; }
       if (data) setNote(data as SOAPNote);
     }
     setSaving(false);

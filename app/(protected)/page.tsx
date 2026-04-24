@@ -320,6 +320,7 @@ export default function HomePage() {
       clinic_site: isHome ? null : "Studio Pontecorvo",
       domicile_address: isHome ? (req.notes ?? "da definire") : null,
       calendar_note: note,
+      studio_id: currentStudio?.id,       // ← FIX multi-tenancy
     });
     setWebBookingActionId(null);
     setWebPopup(null);
