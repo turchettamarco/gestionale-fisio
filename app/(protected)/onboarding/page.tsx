@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 import { useEffect, useMemo, useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
@@ -40,15 +41,46 @@ const T = {
   red: "#dc2626",
 };
 
-type StepKey = "studio" | "signature" | "rates" | "templates" | "done";
+type StepKey = "studio" | "hours" | "signature" | "rates" | "templates" | "done";
 
 const STEPS: { key: StepKey; label: string; required?: boolean }[] = [
   { key: "studio", label: "Studio", required: true },
+  { key: "hours", label: "Orari" },
   { key: "signature", label: "Firma" },
   { key: "rates", label: "Tariffe" },
   { key: "templates", label: "Messaggi" },
   { key: "done", label: "Fine" },
 ];
+
+// ─── Tipo per gli orari di apertura ────────────────────────────────────
+type HourRow = {
+  day_of_week: number;     // 0=Dom, 1=Lun, ..., 6=Sab
+  open_time: string;       // "HH:MM"
+  close_time: string;      // "HH:MM"
+  is_open: boolean;
+};
+
+// Default: lun-sab aperto 9-19, domenica chiusa
+function defaultHours(): HourRow[] {
+  return Array.from({ length: 7 }, (_, d) => ({
+    day_of_week: d,
+    open_time: "09:00",
+    close_time: "19:00",
+    is_open: d !== 0, // domenica chiusa
+  }));
+}
+
+const DAY_LABELS: Record<number, string> = {
+  1: "Lunedì",
+  2: "Martedì",
+  3: "Mercoledì",
+  4: "Giovedì",
+  5: "Venerdì",
+  6: "Sabato",
+  0: "Domenica",
+};
+// Ordine display: lun → dom (NON 0..6)
+const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -60,8 +92,12 @@ export default function OnboardingPage() {
   const [studioName, setStudioName] = useState("");
   const [studioAddress, setStudioAddress] = useState("");
   const [studioPhone, setStudioPhone] = useState("");
+  const [studioEmail, setStudioEmail] = useState("");
 
-  // ─── Step 2: Firma ─────────────────────────────────────────────────
+  // ─── Step 2: Orari di apertura ─────────────────────────────────────
+  const [hours, setHours] = useState<HourRow[]>(defaultHours);
+
+  // ─── Step 3: Firma ─────────────────────────────────────────────────
   const [signatureName, setSignatureName] = useState("");
   const [signatureTitle, setSignatureTitle] = useState("Dott.");
 
@@ -91,9 +127,41 @@ export default function OnboardingPage() {
     setStudioName(studio.name || "");
     setStudioAddress(studio.address || "");
     setStudioPhone(studio.phone || "");
+    setStudioEmail((studio as any).email || "");
     setSignatureName(studio.signature_name || "");
     setSignatureTitle(studio.signature_title || "Dott.");
   }, [studio]);
+
+  // Carica orari esistenti (se ci sono già stati impostati prima)
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data } = await supabase
+        .from("working_hours")
+        .select("day_of_week, open_time, close_time, is_open")
+        .order("day_of_week");
+      if (!alive) return;
+      if (data && data.length > 0) {
+        // Se ci sono già orari salvati, li carico
+        type WHRow = { day_of_week: number; open_time: string | null; close_time: string | null; is_open: boolean | null };
+        const map = new Map<number, WHRow>(
+          (data as WHRow[]).map(r => [r.day_of_week, r])
+        );
+        setHours(prev => prev.map(h => {
+          const r = map.get(h.day_of_week);
+          return r
+            ? {
+                day_of_week: h.day_of_week,
+                open_time: (r.open_time || "09:00").slice(0, 5),
+                close_time: (r.close_time || "19:00").slice(0, 5),
+                is_open: r.is_open ?? true,
+              }
+            : h;
+        }));
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   const currentStep = STEPS[stepIndex];
 
@@ -113,8 +181,37 @@ export default function OnboardingPage() {
           name: studioName.trim(),
           address: studioAddress.trim() || null,
           phone: studioPhone.trim() || null,
-        }).eq("id", studio.id);
+          email: studioEmail.trim() || null,
+        } as any).eq("id", studio.id);
         await refreshStudio();
+      }
+
+      if (currentStep.key === "hours") {
+        // Validazione: per i giorni aperti, close_time deve essere > open_time
+        for (const h of hours) {
+          if (h.is_open && h.open_time >= h.close_time) {
+            alert(`${DAY_LABELS[h.day_of_week]}: l'orario di chiusura deve essere dopo l'apertura.`);
+            setSaving(false);
+            return;
+          }
+        }
+        const { error: whErr } = await supabase
+          .from("working_hours")
+          .upsert(
+            hours.map(h => ({
+              day_of_week: h.day_of_week,
+              open_time: h.open_time,
+              close_time: h.close_time,
+              is_open: h.is_open,
+            })),
+            { onConflict: "day_of_week" }
+          );
+        if (whErr) {
+          console.error("[onboarding] errore working_hours:", whErr);
+          alert("Errore nel salvataggio orari. Riprova.");
+          setSaving(false);
+          return;
+        }
       }
 
       if (currentStep.key === "signature") {
@@ -263,7 +360,11 @@ export default function OnboardingPage() {
                 name={studioName} setName={setStudioName}
                 address={studioAddress} setAddress={setStudioAddress}
                 phone={studioPhone} setPhone={setStudioPhone}
+                email={studioEmail} setEmail={setStudioEmail}
               />
+            )}
+            {currentStep.key === "hours" && (
+              <StepHours hours={hours} setHours={setHours} />
             )}
             {currentStep.key === "signature" && (
               <StepSignature
@@ -391,6 +492,7 @@ function StepStudio(p: {
   name: string; setName: (s: string) => void;
   address: string; setAddress: (s: string) => void;
   phone: string; setPhone: (s: string) => void;
+  email: string; setEmail: (s: string) => void;
 }) {
   return (
     <>
@@ -398,7 +500,7 @@ function StepStudio(p: {
         Iniziamo dal tuo studio
       </h1>
       <p style={{ margin: "8px 0 24px", fontSize: 14, color: T.muted, lineHeight: 1.5 }}>
-        Questi dati appariranno nei messaggi WhatsApp ai pazienti.
+        Questi dati appariranno nei messaggi WhatsApp e nelle pagine pubbliche di prenotazione.
       </p>
 
       <Field label="Nome studio *" hint="Es. Studio Fisioterapico Rossi">
@@ -428,6 +530,123 @@ function StepStudio(p: {
           style={inp}
         />
       </Field>
+
+      <Field label="Email studio" hint="Visibile nelle pagine pubbliche di prenotazione">
+        <input
+          type="email"
+          value={p.email}
+          onChange={e => p.setEmail(e.target.value)}
+          placeholder="Es. info@tuostudio.it"
+          style={inp}
+        />
+      </Field>
+    </>
+  );
+}
+
+// ─── Step Orari di apertura ────────────────────────────────────────────
+function StepHours(p: {
+  hours: HourRow[];
+  setHours: Dispatch<SetStateAction<HourRow[]>>;
+}) {
+  function update(day: number, patch: Partial<HourRow>) {
+    p.setHours(prev => prev.map(h => h.day_of_week === day ? { ...h, ...patch } : h));
+  }
+
+  function copyToAllOpenDays(from: number) {
+    const src = p.hours.find(h => h.day_of_week === from);
+    if (!src) return;
+    p.setHours(prev => prev.map(h =>
+      h.is_open && h.day_of_week !== from
+        ? { ...h, open_time: src.open_time, close_time: src.close_time }
+        : h
+    ));
+  }
+
+  return (
+    <>
+      <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: T.text, letterSpacing: -0.3 }}>
+        Quando lavori?
+      </h1>
+      <p style={{ margin: "8px 0 24px", fontSize: 14, color: T.muted, lineHeight: 1.5 }}>
+        Questi orari servono per le prenotazioni online: i pazienti vedranno solo
+        gli slot liberi nei giorni di apertura. Puoi modificarli in qualsiasi
+        momento dalle Impostazioni.
+      </p>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {DAY_ORDER.map((d) => {
+          const h = p.hours.find(x => x.day_of_week === d);
+          if (!h) return null;
+          return (
+            <div
+              key={d}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(95px, 110px) auto 1fr 1fr",
+                alignItems: "center",
+                gap: 10,
+                padding: "10px 12px",
+                background: h.is_open ? T.panelSoft : "#fafafa",
+                border: `1px solid ${h.is_open ? T.borderSoft : T.borderSoft}`,
+                borderRadius: 10,
+                opacity: h.is_open ? 1 : 0.65,
+              }}
+            >
+              <div style={{
+                fontSize: 14,
+                fontWeight: 600,
+                color: T.text,
+              }}>
+                {DAY_LABELS[d]}
+              </div>
+
+              <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, color: T.muted }}>
+                <input
+                  type="checkbox"
+                  checked={h.is_open}
+                  onChange={e => update(d, { is_open: e.target.checked })}
+                  style={{ width: 16, height: 16, accentColor: T.accent, cursor: "pointer" }}
+                />
+                <span>{h.is_open ? "Aperto" : "Chiuso"}</span>
+              </label>
+
+              <input
+                type="time"
+                value={h.open_time}
+                disabled={!h.is_open}
+                onChange={e => update(d, { open_time: e.target.value })}
+                style={{ ...inp, padding: "8px 10px", fontSize: 13 }}
+              />
+              <input
+                type="time"
+                value={h.close_time}
+                disabled={!h.is_open}
+                onChange={e => update(d, { close_time: e.target.value })}
+                style={{ ...inp, padding: "8px 10px", fontSize: 13 }}
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => copyToAllOpenDays(1)}
+        style={{
+          marginTop: 14,
+          padding: "9px 14px",
+          borderRadius: 8,
+          border: `1px solid ${T.borderSoft}`,
+          background: "#fff",
+          color: T.muted,
+          fontSize: 13,
+          fontWeight: 500,
+          cursor: "pointer",
+        }}
+      >
+        Copia orari del lunedì agli altri giorni aperti
+      </button>
     </>
   );
 }
