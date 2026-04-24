@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
-import { openHtmlWindow } from "@/src/lib/openHtmlWindow";
+import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 
 type Status       = "booked" | "confirmed" | "done" | "cancelled" | "not_paid";
 type LocationType = "studio" | "domicile";
@@ -92,12 +92,8 @@ const pctDelta   = (c: number, p: number) => p===0?(c===0?0:100):((c-p)/p)*100;
 // Casi gestiti: +39xxx, 0039xxx, 39xxx (già con prefisso), 3xx (mobile senza prefisso),
 //               0xx (fisso senza prefisso), numeri con spazi/trattini/parentesi
 function cleanPhoneWA(phone: string): string {
-  if (!phone) return "";
-  let p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
-  if (p.startsWith("00")) p = p.slice(2);
-  if (p.startsWith("0")) p = "39" + p;
-  if (!p.startsWith("39") && p.length <= 10) p = "39" + p;
-  return p;
+  // Delegato alla utility centrale in src/lib/whatsapp.ts per consistenza
+  return normalizePhoneForWA(phone);
 }
 const fmtPhone = cleanPhoneWA; // alias compatibilità
 
@@ -105,7 +101,9 @@ function openWA(phone: string, message: string): void {
   const clean = cleanPhoneWA(phone);
   if (!clean) { alert("Numero non valido."); return; }
   const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
-  const url = (isMobile ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(message);
+  const url = isMobile
+    ? `https://wa.me/${clean}?text=${encodeURIComponent(message)}`
+    : `https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`;
   const a = document.createElement("a");
   a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
   document.body.appendChild(a); a.click();
@@ -511,7 +509,7 @@ export default function HomePage() {
             <span style={{fontWeight:700,fontSize:14,color:"#fff",letterSpacing:0.8,textTransform:"uppercase"}}>Fisio<span style={{fontWeight:800}}>Hub</span></span>
           </div>
           <nav style={{display:"flex",gap:1}}>
-            {([{href:"/",label:"Home",active:true},{href:"/calendar",label:"Calendario",active:false},{href:"/reports",label:"Report",active:false},{href:"/noleggio",label:"Noleggio",active:false},{href:"/patients",label:"Pazienti",active:false}] as const).map(item=>(
+            {([{href:"/",label:"Home",active:true},{href:"/calendar",label:"Calendario",active:false},{href:"/reports",label:"Report",active:false},{href:"/noleggio",label:"Noleggio",active:false},{href:"/patients",label:"Pazienti",active:false},{href:"/piano",label:"💎 Piano",active:false}] as const).map(item=>(
               <Link key={item.href} href={item.href} style={{padding:"5px 11px",borderRadius:7,fontSize:12,fontWeight:700,background:item.active?"rgba(255,255,255,0.22)":"transparent",color:item.active?"#fff":"rgba(255,255,255,0.78)",letterSpacing:0.2}}>{item.label}</Link>
             ))}
           </nav>
@@ -1273,7 +1271,8 @@ export default function HomePage() {
                       onClick={()=>{
                         const rows=openBalanceGroups.map(g=>`<tr><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0">${g.patient_name}</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;text-align:center">${g.sessions}</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:700;color:#dc2626">${g.total.toLocaleString("it-IT")}€</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:11px;color:#64748b">${new Date(g.last_at).toLocaleDateString("it-IT")}</td></tr>`).join("");
                         const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Saldi aperti</title><style>body{font-family:system-ui,sans-serif;padding:32px;color:#0f172a}h2{margin-bottom:4px}p{color:#64748b;font-size:13px;margin:0 0 20px}table{width:100%;border-collapse:collapse;font-size:13px}th{background:#f1f5f9;padding:8px 12px;text-align:left;font-weight:700;font-size:12px}tfoot td{font-weight:800;font-size:14px;padding:10px 12px;border-top:2px solid #0f172a}@media print{button{display:none}}</style></head><body><h2>Saldi Aperti</h2><p>Generato il ${new Date().toLocaleDateString("it-IT")} · ${openBalanceGroups.length} pazienti</p><table><thead><tr><th>Paziente</th><th style="text-align:center">Sedute</th><th style="text-align:right">Totale</th><th>Ultima seduta</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td>TOTALE</td><td style="text-align:center">${openBalanceGroups.reduce((s,g)=>s+g.sessions,0)}</td><td style="text-align:right;color:#dc2626">${openBalanceGroups.reduce((s,g)=>s+g.total,0).toLocaleString("it-IT")}€</td><td></td></tr></tfoot></table><button onclick="window.print()" style="margin-top:24px;padding:10px 24px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🖨 Stampa</button></body></html>`;
-                        openHtmlWindow(html, { width: 800, height: 600 });
+                        const w=window.open("","_blank","width=800,height=600");
+                        if(w){w.document.write(html);w.document.close();}
                       }}
                       style={{padding:"3px 10px",borderRadius:5,border:`1px solid ${THEME.border}`,background:"#fff",color:THEME.text,fontWeight:700,fontSize:10,cursor:"pointer"}}
                     >🖨 Stampa</button>

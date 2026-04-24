@@ -1209,16 +1209,21 @@ diagnosis: patient?.diagnosis ?? null,
         signatureTitle: currentStudio?.signature_title,
       });
 
-      // 4. Costruisci URL WhatsApp e lo carica nella finestra aperta sopra
+      // 4. Costruisci URL WhatsApp scegliendo il formato giusto per dispositivo:
+      //    - Desktop → web.whatsapp.com/send (apre DIRETTAMENTE WhatsApp Web)
+      //    - Mobile  → wa.me (apre app WhatsApp anche se contatto non in rubrica)
       const clean = cleanPhoneForWA(patientPhone);
       if (!clean) {
         if (waWindow) waWindow.close();
         alert("Numero di telefono non valido.");
         return;
       }
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
-      const waUrl = (isMobile ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send")
-        + "?phone=" + clean + "&text=" + encodeURIComponent(message);
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(
+        typeof navigator !== "undefined" ? navigator.userAgent : ""
+      );
+      const waUrl = isMobile
+        ? `https://wa.me/${clean}?text=${encodeURIComponent(message)}`
+        : `https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`;
 
       if (waWindow) {
         waWindow.location.href = waUrl;
@@ -2120,7 +2125,7 @@ return (
             <span className="mob-hide" style={{ fontWeight: 700, fontSize: 15, color: "#fff", letterSpacing: 0.5, textTransform: "uppercase" }}>Fisio<span style={{ color: "#fff", fontWeight: 800 }}>Hub</span></span>
           </div>
           <nav className="mob-hide" style={{ display: "flex", gap: 2 }}>
-            {([{href:"/",label:"Home"},{href:"/calendar",label:"Calendario",active:true},{href:"/reports",label:"Report"},{href:"/noleggio",label:"Noleggio"},{href:"/patients",label:"Pazienti"}] as const).map(item=>(
+            {([{href:"/",label:"Home"},{href:"/calendar",label:"Calendario",active:true},{href:"/reports",label:"Report"},{href:"/noleggio",label:"Noleggio"},{href:"/patients",label:"Pazienti"},{href:"/piano",label:"💎 Piano"}] as const).map(item=>(
               <Link key={item.href} href={item.href} style={{ padding:"6px 12px", borderRadius:8, fontSize:12, fontWeight:700, textDecoration:"none", background:(item as any).active?"rgba(255,255,255,0.2)":"transparent", color:(item as any).active?"#fff":"rgba(255,255,255,0.8)", letterSpacing:0.3 }}>{item.label}</Link>
             ))}
           </nav>

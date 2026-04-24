@@ -3,11 +3,9 @@
 function openWA(phone: string, message: string = ""): void {
   const p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
   const n = p.startsWith("00") ? p.slice(2) : p.startsWith("0") ? "39" + p : !p.startsWith("39") && p.length <= 10 ? "39" + p : p;
-  const text = message ? "&text=" + encodeURIComponent(message) : "";
+  const text = message ? "?text=" + encodeURIComponent(message) : "";
   const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
-  const url = isMobile
-    ? "https://api.whatsapp.com/send?phone=" + n + text
-    : "https://web.whatsapp.com/send?phone=" + n + text;
+  const url = "https://wa.me/" + n + text;
   // Apre in nuova tab — comportamento originale che funzionava
   const w = window.open(url, "_blank", "noopener,noreferrer");
   if (!w) {
@@ -22,6 +20,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { buildReminderMessage } from "@/app/(protected)/calendar/utils/reminderMessage";
+import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 
 /* ─── Types ───────────────────────────────────────────────────────────── */
 type Status = "booked" | "confirmed" | "done" | "cancelled" | "not_paid";
@@ -125,12 +124,8 @@ function statusBg(s: Status): string {
 
 /* ─── WhatsApp helpers ────────────────────────────────────────────────── */
 function formatPhoneForWA(phone: string): string {
-  if (!phone) return phone;
-  let c = phone.replace(/[\s\(\)\-\.]/g, "");
-  if (c.startsWith("+")) c = c.substring(1);
-  if (c.startsWith("0")) c = "39" + c.substring(1);
-  if (!c.startsWith("39") && c.length <= 10) c = "39" + c;
-  return c;
+  // Delegato alla utility centrale in src/lib/whatsapp.ts per consistenza
+  return normalizePhoneForWA(phone);
 }
 
 function formatDateRelative(date: Date): string {
@@ -295,6 +290,17 @@ function CalendarPageInner() {
   const [quickFirstName,  setQuickFirstName]  = useState("");
   const [quickLastName,   setQuickLastName]   = useState("");
   const [quickPhone,      setQuickPhone]      = useState("");
+
+  /* ── WhatsApp confirm modal (mostrato dopo creazione appuntamento) ── */
+  const [showWhatsAppConfirm, setShowWhatsAppConfirm] = useState(false);
+  // Contesto appuntamento appena creato per generare il messaggio
+  const [justCreatedAppt, setJustCreatedAppt] = useState<{
+    id: string;
+    start: Date;
+    patientPhone: string | null;
+    patientFirstName: string;
+    patientLastName: string;
+  } | null>(null);
 
   /* ── Clock ───────────────────────────────── */
   useEffect(() => {
@@ -637,22 +643,20 @@ function CalendarPageInner() {
     const appointment = events.find(e=>e.id===appointmentId);
     if (!appointment) return;
 
-    // Genera/recupera link conferma (solo per promemoria, non per conferme iniziali)
-    let linkConferma = "";
-    if (!isConfirmation) {
-      linkConferma = confirmLinks[appointmentId] || "";
-      if (!linkConferma) {
-        const clientToken = typeof crypto !== "undefined" && crypto.randomUUID
-          ? crypto.randomUUID()
-          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        linkConferma = `${window.location.origin}/conferma/${clientToken}`;
-        fetch("/api/confirm", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ appointment_id: appointmentId, client_token: clientToken }),
-        }).catch(() => {});
-        setConfirmLinks(prev => ({ ...prev, [appointmentId]: linkConferma }));
-      }
+    // Genera/recupera link conferma SEMPRE (per conferme e per promemoria).
+    // Il link permette al paziente di confermare/annullare con un click.
+    let linkConferma = confirmLinks[appointmentId] || "";
+    if (!linkConferma) {
+      const clientToken = typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      linkConferma = `${window.location.origin}/conferma/${clientToken}`;
+      fetch("/api/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appointment_id: appointmentId, client_token: clientToken }),
+      }).catch(() => {});
+      setConfirmLinks(prev => ({ ...prev, [appointmentId]: linkConferma }));
     }
 
     const template = isConfirmation ? confirmTplCache : reminderTplCache;
@@ -670,7 +674,7 @@ function CalendarPageInner() {
 
     // Apri WhatsApp con anchor tag sincrono — iOS apre DIRETTAMENTE l'app WA
     const cleanPhone = formatPhoneForWA(patientPhone);
-    const url = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
+    const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
     const a = document.createElement("a");
     a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
     document.body.appendChild(a); a.click();
@@ -844,11 +848,34 @@ function CalendarPageInner() {
       }
     }
 
-    const {error:e}=await supabase.from("appointments").insert(toInsert);
+    const {data:inserted, error:e} = await supabase
+      .from("appointments")
+      .insert(toInsert)
+      .select("id, start_at");
     if (e){setError(e.message);setBusy(false);return;}
-    setBusy(false);setCreateOpen(false);
+    setBusy(false);
+    setCreateOpen(false);
     setCreateRecurring(false); // reset for next
     await loadAppointments(currentDate);
+
+    // ── Modal conferma WhatsApp (solo se: 1 solo appuntamento + paziente ha telefono) ──
+    // Stesso comportamento del calendar desktop: appare la modale che chiede
+    // se inviare il messaggio di conferma con i link conferma/annulla.
+    if (
+      !createRecurring &&
+      inserted && inserted.length === 1 &&
+      selectedPatient.phone &&
+      selectedPatient.phone.trim().length > 0
+    ) {
+      setJustCreatedAppt({
+        id: inserted[0].id as string,
+        start: new Date(inserted[0].start_at as string),
+        patientPhone: selectedPatient.phone,
+        patientFirstName: selectedPatient.first_name || "",
+        patientLastName: selectedPatient.last_name || "",
+      });
+      setShowWhatsAppConfirm(true);
+    }
   }, [selectedPatient,createDuration,createDate,createTime,createStatus,createNote,
       createLocation,createClinicSite,createDomicileAddress,createAmount,currentDate,loadAppointments,
       createRecurring,createRecurringCount,createRecurringInterval,overlapMode,events]);
@@ -1826,6 +1853,133 @@ function CalendarPageInner() {
           createRecurringCount={createRecurringCount} setCreateRecurringCount={setCreateRecurringCount}
           createRecurringInterval={createRecurringInterval} setCreateRecurringInterval={setCreateRecurringInterval}
         />
+      )}
+
+      {/* ━━━ MODAL CONFERMA WHATSAPP (dopo creazione appuntamento) ━━━ */}
+      {/* Identica al desktop: messaggio template + check + pulsante Invia.        */}
+      {/* Per Fase B: include anche link conferma/annulla (gestiti in sendReminder). */}
+      {showWhatsAppConfirm && justCreatedAppt && (
+        <>
+          <div
+            onClick={() => { setShowWhatsAppConfirm(false); setJustCreatedAppt(null); }}
+            style={{
+              position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)",
+              zIndex: 10000,
+            }}
+          />
+          <div
+            style={{
+              position: "fixed",
+              left: "50%",
+              top: "50%",
+              transform: "translate(-50%, -50%)",
+              width: "92vw",
+              maxWidth: 460,
+              maxHeight: "90vh",
+              overflow: "auto",
+              background: THEME.panelBg,
+              color: THEME.text,
+              borderRadius: 14,
+              border: `1.5px solid ${THEME.border}`,
+              boxShadow: "0 20px 50px rgba(15,23,42,0.30)",
+              padding: "24px 22px",
+              zIndex: 10001,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: 10,
+                background: "linear-gradient(135deg,#0d9488,#2563eb)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 18, color: "#fff", flexShrink: 0,
+              }}>◈</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: THEME.teal }}>
+                  Invia conferma WhatsApp?
+                </div>
+                <div style={{ marginTop: 2, fontSize: 12, color: THEME.muted, fontWeight: 600 }}>
+                  Vuoi inviare il messaggio di conferma al paziente?
+                </div>
+              </div>
+            </div>
+
+            {/* Anteprima messaggio (template di default) */}
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: THEME.text, marginBottom: 6 }}>
+                Messaggio che verrà inviato:
+              </div>
+              <div style={{
+                background: "#f7f9fd",
+                padding: 12,
+                borderRadius: 8,
+                border: `1px solid ${THEME.border}`,
+                fontSize: 12,
+                lineHeight: 1.5,
+                whiteSpace: "pre-wrap",
+                maxHeight: 140,
+                overflowY: "auto",
+                color: THEME.text,
+              }}>
+                {`Grazie per averci scelto.\nRicordiamo il prossimo appuntamento fissato per ${formatDateRelative(justCreatedAppt.start)} alle ${fmtTime(justCreatedAppt.start)}.\n\n👉 Conferma o annulla con un click:\n[link conferma incluso automaticamente]\n\nA presto`}
+              </div>
+              <div style={{ marginTop: 6, fontSize: 11, color: THEME.muted, fontWeight: 600 }}>
+                Destinatario: {justCreatedAppt.patientPhone}
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <button
+                onClick={() => { setShowWhatsAppConfirm(false); setJustCreatedAppt(null); }}
+                style={{
+                  padding: "13px 16px",
+                  borderRadius: 10,
+                  border: `1.5px solid ${THEME.border}`,
+                  background: "#f7f9fd",
+                  color: THEME.text,
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                Salta
+              </button>
+              <button
+                onClick={async () => {
+                  // Salva i riferimenti localmente prima del cleanup
+                  const appt = justCreatedAppt;
+                  setShowWhatsAppConfirm(false);
+                  setJustCreatedAppt(null);
+                  if (!appt) return;
+                  // Chiama il sendReminder esistente con isConfirmation=true
+                  // Questo include automaticamente il link di conferma/annulla
+                  // (logica già implementata in src/calendar/utils/reminderMessage.ts)
+                  await sendReminder(
+                    appt.id,
+                    appt.patientPhone ?? undefined,
+                    appt.patientFirstName,
+                    true, // isConfirmation
+                  );
+                }}
+                style={{
+                  padding: "13px 16px",
+                  borderRadius: 10,
+                  border: "none",
+                  background: "#25d366",
+                  color: "#fff",
+                  fontWeight: 800,
+                  fontSize: 13,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                }}
+              >
+                <span>📱</span> Invia WA
+              </button>
+            </div>
+          </div>
+        </>
       )}
 
       <style dangerouslySetInnerHTML={{__html:`

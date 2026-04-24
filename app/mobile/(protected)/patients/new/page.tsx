@@ -3,9 +3,9 @@
 function openWA(phone: string, message: string = ""): void {
   const p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
   const n = p.startsWith("00") ? p.slice(2) : p.startsWith("0") ? "39" + p : !p.startsWith("39") && p.length <= 10 ? "39" + p : p;
-  const text = message ? "&text=" + encodeURIComponent(message) : "";
+  const text = message ? "?text=" + encodeURIComponent(message) : "";
   const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
-  const url = isMobile ? "https://api.whatsapp.com/send?phone=" + n + text : "https://web.whatsapp.com/send?phone=" + n + text;
+  const url = "https://wa.me/" + n + text;
   const w = window.open(url, "_blank", "noopener,noreferrer"); if (!w) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
 }
 

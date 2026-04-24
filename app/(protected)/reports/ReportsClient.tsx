@@ -1,20 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { openHtmlWindow } from "@/src/lib/openHtmlWindow";
+
+import { openWhatsApp } from "@/src/lib/whatsapp";
 
 function openWADirect(phone: string, message: string = ""): void {
-  if (!phone) return;
-  let p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
-  if (p.startsWith("00")) p = p.slice(2);
-  if (p.startsWith("0")) p = "39" + p;
-  if (!p.startsWith("39") && p.length <= 10) p = "39" + p;
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
-  const url = (isMobile ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + p + (message ? "&text=" + encodeURIComponent(message) : "");
-  const a = document.createElement("a");
-  a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
-  document.body.appendChild(a); a.click();
-  setTimeout(() => document.body.removeChild(a), 200);
+  openWhatsApp(phone, message);
 }
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
@@ -107,14 +98,15 @@ function exportCSV(rows:PaidRow[],unpaid:UnpaidRow[],label:string){
 
 // ─── Print ────────────────────────────────────────────────────────────────────
 function printUnpaid(rows:UnpaidRow[],title:string){
-  const esc=(s:unknown)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;");
+  const pw=window.open("","_blank");if(!pw)return;
+  const esc=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;");
   const byPat:{[k:string]:{rows:UnpaidRow[];tot:number}}={};
   rows.forEach(r=>{if(!byPat[r.name])byPat[r.name]={rows:[],tot:0};byPat[r.name].rows.push(r);byPat[r.name].tot+=r.amount;});
   let body="";let grand=0;
   Object.keys(byPat).sort().forEach(n=>{const g=byPat[n];grand+=g.tot;body+=`<tr style="background:#f5f5f5"><td colspan="3"><b>${esc(n)}</b></td><td><b>${euro2.format(g.tot)}</b></td></tr>`;g.rows.forEach(r=>{body+=`<tr><td></td><td>${esc(r.type)}</td><td>${new Date(r.date).toLocaleDateString("it-IT")} (${r.days}gg)</td><td>${euro2.format(r.amount)}</td></tr>`;});});
   body+=`<tr style="background:#e8e8e8"><td colspan="3"><b>TOTALE</b></td><td><b>${euro2.format(grand)}</b></td></tr>`;
-  const html = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>${esc(title)}</title><style>body{font-family:Arial,sans-serif;padding:2cm}table{width:100%;border-collapse:collapse;margin-top:1cm}th,td{border:1px solid #ccc;padding:6pt;font-size:10pt}th{background:#eee}button{padding:8px 16px;cursor:pointer;margin-bottom:1cm}@media print{button{display:none}}</style></head><body><button onclick="window.print()">Stampa</button><h2>${esc(title)}</h2><p>${new Date().toLocaleDateString("it-IT",{year:"numeric",month:"long",day:"numeric"})}</p><table><thead><tr><th>Paziente</th><th>Tipo</th><th>Data</th><th>Importo</th></tr></thead><tbody>${body}</tbody></table><script>window.onload=()=>setTimeout(()=>window.print(),400);</script></body></html>`;
-  openHtmlWindow(html, { width: 900, height: 900 });
+  pw.document.write(`<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>${esc(title)}</title><style>body{font-family:Arial,sans-serif;padding:2cm}table{width:100%;border-collapse:collapse;margin-top:1cm}th,td{border:1px solid #ccc;padding:6pt;font-size:10pt}th{background:#eee}button{padding:8px 16px;cursor:pointer;margin-bottom:1cm}@media print{button{display:none}}</style></head><body><button onclick="window.print()">Stampa</button><h2>${esc(title)}</h2><p>${new Date().toLocaleDateString("it-IT",{year:"numeric",month:"long",day:"numeric"})}</p><table><thead><tr><th>Paziente</th><th>Tipo</th><th>Data</th><th>Importo</th></tr></thead><tbody>${body}</tbody></table><script>window.onload=()=>setTimeout(()=>window.print(),400);</script></body></html>`);
+  pw.document.close();
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -576,7 +568,7 @@ export default function ReportsPage(){
             <span style={{fontWeight:700,fontSize:14,color:"#fff",letterSpacing:0.5,textTransform:"uppercase" as const}}>Fisio<span style={{fontWeight:800}}>Hub</span></span>
           </div>
           <nav style={{display:"flex",gap:2}}>
-            {[{href:"/",l:"Home"},{href:"/calendar",l:"Calendario"},{href:"/reports",l:"Report",a:true},{href:"/noleggio",l:"Noleggio"},{href:"/patients",l:"Pazienti"}].map((item,i)=>(
+            {[{href:"/",l:"Home"},{href:"/calendar",l:"Calendario"},{href:"/reports",l:"Report",a:true},{href:"/noleggio",l:"Noleggio"},{href:"/patients",l:"Pazienti"},{href:"/piano",l:"💎 Piano"}].map((item,i)=>(
               <Link key={`nav-${i}`} href={item.href} style={{padding:"5px 11px",borderRadius:7,fontSize:12,fontWeight:700,background:(item as any).a?"rgba(255,255,255,0.22)":"transparent",color:(item as any).a?"#fff":"rgba(255,255,255,0.8)"}}>{item.l}</Link>
             ))}
           </nav>

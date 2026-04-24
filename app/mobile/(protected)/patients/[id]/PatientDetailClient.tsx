@@ -3,11 +3,9 @@
 function openWA(phone: string, message: string = ""): void {
   const p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
   const n = p.startsWith("00") ? p.slice(2) : p.startsWith("0") ? "39" + p : !p.startsWith("39") && p.length <= 10 ? "39" + p : p;
-  const text = message ? "&text=" + encodeURIComponent(message) : "";
+  const text = message ? "?text=" + encodeURIComponent(message) : "";
   const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
-  const url = isMobile
-    ? "https://api.whatsapp.com/send?phone=" + n + text
-    : "https://web.whatsapp.com/send?phone=" + n + text;
+  const url = "https://wa.me/" + n + text;
   const w = window.open(url, "_blank", "noopener,noreferrer");
   if (!w) {
     const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
@@ -22,6 +20,7 @@ import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { ClinicalScalesSection } from "@/app/(protected)/patients/[id]/ClinicalScales";
 import { SOAPNotesEditor } from "@/app/(protected)/calendar/components/SOAPNotes";
 import { PhotoGallerySection } from "@/app/(protected)/patients/[id]/PhotoGallery";
+import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 
 /* ─── Types ───────────────────────────────────────────────────────────── */
 type Plan   = "invoice" | "no_invoice";
@@ -144,11 +143,8 @@ function docTypeHint(t: string) {
 }
 function safeFileName(name: string) { return name.replace(/[^\w.\-() ]+/g, "_"); }
 function formatPhoneForWA(phone: string): string {
-  let c = phone.replace(/[\s\(\)\-\.]/g, "");
-  if (c.startsWith("+")) c = c.substring(1);
-  if (c.startsWith("0")) c = "39" + c.substring(1);
-  if (!c.startsWith("39") && c.length <= 10) c = "39" + c;
-  return c;
+  // Delegato alla utility centrale in src/lib/whatsapp.ts per consistenza
+  return normalizePhoneForWA(phone);
 }
 function initials(p: Patient) {
   return ((p.last_name?.[0] ?? "") + (p.first_name?.[0] ?? "")).toUpperCase() || "?";
@@ -1487,8 +1483,9 @@ function MobileEserciziTab({ patientId, patientName, currentStudio }: {
     if (!pubLink) return;
     const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
     const msg = `Gentile ${patientName},\nEcco la sua scheda esercizi domiciliari:\n${pubLink}${firma ? `\n\n${firma}` : ""}`;
+    // Condivisione senza numero specifico (l'utente sceglie il destinatario)
     const a = document.createElement("a");
-    a.href = (typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? 'https://api.whatsapp.com' : 'https://web.whatsapp.com') + '/send?text=' + encodeURIComponent(msg);
+    a.href = "https://wa.me/?text=" + encodeURIComponent(msg);
     a.target = "_blank"; document.body.appendChild(a); a.click(); document.body.removeChild(a);
   }
 
@@ -1624,7 +1621,7 @@ function MobilePortalTab({ patient, currentStudio }: {
     const p = clean.replace(/[\s\(\)\-\.]/g,"").replace(/^\+/,"");
     const n = p.startsWith("00")?p.slice(2):p.startsWith("0")?"39"+p:!p.startsWith("39")&&p.length<=10?"39"+p:p;
     const isMob = /iPhone|iPad|iPod|Android/i.test(typeof navigator!=="undefined"?navigator.userAgent:"");
-    const waUrl = (isMob?"https://api.whatsapp.com/send":"https://web.whatsapp.com/send")+"?phone="+n+"&text="+encodeURIComponent(msg);
+    const waUrl = "https://wa.me/" + n + "?text=" + encodeURIComponent(msg);
     if(waWindow){ waWindow.location.href = waUrl; }
     else { const a=document.createElement("a"); a.href=waUrl; a.target="_blank"; a.rel="noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200); }
   }

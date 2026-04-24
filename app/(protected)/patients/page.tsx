@@ -472,7 +472,7 @@ export default function PatientsPage() {
           </div>
           <nav style={{ display: "flex", gap: 2 }}>
             {([
-              {href:"/",label:"Home"},{href:"/calendar",label:"Calendario"},{href:"/reports",label:"Report"},{href:"/noleggio",label:"Noleggio"},{href:"/patients",label:"Pazienti",active:true},
+              {href:"/",label:"Home"},{href:"/calendar",label:"Calendario"},{href:"/reports",label:"Report"},{href:"/noleggio",label:"Noleggio"},{href:"/patients",label:"Pazienti",active:true},{href:"/piano",label:"💎 Piano"},
             ] as {href:string;label:string;active?:boolean}[]).map(item => (
               <Link key={item.href} href={item.href} style={{
                 padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700,

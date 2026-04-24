@@ -3,7 +3,6 @@
 
 import type { CalendarEvent } from "./types";
 import { startOfISOWeekMonday } from "./dateHelpers";
-import { openHtmlWindow } from "@/src/lib/openHtmlWindow";
 
 export function exportWeekToPDF(events: CalendarEvent[], currentDate: Date): void {
   const weekStart = startOfISOWeekMonday(currentDate);
@@ -163,5 +162,6 @@ ${days.map((day, di) => {
 </body>
 </html>`;
 
-  openHtmlWindow(html, { width: 1200, height: 800 });
+  const win = window.open("", "_blank", "width=1200,height=800");
+  if (win) { win.document.write(html); win.document.close(); }
 }

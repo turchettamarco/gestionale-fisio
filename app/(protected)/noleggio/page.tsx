@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
-import { openHtmlWindow } from "@/src/lib/openHtmlWindow";
+import { normalizePhoneForWA, openWhatsApp } from "@/src/lib/whatsapp";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const THEME = {
@@ -277,21 +277,11 @@ export default function NoleggioPage() {
 
 
   function cleanPhoneWA(phone: string): string {
-    if (!phone) return "";
-    let p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
-    if (p.startsWith("00")) p = p.slice(2);
-    if (p.startsWith("0")) p = "39" + p;
-    if (!p.startsWith("39") && p.length <= 10) p = "39" + p;
-    return p;
+    // Delegata alla utility centrale per consistenza cross-file
+    return normalizePhoneForWA(phone);
   }
   function openWADirect(phone: string, message: string): void {
-    const clean = cleanPhoneWA(phone);
-    if (!clean) { alert("Numero non valido."); return; }
-    const url = ((/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "")) ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(message);
-    const a = document.createElement("a");
-    a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
-    document.body.appendChild(a); a.click();
-    setTimeout(() => document.body.removeChild(a), 200);
+    openWhatsApp(phone, message);
   }
 
   function sendWAScadenza(n: NoleggioRow) {
@@ -368,7 +358,8 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
   Documento generato il ${oggi}
 </div>
 </body></html>`;
-    openHtmlWindow(html, { width: 800, height: 900 });
+    const w = window.open("","_blank","width=800,height=900");
+    if(w){ w.document.write(html); w.document.close(); }
   }
 
   function printContratto(n: NoleggioRow) {
@@ -423,7 +414,7 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
 </div>
 <div style="text-align:center;margin-top:32px;"><button onclick="window.print()" style="padding:10px 28px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🖨️ Stampa / Salva PDF</button></div>
 </body></html>`;
-    openHtmlWindow(html, { width: 820, height: 950 });
+    const w=window.open("","_blank","width=820,height:950"); if(w){w.document.write(html);w.document.close();}
   }
 
   async function saveSettings() {
@@ -490,7 +481,7 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
             <span style={{ fontWeight:700, fontSize:15, color:"#fff", letterSpacing:0.5, textTransform:"uppercase" }}>Fisio<span style={{ fontWeight:800 }}>Hub</span></span>
           </Link>
           <nav style={{ display:"flex", gap:2 }}>
-            {([{href:"/",label:"Home"},{href:"/calendar",label:"Calendario"},{href:"/reports",label:"Report"},{href:"/patients",label:"Pazienti"},{href:"/noleggio",label:"Noleggio",active:true},{href:"/settings",label:"Impostazioni"}] as const).map(item=>(
+            {([{href:"/",label:"Home"},{href:"/calendar",label:"Calendario"},{href:"/reports",label:"Report"},{href:"/patients",label:"Pazienti"},{href:"/noleggio",label:"Noleggio",active:true},{href:"/piano",label:"💎 Piano"},{href:"/settings",label:"Impostazioni"}] as const).map(item=>(
               <Link key={item.href} href={item.href} style={{ padding:"6px 12px", borderRadius:8, fontSize:12, fontWeight:700, background:(item as any).active?"rgba(255,255,255,0.2)":"transparent", color:(item as any).active?"#fff":"rgba(255,255,255,0.8)", letterSpacing:0.3 }}>{item.label}</Link>
             ))}
           </nav>

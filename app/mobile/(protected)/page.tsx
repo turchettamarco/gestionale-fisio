@@ -3,11 +3,9 @@
 function openWA(phone: string, message: string = ""): void {
   const p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
   const n = p.startsWith("00") ? p.slice(2) : p.startsWith("0") ? "39" + p : !p.startsWith("39") && p.length <= 10 ? "39" + p : p;
-  const text = message ? "&text=" + encodeURIComponent(message) : "";
+  const text = message ? "?text=" + encodeURIComponent(message) : "";
   const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
-  const url = isMobile
-    ? "https://api.whatsapp.com/send?phone=" + n + text
-    : "https://web.whatsapp.com/send?phone=" + n + text;
+  const url = "https://wa.me/" + n + text;
   const w = window.open(url, "_blank", "noopener,noreferrer");
   if (!w) {
     const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
@@ -21,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { buildReminderMessage } from "@/app/(protected)/calendar/utils/reminderMessage";
+import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -93,11 +92,8 @@ function fullName(p?: Appointment["patients"]) {
   return `${(p?.last_name ?? "").trim()} ${(p?.first_name ?? "").trim()}`.trim() || "Paziente";
 }
 function formatPhoneForWA(phone: string): string {
-  let c = phone.replace(/[\s\(\)\-\.]/g, "");
-  if (c.startsWith("+")) c = c.substring(1);
-  if (c.startsWith("0")) c = "39" + c.substring(1);
-  if (!c.startsWith("39") && c.length <= 10) c = "39" + c;
-  return c;
+  // Delegato alla utility centrale in src/lib/whatsapp.ts per consistenza
+  return normalizePhoneForWA(phone);
 }
 function formatDateRelative(date: Date): string {
   const oggi = new Date(); oggi.setHours(0,0,0,0);
@@ -466,7 +462,7 @@ export default function MobileHomePage() {
 
     // Apri WhatsApp usando anchor tag — apre direttamente l'app WA su iOS
     const clean = formatPhoneForWA(phone);
-    const url = `https://api.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`;
+    const url = `https://wa.me/${clean}?text=${encodeURIComponent(message)}`;
     const a = document.createElement("a");
     a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
     document.body.appendChild(a); a.click();
@@ -669,7 +665,7 @@ export default function MobileHomePage() {
           firmaLine;
 
         const clean = formatPhoneForWA(patientPhone);
-        const url = `https://api.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(confMsg)}`;
+        const url = `https://wa.me/${clean}?text=${encodeURIComponent(confMsg)}`;
         const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
         document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
       }

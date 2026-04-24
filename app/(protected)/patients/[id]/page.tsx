@@ -6,15 +6,11 @@ import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { ClinicalScalesSection } from "./ClinicalScales";
 import { PhotoGallerySection } from "./PhotoGallery";
-import { openHtmlWindow } from "@/src/lib/openHtmlWindow";
+import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 
 function cleanPhoneWA(phone: string): string {
-  if (!phone) return "";
-  let p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
-  if (p.startsWith("00")) p = p.slice(2);
-  if (p.startsWith("0")) p = "39" + p;
-  if (!p.startsWith("39") && p.length <= 10) p = "39" + p;
-  return p;
+  // Delegato alla utility centrale in src/lib/whatsapp.ts per consistenza
+  return normalizePhoneForWA(phone);
 }
 
 // ─── Pain Map ─────────────────────────────────────────────────────────────────
@@ -323,7 +319,8 @@ function PainMapSection({ patientName, gender }: { patientName: string; gender?:
       <span>FisioHub · Body Chart Pro</span><span>Generato: ${new Date().toLocaleString("it-IT")}</span></div>
     <button onclick="window.print()" style="margin-top:20px;padding:10px 28px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🖨 Stampa referto</button>
     </body></html>`;
-    openHtmlWindow(html, { width: 900, height: 700 });
+    const w = window.open("","_blank","width=900,height=700");
+    if (w) { w.document.write(html); w.document.close(); }
   };
 
   const btnSm = (label: string, active: boolean, onClick: ()=>void, color="#2563eb") => (
@@ -757,16 +754,14 @@ export default function PatientDetailPage({
     })();
   }, []);
 
-  // Helper: apre WhatsApp. Usa anchor tag <a> che è il metodo più affidabile
-  // per evitare popup blocker su desktop e aprire direttamente l'app su mobile.
+  // Helper: apre WhatsApp. Usa wa.me (universal link) che su mobile
+  // apre sempre direttamente la chat al numero (mai schermata "scegli contatto").
   const openWhatsAppSafe = useCallback((phone: string, message: string) => {
     const clean = cleanPhoneWA(phone);
     if (!clean) { alert("Numero non valido"); return; }
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(
-      typeof navigator !== "undefined" ? navigator.userAgent : ""
-    );
-    const base = isMobile ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send";
-    const url = `${base}?phone=${clean}&text=${encodeURIComponent(message)}`;
+    const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator!=="undefined"?navigator.userAgent:"")
+      ? `https://wa.me/${clean}?text=${encodeURIComponent(message)}`
+      : `https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(message)}`);
     const a = document.createElement("a");
     a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
     document.body.appendChild(a); a.click();
@@ -1668,7 +1663,10 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
       " dove puo vedere:\n- i suoi prossimi appuntamenti\n- la scheda esercizi da casa\n- i contatti dello studio\n\nIl suo link personale (valido 6 mesi):\n" + link +
       firmaLine;
     const clean = cleanPhoneWA(phone);
-    const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(msg);
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator!=="undefined"?navigator.userAgent:"");
+    const url = isMobile
+      ? `https://wa.me/${clean}?text=${encodeURIComponent(msg)}`
+      : `https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(msg)}`;
     if (waWindow) { waWindow.location.href = url; }
     else { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
   }
@@ -1712,7 +1710,10 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
     }
 
     const clean = cleanPhoneWA(phone);
-    const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + clean + "&text=" + encodeURIComponent(msg);
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator!=="undefined"?navigator.userAgent:"");
+    const url = isMobile
+      ? `https://wa.me/${clean}?text=${encodeURIComponent(msg)}`
+      : `https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(msg)}`;
     if (waWindow) { waWindow.location.href = url; }
     else { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
   }
@@ -1814,7 +1815,7 @@ ${esercizi.length>0?`
   <button onclick="window.print()" style="padding:10px 28px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">🖨️ Stampa / Salva PDF</button>
 </div>
 </body></html>`;
-    openHtmlWindow(html, { width: 900, height: 1000 });
+    const w=window.open("","_blank","width=900,height:1000"); if(w){w.document.write(html);w.document.close();}
   }
 
   function stampaEsercizi() {
@@ -1895,7 +1896,8 @@ ${rows}
 </div>
 </body></html>`;
 
-    openHtmlWindow(html, { width: 900, height: 1000 });
+    const w = window.open("", "_blank", "width=900,height=1000");
+    if (w) { w.document.write(html); w.document.close(); }
   }
 
   // ── Carica/salva scheda esercizi nel DB ─────────────────────────────────
@@ -3106,7 +3108,7 @@ ${rows}
                     <button onClick={()=>{
                         const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
                         const msg = `Gentile ${lastName} ${firstName},\nEcco la sua scheda esercizi domiciliari:\n${pubLink}\n\nClicchi il link per vedere gli esercizi e i video dimostrativi.${firma ? `\n${firma}` : ""}`;
-                        const url = (/iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "") ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?text=" + encodeURIComponent(msg);
+                        const url = "https://wa.me/?text=" + encodeURIComponent(msg);
                         const w = window.open(url, "_blank", "noopener,noreferrer"); if (!w) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
                       }}
                       style={{ padding:"7px 12px", borderRadius:7, border:"1px solid #16a34a", background:"rgba(37,211,102,0.1)", color:"#15803d", fontWeight:700, fontSize:11, cursor:"pointer", flexShrink:0 }}>

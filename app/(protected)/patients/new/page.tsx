@@ -282,7 +282,9 @@ export default function NewPatientPage() {
                     const p = savedPhone.replace(/[\s\(\)\-\.]/g,"").replace(/^\+/,"");
                     const n = p.startsWith("00")?p.slice(2):p.startsWith("0")?"39"+p:!p.startsWith("39")&&p.length<=10?"39"+p:p;
                     const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
-                    const url = (isMobile ? "https://api.whatsapp.com/send" : "https://web.whatsapp.com/send") + "?phone=" + n + "&text=" + encodeURIComponent(msg);
+                    const url = isMobile
+                      ? `https://wa.me/${n}?text=${encodeURIComponent(msg)}`
+                      : `https://web.whatsapp.com/send?phone=${n}&text=${encodeURIComponent(msg)}`;
                     window.open(url, "_blank", "noopener,noreferrer");
                     setShowWelcomeWA(false);
                   }} style={{ padding: "10px 18px", borderRadius: 8, border: "none", background: "#25D366", color: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
