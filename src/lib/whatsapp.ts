@@ -4,89 +4,92 @@
 // UNICO POSTO dove si gestisce la normalizzazione dei numeri di telefono
 // italiani e l'apertura di WhatsApp.
 //
-// Tutte le pagine del gestionale (desktop + mobile) DEVONO usare queste
-// funzioni invece di reimplementare la logica, altrimenti ci sono
-// inconsistenze tra dove si apre e dove no.
+// STRATEGIA APERTURA WHATSAPP:
+//
+//   - DESKTOP (Win/Mac/Linux):
+//     → https://web.whatsapp.com/send?phone=...
+//     Apre direttamente WhatsApp Web nella chat al numero.
+//     NIENTE pagina intermedia "Apri con WA Desktop o continua online".
+//
+//   - MOBILE (iOS/Android):
+//     → whatsapp://send?phone=...&text=...
+//     Schema URI nativo che apre DIRETTAMENTE l'app WhatsApp
+//     bypassando completamente Safari/Chrome e api.whatsapp.com.
+//
+//     Se l'app non è installata, il browser ignora il link.
+//     Per coprire questo caso usiamo un piccolo fallback:
+//     dopo 1.5s se l'utente è ancora sulla pagina, lo redirigiamo a wa.me.
+//
+//   - https://wa.me/... veniva usato prima ma su iPhone redireziona
+//     a api.whatsapp.com/send (pagina di download) invece di aprire l'app
+//     se questa non è già aperta. whatsapp:// è più affidabile.
 // ═══════════════════════════════════════════════════════════════════════
 
 /**
  * Normalizza un numero di telefono italiano in formato internazionale
- * senza "+" (es. "393331234567") — il formato richiesto da wa.me e api.whatsapp.com
- *
- * Accetta qualsiasi input comune:
- *  - "333 123 4567"         → "393331234567"   (mobile senza prefisso)
- *  - "3331234567"           → "393331234567"   (mobile 10 cifre)
- *  - "+39 333 123 4567"     → "393331234567"   (con +39 e spazi)
- *  - "0039 333 1234567"     → "393331234567"   (prefisso 0039)
- *  - "+39-333.123.4567"     → "393331234567"   (con trattini/punti)
- *  - "393331234567"         → "393331234567"   (già ok)
- *  - "0761 123456"          → "390761123456"   (fisso italiano)
- *  - "+1 555 123 4567"      → "15551234567"    (numero estero, conservato)
- *
- * Ritorna stringa vuota se l'input è invalido/troppo corto.
+ * senza "+" (es. "393331234567") — il formato accettato da WhatsApp.
  */
 export function normalizePhoneForWA(phone: string | null | undefined): string {
   if (!phone) return "";
-
-  // 1. Togli TUTTO tranne cifre e +
   let c = String(phone).trim().replace(/[\s\(\)\-\.\/]/g, "");
-
-  // 2. "0039..." → "+39..."
   if (c.startsWith("00")) c = "+" + c.slice(2);
-
-  // 3. Togli il + per lavorare solo su cifre
   const hadPlus = c.startsWith("+");
   if (hadPlus) c = c.slice(1);
-
-  // 4. Tieni solo cifre
   c = c.replace(/\D/g, "");
   if (!c) return "";
-
-  // 5. Numero troppo corto → invalido
   if (c.length < 7) return "";
-
-  // 6. Se iniziava con + è già internazionale, fidati
   if (hadPlus) {
-    // Caso edge: "+3939..." è doppio prefisso, togli uno
     if (c.startsWith("3939") && c.length > 13) c = c.slice(2);
     return c;
   }
-
-  // 7. Già con prefisso 39 (mobile 12 cifre "39 + 3XX XXXXXXX")
   if (c.startsWith("39") && c.length === 12) return c;
-
-  // 8. Già con prefisso 39 (fisso 11-12 cifre)
   if (c.startsWith("39") && (c.length === 11 || c.length === 12 || c.length === 13)) return c;
-
-  // 9. Doppio prefisso 39 (es. "3939...") → rimuovi uno
   if (c.startsWith("3939") && c.length > 13) return c.slice(2);
-
-  // 10. Mobile italiano "3XX..." (10 cifre) → aggiungi 39
   if (c.startsWith("3") && c.length === 10) return "39" + c;
-
-  // 11. Fisso italiano "0XX..." → togli 0 iniziale e aggiungi 39
   if (c.startsWith("0") && c.length >= 9 && c.length <= 11) return "39" + c.slice(1);
-
-  // 12. Numero senza prefisso ma di lunghezza plausibile italiana → metti 39
   if (c.length >= 7 && c.length <= 10) return "39" + c;
-
-  // 13. Fallback: qualcosa di più strano, ritorna come sta
   return c;
 }
 
 /**
- * Apre WhatsApp verso un numero con un messaggio precompilato.
+ * Detection device.
+ * iPhone, iPad, iPod, Android → mobile.
+ * Windows, Mac, Linux → desktop.
+ */
+function isMobileDevice(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+}
+
+/**
+ * Costruisce l'URL WhatsApp giusto per il device corrente.
+ * Esposto come funzione pubblica per i casi in cui serve solo la URL
+ * (es. dentro un anchor JSX) senza fare il click programmaticamente.
+ */
+export function buildWhatsAppUrl(phone: string | null | undefined, message: string = ""): string {
+  const clean = normalizePhoneForWA(phone);
+  if (!clean) return "";
+
+  const encodedMsg = message ? encodeURIComponent(message) : "";
+
+  if (isMobileDevice()) {
+    // Schema URI nativo → apre direttamente l'app WhatsApp
+    return `whatsapp://send?phone=${clean}${encodedMsg ? `&text=${encodedMsg}` : ""}`;
+  } else {
+    // Desktop: WhatsApp Web diretto, no pagina intermedia
+    return `https://web.whatsapp.com/send?phone=${clean}${encodedMsg ? `&text=${encodedMsg}` : ""}`;
+  }
+}
+
+/**
+ * Apre WhatsApp con un messaggio precompilato verso un numero.
  *
- * Strategia di apertura per device:
- *  - Mobile (iOS/Android) → whatsapp://send?phone=…&text=…
- *    Schema URI NATIVO che bypassa il browser e apre DIRETTAMENTE l'app.
- *    Se l'app non è installata, fallback a https://wa.me/ dopo 1.5s.
- *    Questo è l'unico modo affidabile per evitare che Safari mostri
- *    la pagina di api.whatsapp.com con "Apri l'app / Scarica".
- *  - Desktop (Win/Mac/Linux) → https://web.whatsapp.com/send?phone=…
- *    Apre direttamente WhatsApp Web senza pagina intermedia di scelta.
+ * Su mobile usa whatsapp:// (nativo, apre l'app diretta).
+ * Su desktop usa web.whatsapp.com (no pagina di scelta).
  *
- * Ritorna true se il numero era valido e l'apertura è stata tentata.
+ * Su mobile aggiunge un fallback: se dopo 1.5s siamo ancora sulla pagina
+ * (= l'app WhatsApp non è installata), redirige automaticamente a wa.me
+ * che mostra il messaggio "Scarica WhatsApp".
  */
 export function openWhatsApp(phone: string | null | undefined, message: string = ""): boolean {
   const clean = normalizePhoneForWA(phone);
@@ -95,42 +98,40 @@ export function openWhatsApp(phone: string | null | undefined, message: string =
     return false;
   }
 
-  const isMobile = typeof navigator !== "undefined"
-    && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  const encodedMsg = message ? encodeURIComponent(message) : "";
+  const isMobile = isMobileDevice();
 
   if (isMobile) {
-    // MOBILE: usa schema URI nativo whatsapp://
-    // Questo è gestito dall'OS direttamente, senza passare dal browser.
-    // Bypassa completamente la pagina api.whatsapp.com di Safari.
-    const nativeUrl = `whatsapp://send?phone=${clean}${message ? "&text=" + encodeURIComponent(message) : ""}`;
-    const fallbackUrl = `https://wa.me/${clean}${message ? "?text=" + encodeURIComponent(message) : ""}`;
+    // Su mobile: schema nativo whatsapp://, apre app diretta.
+    // location.href = ... è preferito a window.open() per gli schemi custom
+    // perché iOS richiede una user gesture e la stessa tab.
+    const nativeUrl = `whatsapp://send?phone=${clean}${encodedMsg ? `&text=${encodedMsg}` : ""}`;
+    const fallbackUrl = `https://wa.me/${clean}${encodedMsg ? `?text=${encodedMsg}` : ""}`;
 
-    // Tenta apertura nativa
+    // Tentativo nativo
     window.location.href = nativeUrl;
 
-    // Fallback: se dopo 1.5s siamo ancora qui (= app non installata),
-    // apri il link wa.me che almeno offre il download dell'app
+    // Fallback per chi non ha WA installata: dopo 1.5s, se siamo ancora qui,
+    // redirigi a wa.me (che almeno mostra "scarica WhatsApp").
     setTimeout(() => {
-      // Se la pagina è ancora visibile, l'app non è installata
-      if (!document.hidden) {
+      if (document.visibilityState === "visible") {
         window.location.href = fallbackUrl;
       }
     }, 1500);
+
+    return true;
+  } else {
+    // Su desktop: web.whatsapp.com diretto in nuova tab via anchor click
+    const url = `https://web.whatsapp.com/send?phone=${clean}${encodedMsg ? `&text=${encodedMsg}` : ""}`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
     return true;
   }
-
-  // DESKTOP: web.whatsapp.com diretto (no pagina "Apri con WA Desktop / Continua web")
-  const url = `https://web.whatsapp.com/send?phone=${clean}${message ? "&text=" + encodeURIComponent(message) : ""}`;
-
-  // Anchor click sincrono = non viene bloccato
-  const a = document.createElement("a");
-  a.href = url;
-  a.target = "_blank";
-  a.rel = "noopener noreferrer";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  return true;
 }
 
 /**
@@ -139,25 +140,33 @@ export function openWhatsApp(phone: string | null | undefined, message: string =
  * Utile per "Inoltra a qualcuno" o "Condividi".
  */
 export function openWhatsAppShare(message: string): void {
-  const url = "https://wa.me/?text=" + encodeURIComponent(message);
-  const a = document.createElement("a");
-  a.href = url;
-  a.target = "_blank";
-  a.rel = "noopener noreferrer";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  const isMobile = isMobileDevice();
+  const enc = encodeURIComponent(message);
+
+  if (isMobile) {
+    window.location.href = `whatsapp://send?text=${enc}`;
+    setTimeout(() => {
+      if (document.visibilityState === "visible") {
+        window.location.href = `https://wa.me/?text=${enc}`;
+      }
+    }, 1500);
+  } else {
+    const a = document.createElement("a");
+    a.href = `https://web.whatsapp.com/send?text=${enc}`;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
 }
 
 /**
  * Formatta un numero per visualizzazione leggibile: "+39 333 1234567"
- * (diverso da normalizePhoneForWA che serve per wa.me).
  */
 export function formatPhoneForDisplay(phone: string | null | undefined): string {
   const normalized = normalizePhoneForWA(phone);
   if (!normalized) return "";
-
-  // Se è italiano "39..." → "+39 XXX XXXXXXX"
   if (normalized.startsWith("39") && normalized.length === 12) {
     return `+39 ${normalized.slice(2, 5)} ${normalized.slice(5)}`;
   }

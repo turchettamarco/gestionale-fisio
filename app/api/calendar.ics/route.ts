@@ -1,13 +1,24 @@
 // app/api/calendar.ics/route.ts
-// GET /api/calendar.ics
-// Restituisce tutti gli appuntamenti confermati/prenotati/eseguiti
-// in formato iCalendar (.ics) — compatibile con Google Calendar, Apple Calendar, Outlook
-// L'URL va aggiunto una volta sola in Google Calendar come "Calendario da URL"
+//
+// GET /api/calendar.ics?token=<uuid>
+//
+// Restituisce gli appuntamenti SOLO dello studio identificato dal token,
+// in formato iCalendar (.ics) — compatibile con Google Calendar, Apple
+// Calendar, Outlook.
+//
+// SICUREZZA — multi-tenancy:
+// Prima dell'introduzione del token (migration 007), questo endpoint
+// esponeva gli appuntamenti di TUTTI gli studi a chiunque conoscesse
+// l'URL. Era una violazione grave della separazione dei dati tra clienti.
+// Ora ogni studio ha il proprio token UUID univoco e l'endpoint filtra
+// rigorosamente per studio_id corrispondente.
+//
+// L'utente trova il suo URL completo nelle Impostazioni → Google Calendar.
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// Usa service role key per bypassare RLS — questo endpoint è server-side only
+// Service role per bypassare RLS — questo endpoint è server-side only
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -29,7 +40,6 @@ function toICSDate(iso: string): string {
   // Supabase restituisce UTC (es. "2026-04-17T09:00:00+00:00")
   // Google Calendar con TZID=Europe/Rome si aspetta l'orario LOCALE italiano
   const d = new Date(iso);
-  // Formatta in timezone Europe/Rome
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Rome",
     year: "numeric", month: "2-digit", day: "2-digit",
@@ -53,54 +63,93 @@ function foldLine(line: string): string {
   return chunks.join("\r\n");
 }
 
+// Validazione UUID v4 (formato: 8-4-4-4-12 caratteri esadecimali)
+function isValidUUID(str: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
+
 // ── Handler ──────────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
   try {
-    // Carica appuntamenti degli ultimi 90 giorni + prossimi 365
+    // ─── 1. Estrai e valida il token ──────────────────────────────────────
+    const token = req.nextUrl.searchParams.get("token");
+
+    if (!token) {
+      return new NextResponse(
+        "Token mancante. URL atteso: /api/calendar.ics?token=<uuid-dello-studio>\nTrovi il tuo URL completo nelle Impostazioni → Google Calendar.",
+        { status: 400, headers: { "Content-Type": "text/plain; charset=utf-8" } }
+      );
+    }
+
+    if (!isValidUUID(token)) {
+      // Non rivelare se il token è semplicemente malformato vs sconosciuto:
+      // rispondi sempre 404 per evitare enumeration attack
+      return new NextResponse("Calendario non trovato.", {
+        status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" }
+      });
+    }
+
+    // ─── 2. Risolvi il token allo studio corrispondente ───────────────────
+    const { data: studio, error: studioErr } = await supabase
+      .from("studios")
+      .select("id, name, address")
+      .eq("calendar_feed_token", token)
+      .maybeSingle();
+
+    if (studioErr) {
+      console.error("[calendar.ics] Errore lookup studio:", studioErr.message);
+      return new NextResponse("Errore interno.", { status: 500 });
+    }
+
+    if (!studio) {
+      // Token non corrisponde a nessuno studio
+      return new NextResponse("Calendario non trovato.", {
+        status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" }
+      });
+    }
+
+    const studioId = studio.id as string;
+
+    // ─── 3. Carica appuntamenti SOLO di quello studio ─────────────────────
     const from = new Date();
     from.setDate(from.getDate() - 90);
     const to = new Date();
     to.setDate(to.getDate() + 365);
 
-    // Query appuntamenti senza join per evitare problemi RLS
     const { data: appointments, error } = await supabase
       .from("appointments")
       .select("id, start_at, end_at, status, location, clinic_site, domicile_address, treatment_type, amount, calendar_note, patient_id")
+      .eq("studio_id", studioId)               // ← FILTRO MULTI-TENANCY
       .gte("start_at", from.toISOString())
       .lte("start_at", to.toISOString())
       .neq("status", "cancelled")
       .order("start_at", { ascending: true });
 
-    console.log("[calendar.ics] appointments count:", appointments?.length, "error:", error?.message);
-    console.log("[calendar.ics] using key type:", process.env.SUPABASE_SERVICE_ROLE_KEY ? "service_role" : "anon");
-    if (error) throw error;
+    if (error) {
+      console.error("[calendar.ics] Errore appointments:", error.message);
+      return new NextResponse("Errore caricamento appuntamenti.", { status: 500 });
+    }
 
-    // Carica pazienti separatamente
-    const patientIds = [...new Set((appointments||[]).map(a => a.patient_id).filter(Boolean))];
-    let patientsMap: Record<string, {first_name:string|null; last_name:string|null; phone:string|null}> = {};
+    // ─── 4. Carica pazienti dello studio (separatamente per evitare RLS join) ─
+    const patientIds = [...new Set((appointments || []).map(a => a.patient_id).filter(Boolean))];
+    const patientsMap: Record<string, {first_name: string|null; last_name: string|null; phone: string|null}> = {};
     if (patientIds.length > 0) {
       const { data: pts } = await supabase
         .from("patients")
         .select("id, first_name, last_name, phone")
+        .eq("studio_id", studioId)             // ← anche qui, doppio filtro
         .in("id", patientIds);
-      (pts||[]).forEach((p:any) => { patientsMap[p.id] = p; });
+      (pts || []).forEach((p: { id: string; first_name: string|null; last_name: string|null; phone: string|null }) => {
+        patientsMap[p.id] = { first_name: p.first_name, last_name: p.last_name, phone: p.phone };
+      });
     }
-    console.log("[calendar.ics] patients loaded:", Object.keys(patientsMap).length);
 
-    // Carica nome studio per il calendario
-    const { data: settings } = await supabase
-      .from("practice_settings")
-      .select("practice_name, owner_full_name, address")
-      .limit(1)
-      .maybeSingle();
+    // ─── 5. Branding del calendario ───────────────────────────────────────
+    const calName = studio.name || "FisioHub";
+    const calDesc = `Agenda di ${studio.name || "FisioHub"}`;
 
-    const calName = settings?.practice_name || "FisioHub";
-    const calDesc = settings?.owner_full_name
-      ? `Agenda di ${settings.owner_full_name}`
-      : "Agenda fisioterapia";
-
-    // ── Genera ICS ───────────────────────────────────────────────────────────
+    // ─── 6. Genera ICS ────────────────────────────────────────────────────
     const lines: string[] = [
       "BEGIN:VCALENDAR",
       "VERSION:2.0",
@@ -142,19 +191,16 @@ export async function GET(req: NextRequest) {
         ? `🏠 ${patientName}`
         : patientName;
 
-      // Titolo evento
       const treatLabel: Record<string, string> = {
         seduta: "Seduta", macchinario: "Macchinario", laser: "Laser",
         tecar: "Tecar", onde_urto: "Onde d'urto", tens: "TENS",
       };
       const treat = treatLabel[appt.treatment_type as string] || "Seduta";
 
-      // Location
       const location = isDomicile
         ? appt.domicile_address || "Domicilio"
-        : appt.clinic_site || "Studio";
+        : appt.clinic_site || studio.address || "Studio";
 
-      // Descrizione
       const descParts = [
         `Paziente: ${patientName}`,
         `Trattamento: ${treat}`,
@@ -171,17 +217,13 @@ export async function GET(req: NextRequest) {
         descParts.push(`Note: ${appt.calendar_note}`);
       }
 
-      // End time: se manca end_at usa start + 1h
       let endAt = appt.end_at;
       if (!endAt) {
         const startMs = new Date(appt.start_at).getTime();
         endAt = new Date(startMs + 60 * 60 * 1000).toISOString();
       }
 
-      // UID univoco basato sull'ID appuntamento
       const uid = `${appt.id}@fisiohub.app`;
-
-      // Timestamp di creazione (ora corrente come fallback)
       const dtstamp = toICSDate(new Date().toISOString());
       const dtstart = toICSDate(appt.start_at);
       const dtend = toICSDate(endAt);
@@ -195,12 +237,11 @@ export async function GET(req: NextRequest) {
       lines.push(foldLine(`LOCATION:${escapeICS(location)}`));
       lines.push(foldLine(`DESCRIPTION:${escapeICS(descParts.join("\\n"))}`));
 
-      // Colore Google Calendar basato sullo stato
       const colorMap: Record<string, string> = {
-        done: "2",      // verde salvia
-        confirmed: "1", // lavanda
-        booked: "5",    // banana
-        not_paid: "6",  // mandarino
+        done: "2",
+        confirmed: "1",
+        booked: "5",
+        not_paid: "6",
       };
       const colorId = colorMap[appt.status as string];
       if (colorId) {
@@ -218,15 +259,16 @@ export async function GET(req: NextRequest) {
       status: 200,
       headers: {
         "Content-Type": "text/calendar; charset=utf-8",
-        "Content-Disposition": 'attachment; filename="fisiohub.ics"',
+        "Content-Disposition": `attachment; filename="fisiohub.ics"`,
         // Cache: Google Calendar aggiorna ogni ~1-2h, non serve più spesso
         "Cache-Control": "public, max-age=3600",
         // CORS: permetti a Google di leggere il feed
         "Access-Control-Allow-Origin": "*",
       },
     });
-  } catch (err: any) {
-    console.error("[calendar.ics] Error:", err?.message);
-    return new NextResponse("Error generating calendar feed", { status: 500 });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "unknown";
+    console.error("[calendar.ics] Errore:", msg);
+    return new NextResponse("Errore generazione calendario.", { status: 500 });
   }
 }

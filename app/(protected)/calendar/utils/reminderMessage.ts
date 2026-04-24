@@ -74,27 +74,33 @@ export function buildReminderMessage(params: {
   const firma = [signatureName, signatureTitle].filter(Boolean).join("\n");
 
   // Auto-fix per template salvati nel DB con emoji corrotti.
-  // Il carattere replacement Unicode (U+FFFD, che appare come � o come ?) compare
-  // quando un emoji UTF-8 a 4 byte viene troncato durante il salvataggio.
-  // Gli emoji più comuni nei template sono: 📍 per il luogo e 👉 per il link conferma.
-  // Tentiamo un recupero basato sul contesto testuale adiacente.
+  // Quando un emoji UTF-8 a 4 byte (📍, 👉, ⏰, ecc.) viene troncato durante il
+  // salvataggio o transito (es. encoding errato), può apparire come uno di questi
+  // caratteri di sostituzione:
+  //   U+FFFD (�)            replacement char standard
+  //   U+25A1 (□)            white square
+  //   U+25A2 (▢)            rounded square
+  //   U+FFFC (￼)            object replacement char (iOS)
+  //   '?'                   alcuni transitatori sostituiscono con '?'
+  // Ricostruiamo l'emoji originale basandoci sul contesto testuale adiacente.
   const fixCorruptedEmojis = (s: string): string => {
+    // Set di caratteri "broken" da considerare emoji corrotti
+    const BROKEN = "[\\uFFFD\\uFFFC\\u25A1\\u25A2\\u25A0\\u25FB\\u25FC]";
     return s
-      // PRIORITY 1 — pattern specifici contestuali (più sicuri)
-      // "� {luogo}" o "� Pontecorvo" o "� Studio" o "� Presso" → "📍"
-      .replace(/\uFFFD(\s*(?:\{luogo\}|Pontecorvo|Presso|Studio|Domicilio|Cassino|Roma|Frosinone|Via\s|Piazza\s|Viale\s|Corso\s))/g, "📍$1")
-      // "� Conferma" o "� Annulla" o "� Click" → "👉"
-      .replace(/\uFFFD(\s*(?:Conferma|Annulla|Click|Clicca))/g, "👉$1")
-      // PRIORITY 2 — replacement char in altre posizioni note
-      // ⏰ (orologio) prima di un orario tipo "09:00"
-      .replace(/\uFFFD(\s*\d{1,2}[:.]\d{2})/g, "⏰$1")
-      // PRIORITY 3 — sequenze multiple di replacement (capita con emoji compositi tipo bandiere)
-      .replace(/\uFFFD{2,}/g, "")
-      // PRIORITY 4 — un singolo replacement char sopravvissuto, prova posizioni comuni
-      // a inizio riga seguito da spazio = quasi sicuramente un'icona inutile, rimuovi
-      .replace(/^\uFFFD\s+/gm, "")
-      // residuo mid-line: spazia
-      .replace(/\uFFFD/g, "");
+      // 📍 + spazio + (luogo/indirizzo) — ricostruzione emoji posizione
+      .replace(new RegExp(`${BROKEN}\\s*(\\{luogo\\}|Pontecorvo|Presso|Studio|Via\\b|Piazza\\b|Corso\\b)`, "g"), "📍 $1")
+      // 👉 + spazio + Conferma — ricostruzione emoji indicazione
+      .replace(new RegExp(`${BROKEN}\\s*(Conferma|Annulla|Clicca)`, "g"), "👉 $1")
+      // ⏰ + spazio + ora (es. "⏰ 09:00")
+      .replace(new RegExp(`${BROKEN}\\s*(\\d{1,2}:\\d{2})`, "g"), "⏰ $1")
+      // Pattern: "alle ore HH:MM." seguito da quadratino (con o senza spazio) → era 📍
+      .replace(new RegExp(`(alle ore \\d{1,2}:\\d{2}[.,]?\\s*)${BROKEN}`, "g"), "$1📍")
+      // Pattern: "{ora}." seguito da quadratino (template non rimpiazzato ancora) → era 📍
+      .replace(new RegExp(`(\\{ora\\}[.,]?\\s*)${BROKEN}`, "g"), "$1📍")
+      // Quadratino a inizio riga seguito da spazio (tipico del 📍 luogo) — generico
+      .replace(new RegExp(`^${BROKEN}\\s+`, "gm"), "📍 ")
+      // Qualunque rimasto in mezzo a testo: rimuoviamo (no emoji a caso, meglio nulla)
+      .replace(new RegExp(BROKEN, "g"), "");
   };
 
   let message = fixCorruptedEmojis(templateText)

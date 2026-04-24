@@ -1,18 +1,28 @@
 "use client";
 
 function openWA(phone: string, message: string = ""): void {
-  if (!phone) return;
   const p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
   const n = p.startsWith("00") ? p.slice(2) : p.startsWith("0") ? "39" + p : !p.startsWith("39") && p.length <= 10 ? "39" + p : p;
-  const enc = message ? encodeURIComponent(message) : "";
-  // SCHEMA URI NATIVO: bypassa Safari, apre l'app WhatsApp direttamente.
-  // Se l'app non è installata, fallback a wa.me (download) dopo 1.5s.
-  const nativeUrl = "whatsapp://send?phone=" + n + (enc ? "&text=" + enc : "");
-  const fallbackUrl = "https://wa.me/" + n + (enc ? "?text=" + enc : "");
-  window.location.href = nativeUrl;
-  setTimeout(() => {
-    if (!document.hidden) { window.location.href = fallbackUrl; }
-  }, 1500);
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
+  if (isMobile) {
+    // Schema URI nativo: apre l'app WhatsApp DIRETTAMENTE (no api.whatsapp.com)
+    const queryText = message ? "&text=" + encodeURIComponent(message) : "";
+    const nativeUrl = "whatsapp://send?phone=" + n + queryText;
+    const fallbackUrl = "https://wa.me/" + n + (message ? "?text=" + encodeURIComponent(message) : "");
+    window.location.href = nativeUrl;
+    setTimeout(() => {
+      if (document.visibilityState === "visible") {
+        window.location.href = fallbackUrl;
+      }
+    }, 1500);
+  } else {
+    // Desktop: WhatsApp Web diretto
+    const text = message ? "&text=" + encodeURIComponent(message) : "";
+    const url = "https://web.whatsapp.com/send?phone=" + n + text;
+    const a = document.createElement("a");
+    a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+    document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200);
+  }
 }
 
 import Link from "next/link";

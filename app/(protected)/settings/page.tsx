@@ -178,6 +178,76 @@ export default function SettingsPage() {
   const [studioWebsite, setStudioWebsite] = useState("");
   const [savingStudio, setSavingStudio] = useState(false);
 
+  // ─── Calendar feed token (sicurezza multi-tenancy) ──────────────────────
+  // Il token è univoco per studio e va incluso nell'URL del feed iCal:
+  //   https://gestionale-fisio.vercel.app/api/calendar.ics?token=<uuid>
+  // Senza token, l'endpoint risponde 400. Token sbagliato → 404.
+  const [calendarToken, setCalendarToken] = useState<string | null>(null);
+  const [calendarTokenLoading, setCalendarTokenLoading] = useState(true);
+  const [calendarTokenRotating, setCalendarTokenRotating] = useState(false);
+
+  // Carica il token quando arriva il contesto studio
+  useEffect(() => {
+    if (!studio?.id) return;
+    let cancelled = false;
+    (async () => {
+      setCalendarTokenLoading(true);
+      try {
+        // Recupera l'access token Supabase corrente
+        const { data: sess } = await supabase.auth.getSession();
+        const accessToken = sess.session?.access_token;
+        if (!accessToken) {
+          if (!cancelled) setCalendarToken(null);
+          return;
+        }
+        const r = await fetch("/api/calendar-token", {
+          method: "GET",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const j = await r.json();
+        if (!cancelled) setCalendarToken(r.ok ? (j.token ?? null) : null);
+      } catch {
+        if (!cancelled) setCalendarToken(null);
+      } finally {
+        if (!cancelled) setCalendarTokenLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [studio?.id]);
+
+  // Handler: ruota il token (revoca il vecchio, ne genera uno nuovo)
+  const rotateCalendarToken = async () => {
+    if (!confirm(
+      "Sei sicuro di voler rigenerare il token?\n\n" +
+      "Il vecchio URL non funzionerà più. Dovrai aggiornare l'URL anche " +
+      "in Google Calendar (rimuovi il vecchio calendario e aggiungi quello nuovo)."
+    )) return;
+    setCalendarTokenRotating(true);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const accessToken = sess.session?.access_token;
+      if (!accessToken) {
+        alert("Sessione scaduta. Ricarica la pagina e riprova.");
+        return;
+      }
+      const r = await fetch("/api/calendar-token", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const j = await r.json();
+      if (r.ok && j.token) {
+        setCalendarToken(j.token);
+        flashSuccess("Nuovo token generato. Aggiorna l'URL in Google Calendar.");
+      } else {
+        alert(j.error || "Errore generazione nuovo token");
+      }
+    } catch {
+      alert("Errore di rete. Riprova.");
+    } finally {
+      setCalendarTokenRotating(false);
+    }
+  };
+
   // Firma dinamica per TemplateEditor
   const dynamicSignature = useMemo(() => {
     return [studioSignatureName, studioSignatureTitle].filter(s => s.trim()).join("\n");
@@ -1780,32 +1850,89 @@ export default function SettingsPage() {
                   <div style={{ fontSize:12, color:THEME.muted, marginTop:3, marginBottom:10 }}>
                     Copia questo link e aggiungilo a Google Calendar come <strong>Calendario da URL</strong>. Si aggiorna automaticamente ogni 1-2 ore.
                   </div>
-                  <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
-                    <code style={{ fontSize:11, background:THEME.text, color:"#fff", padding:"5px 10px", borderRadius:6, userSelect:"all", wordBreak:"break-all" }}>
-                      {typeof window !== "undefined" ? `${window.location.origin}/api/calendar.ics` : "https://tuo-dominio.vercel.app/api/calendar.ics"}
-                    </code>
-                    <button
-                      onClick={() => {
-                        const url = `${window.location.origin}/api/calendar.ics`;
-                        navigator.clipboard.writeText(url).then(() => {
-                          flashSuccess("Link copiato!");
-                        });
-                      }}
-                      style={{ padding:"5px 12px", borderRadius:6, border:`1px solid ${THEME.blue}`, background:"rgba(37,99,235,0.06)", color:THEME.blue, fontWeight:700, fontSize:11, cursor:"pointer", flexShrink:0 }}
-                    >
-                      📋 Copia link
-                    </button>
-                    <a
-                      href={typeof window !== "undefined" ? `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(typeof window !== "undefined" ? `${window.location.origin}/api/calendar.ics` : "")}` : "#"}
-                      target="_blank" rel="noopener noreferrer"
-                      style={{ padding:"5px 12px", borderRadius:6, border:`1px solid ${THEME.teal}`, background:"rgba(13,148,136,0.06)", color:THEME.teal, fontWeight:700, fontSize:11, textDecoration:"none", flexShrink:0 }}
-                    >
-                      Apri Google Calendar →
-                    </a>
-                  </div>
-                  <div style={{ marginTop:10, fontSize:11, color:THEME.muted, lineHeight:1.6 }}>
-                    <strong>Come aggiungere:</strong> Apri Google Calendar → <em>+</em> accanto a "Altri calendari" → <em>Da URL</em> → incolla il link → <em>Aggiungi calendario</em>
-                  </div>
+
+                  {calendarTokenLoading ? (
+                    <div style={{ fontSize:12, color:THEME.muted, padding:"8px 0" }}>
+                      Caricamento link…
+                    </div>
+                  ) : !calendarToken ? (
+                    <div style={{ fontSize:12, color:THEME.amber, padding:"8px 0", fontWeight:600 }}>
+                      ⚠️ Token non disponibile. Verifica di avere uno studio configurato e ricarica la pagina.
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+                        <code style={{ fontSize:11, background:THEME.text, color:"#fff", padding:"5px 10px", borderRadius:6, userSelect:"all", wordBreak:"break-all" }}>
+                          {typeof window !== "undefined"
+                            ? `${window.location.origin}/api/calendar.ics?token=${calendarToken}`
+                            : `https://tuo-dominio.vercel.app/api/calendar.ics?token=${calendarToken}`}
+                        </code>
+                        <button
+                          onClick={() => {
+                            const url = `${window.location.origin}/api/calendar.ics?token=${calendarToken}`;
+                            navigator.clipboard.writeText(url).then(() => {
+                              flashSuccess("Link copiato!");
+                            });
+                          }}
+                          style={{ padding:"5px 12px", borderRadius:6, border:`1px solid ${THEME.blue}`, background:"rgba(37,99,235,0.06)", color:THEME.blue, fontWeight:700, fontSize:11, cursor:"pointer", flexShrink:0 }}
+                        >
+                          📋 Copia link
+                        </button>
+                        <a
+                          href={typeof window !== "undefined"
+                            ? `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(`${window.location.origin}/api/calendar.ics?token=${calendarToken}`)}`
+                            : "#"}
+                          target="_blank" rel="noopener noreferrer"
+                          style={{ padding:"5px 12px", borderRadius:6, border:`1px solid ${THEME.teal}`, background:"rgba(13,148,136,0.06)", color:THEME.teal, fontWeight:700, fontSize:11, textDecoration:"none", flexShrink:0 }}
+                        >
+                          Apri Google Calendar →
+                        </a>
+                      </div>
+
+                      <div style={{ marginTop:10, fontSize:11, color:THEME.muted, lineHeight:1.6 }}>
+                        <strong>Come aggiungere:</strong> Apri Google Calendar → <em>+</em> accanto a &quot;Altri calendari&quot; → <em>Da URL</em> → incolla il link → <em>Aggiungi calendario</em>
+                      </div>
+
+                      <div style={{
+                        marginTop:14,
+                        padding:"10px 12px",
+                        borderRadius:8,
+                        background:"rgba(245,158,11,0.06)",
+                        border:`1px solid rgba(245,158,11,0.25)`,
+                        display:"flex",
+                        alignItems:"center",
+                        justifyContent:"space-between",
+                        gap:12,
+                        flexWrap:"wrap",
+                      }}>
+                        <div style={{ flex:1, minWidth:200 }}>
+                          <div style={{ fontSize:12, fontWeight:700, color:THEME.amber }}>🔒 Sicurezza link</div>
+                          <div style={{ fontSize:11, color:THEME.muted, marginTop:2, lineHeight:1.5 }}>
+                            Chi ha questo link può vedere i tuoi appuntamenti.
+                            Se l&apos;hai condiviso per sbaglio, rigenera il token: il vecchio URL smetterà di funzionare.
+                          </div>
+                        </div>
+                        <button
+                          onClick={rotateCalendarToken}
+                          disabled={calendarTokenRotating}
+                          style={{
+                            padding:"6px 12px",
+                            borderRadius:6,
+                            border:`1px solid ${THEME.amber}`,
+                            background:"#fff",
+                            color:THEME.amber,
+                            fontWeight:700,
+                            fontSize:11,
+                            cursor: calendarTokenRotating ? "default" : "pointer",
+                            opacity: calendarTokenRotating ? 0.6 : 1,
+                            flexShrink:0,
+                          }}
+                        >
+                          {calendarTokenRotating ? "Rigenerazione…" : "🔄 Rigenera token"}
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

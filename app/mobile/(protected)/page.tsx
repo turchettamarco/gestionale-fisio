@@ -1,18 +1,29 @@
 "use client";
 
 function openWA(phone: string, message: string = ""): void {
-  if (!phone) return;
+  // Su mobile usa schema URI nativo whatsapp:// (apre app DIRETTA, no Safari).
+  // Su desktop usa web.whatsapp.com (no pagina intermedia "Apri o Continua online").
+  // Se l'app non è installata su mobile, fallback automatico a wa.me dopo 1.5s.
   const p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
   const n = p.startsWith("00") ? p.slice(2) : p.startsWith("0") ? "39" + p : !p.startsWith("39") && p.length <= 10 ? "39" + p : p;
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
   const enc = message ? encodeURIComponent(message) : "";
-  // SCHEMA URI NATIVO: bypassa Safari, apre l'app WhatsApp direttamente.
-  // Se l'app non è installata, fallback a wa.me (download) dopo 1.5s.
-  const nativeUrl = "whatsapp://send?phone=" + n + (enc ? "&text=" + enc : "");
-  const fallbackUrl = "https://wa.me/" + n + (enc ? "?text=" + enc : "");
-  window.location.href = nativeUrl;
-  setTimeout(() => {
-    if (!document.hidden) { window.location.href = fallbackUrl; }
-  }, 1500);
+  if (isMobile) {
+    const nativeUrl = `whatsapp://send?phone=${n}${enc ? `&text=${enc}` : ""}`;
+    const fallbackUrl = `https://wa.me/${n}${enc ? `?text=${enc}` : ""}`;
+    window.location.href = nativeUrl;
+    setTimeout(() => {
+      if (document.visibilityState === "visible") {
+        window.location.href = fallbackUrl;
+      }
+    }, 1500);
+  } else {
+    const url = `https://web.whatsapp.com/send?phone=${n}${enc ? `&text=${enc}` : ""}`;
+    const a = document.createElement("a");
+    a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+    document.body.appendChild(a); a.click();
+    setTimeout(() => document.body.removeChild(a), 200);
+  }
 }
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -462,14 +473,17 @@ export default function MobileHomePage() {
       signatureTitle: currentStudio?.signature_title,
     });
 
-    // Apri WhatsApp con schema URI nativo — bypassa Safari/api.whatsapp.com
+    // Apri WhatsApp usando schema URI nativo whatsapp:// (apre app diretta)
+    // con fallback a wa.me se l'app non è installata
     const clean = formatPhoneForWA(phone);
     const enc = encodeURIComponent(message);
     const nativeUrl = `whatsapp://send?phone=${clean}&text=${enc}`;
     const fallbackUrl = `https://wa.me/${clean}?text=${enc}`;
     window.location.href = nativeUrl;
     setTimeout(() => {
-      if (!document.hidden) { window.location.href = fallbackUrl; }
+      if (document.visibilityState === "visible") {
+        window.location.href = fallbackUrl;
+      }
     }, 1500);
 
     // Aggiorna DB in background
@@ -670,12 +684,19 @@ export default function MobileHomePage() {
 
         const clean = formatPhoneForWA(patientPhone);
         const enc = encodeURIComponent(confMsg);
-        const nativeUrl = `whatsapp://send?phone=${clean}&text=${enc}`;
-        const fallbackUrl = `https://wa.me/${clean}?text=${enc}`;
-        window.location.href = nativeUrl;
-        setTimeout(() => {
-          if (!document.hidden) { window.location.href = fallbackUrl; }
-        }, 1500);
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator!=="undefined"?navigator.userAgent:"");
+        if (isMobile) {
+          window.location.href = `whatsapp://send?phone=${clean}&text=${enc}`;
+          setTimeout(() => {
+            if (document.visibilityState === "visible") {
+              window.location.href = `https://wa.me/${clean}?text=${enc}`;
+            }
+          }, 1500);
+        } else {
+          const url = `https://web.whatsapp.com/send?phone=${clean}&text=${enc}`;
+          const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
+          document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
+        }
       }
 
       setQuickAddOpen(false);
