@@ -10,7 +10,6 @@ const THEME = {
 };
 
 export type SOAPNote = {
-  id?: string;
   appointment_id: string;
   patient_id: string;
   studio_id?: string;
@@ -24,6 +23,7 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
 }) {
   const { studio } = useCurrentStudio();
   const [note, setNote] = useState<SOAPNote>({ appointment_id: appointmentId, patient_id: patientId });
+  const [isExisting, setIsExisting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -35,6 +35,7 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
       .select("*").eq("appointment_id", appointmentId).maybeSingle();
     if (data) {
       setNote(data as SOAPNote);
+      setIsExisting(true);
       if (data.soap_s || data.soap_o || data.soap_a || data.soap_p) setExpandedMode("soap");
     }
     setLoading(false);
@@ -48,10 +49,12 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
       return;
     }
     setSaving(true); setSaved(false);
+    // La tabella session_notes ha appointment_id come PRIMARY KEY,
+    // quindi usiamo upsert on appointment_id (una nota per appuntamento).
     const payload: any = {
       appointment_id: appointmentId,
       patient_id: patientId,
-      studio_id: studio.id,          // ← FIX: richiesto da RLS multi-tenant
+      studio_id: studio.id,
       soap_s: note.soap_s || null,
       soap_o: note.soap_o || null,
       soap_a: note.soap_a || null,
@@ -61,14 +64,18 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
       quick_note: note.quick_note || null,
       updated_at: new Date().toISOString(),
     };
-    if (note.id) {
-      const { error } = await supabase.from("session_notes").update(payload).eq("id", note.id);
-      if (error) { alert("Errore salvataggio note: " + error.message); setSaving(false); return; }
-    } else {
-      const { data, error } = await supabase.from("session_notes").insert(payload).select().maybeSingle();
-      if (error) { alert("Errore salvataggio note: " + error.message); setSaving(false); return; }
-      if (data) setNote(data as SOAPNote);
+    const { data, error } = await supabase
+      .from("session_notes")
+      .upsert(payload, { onConflict: "appointment_id" })
+      .select()
+      .maybeSingle();
+    if (error) {
+      alert("Errore salvataggio note: " + error.message);
+      setSaving(false);
+      return;
     }
+    if (data) setNote(data as SOAPNote);
+    setIsExisting(true);
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -168,7 +175,7 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
         {saved && <span style={{ color: THEME.green, fontSize: 11, fontWeight: 700, alignSelf: "center" }}>✓ Salvato</span>}
         <button onClick={save} disabled={saving}
           style={{ padding: "8px 20px", borderRadius: 7, border: "none", background: `linear-gradient(135deg, ${THEME.teal}, ${THEME.blue})`, color: "#fff", fontWeight: 700, fontSize: 12, cursor: saving ? "wait" : "pointer", opacity: saving ? 0.6 : 1 }}>
-          {saving ? "Salvataggio…" : note.id ? "Aggiorna" : "Salva note"}
+          {saving ? "Salvataggio…" : isExisting ? "Aggiorna" : "Salva note"}
         </button>
       </div>
     </div>
