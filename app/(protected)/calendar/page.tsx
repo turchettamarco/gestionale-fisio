@@ -8,25 +8,25 @@ import { SOAPNotesEditor } from "./components/SOAPNotes";
 
 import { useSearchParams } from "next/navigation";
 
-// ─── Types estratti in utils/types.ts ────────────────────────────────────────
+// ─── Tipi e utility del calendario (barrel ./utils) ──────────────────────────
 import type {
   Status,
   LocationType,
   TreatmentType,
   BookingRequest,
-  AppointmentRow,
   PatientLite,
   PracticeSettings,
   CalendarEvent,
-} from "./utils/types";
+} from "./utils";
 
-// ─── Theme, costanti e status/treatment helpers — utils/constants.ts ─────────
 import {
+  // Theme & costanti
   THEME,
   DEFAULT_CLINIC_SITE,
   GOOGLE_REVIEW_LINK_FALLBACK,
   CLINIC_ADDRESSES,
   ALL_TREATMENTS,
+  // Status / treatment helpers
   statusColor,
   statusBg,
   statusLabel,
@@ -34,10 +34,7 @@ import {
   getTreatmentLabel,
   asTreatmentType,
   asPriceType,
-} from "./utils/constants";
-
-// ─── Utility pure su date e formattazione — utils/dateHelpers.ts ─────────────
-import {
+  // Date helpers
   fmtTime,
   pad2,
   startOfISOWeekMonday,
@@ -52,16 +49,14 @@ import {
   getMonthGridDays,
   getAvailableSlotsInDay,
   getEventYPosition,
-} from "./utils/dateHelpers";
-
-// ─── Utility WhatsApp — utils/whatsapp.ts ────────────────────────────────────
-import { cleanPhoneForWA, openWhatsApp } from "./utils/whatsapp";
-
-// ─── Export PDF settimanale — utils/exportPDF.ts ─────────────────────────────
-import { exportWeekToPDF } from "./utils/exportPDF";
-
-// ─── Costruzione messaggio promemoria WA — utils/reminderMessage.ts ──────────
-import { buildReminderMessage } from "./utils/reminderMessage";
+  // WhatsApp
+  cleanPhoneForWA,
+  openWhatsApp,
+  // Export PDF
+  exportWeekToPDF,
+  // Reminder message
+  buildReminderMessage,
+} from "./utils";
 
 // ─── Studio context (multi-tenancy) ──────────────────────────────────────────
 import { useCurrentStudio, useCurrentStudioId } from "@/src/contexts/StudioContext";
