@@ -58,7 +58,7 @@ export default function SurveyPage() {
           <img
             src={studio.logo_base64}
             alt="Logo studio"
-            style={{maxHeight:48,maxWidth:180,objectFit:"contain",marginBottom:10,filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.15))"}}
+            style={{display:"block",margin:"0 auto 10px",maxHeight:72,maxWidth:220,objectFit:"contain",filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.15))"}}
           />
         )}
         <div style={{fontSize:13,color:"rgba(255,255,255,0.7)",fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>{studio ? [studio.name, studio.signature_name].filter(Boolean).join(" — ") : "Questionario"}</div>

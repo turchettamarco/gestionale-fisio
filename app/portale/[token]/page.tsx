@@ -117,7 +117,7 @@ function Wrap({children, headerTitle, logoBase64}:{children:React.ReactNode; hea
           <img
             src={logoBase64}
             alt="Logo studio"
-            style={{maxHeight:48,maxWidth:180,objectFit:"contain",marginBottom:8,filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.15))"}}
+            style={{display:"block",margin:"0 auto 10px",maxHeight:72,maxWidth:220,objectFit:"contain",filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.15))"}}
           />
         )}
         <div style={{fontSize:11,color:"rgba(255,255,255,0.7)",fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>{headerTitle}</div>

@@ -92,7 +92,7 @@ export default function SchedaEserciziPubblica() {
           <img
             src={studio.logo_base64}
             alt="Logo studio"
-            style={{maxHeight:52,maxWidth:200,objectFit:"contain",marginBottom:10,filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.15))"}}
+            style={{display:"block",margin:"0 auto 10px",maxHeight:72,maxWidth:220,objectFit:"contain",filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.15))"}}
           />
         )}
         <div style={{fontSize:12,fontWeight:700,color:"rgba(255,255,255,0.7)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>{studio ? [studio.name, studio.signature_name].filter(Boolean).join(" — ") : "Scheda Esercizi"}</div>
