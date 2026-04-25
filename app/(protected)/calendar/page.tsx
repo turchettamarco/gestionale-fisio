@@ -74,9 +74,10 @@ import CalendarTopBar from "./components/panels/CalendarTopBar";
 import FiltersPopover from "./components/panels/FiltersPopover";
 import CalendarToolbar from "./components/panels/CalendarToolbar";
 
-// ─── Views (B2.6) ────────────────────────────────────────────────────────────
+// ─── Views (B2.6, B2.7) ──────────────────────────────────────────────────────
 import MonthView from "./components/views/MonthView";
 import DayView from "./components/views/DayView";
+import WeekView from "./components/views/WeekView";
 
 export default function CalendarPage() {
   return (
@@ -2337,515 +2338,61 @@ return (
           />
 
           {viewType === "week" ? (
-            <div
-              style={{
-                background: THEME.panelBg,
-                border: `2px solid ${THEME.border}`,
-                borderRadius: 12,
-                minHeight: 600,
-                overflow: "clip",
-                boxShadow: "0 2px 12px rgba(30,64,175,0.06)",
-                position: "relative",
+            <WeekView
+              weekDays={weekDays}
+              filteredEvents={filteredEvents}
+              currentTime={currentTime}
+              timeSlots={timeSlots}
+              dayLabels={dayLabels}
+              TIME_COL={TIME_COL}
+              draggingEvent={draggingEvent}
+              draggingOver={draggingOver}
+              showAvailableOnly={showAvailableOnly}
+              bulkMode={bulkMode}
+              bulkSelected={bulkSelected}
+              isSearchActive={isSearchActive}
+              searchMatchIds={searchMatchIds}
+              getEventPosition={getEventPosition}
+              getFreeWindows={getFreeWindows}
+              getEventColor={getEventColor}
+              getAvailabilityForecast={getAvailabilityForecast}
+              onSlotClick={handleSlotClick}
+              onContextMenu={handleContextMenu}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onEventHover={handleEventHover}
+              onEventHoverEnd={handleEventHoverEnd}
+              onSelectEvent={(event) => {
+                setSelectedEvent({
+                  id: event.id,
+                  title: event.patient_name,
+                  patient_id: event.patient_id,
+                  location: event.location,
+                  clinic_site: event.clinic_site,
+                  domicile_address: event.domicile_address,
+                  treatment: event.treatment,
+                  diagnosis: event.diagnosis,
+                  amount: event.amount,
+                  treatment_type: event.treatment_type,
+                  price_type: event.price_type,
+                  start: event.start,
+                  end: event.end,
+                });
+                setEditStatus(event.status);
+                setEditNote(event.calendar_note || "");
+                setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
+                setEditTreatmentType((event.treatment_type as "seduta" | "macchinario") || "seduta");
+                setEditPriceType((event.price_type as "invoiced" | "cash") || "invoiced");
+                if (event.patient_id) loadPatientFromEvent(event.patient_id);
               }}
-            >
-              <div style={{ 
-  display: "grid", 
-  gridTemplateColumns: `${TIME_COL}px repeat(6, minmax(0, 1fr))`,
-  borderBottom: `2px solid ${THEME.border}`,
-  background: "linear-gradient(135deg, #0d9488, #2563eb)",
-  position: "sticky",
-  top: 0,
-  zIndex: 8,
-  borderRadius: "10px 10px 0 0",
-}}>
-  <div style={{ 
-    padding: "12px 8px", 
-    borderRight: "1px solid rgba(255,255,255,0.08)",
-    fontSize: 11,
-    fontWeight: 700,
-    color: "rgba(255,255,255,0.7)",
-    textAlign: "center",
-    boxSizing: "border-box",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    height: "100%",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-  }}>
-    ORA
-  </div>
-  {weekDays.map((day, index) => {
-    const forecast = getAvailabilityForecast(day);
-    return (
-      <div 
-        key={index}
-        style={{ 
-          padding: "8px 4px", 
-          borderRight: index < 5 ? "1px solid rgba(255,255,255,0.12)" : "none",
-          textAlign: "center",
-          fontSize: 13,
-          fontWeight: 800,
-          color: "#ffffff",
-          boxSizing: "border-box",
-          width: "100%",
-          overflow: "visible",
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "center",
-          minHeight: "60px",
-        }}
-      >
-        <div style={{ marginBottom: 2, letterSpacing: 1 }}>
-          {dayLabels[index].label}
-        </div>
-        <div style={{ fontSize: 11, marginBottom: 4, color: "rgba(255,255,255,0.7)", fontWeight: 600 }}>
-          {formatDMY(day)}
-        </div>
-        <div style={{
-          fontSize: 10,
-          fontWeight: 700,
-          color: forecast.occupancyRate > 40 ? "#fecaca" : forecast.occupancyRate > 20 ? "#fef3c7" : "#bbf7d0",
-          lineHeight: 1.2,
-          padding: "3px 8px",
-          background: "rgba(255,255,255,0.12)",
-          borderRadius: 4,
-          margin: "0 4px",
-          letterSpacing: 0.3,
-        }}>
-          {forecast.totalEvents} appt • {forecast.occupancyRate > 40 ? "ALTA" : forecast.occupancyRate > 20 ? "MEDIA" : "BASSA"}
-        </div>
-        {/* Indicatore domicilio nel giorno */}
-        {filteredEvents.some(ev => {
-          const evDate = new Date(ev.start); evDate.setHours(0,0,0,0);
-          const colDate = new Date(day); colDate.setHours(0,0,0,0);
-          return evDate.getTime() === colDate.getTime() && ev.location === "domicile";
-        }) && (
-          <div style={{ fontSize: 9, fontWeight: 700, color: "#fed7aa", marginTop: 2, letterSpacing: 0.3 }}>⌂ domicilio</div>
-        )}
-      </div>
-    );
-  })}
-</div>
-
-              <div style={{ position: "relative" }}>
-                <div style={{ position: "relative", minHeight: "calc(15 * 60px)" }}>
-                  {timeSlots.map((time, timeIndex) => (
-                    <div 
-                      key={timeIndex}
-                      style={{ 
-                        height: "60px",
-                        borderBottom: `1.5px solid ${THEME.border}`,
-                        position: "relative",
-                        display: "flex",
-                      }}
-                    >
-                      <div style={{ 
-                        width: `${TIME_COL}px`,
-                        height: "100%",
-                        display: "flex",
-                        alignItems: "center",
-                        paddingLeft: 8,
-                        borderRight: `1px solid ${THEME.border}`,
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: THEME.muted,
-                        background: THEME.panelSoft,
-                        zIndex: 1,
-                        flexShrink: 0,
-                        boxSizing: "border-box",
-                        position: "sticky",
-                        left: 0,
-                      }}>
-                        {time}
-                      </div>
-
-                      {weekDays.map((day, dayIndex) => {
-                        const hour = parseInt(time.split(':')[0]);
-                        
-                        return (
-                          <div
-                            key={`${timeIndex}-${dayIndex}`}
-                            style={{
-                              flex: 1,
-                              minWidth: 0,
-                              height: "100%",
-                              borderRight: dayIndex < 5 ? `1px solid ${THEME.border}` : "none",
-                              boxSizing: "border-box",
-                              position: "relative",
-                            }}
-                          >
-                            {/* Slot 00-30 minuti */}
-                            <div
-                              style={{
-                                height: "30px",
-                                borderBottom: `1.5px solid ${THEME.border}`,
-                                cursor: "pointer",
-                                boxSizing: "border-box",
-                                position: "relative",
-                              }}
-                              onClick={() => {
-                                handleSlotClick(day, hour, 0);
-                              }}
-                              onContextMenu={(e) => handleContextMenu(e)}
-                              onDragOver={(e) => handleDragOver(e, dayIndex, hour, 0)}
-                              onDragLeave={handleDragLeave}
-                              onDrop={(e) => {
-                                handleDrop(e, day, hour, 0);
-                              }}
-                              title={`Clicca per creare appuntamento alle ${pad2(hour)}:00`}
-                            >
-                              {draggingOver && draggingOver.dayIndex === dayIndex && 
-                               draggingOver.hour === hour && draggingOver.minute === 0 && (
-                                <div
-                                  style={{
-                                    position: "absolute",
-                                    top: 0,
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    border: `2px dashed ${THEME.blue}`,
-                                    background: "rgba(91,130,168,0.1)",
-                                    zIndex: 1,
-                                    pointerEvents: "none",
-                                  }}
-                                />
-                              )}
-                            </div>
-                            
-                            {/* Slot 30-60 minuti */}
-                            <div
-                              style={{
-                                height: "30px",
-                                cursor: "pointer",
-                                boxSizing: "border-box",
-                                position: "relative",
-                              }}
-                              onClick={() => {
-                                handleSlotClick(day, hour, 30);
-                              }}
-                              onContextMenu={(e) => handleContextMenu(e)}
-                              onDragOver={(e) => handleDragOver(e, dayIndex, hour, 30)}
-                              onDragLeave={handleDragLeave}
-                              onDrop={(e) => {
-                                handleDrop(e, day, hour, 30);
-                              }}
-                              title={`Clicca per creare appuntamento alle ${pad2(hour)}:30`}
-                            >
-                              {draggingOver && draggingOver.dayIndex === dayIndex && 
-                               draggingOver.hour === hour && draggingOver.minute === 30 && (
-                                <div
-                                  style={{
-                                    position: "absolute",
-                                    top: 0,
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    border: `2px dashed ${THEME.blue}`,
-                                    background: "rgba(91,130,168,0.1)",
-                                    zIndex: 1,
-                                    pointerEvents: "none",
-                                  }}
-                                />
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ))}
-
-                  {/* Drag ghost preview */}
-                  {draggingEvent && draggingOver && (
-                    <div
-                      style={{
-                        position: "absolute",
-                        left: `calc(${TIME_COL}px + ${draggingOver.dayIndex} * calc((100% - 80px) / 6) + 2px)`,
-                        top: `${(draggingOver.hour - 7) * 60 + draggingOver.minute}px`,
-                        width: `calc((100% - ${TIME_COL}px) / 6 - 8px)`,
-                        height: `${Math.max((draggingEvent.originalEnd.getTime() - draggingEvent.originalStart.getTime()) / 60000, 28)}px`,
-                        background: "rgba(37,99,235,0.12)",
-                        border: `2px dashed ${THEME.blue}`,
-                        borderRadius: 8,
-                        zIndex: 5,
-                        pointerEvents: "none",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 11,
-                        fontWeight: 700,
-                        color: THEME.blue,
-                        transition: "top 0.1s ease, left 0.1s ease",
-                      }}
-                    >
-                      {`${pad2(draggingOver.hour)}:${pad2(draggingOver.minute)}`}
-                    </div>
-                  )}
-
-                  {filteredEvents.map((event) => {
-                    const dayIndex = weekDays.findIndex(day => 
-                      event.start.getDate() === day.getDate() &&
-                      event.start.getMonth() === day.getMonth() &&
-                      event.start.getFullYear() === day.getFullYear()
-                    );
-
-                    if (dayIndex === -1) return null;
-
-                    const { top, height } = getEventPosition(event.start, event.end);
-                    const col = getEventColor(event);
-                    const isDone = event.status === "done";
-                    const isDomicile = event.location === "domicile";
-                    const isPaid = !!event.is_paid;
-                    const waSent = !!event.whatsapp_sent_at;
-
-                    const isMatch = searchMatchIds.has(event.id);
-                    const isDimmed = isSearchActive && !isMatch;
-
-                    return (
-                      <div
-                        key={event.id}
-                        draggable
-                        onDragStart={(e) => handleDragStart(e, event.id, event.start, event.end)}
-                        onDragEnd={handleDragEnd}
-                        onContextMenu={(e) => handleContextMenu(e, event)}
-                        className={isMatch ? "search-highlight" : isDimmed ? "search-dimmed" : ""}
-                        style={{
-                          position: "absolute",
-                          left: `calc(${TIME_COL}px + ${dayIndex} * calc((100% - 80px) / 6) + 2px)`,
-                          top: `${top + 1}px`,
-                          width: `calc((100% - ${TIME_COL}px) / 6 - 8px)`,
-                          height: `${Math.max(height - 2, 28)}px`,
-                          background: isMatch ? "#f59e0b" : statusBg(event.status),
-                          color: "#fff",
-                          borderRadius: 6,
-                          padding: "4px 6px",
-                          boxSizing: "border-box",
-                          border: "none",
-                          borderLeft: event.calendar_note?.startsWith("[WEB|") ? "4px solid #facc15" : "none",
-                          cursor: "move",
-                          zIndex: isMatch ? 10 : 2,
-                          overflow: "hidden",
-                          transition: "box-shadow 0.15s, opacity 0.3s",
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 0,
-                          boxShadow: isMatch ? "0 0 10px rgba(245,158,11,0.3)" : "0 1px 3px rgba(15,23,42,0.06)",
-                          fontSize: 11,
-                          transform: isMatch ? "scale(1.02)" : "scale(1)",
-                        }}
-                        onMouseEnter={(e) => { 
-                          if (!isDimmed) {
-                            e.currentTarget.style.boxShadow = "0 4px 16px rgba(37,99,235,0.15)"; 
-                            e.currentTarget.style.transform = isMatch ? "scale(1.06)" : "scale(1.01)";
-                          }
-                          handleEventHover(e, event);
-                        }}
-                        onMouseLeave={(e) => { 
-                          if (!isDimmed) {
-                            e.currentTarget.style.boxShadow = isMatch ? "0 0 20px rgba(245,158,11,0.6)" : "0 2px 6px rgba(30,64,175,0.08)"; 
-                            e.currentTarget.style.transform = isMatch ? "scale(1.04)" : "scale(1)";
-                          }
-                          handleEventHoverEnd();
-                        }}
-                        onClick={() => {
-                          setSelectedEvent({
-                            id: event.id,
-                            title: event.patient_name,
-                            patient_id: event.patient_id,
-                            location: event.location,
-                            clinic_site: event.clinic_site,
-                            domicile_address: event.domicile_address,
-                            treatment: event.treatment,
-                            diagnosis: event.diagnosis,
-                            amount: event.amount,
-                            treatment_type: event.treatment_type,
-                            price_type: event.price_type,
-                            start: event.start,
-                            end: event.end,
-                          });
-                          setEditStatus(event.status);
-                          setEditNote(event.calendar_note || "");
-                          setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
-                          setEditTreatmentType((event.treatment_type as "seduta" | "macchinario") || "seduta");
-                          setEditPriceType((event.price_type as "invoiced" | "cash") || "invoiced");
-                          
-                          if (event.patient_id) {
-                            loadPatientFromEvent(event.patient_id);
-                          }
-                        }}
-                      >
-                        {(() => {
-                          const cardH = Math.max(height - 2, 28);
-                          const isShort = cardH < 38;
-
-                          if (isShort) return (
-                            <div style={{ display: "flex", alignItems: "center", gap: 4, overflow: "hidden", height: "100%" }}>
-                              <span style={{ fontSize: 10, fontWeight: 700, color: THEME.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
-                                {event.patient_name}
-                              </span>
-                              {isPaid && <span style={{ fontSize: 10, flexShrink: 0 }}>🪙</span>}
-                              {isDomicile && <span style={{ fontSize: 10, flexShrink: 0 }}>🏠</span>}
-                            </div>
-                          );
-
-                          return (
-                            <>
-                              {/* Riga 1: orario + icone azione */}
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 2, flexShrink: 0, marginBottom: 2 }}>
-                                <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.85)", whiteSpace: "nowrap", lineHeight: 1 }}>
-                                  {fmtTime(event.start.toISOString())}
-                                  {isDomicile && " 🏠"}
-                                </span>
-                                <div style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0 }}>
-                                  {/* Pagato */}
-                                  <button
-                                    onClick={e => { e.preventDefault(); e.stopPropagation(); togglePaidQuick(event.id, isPaid); }}
-                                    title={isPaid ? "Pagato — clicca per annullare" : "Segna pagato"}
-                                    style={{ background: isPaid ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.15)", border: `1px solid ${isPaid ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.3)"}`, borderRadius: 4, cursor: "pointer", padding: "0 5px", fontSize: 13, lineHeight: "18px", display: "flex", alignItems: "center", gap: 2, height: 18 }}
-                                  >🪙{isPaid && <span style={{ fontSize: 10, fontWeight: 800, color: "#fff" }}>✓</span>}</button>
-                                  {/* Promemoria */}
-                                  {event.status !== "cancelled" && event.patient_phone && (
-                                    <button
-                                      onClick={e => { e.preventDefault(); e.stopPropagation(); sendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined); }}
-                                      title={waSent ? "Reinvia promemoria" : "Invia promemoria"}
-                                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: 13, lineHeight: 1, opacity: waSent ? 1 : 0.5 }}
-                                    >{waSent ? "🔕" : "🔔"}</button>
-                                  )}
-                                  {/* Eseguito */}
-                                  <button
-                                    onClick={e => { e.preventDefault(); e.stopPropagation(); if (bulkMode) toggleBulkSelect(event.id); else toggleDoneQuick(event.id, event.status); }}
-                                    title={isDone ? "Annulla eseguita" : "Segna eseguita"}
-                                    style={{ width: 16, height: 16, borderRadius: 99, flexShrink: 0, border: `1.5px solid ${isDone ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.5)"}`, background: isDone ? "rgba(255,255,255,0.9)" : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: statusBg(event.status), fontSize: 9, fontWeight: 800 }}
-                                  >{isDone || bulkSelected.has(event.id) ? "✓" : ""}</button>
-                                </div>
-                              </div>
-
-                              {/* Riga 2: nome — subito sotto l'orario */}
-                              <div style={{ fontWeight: 700, fontSize: autoNameFontSize(event.patient_name), color: "#fff", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                {event.calendar_note?.startsWith("[WEB|") && <span style={{ fontSize: 8, background: "rgba(255,255,255,0.25)", borderRadius: 3, padding: "1px 3px", marginRight: 3, fontWeight: 700, verticalAlign: "middle" }}>WEB</span>}
-                                {event.patient_name}
-                              </div>
-
-                              {/* Riga 3: tipo/importo + badge — in fondo */}
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 3, marginTop: "auto" }}>
-                                <span style={{ fontSize: 9, color: "rgba(255,255,255,0.8)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                  {event.treatment_type === "macchinario" ? "Macch." : "Seduta"}
-                                  {event.amount ? ` · €${event.amount}` : ""}
-                                </span>
-                                <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,0.25)", padding: "1px 5px", borderRadius: 99, whiteSpace: "nowrap", flexShrink: 0 }}>
-                                  {statusLabel(event.status)}
-                                </span>
-                              </div>
-                            </>
-                          );
-                        })()}
-                      </div>
-                    );
-                  })}
-                  
-                  {showAvailableOnly && weekDays.map((day, dayIndex) => {
-                    const windows = getFreeWindows(day);
-                    return windows.map((win, wi) => {
-                      const { top, height } = getEventPosition(win.start, win.end);
-                      const hrs = Math.floor(win.minutes / 60);
-                      const mins = win.minutes % 60;
-                      const label = hrs > 0 ? `${hrs}h${mins > 0 ? `${mins}′` : ""}` : `${mins}′`;
-                      return (
-                        <div key={`win-${dayIndex}-${wi}`}
-                          style={{
-                            position: "absolute",
-                            left: `calc(${TIME_COL}px + ${dayIndex} * calc((100% - 80px) / 6) + 2px)`,
-                            top: `${top}px`,
-                            width: `calc((100% - ${TIME_COL}px) / 6 - 6px)`,
-                            height: `${height}px`,
-                            background: "rgba(22,163,74,0.07)",
-                            borderLeft: "3px solid rgba(22,163,74,0.5)",
-                            borderRadius: "0 6px 6px 0",
-                            cursor: "pointer",
-                            zIndex: 1,
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "flex-start",
-                            justifyContent: "flex-start",
-                            padding: "4px 6px",
-                            transition: "all 0.15s",
-                            overflow: "hidden",
-                          }}
-                          onClick={() => handleSlotClick(day, win.start.getHours(), win.start.getMinutes())}
-                          onMouseEnter={e => { e.currentTarget.style.background = "rgba(22,163,74,0.15)"; e.currentTarget.style.borderLeftColor = THEME.green; }}
-                          onMouseLeave={e => { e.currentTarget.style.background = "rgba(22,163,74,0.07)"; e.currentTarget.style.borderLeftColor = "rgba(22,163,74,0.5)"; }}
-                          title={`Libero ${pad2(win.start.getHours())}:${pad2(win.start.getMinutes())} – ${pad2(win.end.getHours())}:${pad2(win.end.getMinutes())} (${label})`}
-                        >
-                          <div style={{ fontSize: 9, fontWeight: 700, color: THEME.green, lineHeight: 1.3 }}>
-                            {pad2(win.start.getHours())}:{pad2(win.start.getMinutes())}
-                          </div>
-                          {height >= 40 && (
-                            <div style={{ fontSize: 9, fontWeight: 600, color: "rgba(22,163,74,0.7)", lineHeight: 1.3 }}>{label} libero</div>
-                          )}
-                        </div>
-                      );
-                    });
-                  })}
-
-                  <div
-                    style={{
-                      position: "absolute",
-                      left: 0,
-                      top: 0,
-                      right: 0,
-                      bottom: 0,
-                      pointerEvents: "none",
-                      zIndex: 3,
-                    }}
-                  >
-                    {(() => {
-                      const now = currentTime;
-                      const currentDayIndex = weekDays.findIndex(day => 
-                        now.getDate() === day.getDate() &&
-                        now.getMonth() === day.getMonth() &&
-                        now.getFullYear() === day.getFullYear()
-                      );
-                      
-                      if (currentDayIndex === -1) return null;
-                      
-                      const currentHour = now.getHours();
-                      const currentMinute = now.getMinutes();
-                      const topPosition = ((currentHour - 7) * 60 + currentMinute);
-                      
-                      const dayWidth = `calc((100% - 80px) / 6)`;
-                      const leftPosition = `calc(80px + ${currentDayIndex} * (${dayWidth}))`;
-                      
-                      return (
-                        <div
-                          style={{
-                            position: "absolute",
-                            left: leftPosition,
-                            top: `${topPosition}px`,
-                            width: `calc(${dayWidth} - 2px)`,
-                            height: "2px",
-                            background: THEME.red,
-                            zIndex: 4,
-                          }}
-                        >
-                          <div
-                            style={{
-                              position: "absolute",
-                              left: "50%",
-                              top: "-4px",
-                              transform: "translateX(-50%)",
-                              width: "8px",
-                              height: "8px",
-                              borderRadius: "50%",
-                              background: THEME.red,
-                            }}
-                          />
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-              </div>
-            </div>
+              onToggleBulkSelect={toggleBulkSelect}
+              onToggleDone={toggleDoneQuick}
+              onTogglePaid={togglePaidQuick}
+              onSendReminder={sendReminder}
+            />
           ) : viewType === "month" ? (
             /* ━━━ MONTH VIEW — COMPACT ━━━ */
             <MonthView
