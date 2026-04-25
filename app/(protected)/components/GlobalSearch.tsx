@@ -111,6 +111,15 @@ export default function GlobalSearch() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, openSearch, closeSearch]);
 
+  // ── Custom event: permette di aprire il search da bottoni esterni ────────────
+  // (es. il bottone search nella navbar della home).
+  // Uso: window.dispatchEvent(new CustomEvent("fisiohub:open-search"))
+  useEffect(() => {
+    const onOpen = () => openSearch();
+    window.addEventListener("fisiohub:open-search", onOpen);
+    return () => window.removeEventListener("fisiohub:open-search", onOpen);
+  }, [openSearch]);
+
   // ── Focus input when opened ──────────────────────────────────────────────────
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 30);
