@@ -1485,7 +1485,11 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
     const cleaned = query.trim();
     if (cleaned.length < 2) {
       setPatientResults([]);
-      setSelectedPatient(null);
+      // In modalità duplica il paziente è precaricato dall'appuntamento originale:
+      // NON resettarlo solo perché la search è vuota.
+      if (!duplicateMode) {
+        setSelectedPatient(null);
+      }
       return;
     }
 
@@ -1507,7 +1511,7 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
     }
 
     setPatientResults((data ?? []) as PatientLite[]);
-  }, []);
+  }, [duplicateMode]);
 
   useEffect(() => {
     if (!createOpen) return;
