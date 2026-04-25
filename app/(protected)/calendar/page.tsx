@@ -692,7 +692,8 @@ const { data, error } = await supabase
 
     setQ("");
     setPatientResults([]);
-    setSelectedPatient(null);
+    // selectedPatient: reset solo nel ramo non-duplica (sotto). In modalità
+    // duplica viene impostato direttamente con i dati dell'appuntamento.
 
     if (duplicateEvent) {
       setDuplicateMode(true);
@@ -734,6 +735,7 @@ const { data, error } = await supabase
     } else {
       setDuplicateMode(false);
       setEventToDuplicate(null);
+      setSelectedPatient(null);
       setCreateLocation("studio");
       setCreateClinicSite(DEFAULT_CLINIC_SITE);
       setCreateDomicileAddress("");
@@ -1516,6 +1518,11 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
   useEffect(() => {
     if (!createOpen) return;
 
+    // In modalità duplica con q vuota: il paziente è già precaricato,
+    // niente search automatica (eviteremmo solo di trovarlo di nuovo,
+    // e l'effect side reset di selectedPatient sarebbe deleterio).
+    if (duplicateMode && q.trim().length < 2) return;
+
     if (searchTimer.current) clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(() => {
       searchPatients(q);
@@ -1524,7 +1531,7 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
     return () => {
       if (searchTimer.current) clearTimeout(searchTimer.current);
     };
-  }, [q, createOpen, searchPatients]);
+  }, [q, createOpen, searchPatients, duplicateMode]);
 
   useEffect(() => {
     if (!createStartISO || !selectedStartTime || !selectedDuration) return;
