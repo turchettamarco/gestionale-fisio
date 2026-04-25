@@ -67,9 +67,10 @@ import MonthDayPopover from "./components/popovers/MonthDayPopover";
 import DailySummaryDialog from "./components/popovers/DailySummaryDialog";
 import QuickActionsMenu from "./components/popovers/QuickActionsMenu";
 
-// ─── Panels (B2.3) ───────────────────────────────────────────────────────────
+// ─── Panels (B2.3, B2.4) ─────────────────────────────────────────────────────
 import BookingRequestsPanel from "./components/panels/BookingRequestsPanel";
 import RightSidebar from "./components/panels/RightSidebar";
+import CalendarTopBar from "./components/panels/CalendarTopBar";
 
 export default function CalendarPage() {
   return (
@@ -2118,271 +2119,33 @@ return (
       `}</style>
 
       {/* ━━━ TOP NAVIGATION BAR ━━━ */}
-      <header className="no-print" style={{
-        position: "sticky", top: 0, zIndex: 30,
-        background: "linear-gradient(135deg, #0d9488, #2563eb)", borderBottom: "none",
-        padding: "0 20px", height: 58,
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        boxShadow: "0 2px 12px rgba(13,148,136,0.18)",
-        gap: 8,
-      }}>
-        {/* Left: Logo + Nav */}
-        <div style={{ display: "flex", alignItems: "center", gap: 20, flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{
-              width: 30, height: 30, borderRadius: 8,
-              background: "rgba(255,255,255,0.2)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              color: "#fff", fontWeight: 800, fontSize: 14, letterSpacing: -0.5,
-              border: "1.5px solid rgba(255,255,255,0.3)",
-            }}>F</div>
-            <span className="mob-hide" style={{ fontWeight: 700, fontSize: 15, color: "#fff", letterSpacing: 0.5, textTransform: "uppercase" }}>Fisio<span style={{ color: "#fff", fontWeight: 800 }}>Hub</span></span>
-          </div>
-          <nav className="mob-hide" style={{ display: "flex", gap: 2 }}>
-            {([{href:"/",label:"Home"},{href:"/calendar",label:"Calendario",active:true},{href:"/reports",label:"Report"},{href:"/noleggio",label:"Noleggio"},{href:"/patients",label:"Pazienti"},] as const).map(item=>(
-              <Link key={item.href} href={item.href} style={{ padding:"6px 12px", borderRadius:8, fontSize:12, fontWeight:700, textDecoration:"none", background:(item as any).active?"rgba(255,255,255,0.2)":"transparent", color:(item as any).active?"#fff":"rgba(255,255,255,0.8)", letterSpacing:0.3 }}>{item.label}</Link>
-            ))}
-          </nav>
-        </div>
-
-        {/* Center: Nav frecce + Titolo data + Selettore vista + Stampa */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, justifyContent: "center", minWidth: 0 }}>
-
-          {/* Frecce navigazione */}
-          <button onClick={() => { if(viewType==="week") goToPreviousWeek(); else if(viewType==="month") goToPreviousMonth(); else setCurrentDate(d => { const x=new Date(d); x.setDate(x.getDate()-1); return x; }); }}
-            style={{ width:30, height:30, borderRadius:7, border:"1.5px solid rgba(255,255,255,0.35)", background:"rgba(255,255,255,0.15)", color:"#fff", cursor:"pointer", fontWeight:800, fontSize:14, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-            ‹
-          </button>
-
-          {/* Titolo + selettore settimana (solo in vista settimana) */}
-          {viewType === "week" ? (
-            <select value={startOfISOWeekMonday(currentDate).toISOString()} onChange={(e) => gotoWeekStart(e.target.value)}
-              className="mob-hide"
-              style={{ padding:"6px 28px 6px 10px", borderRadius:8, border:"1.5px solid rgba(255,255,255,0.35)", background:"rgba(255,255,255,0.18)", color:"#fff", fontWeight:700, outline:"none", fontSize:12, height:32, maxWidth:240, appearance:"none" as const, WebkitAppearance:"none" as const, backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' stroke='%23ffffff' stroke-width='1.5' fill='none'/%3E%3C/svg%3E")`, backgroundRepeat:"no-repeat", backgroundPosition:"right 8px center", cursor:"pointer", flexShrink:0 }}>
-              {weekOptions.map((o) => (<option key={o.value} value={o.value} style={{ color:"#0f172a", background:"#fff" }}>{o.label}</option>))}
-            </select>
-          ) : (
-            <div style={{ fontWeight:800, fontSize:15, color:"#fff", whiteSpace:"nowrap", flexShrink:0, textShadow:"0 1px 3px rgba(0,0,0,0.15)", minWidth:100, textAlign:"center" }}>
-              {viewType === "month"
-                ? (()=>{ const m=["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"]; return `${m[currentDate.getMonth()]} ${currentDate.getFullYear()}`; })()
-                : formatDMY(currentDate)}
-            </div>
-          )}
-
-          {/* Freccia avanti */}
-          <button onClick={() => { if(viewType==="week") goToNextWeek(); else if(viewType==="month") goToNextMonth(); else setCurrentDate(d => { const x=new Date(d); x.setDate(x.getDate()+1); return x; }); }}
-            style={{ width:30, height:30, borderRadius:7, border:"1.5px solid rgba(255,255,255,0.35)", background:"rgba(255,255,255,0.15)", color:"#fff", cursor:"pointer", fontWeight:800, fontSize:14, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-            ›
-          </button>
-
-          {/* Oggi */}
-          <button onClick={goToToday}
-            style={{ padding:"5px 12px", borderRadius:7, border:"1.5px solid rgba(255,255,255,0.35)", background:"rgba(255,255,255,0.15)", color:"#fff", cursor:"pointer", fontWeight:700, fontSize:11, flexShrink:0, whiteSpace:"nowrap" }}>
-            Oggi
-          </button>
-
-          {/* Selettore vista */}
-          <div className="cal-period-btns" style={{ display:"flex", gap:2, background:"rgba(255,255,255,0.12)", borderRadius:8, padding:2, flexShrink:0 }}>
-            {(["day","week","month"] as const).map(v => (
-              <button key={v} onClick={() => setViewType(v)}
-                style={{ padding:"4px 10px", borderRadius:6, border:"none", cursor:"pointer", fontSize:11, fontWeight:700, background:viewType===v?"rgba(255,255,255,0.9)":"transparent", color:viewType===v?"#1e40af":"rgba(255,255,255,0.85)", transition:"all 0.15s" }}>
-                {v==="day"?"Giorno":v==="week"?"Settimana":"Mese"}
-              </button>
-            ))}
-          </div>
-
-          {/* Print button */}
-          <div ref={printMenuRef} style={{ position: "relative", flexShrink: 0, zIndex: 40 }}>
-            <button
-              onClick={() => setPrintMenuOpen(!printMenuOpen)}
-              style={{
-                padding: "6px 14px",
-                borderRadius: 8,
-                border: "1.5px solid rgba(255,255,255,0.35)",
-                background: "rgba(255,255,255,0.18)",
-                color: "#fff",
-                cursor: "pointer",
-                fontWeight: 700,
-                height: 34,
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                fontSize: 12,
-                whiteSpace: "nowrap",
-              }}
-            >
-              🖨️ Stampa
-              <span style={{ fontSize: 9 }}>▼</span>
-            </button>
-
-            {printMenuOpen && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: "calc(100% + 6px)",
-                  right: 0,
-                  background: THEME.panelBg,
-                  border: `2px solid ${THEME.border}`,
-                  borderRadius: 12,
-                  boxShadow: "0 12px 40px rgba(30,64,175,0.18)",
-                  zIndex: 9999,
-                  minWidth: 220,
-                  overflow: "hidden",
-                }}
-              >
-                <button
-                  onClick={() => {
-                    setViewType("day");
-                    printCalendar();
-                  }}
-                  style={{
-                    width: "100%",
-                    padding: "13px 18px",
-                    border: "none",
-                    background: "transparent",
-                    color: THEME.text,
-                    cursor: "pointer",
-                    fontWeight: 600,
-                    textAlign: "left",
-                    borderBottom: `1px solid ${THEME.borderSoft}`,
-                    fontSize: 13,
-                    letterSpacing: 0.2,
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = THEME.panelSoft)}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                >
-                  ◈ Stampa giorno
-                </button>
-                <button
-                  onClick={() => {
-                    setViewType("week");
-                    printCalendar();
-                  }}
-                  style={{
-                    width: "100%",
-                    padding: "13px 18px",
-                    border: "none",
-                    background: "transparent",
-                    color: THEME.text,
-                    cursor: "pointer",
-                    fontWeight: 600,
-                    textAlign: "left",
-                    borderBottom: `1px solid ${THEME.borderSoft}`,
-                    fontSize: 13,
-                    letterSpacing: 0.2,
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = THEME.panelSoft)}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                >
-                  ◫ Stampa settimana
-                </button>
-                <button
-                  onClick={exportToPDF}
-                  style={{
-                    width: "100%",
-                    padding: "13px 18px",
-                    border: "none",
-                    background: "transparent",
-                    color: THEME.text,
-                    cursor: "pointer",
-                    fontWeight: 600,
-                    textAlign: "left",
-                    borderBottom: `1px solid ${THEME.borderSoft}`,
-                    fontSize: 13,
-                    letterSpacing: 0.2,
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = THEME.panelSoft)}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                >
-                  ▤ Esporta PDF
-                </button>
-                <button
-                  onClick={exportToGoogleCalendar}
-                  style={{
-                    width: "100%",
-                    padding: "13px 18px",
-                    border: "none",
-                    background: "transparent",
-                    color: THEME.text,
-                    cursor: "pointer",
-                    fontWeight: 600,
-                    textAlign: "left",
-                    fontSize: 13,
-                    letterSpacing: 0.2,
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = THEME.panelSoft)}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                >
-                  ▦ Esporta Google Calendar
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right: Ricerca + Notifiche + User */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          {/* Cmd+K */}
-          <button
-            onClick={() => { const event = new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }); window.dispatchEvent(event); }}
-            className="mob-hide" title="Ricerca globale"
-            style={{ padding:"5px 10px", borderRadius:8, border:"1.5px solid rgba(255,255,255,0.25)", background:"rgba(255,255,255,0.1)", color:"rgba(255,255,255,0.75)", cursor:"pointer", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:5 }}>
-            🔍 <kbd style={{ fontSize:10, background:"rgba(255,255,255,0.15)", border:"1px solid rgba(255,255,255,0.2)", borderRadius:4, padding:"0 4px" }}>⌘K</kbd>
-          </button>
-          {/* Notification bell — richieste dal sito */}
-          <button onClick={() => setBookingPanel(v => !v)} style={{
-            position: "relative", width: 32, height: 32, borderRadius: 8,
-            border: "1.5px solid rgba(255,255,255,0.3)",
-            background: bookingPanel ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.12)",
-            color: "#fff", cursor: "pointer", fontSize: 16,
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
-            🔔
-            {bookingRequests.filter(r => r.status === "pending").length > 0 && (
-              <span style={{
-                position: "absolute", top: -4, right: -4,
-                width: 16, height: 16, borderRadius: "50%",
-                background: "#f97316", color: "#fff",
-                fontSize: 9, fontWeight: 800,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                border: "2px solid #fff",
-              }}>{bookingRequests.filter(r => r.status === "pending").length}</span>
-            )}
-          </button>
-          <div ref={userMenuRef} style={{ position: "relative" }}>
-            <button type="button" onClick={() => setUserMenuOpen(v => !v)} style={{
-              width: 32, height: 32, borderRadius: 8, border: "2px solid rgba(255,255,255,0.35)", cursor: "pointer",
-              background: "rgba(255,255,255,0.2)",
-              color: "#fff", fontWeight: 700, fontSize: 12,
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}>{userInitials}</button>
-            {userMenuOpen && (
-              <div style={{
-                position: "absolute", right: 0, top: "calc(100% + 8px)", width: 200,
-                background: THEME.panelBg, border: `1.5px solid ${THEME.border}`, borderRadius: 12,
-                boxShadow: "0 12px 32px rgba(30,64,175,0.15)", overflow: "hidden", zIndex: 60,
-              }}>
-                <Link href="/settings" onClick={() => setUserMenuOpen(false)} style={{
-                  display: "flex", alignItems: "center", gap: 8, padding: "12px 16px",
-                  color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
-                  borderBottom: `1.5px solid ${THEME.border}`,
-                }}>⚙️ Impostazioni</Link>
-                <Link href="/piano" onClick={() => setUserMenuOpen(false)} style={{
-                  display: "flex", alignItems: "center", gap: 8, padding: "12px 16px",
-                  color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
-                  borderBottom: `1.5px solid ${THEME.border}`,
-                }}>💎 Piano</Link>
-                <button type="button" onClick={handleLogout} style={{
-                  width: "100%", display: "flex", alignItems: "center", gap: 8,
-                  padding: "12px 16px", background: "transparent", border: "none", cursor: "pointer",
-                  color: THEME.red, fontWeight: 600, fontSize: 13,
-                }}>⏻ Logout</button>
-                <BuildInfo />
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
+      <CalendarTopBar
+        viewType={viewType}
+        onSetViewType={setViewType}
+        currentDate={currentDate}
+        setCurrentDate={setCurrentDate}
+        onGoToPreviousWeek={goToPreviousWeek}
+        onGoToNextWeek={goToNextWeek}
+        onGoToPreviousMonth={goToPreviousMonth}
+        onGoToNextMonth={goToNextMonth}
+        onGoToToday={goToToday}
+        weekOptions={weekOptions}
+        onGotoWeekStart={gotoWeekStart}
+        printMenuOpen={printMenuOpen}
+        setPrintMenuOpen={setPrintMenuOpen}
+        printMenuRef={printMenuRef}
+        onPrintCalendar={printCalendar}
+        onExportToPDF={exportToPDF}
+        onExportToGoogleCalendar={exportToGoogleCalendar}
+        bookingPanelOpen={bookingPanel}
+        pendingBookingsCount={bookingRequests.filter(r => r.status === "pending").length}
+        onToggleBookingPanel={() => setBookingPanel(v => !v)}
+        userMenuOpen={userMenuOpen}
+        setUserMenuOpen={setUserMenuOpen}
+        userMenuRef={userMenuRef}
+        userInitials={userInitials}
+        onLogout={handleLogout}
+      />
 
       {/* ━━━ PANNELLO PRENOTAZIONI DAL SITO ━━━ */}
       {bookingPanel && (
