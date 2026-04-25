@@ -61,6 +61,16 @@ import {
 // ─── Studio context (multi-tenancy) ──────────────────────────────────────────
 import { useCurrentStudio, useCurrentStudioId } from "@/src/contexts/StudioContext";
 
+// ─── Popover (B2.1, B2.2) ────────────────────────────────────────────────────
+import EventHoverTooltip from "./components/popovers/EventHoverTooltip";
+import MonthDayPopover from "./components/popovers/MonthDayPopover";
+import DailySummaryDialog from "./components/popovers/DailySummaryDialog";
+import QuickActionsMenu from "./components/popovers/QuickActionsMenu";
+
+// ─── Panels (B2.3) ───────────────────────────────────────────────────────────
+import BookingRequestsPanel from "./components/panels/BookingRequestsPanel";
+import RightSidebar from "./components/panels/RightSidebar";
+
 export default function CalendarPage() {
   return (
     <Suspense fallback={<div style={{ padding: 40, textAlign: "center", color: "#7b8fa3", fontFamily: "Inter, -apple-system, sans-serif", fontSize: 15 }}>Caricamento calendario…</div>}>
@@ -1128,6 +1138,14 @@ diagnosis: patient?.diagnosis ?? null,
   async function rejectBooking(id: string) {
     setBookingActionId(id);
     await supabase.from("booking_requests").update({ status: "cancelled" }).eq("id", id);
+    await loadBookingRequests();
+    setBookingActionId(null);
+  }
+
+  // Rimette in stato "pending" una prenotazione confermata o annullata
+  async function reopenBooking(id: string) {
+    setBookingActionId(id);
+    await supabase.from("booking_requests").update({ status: "pending" }).eq("id", id);
     await loadBookingRequests();
     setBookingActionId(null);
   }
@@ -2368,558 +2386,59 @@ return (
 
       {/* ━━━ PANNELLO PRENOTAZIONI DAL SITO ━━━ */}
       {bookingPanel && (
-        <>
-          <div onClick={() => setBookingPanel(false)} style={{ position: "fixed", inset: 0, zIndex: 48, background: "rgba(0,0,0,0.3)" }} />
-          <div style={{
-            position: "fixed", top: 66, right: 16, zIndex: 49,
-            width: 380, maxHeight: "80vh", overflowY: "auto",
-            background: "#fff", borderRadius: 14,
-            border: "1.5px solid #e2e8f0",
-            boxShadow: "0 16px 48px rgba(0,0,0,0.18)",
-          }}>
-            {/* Header pannello */}
-            <div style={{ padding: "14px 18px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: 14, color: "#0f172a" }}>Prenotazioni dal sito</div>
-                <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>
-                  {bookingRequests.filter(r => r.status === "pending").length} in attesa · {bookingRequests.length} totali
-                </div>
-              </div>
-              <button onClick={() => setBookingPanel(false)} style={{ border: "none", background: "none", fontSize: 18, cursor: "pointer", color: "#94a3b8" }}>✕</button>
-            </div>
-
-            {bookingLoading && <div style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Caricamento…</div>}
-
-            {!bookingLoading && bookingRequests.length === 0 && (
-              <div style={{ padding: 32, textAlign: "center" }}>
-                <div style={{ fontSize: 32, marginBottom: 8 }}>🎉</div>
-                <div style={{ fontSize: 13, color: "#64748b" }}>Nessuna prenotazione ricevuta</div>
-              </div>
-            )}
-
-            {bookingRequests.map(req => {
-              const isActing = bookingActionId === req.id;
-              const isPending   = req.status === "pending";
-              const isConfirmed = req.status === "confirmed";
-              const isCancelled = req.status === "cancelled";
-              const dateStr = new Date(req.requested_date + "T12:00:00").toLocaleDateString("it-IT", { weekday: "short", day: "2-digit", month: "short" });
-              const statusBadge = isPending
-                ? { bg: "#fff7ed", color: "#c2410c", border: "#fed7aa", label: "In attesa" }
-                : isConfirmed
-                ? { bg: "#f0fdf4", color: "#15803d", border: "#bbf7d0", label: "Confermata" }
-                : { bg: "#fff5f5", color: "#dc2626", border: "#fecaca", label: "Annullata" };
-              return (
-                <div key={req.id} style={{ padding: "14px 18px", borderBottom: "1px solid #f1f5f9" }}>
-                  {/* Nome + data */}
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: "#0f172a" }}>{req.patient_name}</div>
-                      <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>{req.patient_phone}</div>
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: "#0d9488" }}>{dateStr}</div>
-                      <div style={{ fontSize: 12, fontWeight: 800, color: "#0f172a" }}>{req.requested_time.slice(0,5)}</div>
-                    </div>
-                  </div>
-                  {/* Servizio + badge stato */}
-                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
-                    <div style={{ fontSize: 11, background: "#f0fdfa", borderRadius: 6, padding: "3px 8px", color: "#0d9488", fontWeight: 700 }}>
-                      {req.service_name} · {req.service_duration} min
-                    </div>
-                    <div style={{ fontSize: 10, background: statusBadge.bg, borderRadius: 99, padding: "2px 8px", color: statusBadge.color, fontWeight: 700, border: `1px solid ${statusBadge.border}` }}>
-                      {statusBadge.label}
-                    </div>
-                  </div>
-                  {/* Note */}
-                  {req.notes && (
-                    <div style={{ fontSize: 11, color: "#64748b", fontStyle: "italic", marginBottom: 8 }}>"{req.notes}"</div>
-                  )}
-                  {/* ── Azioni in attesa ── */}
-                  {isPending && (
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button onClick={() => confirmBooking(req)} disabled={isActing}
-                        style={{ flex: 1, padding: "7px 0", border: "none", borderRadius: 7, background: "#0d9488", color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: isActing ? 0.6 : 1 }}>
-                        {isActing ? "…" : "✓ Conferma"}
-                      </button>
-                      <button onClick={() => rejectBooking(req.id)} disabled={isActing}
-                        style={{ flex: 1, padding: "7px 0", border: "1.5px solid #fecaca", borderRadius: 7, background: "#fff5f5", color: "#dc2626", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: isActing ? 0.6 : 1 }}>
-                        {isActing ? "…" : "✕ Annulla"}
-                      </button>
-                    </div>
-                  )}
-                  {/* ── Azioni confermata ── */}
-                  {isConfirmed && (
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button onClick={() => rejectBooking(req.id)} disabled={isActing}
-                        style={{ flex: 1, padding: "7px 0", border: "1.5px solid #fecaca", borderRadius: 7, background: "#fff5f5", color: "#dc2626", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: isActing ? 0.6 : 1 }}>
-                        {isActing ? "…" : "✕ Annulla"}
-                      </button>
-                      <button onClick={async () => {
-                        setBookingActionId(req.id);
-                        await supabase.from("booking_requests").update({ status: "pending" }).eq("id", req.id);
-                        await loadBookingRequests();
-                        setBookingActionId(null);
-                      }} disabled={isActing}
-                        style={{ flex: 1, padding: "7px 0", border: "1.5px solid #e2e8f0", borderRadius: 7, background: "#f8fafc", color: "#64748b", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: isActing ? 0.6 : 1 }}>
-                        {isActing ? "…" : "↩ Riapri"}
-                      </button>
-                    </div>
-                  )}
-                  {/* ── Azioni annullata ── */}
-                  {isCancelled && (
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button onClick={() => confirmBooking(req)} disabled={isActing}
-                        style={{ flex: 1, padding: "7px 0", border: "none", borderRadius: 7, background: "#0d9488", color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: isActing ? 0.6 : 1 }}>
-                        {isActing ? "…" : "✓ Riconferma"}
-                      </button>
-                      <button onClick={async () => {
-                        setBookingActionId(req.id);
-                        await supabase.from("booking_requests").update({ status: "pending" }).eq("id", req.id);
-                        await loadBookingRequests();
-                        setBookingActionId(null);
-                      }} disabled={isActing}
-                        style={{ flex: 1, padding: "7px 0", border: "1.5px solid #e2e8f0", borderRadius: 7, background: "#f8fafc", color: "#64748b", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: isActing ? 0.6 : 1 }}>
-                        {isActing ? "…" : "↩ Riapri"}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            {/* Footer refresh */}
-            <div style={{ padding: "10px 18px", borderTop: "1px solid #f1f5f9" }}>
-              <button onClick={loadBookingRequests} style={{ width: "100%", padding: "7px", border: "1px solid #e2e8f0", borderRadius: 7, background: "#fff", color: "#64748b", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
-                ↻ Aggiorna
-              </button>
-            </div>
-          </div>
-        </>
+        <BookingRequestsPanel
+          requests={bookingRequests}
+          loading={bookingLoading}
+          actionId={bookingActionId}
+          onClose={() => setBookingPanel(false)}
+          onConfirm={confirmBooking}
+          onReject={rejectBooking}
+          onReopen={reopenBooking}
+          onRefresh={loadBookingRequests}
+        />
       )}
 
       {/* ━━━ RIGHT PANEL: Today's appointments (replaces left sidebar) ━━━ */}
-      {sidebarOpen && !isDesktop && (
-        <div className="no-print" onClick={() => setSidebarOpen(false)}
-          style={{ position: "fixed", inset: 0, background: "rgba(30,64,175,0.4)", zIndex: 40, backdropFilter: "blur(2px)" }} />
-      )}
-
-      <aside
-        ref={sidebarRef}
-        className={`no-print sidebar-scroll cal-sidebar ${showAllUpcoming ? "show-scrollbar" : ""}`}
-        style={{
-          width: SIDEBAR_W, maxWidth: "85vw",
-          background: THEME.panelBg, borderLeft: `2px solid ${THEME.border}`,
-          padding: "24px 18px",
-          position: "fixed", right: 0, top: 58, height: "calc(100vh - 58px)",
-          overflowY: "auto", zIndex: 50,
-          transform: sidebarOpen ? "translateX(0)" : "translateX(110%)",
-          transition: "transform 280ms cubic-bezier(.4,0,.2,1)",
-          pointerEvents: sidebarOpen ? "auto" : "none",
-          boxShadow: sidebarOpen ? "-8px 0 32px rgba(30,64,175,0.1)" : "none",
-}}
-      >
-        {/* Panel header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: THEME.blue, letterSpacing: 0.5, textTransform: "uppercase" }}>Oggi</div>
-          <button type="button" onClick={() => setSidebarOpen(false)}
-            style={{ border: "none", background: THEME.panelSoft, cursor: "pointer", color: THEME.text, fontSize: 16, padding: "4px 8px", borderRadius: 6, fontWeight: 700 }}>×</button>
-        </div>
-
-        {/* ── Mini-calendario navigazione ── */}
-        {(() => {
-          const mc = currentDate;
-          const year = mc.getFullYear();
-          const month = mc.getMonth();
-          const firstDow = (new Date(year, month, 1).getDay() + 6) % 7; // 0=Lun
-          const daysInMonth = new Date(year, month + 1, 0).getDate();
-          const todayD = new Date(); todayD.setHours(0,0,0,0);
-          const MESI = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
-          const GG = ["L","M","M","G","V","S","D"];
-          const cells: (number|null)[] = [...Array(firstDow).fill(null), ...Array.from({length:daysInMonth},(_,i)=>i+1)];
-          while(cells.length % 7 !== 0) cells.push(null);
-          return (
-            <div style={{ marginBottom: 20, background: THEME.panelSoft, borderRadius: 10, border: `1.5px solid ${THEME.border}`, padding: "12px 10px" }}>
-              {/* Header mese */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                <button onClick={() => setCurrentDate(d => { const x=new Date(d); x.setMonth(x.getMonth()-1); return x; })}
-                  style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 14, color: THEME.muted, padding: "2px 6px", borderRadius: 4, fontWeight: 700 }}>◀</button>
-                <span style={{ fontSize: 12, fontWeight: 700, color: THEME.text }}>{MESI[month]} {year}</span>
-                <button onClick={() => setCurrentDate(d => { const x=new Date(d); x.setMonth(x.getMonth()+1); return x; })}
-                  style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 14, color: THEME.muted, padding: "2px 6px", borderRadius: 4, fontWeight: 700 }}>▶</button>
-              </div>
-              {/* Intestazioni giorni */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", marginBottom: 4 }}>
-                {GG.map((g,i) => <div key={i} style={{ textAlign: "center", fontSize: 9, fontWeight: 700, color: i >= 5 ? THEME.amber : THEME.muted, padding: "2px 0" }}>{g}</div>)}
-              </div>
-              {/* Celle */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 1 }}>
-                {cells.map((day, idx) => {
-                  if (day === null) return <div key={`mc-e-${idx}`}/>;
-                  const cellDate = new Date(year, month, day); cellDate.setHours(0,0,0,0);
-                  const isToday = cellDate.getTime() === todayD.getTime();
-                  // evidenzia i giorni della settimana corrente in vista week
-                  const weekStart = startOfISOWeekMonday(currentDate); weekStart.setHours(0,0,0,0);
-                  const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate()+5); weekEnd.setHours(23,59,59,999);
-                  const inWeek = viewType === "week" && cellDate >= weekStart && cellDate <= weekEnd;
-                  const isSelected = toDateInputValue(currentDate) === toDateInputValue(cellDate);
-                  // check if day has events
-                  const hasDomicile = events.some(ev => {
-                    const ed = new Date(ev.start); ed.setHours(0,0,0,0);
-                    return ed.getTime()===cellDate.getTime() && ev.location==="domicile" && ev.status!=="cancelled";
-                  });
-                  const hasEvents = events.some(ev => {
-                    const ed = new Date(ev.start); ed.setHours(0,0,0,0);
-                    return ed.getTime()===cellDate.getTime() && ev.status!=="cancelled";
-                  });
-                  return (
-                    <div key={`mc-${idx}`}
-                      onClick={() => setCurrentDate(cellDate)}
-                      style={{
-                        textAlign: "center", fontSize: 10, fontWeight: isToday||isSelected ? 800 : 500,
-                        padding: "3px 1px", borderRadius: 5, cursor: "pointer", position: "relative",
-                        background: isToday ? THEME.blue : isSelected && !isToday ? "rgba(37,99,235,0.12)" : inWeek ? "rgba(37,99,235,0.06)" : "transparent",
-                        color: isToday ? "#fff" : (idx % 7 === 6) ? THEME.amber : THEME.text,
-                        border: isSelected && !isToday ? `1.5px solid ${THEME.blue}` : "1.5px solid transparent",
-                      }}
-                    >
-                      {day}
-                      {hasEvents && !isToday && (
-                        <div style={{ position: "absolute", bottom: 1, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 1 }}>
-                          <div style={{ width: 4, height: 4, borderRadius: "50%", background: hasDomicile ? THEME.amber : THEME.patientsAccent }}/>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              <button onClick={() => setCurrentDate(new Date())} style={{ marginTop: 8, width: "100%", padding: "5px", borderRadius: 6, border: `1px solid ${THEME.border}`, background: "transparent", color: THEME.blue, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
-                Torna a oggi
-              </button>
-            </div>
-          );
-        })()}
-
-        {/* Sezione Appuntamenti Imminenti */}
-        <div style={{ marginTop: 0, borderTop: `2px solid ${THEME.blue}`, paddingTop: 20 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft, letterSpacing: 0.5, textTransform: "uppercase" }}>
-              Prossimi
-            </div>
-            <div style={{
-              fontSize: 11,
-              fontWeight: 700,
-              color: "#fff",
-              background: "linear-gradient(135deg, #0d9488, #2563eb)",
-              padding: "4px 10px",
-              borderRadius: 6
-            }}>
-              {(() => {
-                const now = currentTime || new Date();
-                const upcoming = todaysAppointments.filter(a => a.end > now);
-                return upcoming.length;
-              })()}
-            </div>
-          </div>
-
-          {(() => {
-            const now = currentTime || new Date();
-            const upcomingAll = todaysAppointments
-              .filter(a => a.end > now) // sparisce quando finisce
-              .sort((a, b) => a.start.getTime() - b.start.getTime());
-
-            const nextFuture = upcomingAll.find(a => a.start > now) || null;
-            const list = showAllUpcoming ? upcomingAll : upcomingAll.slice(0, 5);
-            const remaining = Math.max(0, upcomingAll.length - 5);
-
-            const timeStyle = (status: "past" | "current" | "next") => ({
-              fontSize: 12,
-              fontWeight: 600,
-              padding: "3px 6px",
-              borderRadius: 6,
-              minWidth: 52,
-              textAlign: "center" as const,
-              border:
-                status === "current"
-                  ? `2px solid ${THEME.green}`
-                  : status === "next"
-                  ? `2px solid ${THEME.blue}`
-                  : `1px solid ${THEME.border}`,
-              color:
-                status === "current"
-                  ? THEME.green
-                  : status === "next"
-                  ? THEME.blue
-                  : THEME.muted,
-              background:
-                status === "current"
-                  ? "rgba(22,163,74,0.06)"
-                  : status === "next"
-                  ? "rgba(37,99,235,0.06)"
-                  : THEME.panelSoft,
-            });
-
-            if (upcomingAll.length === 0) {
-              return (
-                <div style={{
-                  textAlign: "center",
-                  padding: "20px 12px",
-                  background: THEME.panelSoft,
-                  borderRadius: 8,
-                  border: `1.5px solid ${THEME.border}`
-                }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: THEME.muted, marginBottom: 4 }}>
-                    Nessun appuntamento imminente
-                  </div>
-                  <div style={{ fontSize: 11, color: THEME.muted }}>
-                    Oggi non ci sono altri appuntamenti in arrivo
-                  </div>
-                </div>
-              );
-            }
-
-            return (
-              <>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: showAllUpcoming ? "520px" : "none", overflowY: showAllUpcoming ? "auto" : "hidden" }}>
-                  {list.map((appointment) => {
-                    const isNow = appointment.start <= now && appointment.end >= now;
-                    const isNext = !isNow && nextFuture && nextFuture.id === appointment.id;
-
-                    return (
-                      <div
-                        key={appointment.id}
-                        style={{
-                          background: isNow ? "rgba(43, 108, 176, 0.08)" : statusBg(appointment.status),
-                          border: `2px solid ${isNow ? THEME.blue : statusColor(appointment.status)}50`,
-                          borderRadius: 8,
-                          padding: 10,
-                          cursor: "pointer",
-                          transition: "all 0.2s",
-                          position: "relative",
-                          overflow: "visible",
-                        }}
-                        onClick={() => {
-                          setQuickActionsMenu(null);
-                          setSelectedEvent({
-                            id: appointment.id,
-                            title: appointment.patient_name,
-                            patient_id: appointment.patient_id,
-                            location: appointment.location,
-                            clinic_site: appointment.clinic_site,
-                            domicile_address: appointment.domicile_address,
-                            treatment: appointment.treatment,
-                            diagnosis: appointment.diagnosis,
-                            amount: appointment.amount,
-                            treatment_type: appointment.treatment_type,
-                            price_type: appointment.price_type,
-                            start: appointment.start,
-                            end: appointment.end,
-                          });
-                          setEditStatus(appointment.status);
-                          setEditNote(appointment.calendar_note || "");
-                          setEditAmount(appointment.amount !== undefined && appointment.amount !== null ? appointment.amount.toString() : "");
-                          setEditTreatmentType((appointment.treatment_type as "seduta" | "macchinario") || "seduta");
-                          setEditPriceType((appointment.price_type as "invoiced" | "cash") || "invoiced");
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.transform = "translateY(-2px)";
-                          e.currentTarget.style.boxShadow = "0 4px 12px rgba(37,99,235,0.12)";
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.transform = "translateY(0)";
-                          e.currentTarget.style.boxShadow = "none";
-                        }}
-                      >
-                        <div style={{
-                          position: "absolute",
-                          top: 0,
-                          left: 0,
-                          width: 6,
-                          height: "100%",
-                          borderRadius: "8px 0 0 8px",
-                          background: statusColor(appointment.status)
-                        }} />
-
-                        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginLeft: 4 }}>
-                          <div style={{ flex: 1 }}>
-                            <div style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 6,
-                              marginBottom: 4
-                            }}>
-                              <div style={timeStyle(isNow ? "current" : isNext ? "next" : "past")}>
-                                {fmtTime(appointment.start.toISOString())}
-                              </div>
-
-                              {isNow && (
-                                <div style={{
-                                  fontSize: 10,
-                                  fontWeight: 600,
-                                  color: "#fff",
-                                  background: THEME.green,
-                                  padding: "2px 6px",
-                                  borderRadius: 4
-                                }}>
-                                  IN CORSO
-                                </div>
-                              )}
-
-                              {isNext && (
-                                <div style={{
-                                  fontSize: 10,
-                                  fontWeight: 600,
-                                  color: "#fff",
-                                  background: THEME.blue,
-                                  padding: "2px 6px",
-                                  borderRadius: 4
-                                }}>
-                                  PROSSIMO
-                                </div>
-                              )}
-                            </div>
-
-                            <div style={{
-                              fontSize: 13,
-                              fontWeight: 600,
-                              color: THEME.text,
-                              lineHeight: 1.35,
-                              marginBottom: 4
-                            }}>
-                              {appointment.patient_name}
-                            </div>
-
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                              <div style={{
-                                fontSize: 10,
-                                fontWeight: 700,
-                                color: statusColor(appointment.status),
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 2
-                              }}>
-                                <div style={{
-                                  width: 8,
-                                  height: 8,
-                                  borderRadius: "50%",
-                                  background: statusColor(appointment.status)
-                                }} />
-                                {statusLabel(appointment.status)}
-                              </div>
-
-                              {appointment.location === "domicile" && (
-                                <div style={{
-                                  fontSize: 10,
-                                  fontWeight: 600,
-                                  color: THEME.amber,
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 2
-                                }}>
-                                  ⌂ Domicilio
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleDoneQuick(appointment.id, appointment.status);
-                            }}
-                            style={{
-                              width: 20,
-                              height: 20,
-                              borderRadius: 4,
-                              border: `2px solid ${appointment.status === "done" ? THEME.greenDark : THEME.border}`,
-                              background: appointment.status === "done" ? THEME.greenDark : "transparent",
-                              cursor: "pointer",
-                              flex: "0 0 auto",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              fontSize: 10,
-                              color: "#fff",
-                            }}
-                            title={appointment.status === "done" ? "Segna come non eseguito" : "Segna come eseguito"}
-                          >
-                            {appointment.status === "done" && "✓"}
-                          </button>
-                        </div>
-
-                        {appointment.calendar_note && (
-                          <div style={{
-                            marginTop: 8,
-                            fontSize: 11,
-                            color: THEME.muted,
-                            fontStyle: "italic",
-                            paddingLeft: 4,
-                            borderLeft: `2px solid ${THEME.borderSoft}`
-                          }}>
-                            {appointment.calendar_note}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {remaining > 0 && !showAllUpcoming && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAllUpcoming(true)}
-                    style={{
-                      marginTop: 12,
-                      width: "100%",
-                      border: `1.5px solid ${THEME.border}`,
-                      background: THEME.panelBg,
-                      borderRadius: 8,
-                      padding: "8px 10px",
-                      cursor: "pointer",
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: THEME.blue,
-                      textAlign: "center",
-                    }}
-                    title="Mostra tutti gli appuntamenti imminenti di oggi"
-                  >
-                    +{remaining} altri oggi
-                  </button>
-                )}
-
-                {showAllUpcoming && upcomingAll.length > 5 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAllUpcoming(false)}
-                    style={{
-                      marginTop: 12,
-                      width: "100%",
-                      border: `1.5px solid ${THEME.border}`,
-                      background: THEME.panelSoft,
-                      borderRadius: 8,
-                      padding: "8px 10px",
-                      cursor: "pointer",
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: THEME.muted,
-                      textAlign: "center",
-                    }}
-                    title="Mostra solo i primi 5"
-                  >
-                    Mostra meno
-                  </button>
-                )}
-
-                <div style={{ marginTop: 16, fontSize: 11, color: THEME.muted, textAlign: "center" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span>Completati: {todaysAppointments.filter(a => a.status === "done").length}</span>
-                    <span>Prenotati: € {Math.round(weeklyExpectedRevenue).toLocaleString("it-IT")}</span>
-                  </div>
-                </div>
-              </>
-            );
-          })()}
-        </div>
-      </aside>
+      <RightSidebar
+        width={SIDEBAR_W}
+        open={sidebarOpen}
+        isDesktop={isDesktop}
+        sidebarRef={sidebarRef}
+        onClose={() => setSidebarOpen(false)}
+        currentDate={currentDate}
+        setCurrentDate={setCurrentDate}
+        viewType={viewType}
+        events={events}
+        todaysAppointments={todaysAppointments}
+        currentTime={currentTime}
+        showAllUpcoming={showAllUpcoming}
+        setShowAllUpcoming={setShowAllUpcoming}
+        weeklyExpectedRevenue={weeklyExpectedRevenue}
+        onSelectEvent={(appointment) => {
+          setQuickActionsMenu(null);
+          setSelectedEvent({
+            id: appointment.id,
+            title: appointment.patient_name,
+            patient_id: appointment.patient_id,
+            location: appointment.location,
+            clinic_site: appointment.clinic_site,
+            domicile_address: appointment.domicile_address,
+            treatment: appointment.treatment,
+            diagnosis: appointment.diagnosis,
+            amount: appointment.amount,
+            treatment_type: appointment.treatment_type,
+            price_type: appointment.price_type,
+            start: appointment.start,
+            end: appointment.end,
+          });
+          setEditStatus(appointment.status);
+          setEditNote(appointment.calendar_note || "");
+          setEditAmount(appointment.amount !== undefined && appointment.amount !== null ? appointment.amount.toString() : "");
+          setEditTreatmentType((appointment.treatment_type as "seduta" | "macchinario") || "seduta");
+          setEditPriceType((appointment.price_type as "invoiced" | "cash") || "invoiced");
+        }}
+        onToggleDone={(eventId, currentStatus) => toggleDoneQuick(eventId, currentStatus)}
+      />
 
       <main className="print-wrap" style={{
         flex: 1, display: "flex", flexDirection: "column",
@@ -6147,365 +5666,45 @@ A presto${[currentStudio?.signature_name, currentStudio?.signature_title].filter
       )}
 
       {quickActionsMenu && (
-        <div
-          style={{
-            position: "fixed",
-            top: quickActionsMenu.y,
-            left: quickActionsMenu.x,
-            background: THEME.panelBg,
-            border: `2px solid ${THEME.border}`,
-            borderRadius: 12,
-            boxShadow: "0 8px 28px rgba(30,64,175,0.14)",
-            zIndex: 10000,
-            minWidth: 200,
-            overflow: "hidden",
-          }}
-        >
-          {quickActionsMenu.eventId ? (
-            <>
-              <button
-                onClick={() => {
-                  const event = events.find(e => e.id === quickActionsMenu?.eventId);
-                  if (event) {
-                    toggleDoneQuick(event.id, event.status);
-                    setQuickActionsMenu(null);
-                  }
-                }}
-                style={{
-                  width: "100%",
-                  padding: "12px 16px",
-                  border: "none",
-                  background: "transparent",
-                  color: THEME.text,
-                  cursor: "pointer",
-                  fontWeight: 600,
-                  textAlign: "left",
-                  borderBottom: `1.5px solid ${THEME.border}`,
-                  fontSize: 13,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                }}
-              >
-                ✅ Segna come eseguito
-              </button>
-              <button
-                onClick={() => {
-                  const event = events.find(e => e.id === quickActionsMenu?.eventId);
-                  if (event) {
-                    sendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined);
-                    setQuickActionsMenu(null);
-                  }
-                }}
-                style={{
-                  width: "100%",
-                  padding: "12px 16px",
-                  border: "none",
-                  background: "transparent",
-                  color: THEME.text,
-                  cursor: "pointer",
-                  fontWeight: 600,
-                  textAlign: "left",
-                  borderBottom: `1.5px solid ${THEME.border}`,
-                  fontSize: 13,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                }}
-              >
-                ◈ Invia WhatsApp
-              </button>
-              <button
-                onClick={() => {
-                  const event = events.find(e => e.id === quickActionsMenu?.eventId);
-                  if (event) {
-                    openCreateModal(event.start, event.start.getHours(), event.start.getMinutes(), event);
-                    setQuickActionsMenu(null);
-                  }
-                }}
-                style={{
-                  width: "100%",
-                  padding: "12px 16px",
-                  border: "none",
-                  background: "transparent",
-                  color: THEME.text,
-                  cursor: "pointer",
-                  fontWeight: 600,
-                  textAlign: "left",
-                  fontSize: 13,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                }}
-              >
-                ◫ Duplica
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={() => {
-                openCreateModal(new Date());
-                setQuickActionsMenu(null);
-              }}
-              style={{
-                width: "100%",
-                padding: "12px 16px",
-                border: "none",
-                background: "transparent",
-                color: THEME.text,
-                cursor: "pointer",
-                fontWeight: 600,
-                textAlign: "left",
-                fontSize: 13,
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-              }}
-            >
-              ◈ Nuovo appuntamento
-            </button>
-          )}
-        </div>
+        <QuickActionsMenu
+          state={quickActionsMenu}
+          events={events}
+          onClose={() => setQuickActionsMenu(null)}
+          onToggleDone={(eventId, currentStatus) => toggleDoneQuick(eventId, currentStatus)}
+          onSendReminder={(eventId, phone, firstName) => sendReminder(eventId, phone, firstName)}
+          onDuplicate={(event) => openCreateModal(event.start, event.start.getHours(), event.start.getMinutes(), event)}
+          onCreateNew={() => openCreateModal(new Date())}
+        />
       )}
 
       {/* Feature: Mini-scheda paziente al hover */}
       {hoverTooltip && (
-        <div
-          onMouseEnter={() => { /* keep visible */ }}
+        <EventHoverTooltip
+          state={hoverTooltip}
           onMouseLeave={handleEventHoverEnd}
-          style={{
-            position: "fixed",
-            left: Math.min(hoverTooltip.x, window.innerWidth - 290),
-            top: Math.min(hoverTooltip.y, window.innerHeight - 220),
-            width: 270,
-            background: THEME.panelBg,
-            border: `2px solid ${THEME.border}`,
-            borderRadius: 12,
-            boxShadow: "0 12px 40px rgba(30,64,175,0.18)",
-            padding: "14px 16px",
-            zIndex: 10000,
-            fontSize: 12,
-            fontWeight: 600,
-            color: THEME.text,
-          }}
-        >
-          <div style={{ fontSize: 14, fontWeight: 800, color: THEME.blue, marginBottom: 8 }}>
-            {hoverTooltip.event.patient_name}
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ color: THEME.muted }}>Orario</span>
-              <span>{fmtTime(hoverTooltip.event.start.toISOString())} – {fmtTime(hoverTooltip.event.end.toISOString())}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ color: THEME.muted }}>Stato</span>
-              <span style={{ color: statusColor(hoverTooltip.event.status), fontWeight: 700 }}>{statusLabel(hoverTooltip.event.status)}</span>
-            </div>
-            {hoverTooltip.event.patient_phone && (
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: THEME.muted }}>Telefono</span>
-                <span>{hoverTooltip.event.patient_phone}</span>
-              </div>
-            )}
-            {hoverTooltip.event.diagnosis && (
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: THEME.muted }}>Diagnosi</span>
-                <span style={{ maxWidth: 150, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{hoverTooltip.event.diagnosis}</span>
-              </div>
-            )}
-            {hoverTooltip.event.treatment && (
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: THEME.muted }}>Trattamento</span>
-                <span>{hoverTooltip.event.treatment}</span>
-              </div>
-            )}
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ color: THEME.muted }}>Tipo</span>
-              <span>{hoverTooltip.event.treatment_type === "macchinario" ? "Macchinario" : "Seduta"} · {hoverTooltip.event.price_type === "cash" ? "Contanti" : "Fattura"}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ color: THEME.muted }}>Importo</span>
-              <span style={{ fontWeight: 800 }}>€ {hoverTooltip.event.amount ?? getDefaultAmount(
-                (hoverTooltip.event.treatment_type as "seduta" | "macchinario") || "seduta",
-                (hoverTooltip.event.price_type as "invoiced" | "cash") || "invoiced"
-              )}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ color: THEME.muted }}>Pagato</span>
-              <span style={{ color: hoverTooltip.event.is_paid ? THEME.green : THEME.red, fontWeight: 700 }}>
-                {hoverTooltip.event.is_paid ? "✓ Sì" : "✗ No"}
-              </span>
-            </div>
-            {hoverTooltip.event.calendar_note && (
-              <div style={{ marginTop: 4, padding: "6px 8px", background: THEME.panelSoft, borderRadius: 6, fontSize: 11, color: THEME.muted, lineHeight: 1.4 }}>
-                📝 {hoverTooltip.event.calendar_note}
-              </div>
-            )}
-          </div>
-        </div>
+          getDefaultAmount={getDefaultAmount}
+        />
       )}
 
       {/* Feature: Popover vista mese */}
       {monthPopover && (
-        <div
-          onClick={() => setMonthPopover(null)}
-          style={{ position: "fixed", inset: 0, zIndex: 9998 }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: "fixed",
-              left: Math.min(monthPopover.x, (typeof window !== "undefined" ? window.innerWidth : 800) - 320),
-              top: Math.min(monthPopover.y, (typeof window !== "undefined" ? window.innerHeight : 600) - 300),
-              width: 300,
-              maxHeight: 340,
-              overflowY: "auto",
-              background: THEME.panelBg,
-              border: `2px solid ${THEME.border}`,
-              borderRadius: 12,
-              boxShadow: "0 12px 40px rgba(30,64,175,0.18)",
-              padding: "14px 16px",
-              zIndex: 9999,
-            }}
-          >
-            <div style={{ fontSize: 13, fontWeight: 800, color: THEME.blue, marginBottom: 10 }}>
-              {formatDMY(monthPopover.day)} — {monthPopover.events.length} appuntamenti
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {monthPopover.events.map(ev => (
-                <div
-                  key={ev.id}
-                  onClick={() => {
-                    setMonthPopover(null);
-                    setCurrentDate(ev.start);
-                    setViewType("day");
-                  }}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 8,
-                    padding: "8px 10px", borderRadius: 8,
-                    background: `${statusColor(ev.status)}22`,
-                    borderLeft: `4px solid ${statusColor(ev.status)}`,
-                    fontSize: 12, fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  <span style={{ color: THEME.muted, minWidth: 40 }}>{fmtTime(ev.start.toISOString())}</span>
-                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {ev.calendar_note?.startsWith("[WEB|") && <span style={{ fontSize: 8, background: statusColor(ev.status), color: "#fff", borderRadius: 3, padding: "1px 3px", marginRight: 3, fontWeight: 700, verticalAlign: "middle" }}>WEB</span>}
-                    {ev.patient_name}
-                  </span>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: statusColor(ev.status) }}>{statusLabel(ev.status)}</span>
-                  <span>{ev.is_paid ? "💰" : ""}</span>
-                </div>
-              ))}
-            </div>
-            <div style={{ marginTop: 8, fontSize: 10, color: THEME.muted, textAlign: "center" }}>
-              Click su un appuntamento → vista giorno
-            </div>
-          </div>
-        </div>
+        <MonthDayPopover
+          state={monthPopover}
+          onClose={() => setMonthPopover(null)}
+          onSelectEvent={(ev) => {
+            setMonthPopover(null);
+            setCurrentDate(ev.start);
+            setViewType("day");
+          }}
+        />
       )}
 
       {/* Feature: Riepilogo giornaliero */}
       {dailySummaryOpen && (
-        <div
-          onClick={() => setDailySummaryOpen(false)}
-          style={{
-            position: "fixed", inset: 0,
-            background: "rgba(30,64,175,0.35)",
-            zIndex: 9999,
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: 480,
-              maxWidth: "90vw",
-              maxHeight: "85vh",
-              overflowY: "auto",
-              background: THEME.panelBg,
-              borderRadius: 16,
-              border: `2px solid ${THEME.border}`,
-              boxShadow: "0 24px 64px rgba(30,64,175,0.2)",
-              padding: "28px 24px",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-              <div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: THEME.blue }}>📋 Riepilogo di oggi</div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginTop: 4 }}>{formatDMY(new Date())}</div>
-              </div>
-              <button onClick={() => setDailySummaryOpen(false)} style={{
-                width: 38, height: 38, borderRadius: 10, border: `2px solid ${THEME.border}`,
-                background: THEME.panelSoft, color: THEME.blue, cursor: "pointer", fontWeight: 800, fontSize: 14,
-              }}>✕</button>
-            </div>
-
-            {/* Stats cards */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
-              <div style={{ padding: "14px 12px", borderRadius: 10, background: "rgba(22,163,74,0.08)", border: `1px solid rgba(22,163,74,0.2)`, textAlign: "center" }}>
-                <div style={{ fontSize: 22, fontWeight: 800, color: THEME.green }}>{dailySummary.done}</div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: THEME.muted }}>Eseguiti</div>
-              </div>
-              <div style={{ padding: "14px 12px", borderRadius: 10, background: "rgba(234,88,12,0.08)", border: `1px solid rgba(234,88,12,0.2)`, textAlign: "center" }}>
-                <div style={{ fontSize: 22, fontWeight: 800, color: THEME.amber }}>{dailySummary.notDone}</div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: THEME.muted }}>Da fare</div>
-              </div>
-              <div style={{ padding: "14px 12px", borderRadius: 10, background: "rgba(220,38,38,0.08)", border: `1px solid rgba(220,38,38,0.2)`, textAlign: "center" }}>
-                <div style={{ fontSize: 22, fontWeight: 800, color: THEME.red }}>{dailySummary.unpaid}</div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: THEME.muted }}>Non pagati</div>
-              </div>
-            </div>
-
-            {/* Revenue breakdown */}
-            <div style={{ padding: "16px", borderRadius: 10, background: THEME.panelSoft, border: `1px solid ${THEME.borderSoft}`, marginBottom: 20 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft, marginBottom: 12 }}>Incassi del giorno</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 600 }}>
-                  <span style={{ color: THEME.muted }}>Fatturato</span>
-                  <span style={{ color: THEME.blue }}>€ {dailySummary.invoicedTotal.toFixed(2)}</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 600 }}>
-                  <span style={{ color: THEME.muted }}>Contanti</span>
-                  <span style={{ color: THEME.amber }}>€ {dailySummary.cashTotal.toFixed(2)}</span>
-                </div>
-                <div style={{ borderTop: `1.5px solid ${THEME.border}`, paddingTop: 8, display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 800 }}>
-                  <span>Totale</span>
-                  <span style={{ color: THEME.green }}>€ {dailySummary.grandTotal.toFixed(2)}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Event list */}
-            <div style={{ fontSize: 13, fontWeight: 700, color: THEME.textSoft, marginBottom: 8 }}>Dettaglio appuntamenti ({dailySummary.total})</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              {dailySummary.events.map(ev => (
-                <div key={ev.id} style={{
-                  display: "flex", alignItems: "center", gap: 10,
-                  padding: "8px 10px", borderRadius: 8,
-                  background: `${statusColor(ev.status)}22`,
-                  borderLeft: `4px solid ${statusColor(ev.status)}`,
-                  fontSize: 12, fontWeight: 600,
-                }}>
-                  <span style={{ color: THEME.muted, minWidth: 42 }}>{fmtTime(ev.start.toISOString())}</span>
-                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.patient_name}</span>
-                  <span style={{ color: ev.is_paid ? THEME.green : THEME.red, fontSize: 11, fontWeight: 700 }}>
-                    {ev.is_paid ? "💰" : "—"}
-                  </span>
-                  <span style={{ color: statusColor(ev.status), fontSize: 10, fontWeight: 700, minWidth: 60, textAlign: "right" }}>
-                    {statusLabel(ev.status)}
-                  </span>
-                </div>
-              ))}
-              {dailySummary.events.length === 0 && (
-                <div style={{ padding: 20, textAlign: "center", color: THEME.muted, fontWeight: 600 }}>
-                  Nessun appuntamento oggi
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <DailySummaryDialog
+          summary={dailySummary}
+          onClose={() => setDailySummaryOpen(false)}
+        />
       )}
     </div>
   );
