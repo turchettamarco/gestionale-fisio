@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
+import { BuildInfo } from "@/src/components/BuildInfo";
 import { supabase } from "@/src/lib/supabaseClient";
 import TemplateEditor, { DEFAULT_PLACEHOLDERS } from "./components/TemplateEditor";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
@@ -177,7 +178,6 @@ export default function SettingsPage() {
   const [studioSignatureName, setStudioSignatureName] = useState("");
   const [studioSignatureTitle, setStudioSignatureTitle] = useState("");
   const [studioWebsite, setStudioWebsite] = useState("");
-  const [studioLogoBase64, setStudioLogoBase64] = useState<string>("");
   const [savingStudio, setSavingStudio] = useState(false);
 
   // ─── Calendar feed token (sicurezza multi-tenancy) ──────────────────────
@@ -266,7 +266,6 @@ export default function SettingsPage() {
     setStudioSignatureName(studio.signature_name || "");
     setStudioSignatureTitle(studio.signature_title || "");
     setStudioWebsite(studio.website || "");
-    setStudioLogoBase64((studio as any).logo_base64 || "");
   }, [studio]);
 
   const saveStudio = useCallback(async () => {
@@ -283,8 +282,7 @@ export default function SettingsPage() {
         signature_name:     studioSignatureName.trim() || null,
         signature_title:    studioSignatureTitle.trim() || null,
         website:            studioWebsite.trim() || null,
-        logo_base64:        studioLogoBase64 || null,
-      } as any).eq("id", studio.id);
+      }).eq("id", studio.id);
       if (error) { alert("Errore: " + error.message); return; }
       await refreshStudio();
       flashSuccess("Studio salvato.");
@@ -293,7 +291,6 @@ export default function SettingsPage() {
     }
   }, [studio, studioName, studioAddress, studioPhone, studioEmail,
       studioGoogleReview, studioSignatureName, studioSignatureTitle, studioWebsite,
-      studioLogoBase64,
       refreshStudio]);
 
   // Working hours state — 7 righe (1 per giorno della settimana, 0-6)
@@ -714,6 +711,17 @@ export default function SettingsPage() {
       };
       const { error } = await supabase.from("practice_settings").upsert(payload, { onConflict: "owner_id" });
       if (error) throw new Error(error.message);
+
+      // Sincronizza il logo anche sulla tabella studios.
+      // Le pagine pubbliche (portale, conferma, esercizi, survey) leggono
+      // da studios — quindi senza questa replica il logo non sarebbe visibile
+      // ai pazienti. La fonte di verità per il logo resta practice_settings.
+      if (studio?.id) {
+        await supabase.from("studios")
+          .update({ logo_base64: logoBase64 || null } as any)
+          .eq("id", studio.id);
+      }
+
       flashSuccess("Impostazioni salvate.");
     } catch (e: any) {
       setError(e?.message ?? "Errore nel salvataggio.");
@@ -875,6 +883,7 @@ export default function SettingsPage() {
                 <div style={{ padding:"11px 16px", borderBottom:`1px solid ${THEME.border}`, fontSize:12, color:THEME.muted }}>{userEmail}</div>
                 <Link href="/piano" onClick={() => setUserMenuOpen(false)} style={{ display:"block", padding:"11px 16px", color:THEME.text, textDecoration:"none", fontSize:13, fontWeight:600, borderBottom:`1px solid ${THEME.border}` }}>💎 Piano</Link>
                 <button onClick={handleLogout} style={{ width:"100%", display:"flex", alignItems:"center", gap:8, padding:"11px 16px", background:"transparent", border:"none", cursor:"pointer", color:THEME.red, fontWeight:600, fontSize:13 }}>Logout</button>
+                <BuildInfo />
               </div>
             )}
           </div>
@@ -1144,122 +1153,6 @@ export default function SettingsPage() {
                       Copialo dalla tua pagina Google Business. Serve per chiedere recensioni ai pazienti via WhatsApp.
                     </div>
                   )}
-                </div>
-
-                {/* ── Logo studio (branding pagine pubbliche) ────────────────── */}
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <label style={labelStyle}>Logo studio (opzionale)</label>
-                  <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 8 }}>
-                    Apparirà nelle pagine pubbliche viste dai pazienti (portale, conferma appuntamento, esercizi, questionari).
-                    Consigliato: PNG quadrato con sfondo trasparente, max 200 KB.
-                  </div>
-
-                  <div style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 14,
-                    padding: 12,
-                    border: `1px dashed ${THEME.border}`,
-                    borderRadius: 8,
-                    background: "#fafafa",
-                  }}>
-                    {/* Anteprima */}
-                    <div style={{
-                      width: 72,
-                      height: 72,
-                      borderRadius: 8,
-                      background: studioLogoBase64 ? "#fff" : "#f1f5f9",
-                      border: `1px solid ${THEME.border}`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      overflow: "hidden",
-                      flexShrink: 0,
-                    }}>
-                      {studioLogoBase64 ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={studioLogoBase64}
-                          alt="Logo"
-                          style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
-                        />
-                      ) : (
-                        <span style={{ fontSize: 22, color: THEME.muted }}>🏥</span>
-                      )}
-                    </div>
-
-                    {/* Bottoni */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
-                      <label style={{
-                        display: "inline-block",
-                        padding: "8px 14px",
-                        borderRadius: 6,
-                        border: `1px solid ${THEME.border}`,
-                        background: "#fff",
-                        color: THEME.text,
-                        fontSize: 13,
-                        fontWeight: 600,
-                        cursor: "pointer",
-                        textAlign: "center",
-                        width: "fit-content",
-                      }}>
-                        {studioLogoBase64 ? "Cambia logo" : "Carica logo"}
-                        <input
-                          type="file"
-                          accept="image/png,image/jpeg,image/svg+xml,image/webp"
-                          style={{ display: "none" }}
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            // Limite 500 KB sul file originale (per evitare base64 enormi)
-                            if (file.size > 500 * 1024) {
-                              alert("Il file è troppo grande (max 500 KB). Usa un'immagine più piccola.");
-                              e.target.value = "";
-                              return;
-                            }
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                              const result = String(reader.result || "");
-                              setStudioLogoBase64(result);
-                            };
-                            reader.onerror = () => {
-                              alert("Errore nella lettura del file.");
-                            };
-                            reader.readAsDataURL(file);
-                            e.target.value = "";
-                          }}
-                        />
-                      </label>
-
-                      {studioLogoBase64 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (confirm("Rimuovere il logo?")) {
-                              setStudioLogoBase64("");
-                            }
-                          }}
-                          style={{
-                            padding: "6px 12px",
-                            borderRadius: 6,
-                            border: `1px solid ${THEME.border}`,
-                            background: "#fff",
-                            color: "#dc2626",
-                            fontSize: 12,
-                            fontWeight: 600,
-                            cursor: "pointer",
-                            width: "fit-content",
-                          }}
-                        >
-                          Rimuovi logo
-                        </button>
-                      )}
-
-                      <div style={{ fontSize: 11, color: THEME.muted }}>
-                        Formati supportati: PNG, JPG, SVG, WebP. Massimo 500 KB.
-                      </div>
-                    </div>
-                  </div>
                 </div>
               </div>
 

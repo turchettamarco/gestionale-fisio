@@ -53,6 +53,14 @@ export default function SurveyPage() {
   return (
     <div style={{minHeight:"100vh",background:"#f8fafc",fontFamily:"'Segoe UI',system-ui,sans-serif"}}>
       <div style={{background:"linear-gradient(135deg,#0d9488,#2563eb)",padding:"24px 20px",textAlign:"center"}}>
+        {studio?.logo_base64 && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={studio.logo_base64}
+            alt="Logo studio"
+            style={{maxHeight:48,maxWidth:180,objectFit:"contain",marginBottom:10,filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.15))"}}
+          />
+        )}
         <div style={{fontSize:13,color:"rgba(255,255,255,0.7)",fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>{studio ? [studio.name, studio.signature_name].filter(Boolean).join(" — ") : "Questionario"}</div>
         <h1 style={{margin:0,fontSize:20,fontWeight:800,color:"#fff"}}>Questionario di soddisfazione</h1>
         {name&&<div style={{fontSize:14,color:"rgba(255,255,255,0.85)",marginTop:6}}>Caro/a {name}</div>}

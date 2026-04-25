@@ -87,6 +87,14 @@ export default function SchedaEserciziPubblica() {
 
       {/* Header */}
       <div style={{background:"linear-gradient(135deg,#0d9488,#2563eb)",padding:"24px 20px 28px",textAlign:"center"}}>
+        {studio?.logo_base64 && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={studio.logo_base64}
+            alt="Logo studio"
+            style={{maxHeight:52,maxWidth:200,objectFit:"contain",marginBottom:10,filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.15))"}}
+          />
+        )}
         <div style={{fontSize:12,fontWeight:700,color:"rgba(255,255,255,0.7)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>{studio ? [studio.name, studio.signature_name].filter(Boolean).join(" — ") : "Scheda Esercizi"}</div>
         <div style={{fontSize:22,fontWeight:800,color:"#fff",marginBottom:4}}>Programma Esercizi Domiciliari</div>
         <div style={{fontSize:15,color:"rgba(255,255,255,0.9)",fontWeight:600}}>{patientName}</div>

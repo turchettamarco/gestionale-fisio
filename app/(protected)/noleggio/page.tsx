@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { BuildInfo } from "@/src/components/BuildInfo";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { normalizePhoneForWA, openWhatsApp } from "@/src/lib/whatsapp";
@@ -510,6 +511,7 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
             <div style={{ padding:"11px 16px", borderBottom:`1px solid ${THEME.border}`, fontSize:12, color:THEME.muted }}>{userEmail}</div>
             <Link href="/piano" onClick={()=>setUserMenuOpen(false)} style={{ display:"block", padding:"11px 16px", color:THEME.text, textDecoration:"none", fontSize:13, fontWeight:600, borderBottom:`1px solid ${THEME.border}` }}>💎 Piano</Link>
             <button onClick={handleLogout} style={{ width:"100%", padding:"11px 16px", background:"transparent", border:"none", cursor:"pointer", color:THEME.red, fontWeight:600, fontSize:13, textAlign:"left" }}>Logout</button>
+            <BuildInfo />
           </div>)}
         </div>
       </header>

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { BuildInfo } from "@/src/components/BuildInfo";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudioId } from "@/src/contexts/StudioContext";
@@ -542,6 +543,7 @@ export default function PatientsPage() {
                   padding: "11px 16px", background: "transparent", border: "none",
                   cursor: "pointer", color: THEME.red, fontWeight: 600, fontSize: 13,
                 }}>Logout</button>
+                <BuildInfo />
               </div>
             )}
           </div>

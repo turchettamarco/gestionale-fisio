@@ -31,7 +31,7 @@ export default function PortalPage() {
   const patientName = data.patient ? `${data.patient.first_name} ${data.patient.last_name}`.trim() : "Paziente";
   const upcoming = data.upcoming || [];
 
-  return <Wrap headerTitle={headerTitle}>
+  return <Wrap headerTitle={headerTitle} logoBase64={studio?.logo_base64}>
     <div style={{padding:"24px 20px"}}>
       <div style={{textAlign:"center",marginBottom:24}}>
         <div style={{fontSize:12,color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}}>Area riservata</div>
@@ -108,10 +108,18 @@ export default function PortalPage() {
   </Wrap>;
 }
 
-function Wrap({children, headerTitle}:{children:React.ReactNode; headerTitle:string}) {
+function Wrap({children, headerTitle, logoBase64}:{children:React.ReactNode; headerTitle:string; logoBase64?:string|null}) {
   return (
     <div style={{minHeight:"100vh",background:"#f8fafc",fontFamily:"'Segoe UI',system-ui,sans-serif"}}>
       <div style={{background:"linear-gradient(135deg,#0d9488,#2563eb)",padding:"16px 20px",textAlign:"center"}}>
+        {logoBase64 && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={logoBase64}
+            alt="Logo studio"
+            style={{maxHeight:48,maxWidth:180,objectFit:"contain",marginBottom:8,filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.15))"}}
+          />
+        )}
         <div style={{fontSize:11,color:"rgba(255,255,255,0.7)",fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>{headerTitle}</div>
       </div>
       <div style={{maxWidth:560,margin:"0 auto"}}>{children}</div>

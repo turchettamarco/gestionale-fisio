@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { BuildInfo } from "@/src/components/BuildInfo";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
@@ -536,6 +537,7 @@ export default function HomePage() {
                 <Link href="/settings" onClick={()=>setUserMenuOpen(false)} style={{display:"block",padding:"10px 15px",color:THEME.text,fontSize:13,fontWeight:600,borderBottom:`1px solid ${THEME.border}`}}>Impostazioni</Link>
                 <Link href="/piano" onClick={()=>setUserMenuOpen(false)} style={{display:"block",padding:"10px 15px",color:THEME.text,fontSize:13,fontWeight:600,borderBottom:`1px solid ${THEME.border}`,textDecoration:"none"}}>💎 Piano</Link>
                 <button onClick={handleLogout} style={{width:"100%",padding:"10px 15px",background:"transparent",border:"none",cursor:"pointer",color:THEME.red,fontWeight:600,fontSize:13,textAlign:"left"}}>Logout</button>
+                <BuildInfo />
               </div>
             )}
           </div>

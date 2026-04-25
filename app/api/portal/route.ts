@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
     if (studioId) {
       const studioRes = await db
         .from("studios")
-        .select("name,address,phone,signature_name,signature_title,google_review_link,website")
+        .select("name,address,phone,signature_name,signature_title,google_review_link,website,logo_base64")
         .eq("id", studioId)
         .maybeSingle();
       studio = studioRes.data || null;

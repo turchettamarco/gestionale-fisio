@@ -2,6 +2,19 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   // ═══════════════════════════════════════════════════════════════════════
+  // BUILD INFO
+  // ═══════════════════════════════════════════════════════════════════════
+  // Inietta data/ora del momento in cui Next.js compila il progetto.
+  // Su Vercel = momento del deploy. In locale = momento del `npm run dev/build`.
+  // Visibile lato client come process.env.NEXT_PUBLIC_BUILD_DATE.
+  // Usata dal componente <BuildInfo /> nel menu utente.
+  // ═══════════════════════════════════════════════════════════════════════
+  env: {
+    NEXT_PUBLIC_BUILD_DATE:
+      process.env.VERCEL_GIT_COMMIT_DATE || new Date().toISOString(),
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════
   // CACHE STRATEGY
   // ═══════════════════════════════════════════════════════════════════════
   // Problema: dopo ogni deploy su Vercel, il browser riusa la vecchia

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { BuildInfo } from "@/src/components/BuildInfo";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
@@ -2218,6 +2219,7 @@ ${rows}
                   padding: "12px 16px", background: "transparent", border: "none",
                   cursor: "pointer", color: THEME.red, fontWeight: 600, fontSize: 13,
                 }}>⏻ Logout</button>
+                <BuildInfo />
               </div>
             )}
           </div>
