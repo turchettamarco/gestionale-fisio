@@ -10,6 +10,8 @@ function openWADirect(phone: string, message: string = ""): void {
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import Link from "next/link";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { studioPdfHeader, studioHeaderCss, studioPdfFooter, type StudioHeaderData } from "@/src/lib/pdfHeader";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const T = {
@@ -97,7 +99,7 @@ function exportCSV(rows:PaidRow[],unpaid:UnpaidRow[],label:string){
 }
 
 // ─── Print ────────────────────────────────────────────────────────────────────
-function printUnpaid(rows:UnpaidRow[],title:string){
+function printUnpaid(rows:UnpaidRow[],title:string,studio?:StudioHeaderData){
   const pw=window.open("","_blank");if(!pw)return;
   const esc=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;");
   const byPat:{[k:string]:{rows:UnpaidRow[];tot:number}}={};
@@ -105,13 +107,14 @@ function printUnpaid(rows:UnpaidRow[],title:string){
   let body="";let grand=0;
   Object.keys(byPat).sort().forEach(n=>{const g=byPat[n];grand+=g.tot;body+=`<tr style="background:#f5f5f5"><td colspan="3"><b>${esc(n)}</b></td><td><b>${euro2.format(g.tot)}</b></td></tr>`;g.rows.forEach(r=>{body+=`<tr><td></td><td>${esc(r.type)}</td><td>${new Date(r.date).toLocaleDateString("it-IT")} (${r.days}gg)</td><td>${euro2.format(r.amount)}</td></tr>`;});});
   body+=`<tr style="background:#e8e8e8"><td colspan="3"><b>TOTALE</b></td><td><b>${euro2.format(grand)}</b></td></tr>`;
-  pw.document.write(`<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>${esc(title)}</title><style>body{font-family:Arial,sans-serif;padding:2cm}table{width:100%;border-collapse:collapse;margin-top:1cm}th,td{border:1px solid #ccc;padding:6pt;font-size:10pt}th{background:#eee}button{padding:8px 16px;cursor:pointer;margin-bottom:1cm}@media print{button{display:none}}</style></head><body><button onclick="window.print()">Stampa</button><h2>${esc(title)}</h2><p>${new Date().toLocaleDateString("it-IT",{year:"numeric",month:"long",day:"numeric"})}</p><table><thead><tr><th>Paziente</th><th>Tipo</th><th>Data</th><th>Importo</th></tr></thead><tbody>${body}</tbody></table><script>window.onload=()=>setTimeout(()=>window.print(),400);</script></body></html>`);
+  pw.document.write(`<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>${esc(title)}</title><style>body{font-family:Arial,sans-serif;padding:2cm;color:#0f172a}table{width:100%;border-collapse:collapse;margin-top:24px}th,td{border:1px solid #ccc;padding:6pt;font-size:10pt}th{background:#eee}button{padding:8px 16px;cursor:pointer;margin-bottom:24px;background:#2563eb;color:#fff;border:none;border-radius:6px;font-weight:700}@media print{button{display:none}}${studioHeaderCss}</style></head><body><button onclick="window.print()">🖨 Stampa / Salva PDF</button>${studioPdfHeader(studio,{docTitle:title})}<table><thead><tr><th>Paziente</th><th>Tipo</th><th>Data</th><th>Importo</th></tr></thead><tbody>${body}</tbody></table>${studioPdfFooter(studio)}<script>window.onload=()=>setTimeout(()=>window.print(),400);</script></body></html>`);
   pw.document.close();
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function ReportsPage(){
   const params  =useSearchParams();
+  const { studio: currentStudio } = useCurrentStudio();
   const[period, setPeriod] =useState<Period>((params.get("period") as Period)||"month");
   const[dateStr,setDateStr]=useState(params.get("date")||toYMD(new Date()));
   const[tab,    setTab]    =useState<MainTab>("overview");
@@ -595,9 +598,9 @@ export default function ReportsPage(){
             </button>
             {showUnpaidDD&&(
               <div style={{position:"absolute",top:"calc(100% + 8px)",right:0,background:T.panelBg,border:`1.5px solid ${T.border}`,borderRadius:12,boxShadow:"0 8px 32px rgba(30,64,175,0.15)",zIndex:9999,minWidth:200,overflow:"hidden"}}>
-                <button onClick={()=>{printUnpaid(unpaidRows,"Terapie Non Pagate");setShowUnpaidDD(false);}} style={{width:"100%",padding:"10px 16px",background:"none",border:"none",borderBottom:`1px solid ${T.border}`,textAlign:"left",fontSize:13,fontWeight:600,cursor:"pointer",color:T.text}}>Tutti i non pagati</button>
+                <button onClick={()=>{printUnpaid(unpaidRows,"Terapie Non Pagate",currentStudio);setShowUnpaidDD(false);}} style={{width:"100%",padding:"10px 16px",background:"none",border:"none",borderBottom:`1px solid ${T.border}`,textAlign:"left",fontSize:13,fontWeight:600,cursor:"pointer",color:T.text}}>Tutti i non pagati</button>
                 {uniquePatients.map((p,i)=>(
-                  <button key={`updd-${i}`} onClick={()=>{printUnpaid(unpaidRows.filter(r=>r.name===p),`Non pagati — ${p}`);setShowUnpaidDD(false);}} style={{width:"100%",padding:"9px 16px",background:"none",border:"none",borderBottom:`1px solid ${T.border}`,textAlign:"left",fontSize:12,cursor:"pointer",color:T.text}}>{p}</button>
+                  <button key={`updd-${i}`} onClick={()=>{printUnpaid(unpaidRows.filter(r=>r.name===p),`Non pagati — ${p}`,currentStudio);setShowUnpaidDD(false);}} style={{width:"100%",padding:"9px 16px",background:"none",border:"none",borderBottom:`1px solid ${T.border}`,textAlign:"left",fontSize:12,cursor:"pointer",color:T.text}}>{p}</button>
                 ))}
               </div>
             )}

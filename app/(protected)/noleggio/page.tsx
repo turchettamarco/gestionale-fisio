@@ -7,6 +7,7 @@ import { BuildInfo } from "@/src/components/BuildInfo";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { normalizePhoneForWA, openWhatsApp } from "@/src/lib/whatsapp";
+import { studioPdfHeader, studioHeaderCss, studioPdfFooter } from "@/src/lib/pdfHeader";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const THEME = {
@@ -310,11 +311,6 @@ export default function NoleggioPage() {
     const html = `<!DOCTYPE html><html lang="it"><head><meta charset="utf-8"><title>Ricevuta Noleggio</title>
 <style>
   body{font-family:'Segoe UI',Arial,sans-serif;margin:0;padding:40px;color:#0f172a;background:#fff;}
-  .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:32px;padding-bottom:20px;border-bottom:2px solid #0d9488;}
-  .logo{font-size:22px;font-weight:800;color:#0d9488;letter-spacing:-0.5px;}
-  .logo span{color:#2563eb;}
-  .doc-title{font-size:14px;font-weight:700;color:#334155;text-align:right;}
-  .doc-num{font-size:11px;color:#64748b;margin-top:3px;}
   h2{font-size:16px;font-weight:700;color:#0f172a;margin:0 0 16px;padding-bottom:8px;border-bottom:1px solid #e2e8f0;}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:28px;}
   .field label{font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px;}
@@ -324,14 +320,13 @@ export default function NoleggioPage() {
   .total-box .amount{font-size:28px;font-weight:800;color:#15803d;}
   .detail{font-size:11px;color:#64748b;margin-top:4px;}
   .footer{margin-top:40px;padding-top:20px;border-top:1px solid #e2e8f0;font-size:11px;color:#64748b;text-align:center;line-height:1.8;}
-  .paid-badge{display:inline-block;background:#dcfce7;color:#15803d;font-weight:800;font-size:11px;padding:3px 10px;border-radius:99px;border:1px solid #86efac;margin-left:10px;}
-  .unpaid-badge{display:inline-block;background:#fef3c7;color:#92400e;font-weight:800;font-size:11px;padding:3px 10px;border-radius:99px;border:1px solid #fde68a;margin-left:10px;}
+  .paid-badge{display:inline-block;background:#dcfce7;color:#15803d;font-weight:800;font-size:11px;padding:3px 10px;border-radius:99px;border:1px solid #86efac;margin-top:6px;}
+  .unpaid-badge{display:inline-block;background:#fef3c7;color:#92400e;font-weight:800;font-size:11px;padding:3px 10px;border-radius:99px;border:1px solid #fde68a;margin-top:6px;}
   @media print{body{padding:20px;}button{display:none!important;}}
+  ${studioHeaderCss}
 </style></head><body>
-<div class="header">
-  <div><div class="logo">${currentStudio?.name || "Studio"}</div><div style="font-size:12px;color:#64748b;margin-top:4px;">${[currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("<br>") || ""}${currentStudio?.address ? `<br>${currentStudio.address}` : ""}</div></div>
-  <div><div class="doc-title">RICEVUTA NOLEGGIO</div><div class="doc-num">Data emissione: ${oggi}</div>${n.is_paid?'<div class="paid-badge">✓ PAGATO</div>':'<div class="unpaid-badge">⏳ DA PAGARE</div>'}</div>
-</div>
+${studioPdfHeader(currentStudio,{docTitle:"Ricevuta Noleggio",docSubtitle:n.patient_name,docDate:`Data emissione: ${oggi}`})}
+<div style="text-align:right;margin-top:-12px;margin-bottom:18px;">${n.is_paid?'<span class="paid-badge">✓ PAGATO</span>':'<span class="unpaid-badge">⏳ DA PAGARE</span>'}</div>
 <h2>Dati paziente</h2>
 <div class="grid">
   <div class="field"><label>Cognome e Nome</label><span>${n.patient_name}</span></div>
@@ -386,9 +381,9 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
   .firma{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:40px;}
   .firma-box{border-top:1.5px solid #0f172a;padding-top:8px;font-size:11px;color:#64748b;}
   @media print{button{display:none!important;}}
+  ${studioHeaderCss}
 </style></head><body>
-<h1>Contratto di Noleggio — Magnetoterapia</h1>
-<div class="sub">${[currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join(" — ") || ""}${currentStudio?.address ? ` · ${currentStudio.address}` : ""} · Emesso il ${oggi}</div>
+${studioPdfHeader(currentStudio,{docTitle:"Contratto di Noleggio",docSubtitle:"Magnetoterapia",docDate:`Emesso il ${oggi}`})}
 <div class="section"><h2>Dati del locatario</h2>
 <div class="box grid">
   <div class="field"><label>Cognome e Nome</label><span>${n.patient_name}</span></div>

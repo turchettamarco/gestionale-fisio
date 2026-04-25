@@ -22,6 +22,7 @@ export type Studio = {
   email: string | null;
   google_review_link: string | null;
   logo_url: string | null;
+  logo_base64: string | null;
   website: string | null;
   signature_name: string | null;
   signature_title: string | null;
@@ -91,7 +92,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       // 3. Recupera i dati completi dello studio
       const { data: studioData, error: studioErr } = await supabase
         .from("studios")
-        .select("id, name, address, phone, email, google_review_link, logo_url, website, signature_name, signature_title")
+        .select("id, name, address, phone, email, google_review_link, logo_url, logo_base64, website, signature_name, signature_title")
         .eq("id", memberData.studio_id)
         .maybeSingle();
 

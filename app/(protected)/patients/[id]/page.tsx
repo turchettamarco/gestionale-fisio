@@ -5,6 +5,7 @@ import { BuildInfo } from "@/src/components/BuildInfo";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { studioPdfHeader, studioHeaderCss, studioPdfFooter } from "@/src/lib/pdfHeader";
 import { ClinicalScalesSection } from "./ClinicalScales";
 import { PhotoGallerySection } from "./PhotoGallery";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
@@ -159,7 +160,8 @@ function PMiniCanvas({ zones, view }: { zones: Record<string,PMZoneData>; view: 
   return <canvas ref={ref} width={40} height={80} style={{position:"absolute",inset:0,width:"100%",height:"100%",mixBlendMode:"multiply",borderRadius:4}}/>;
 }
 
-function PainMapSection({ patientName, gender }: { patientName: string; gender?: "M"|"F" }) {
+function PainMapSection({ patientName, gender, studio }: { patientName: string; gender?: "M"|"F"; studio?: any }) {
+  const currentStudio = studio;
   const [pmView, setPmView] = useState<PMView>("front");
   const [pmTool, setPmTool] = useState<"paint"|"erase"|"arrow">("paint");
   const [pmPainType, setPmPainType] = useState("burning");
@@ -288,16 +290,15 @@ function PainMapSection({ patientName, gender }: { patientName: string; gender?:
     const by = summaryByType;
     const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Body Chart – ${patientName}</title>
     <style>body{font-family:system-ui,sans-serif;padding:40px;color:#0f172a;max-width:800px;margin:0 auto}
-    h1{font-size:22px;font-weight:800;margin-bottom:4px}.sub{color:#64748b;font-size:13px;margin-bottom:24px}
     .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px}
     .card{background:#f8fafc;border-radius:10px;padding:14px;border:1px solid #e2e8f0}
     .lbl{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
     .val{font-size:20px;font-weight:800}.bar{height:7px;background:#e2e8f0;border-radius:4px;overflow:hidden;margin-top:6px}
     .bf{height:100%;border-radius:4px}table{width:100%;border-collapse:collapse;font-size:13px}
     td,th{padding:8px 12px;border-bottom:1px solid #e2e8f0}th{background:#f1f5f9;font-size:11px;font-weight:700;text-transform:uppercase}
-    @media print{button{display:none!important}}</style></head><body>
-    <h1>Body Chart – Mappa del Dolore</h1>
-    <div class="sub">Paziente: <strong>${patientName}</strong> &nbsp;·&nbsp; Data: ${new Date().toLocaleDateString("it-IT",{day:"2-digit",month:"long",year:"numeric"})} &nbsp;·&nbsp; FisioHub</div>
+    @media print{button{display:none!important}}
+    ${studioHeaderCss}</style></head><body>
+    ${studioPdfHeader(currentStudio,{docTitle:"Body Chart",docSubtitle:`Mappa del Dolore — ${patientName}`})}
     <div class="g3">
       <div class="card"><div class="lbl">VAS</div><div class="val" style="color:${vasColor}">${pmVas}/10</div>
         <div style="font-size:12px;color:${vasColor};font-weight:700">${vasLabel}</div>
@@ -316,8 +317,7 @@ function PainMapSection({ patientName, gender }: { patientName: string; gender?:
     ${pmArrows.map(a=>`<tr><td>${PM_VIEW_LABELS[a.view]}</td><td>${a.label||"—"}</td></tr>`).join("")}</tbody></table></div>`:""}
     ${pmNotes?`<div><div style="font-size:13px;font-weight:700;margin-bottom:6px">Note cliniche</div>
     <div style="font-size:13px;color:#334155;line-height:1.7;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">${pmNotes}</div></div>`:""}
-    <div style="margin-top:24px;padding-top:14px;border-top:1px solid #e2e8f0;font-size:10px;color:#94a3b8;display:flex;justify-content:space-between">
-      <span>FisioHub · Body Chart Pro</span><span>Generato: ${new Date().toLocaleString("it-IT")}</span></div>
+    ${studioPdfFooter(currentStudio)}
     <button onclick="window.print()" style="margin-top:20px;padding:10px 28px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🖨 Stampa referto</button>
     </body></html>`;
     const w = window.open("","_blank","width=900,height=700");
@@ -1382,14 +1382,16 @@ export default function PatientDetailPage({
     return !cv.getContext("2d")!.getImageData(0, 0, cv.width, cv.height).data.some(v => v !== 0);
   }
 
-  // Dati studio (fissi)
+  // Dati studio (dinamici da currentStudio + fallback ragionevoli)
   const STUDIO_DATA = {
-    nome:  "Dott. Turchetta Marco",
-    titolo: "Fisioterapista",
-    studio: "FisioHub · Studi Galileo",
-    addr:  "Via La Cupa 15, 03037 Pontecorvo (FR)",
-    piva:  "P.IVA 03195120609",
-    email: "turchettamarco@gmail.com",
+    nome:   currentStudio?.signature_name  || "—",
+    titolo: currentStudio?.signature_title || "Fisioterapista",
+    studio: currentStudio?.name            || "Studio",
+    addr:   currentStudio?.address         || "—",
+    piva:   "",  // P.IVA non in tabella studios al momento — campo opzionale per futuro
+    email:  currentStudio?.email           || "—",
+    phone:  currentStudio?.phone           || "",
+    logo:   currentStudio?.logo_base64     || "",
   };
 
   function buildConsentHtml(type: "privacy" | "consenso", sigDataUrl: string | null, p: NonNullable<typeof patient>): string {
@@ -1399,7 +1401,7 @@ export default function PatientDetailPage({
     const citta   = p.residence_city ?? "";
     const tel     = p.phone ?? "";
     const oggi    = new Date().toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" });
-    const { nome: dNome, titolo, studio, addr, piva, email } = STUDIO_DATA;
+    const { nome: dNome, titolo, studio, addr, piva, email, logo, phone } = STUDIO_DATA;
 
     const css = `
       @page { size: A4; margin: 18mm 20mm; }
@@ -1411,7 +1413,9 @@ export default function PatientDetailPage({
       ul { padding-left: 14px; }
       li { margin-bottom: 2px; }
       h2 { font-family: Arial, sans-serif; font-size: 9.5px; font-weight: 700; color: #0d9488; text-transform: uppercase; letter-spacing: .6px; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; margin: 10px 0 5px; }
-      .hdr { display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 10px; border-bottom: 2px solid #0d9488; margin-bottom: 14px; }
+      .hdr { display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 10px; border-bottom: 2px solid #0d9488; margin-bottom: 14px; gap: 14px; }
+      .hdr-logo { width: 50px; height: 50px; object-fit: contain; flex-shrink: 0; }
+      .hdr-left { flex: 1; display: flex; align-items: center; gap: 12px; }
       .hdr-left .name { font-size: 14px; font-weight: 800; color: #0d9488; font-family: Arial, sans-serif; }
       .hdr-left .role { font-size: 10px; color: #334155; font-weight: 600; font-family: Arial, sans-serif; margin-top: 1px; }
       .hdr-left .contact { font-size: 9px; color: #64748b; font-family: Arial, sans-serif; margin-top: 1px; }
@@ -1438,8 +1442,9 @@ export default function PatientDetailPage({
       .footer { margin-top: 14px; padding-top: 10px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; font-family: Arial, sans-serif; font-size: 8px; color: #94a3b8; }
       .btn-print { padding: 9px 24px; background: #2563eb; color: #fff; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: Arial, sans-serif; }`;
 
-    const hdr = `<div class="hdr"><div class="hdr-left"><div class="name">${studio}</div><div class="role">${dNome} — ${titolo}</div><div class="contact">${addr} · ${email} · ${piva}</div></div><div class="hdr-right">Data: ${oggi}</div></div>`;
-    const footer = `<div class="footer"><span>${studio} — ${dNome}, ${titolo}</span><span>Generato il ${oggi}</span></div>`;
+    const contactParts = [addr, email, phone, piva].filter(s => s && s !== "—").join(" · ");
+    const hdr = `<div class="hdr"><div class="hdr-left">${logo ? `<img src="${logo}" alt="Logo" class="hdr-logo"/>` : ""}<div><div class="name">${studio}</div><div class="role">${dNome !== "—" ? dNome + (titolo ? " — " + titolo : "") : titolo}</div><div class="contact">${contactParts}</div></div></div><div class="hdr-right">Data: ${oggi}</div></div>`;
+    const footer = `<div class="footer"><span>${studio}${dNome !== "—" ? " — " + dNome + ", " + titolo : ""}</span><span>Generato il ${oggi}</span></div>`;
     const firmaArea = `
       <div class="firma-grid">
         <div><div class="firma-field"><label>Luogo</label><div class="firma-line"></div></div></div>
@@ -1774,7 +1779,6 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
     const html=`<!DOCTYPE html><html lang="it"><head><meta charset="utf-8"><title>Scheda — ${nomeCompleto}</title>
 <style>
   body{font-family:'Segoe UI',Arial,sans-serif;padding:40px;color:#0f172a;font-size:12px;max-width:760px;margin:0 auto;}
-  h1{font-size:22px;font-weight:800;margin:0 0 3px;}.sub{font-size:11px;color:#64748b;margin-bottom:28px;}
   h2{font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1.5px solid #e2e8f0;padding-bottom:5px;margin:20px 0 10px;}
   .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:8px;}
   .field label{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;display:block;margin-bottom:2px;}
@@ -1783,9 +1787,9 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
   table{width:100%;border-collapse:collapse;font-size:11px;}
   th{background:#f1f5f9;padding:6px 10px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;}
   @media print{button{display:none!important;}.no-print{display:none!important;}}
+  ${studioHeaderCss}
 </style></head><body>
-<h1>${nomeCompleto}</h1>
-<div class="sub">Scheda clinica completa — esportata il ${oggi}${currentStudio?.signature_name ? ` · ${currentStudio.signature_name}` : ""}</div>
+${studioPdfHeader(currentStudio,{docTitle:"Scheda Clinica",docSubtitle:nomeCompleto})}
 <h2>Anagrafica</h2>
 <div class="box grid">
   <div class="field"><label>Data di nascita</label><span>${birthDate?new Date(birthDate+"T12:00:00").toLocaleDateString("it-IT"):"—"} (${eta})</span></div>
@@ -1865,18 +1869,9 @@ ${esercizi.length>0?`
   .firma-label{font-size:10px;color:#64748b;margin-top:4px;}
   .footer-info{font-size:10px;color:#94a3b8;line-height:1.8;}
   @media print{body{padding:16px 20px;}button{display:none!important;}.esercizio{border-color:#cbd5e1;}}
+  ${studioHeaderCss}
 </style></head><body>
-<div class="header">
-  <div>
-    <div class="logo">${currentStudio?.name || "Studio"}</div>
-    <div class="studio">${[currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join(" — ") || ""}${currentStudio?.address ? `<br>${currentStudio.address}` : ""}</div>
-  </div>
-  <div class="doc-info">
-    <h2>Programma Esercizi Domiciliari</h2>
-    <div class="paziente">${lastName} ${firstName}</div>
-    <div class="data">Emesso il ${oggi}</div>
-  </div>
-</div>
+${studioPdfHeader(currentStudio,{docTitle:"Programma Esercizi",docSubtitle:`${lastName} ${firstName}`,docDate:`Emesso il ${oggi}`})}
 <div class="intro">
   Eseguire gli esercizi con attenzione, rispettando le indicazioni. In caso di dolore acuto o peggioramento dei sintomi, sospendere e contattare lo studio.
 </div>
@@ -2654,7 +2649,7 @@ ${rows}
           <SecHeader icon="🗺" title="Body Chart — Mappa del Dolore" subtitle="Dipingi le zone dolorose · irradiazioni · referto PDF" open={secBodyChart} onToggle={()=>setSecBodyChart(s=>!s)}/>
           {secBodyChart && (
             <div style={cardBody}>
-              <PainMapSection patientName={patient ? `${patient.last_name} ${patient.first_name}`.trim() : "Paziente"}/>
+              <PainMapSection patientName={patient ? `${patient.last_name} ${patient.first_name}`.trim() : "Paziente"} studio={currentStudio}/>
             </div>
           )}
         </section>

@@ -1051,7 +1051,7 @@ diagnosis: patient?.diagnosis ?? null,
   }, [events]);
 
   const exportToPDF = useCallback(() => {
-    exportWeekToPDF(events, currentDate);
+    exportWeekToPDF(events, currentDate, currentStudio);
   }, [events, currentDate]);
 
   // ─── Booking requests ────────────────────────────────────────────────────

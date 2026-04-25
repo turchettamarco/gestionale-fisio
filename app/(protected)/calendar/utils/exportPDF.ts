@@ -3,8 +3,9 @@
 
 import type { CalendarEvent } from "./types";
 import { startOfISOWeekMonday } from "./dateHelpers";
+import { studioPdfHeader, studioHeaderCss, type StudioHeaderData } from "@/src/lib/pdfHeader";
 
-export function exportWeekToPDF(events: CalendarEvent[], currentDate: Date): void {
+export function exportWeekToPDF(events: CalendarEvent[], currentDate: Date, studio?: StudioHeaderData): void {
   const weekStart = startOfISOWeekMonday(currentDate);
   const days = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(weekStart); d.setDate(d.getDate() + i); return d;
@@ -82,8 +83,10 @@ export function exportWeekToPDF(events: CalendarEvent[], currentDate: Date): voi
 </div>
 <div class="header">
   <div class="header-logo">
-    <div class="logo-box">F</div>
-    <div class="logo-text">FisioHub</div>
+    ${studio?.logo_base64
+      ? `<img src="${studio.logo_base64}" alt="Logo" style="width:44px;height:44px;object-fit:contain;background:rgba(255,255,255,0.95);border-radius:8px;padding:4px;border:1.5px solid rgba(255,255,255,0.3);" />`
+      : `<div class="logo-box">${(studio?.name || "S").charAt(0).toUpperCase()}</div>`}
+    <div class="logo-text">${studio?.name || "Studio"}</div>
   </div>
   <div class="header-title">
     <h1>Planning Settimanale</h1>
