@@ -76,6 +76,7 @@ import CalendarToolbar from "./components/panels/CalendarToolbar";
 
 // ─── Views (B2.6) ────────────────────────────────────────────────────────────
 import MonthView from "./components/views/MonthView";
+import DayView from "./components/views/DayView";
 
 export default function CalendarPage() {
   return (
@@ -2860,599 +2861,66 @@ return (
             />
           ) : (
             /* ━━━ DAY VIEW — timeline + sidebar ━━━ */
-            <div style={{ display: "flex", gap: 0, background: THEME.panelBg, border: `2px solid ${THEME.border}`, borderRadius: 12, minHeight: 600, overflow: "clip", boxShadow: "0 2px 12px rgba(30,64,175,0.06)" }}>
-
-              {/* ── Colonna sinistra: timeline ── */}
-              <div style={{ flex: 1, minWidth: 0, position: "relative", borderRight: `2px solid ${THEME.border}` }}>
-              <div style={{ 
-                display: "grid", 
-                gridTemplateColumns: `${TIME_COL}px 1fr`,
-                borderBottom: `2px solid ${THEME.border}`,
-                background: "linear-gradient(135deg, #0d9488, #2563eb)",
-                borderRadius: "10px 10px 0 0",
-              }}>
-                <div style={{ 
-                  padding: "16px 8px", 
-                  borderRight: "1px solid rgba(255,255,255,0.08)",
-                  fontSize: 11,
-                  fontWeight: 700,
-                  color: "rgba(255,255,255,0.5)",
-                  textAlign: "center",
-                  boxSizing: "border-box",
-                  letterSpacing: 1,
-                  textTransform: "uppercase",
-                }}>
-                  ORA
-                </div>
-                <div style={{ 
-                  padding: "16px 8px", 
-                  textAlign: "center",
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: "#93c5fd",
-                  boxSizing: "border-box",
-                  letterSpacing: 0.5,
-                }}>
-                  {dayLabels[currentDate.getDay() === 0 ? 0 : currentDate.getDay() - 1].label} • {formatDMY(currentDate)}
-                </div>
-              </div>
-
-              <div style={{ position: "relative" }}>
-                {timeSlots.map((time, timeIndex) => {
-                  const hour = parseInt(time.split(':')[0]);
-                  
-                  return (
-                    <div 
-                      key={timeIndex}
-                      style={{ 
-                        height: "60px",
-                        borderBottom: `1.5px solid ${THEME.border}`,
-                        position: "relative",
-                        display: "flex",
-                      }}
-                    >
-                      <div style={{ 
-                        width: `${TIME_COL}px`,
-                        height: "100%",
-                        display: "flex",
-                        alignItems: "center",
-                        paddingLeft: 8,
-                        borderRight: `1px solid ${THEME.border}`,
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: THEME.muted,
-                        background: THEME.panelSoft,
-                        zIndex: 1,
-                        flexShrink: 0,
-                        boxSizing: "border-box",
-                      }}>
-                        {time}
-                      </div>
-
-                      <div style={{
-                        flex: 1,
-                        minWidth: 0,
-                        height: "100%",
-                        boxSizing: "border-box",
-                        position: "relative",
-                      }}>
-                        {/* Slot 00-30 minuti */}
-                        <div
-                          style={{
-                            height: "60px",
-                            borderBottom: `1.5px solid ${THEME.border}`,
-                            cursor: "pointer",
-                            boxSizing: "border-box",
-                            position: "relative",
-                          }}
-                          onClick={() => {
-                            handleSlotClick(currentDate, hour, 0);
-                          }}
-                          onContextMenu={(e) => handleContextMenu(e)}
-                          onDragOver={(e) => handleDragOver(e, 0, hour, 0)}
-                          onDragLeave={handleDragLeave}
-                          onDrop={(e) => {
-                            handleDrop(e, currentDate, hour, 0);
-                          }}
-                          title={`Clicca per creare appuntamento alle ${pad2(hour)}:00`}
-                        >
-                          {draggingOver && draggingOver.dayIndex === 0 && 
-                           draggingOver.hour === hour && draggingOver.minute === 0 && (
-                            <div
-                              style={{
-                                position: "absolute",
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                border: `2px dashed ${THEME.blue}`,
-                                background: "rgba(91,130,168,0.1)",
-                                zIndex: 1,
-                                pointerEvents: "none",
-                              }}
-                            />
-                          )}
-                        </div>
-                        
-                        {/* Slot 30-60 minuti */}
-                        <div
-                          style={{
-                            height: "60px",
-                            cursor: "pointer",
-                            boxSizing: "border-box",
-                            position: "relative",
-                          }}
-                          onClick={() => {
-                            handleSlotClick(currentDate, hour, 30);
-                          }}
-                          onContextMenu={(e) => handleContextMenu(e)}
-                          onDragOver={(e) => handleDragOver(e, 0, hour, 30)}
-                          onDragLeave={handleDragLeave}
-                          onDrop={(e) => {
-                            handleDrop(e, currentDate, hour, 30);
-                          }}
-                          title={`Clicca per creare appuntamento alle ${pad2(hour)}:30`}
-                        >
-                          {draggingOver && draggingOver.dayIndex === 0 && 
-                           draggingOver.hour === hour && draggingOver.minute === 30 && (
-                            <div
-                              style={{
-                                position: "absolute",
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                border: `2px dashed ${THEME.blue}`,
-                                background: "rgba(91,130,168,0.1)",
-                                zIndex: 1,
-                                pointerEvents: "none",
-                              }}
-                            />
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {showAvailableOnly && (() => {
-                  const windows = getFreeWindows(currentDate);
-                  return windows.map((win, wi) => {
-                    const { top, height } = getDayEventPosition(win.start, win.end);
-                    const hrs = Math.floor(win.minutes / 60);
-                    const mins = win.minutes % 60;
-                    const label = hrs > 0 ? `${hrs}h${mins > 0 ? `${mins}′` : ""}` : `${mins}′`;
-                    return (
-                      <div key={`dwin-${wi}`}
-                        style={{
-                          position: "absolute",
-                          left: `${TIME_COL + 2}px`,
-                          top: `${top}px`,
-                          width: `calc(100% - ${TIME_COL + 8}px)`,
-                          height: `${height}px`,
-                          background: "rgba(22,163,74,0.07)",
-                          borderLeft: "3px solid rgba(22,163,74,0.5)",
-                          borderRadius: "0 6px 6px 0",
-                          cursor: "pointer",
-                          zIndex: 1,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          padding: "0 10px",
-                          transition: "all 0.15s",
-                        }}
-                        onClick={() => handleSlotClick(currentDate, win.start.getHours(), win.start.getMinutes())}
-                        onMouseEnter={e => { e.currentTarget.style.background = "rgba(22,163,74,0.15)"; e.currentTarget.style.borderLeftColor = THEME.green; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = "rgba(22,163,74,0.07)"; e.currentTarget.style.borderLeftColor = "rgba(22,163,74,0.5)"; }}
-                        title={`Libero ${pad2(win.start.getHours())}:${pad2(win.start.getMinutes())} – ${pad2(win.end.getHours())}:${pad2(win.end.getMinutes())}`}
-                      >
-                        <span style={{ fontSize: 11, fontWeight: 700, color: THEME.green }}>
-                          {pad2(win.start.getHours())}:{pad2(win.start.getMinutes())} – {pad2(win.end.getHours())}:{pad2(win.end.getMinutes())}
-                        </span>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: "rgba(22,163,74,0.7)" }}>{label} libero · clicca per prenotare</span>
-                      </div>
-                    );
-                  });
-                })()}
-
-                {filteredEvents
-                  .filter(event => 
-                    event.start.getDate() === currentDate.getDate() &&
-                    event.start.getMonth() === currentDate.getMonth() &&
-                    event.start.getFullYear() === currentDate.getFullYear()
-                  )
-                  .map((event) => {
-                    const { top, height } = getDayEventPosition(event.start, event.end);
-                    const col = getEventColor(event);
-                    const isDone    = event.status === "done";
-                    const isDomicile= event.location === "domicile";
-                    const isPaid    = !!event.is_paid;
-                    const waSent    = !!event.whatsapp_sent_at;
-                    const isMatch   = searchMatchIds.has(event.id);
-                    const bgCol = isMatch ? "#f59e0b" : col;
-
-                    return (
-                      <div
-                        key={event.id}
-                        draggable
-                        onDragStart={(e) => handleDragStart(e, event.id, event.start, event.end)}
-                        onDragEnd={handleDragEnd}
-                        onContextMenu={(e) => handleContextMenu(e, event)}
-                        style={{
-                          position: "absolute",
-                          left: "82px",
-                          top: `${top + 1}px`,
-                          width: "calc(100% - 88px)",
-                          height: `${Math.max(height - 2, 28)}px`,
-                          background: statusBg(event.status),
-                          color: "#fff",
-                          borderRadius: 6,
-                          padding: "6px 10px",
-                          boxSizing: "border-box",
-                          border: "none",
-                          borderLeft: event.calendar_note?.startsWith("[WEB|") ? "4px solid #facc15" : "none",
-                          cursor: "move",
-                          zIndex: 2,
-                          overflow: "hidden",
-                          transition: "box-shadow 0.15s",
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 0,
-                          boxShadow: "0 1px 3px rgba(15,23,42,0.06)",
-                        }}
-                        onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 3px 12px rgba(15,23,42,0.12)"; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "0 1px 3px rgba(15,23,42,0.06)"; }}
-                        onClick={() => {
-                          setSelectedEvent({
-                            id: event.id,
-                            title: event.patient_name,
-                            patient_id: event.patient_id,
-                            location: event.location,
-                            clinic_site: event.clinic_site,
-                            domicile_address: event.domicile_address,
-                            treatment: event.treatment,
-                            diagnosis: event.diagnosis,
-                            amount: event.amount,
-                            treatment_type: event.treatment_type,
-                            price_type: event.price_type,
-                            start: event.start,
-                            end: event.end,
-                          });
-                          setEditStatus(event.status);
-                          setEditNote(event.calendar_note || "");
-                          setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
-                          setEditTreatmentType((event.treatment_type as "seduta" | "macchinario") || "seduta");
-                          setEditPriceType((event.price_type as "invoiced" | "cash") || "invoiced");
-                          if (event.patient_id) { loadPatientFromEvent(event.patient_id); }
-                        }}
-                      >
-                        {/* Layout due colonne: sx=bottoni, dx=testo — i bottoni non coprono mai il nome */}
-                        {(() => {
-                          const h = Math.max(height - 2, 20);
-
-                          // Sotto 22px: tutto inline, niente bottoni
-                          if (h < 22) {
-                            return (
-                              <div style={{ display:"flex", alignItems:"center", gap:4, overflow:"hidden", whiteSpace:"nowrap", width:"100%" }}>
-                                <span style={{ fontSize:9, fontWeight:700, color:"rgba(255,255,255,0.9)", flexShrink:0 }}>{fmtTime(event.start.toISOString())}</span>
-                                <span style={{ fontSize:10, fontWeight:800, color:"#fff", overflow:"hidden", textOverflow:"ellipsis" }}>{event.patient_name}</span>
-                                {isDomicile && <span style={{ fontSize:9, flexShrink:0 }}>🏠</span>}
-                              </div>
-                            );
-                          }
-
-                          // 22px+: layout due colonne
-                          // Bottoni fissi 12px — entrano sempre anche in 36px
-                          const BS = 12;
-
-                          return (
-                            <div style={{ display:"flex", gap:4, width:"100%", height:"100%", minWidth:0 }}>
-
-                              {/* COLONNA SINISTRA: 3 bottoni 12×12 sempre visibili */}
-                              <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"space-evenly", width:14, flexShrink:0, borderRight:"1px solid rgba(255,255,255,0.18)" }}>
-                                <button title={isPaid?"Pagato":"Segna pagato"} onClick={e=>{e.preventDefault();e.stopPropagation();togglePaidQuick(event.id,isPaid);}}
-                                  style={{ width:BS, height:BS, borderRadius:3, border:`1px solid ${isPaid?"rgba(255,255,255,0.8)":"rgba(255,255,255,0.35)"}`, background:isPaid?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.1)", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:8, padding:0, flexShrink:0 }}>
-                                  🪙
-                                </button>
-                                <button title={waSent?"Reinvia WA":"Invia WA"} onClick={e=>{e.preventDefault();e.stopPropagation();sendReminder(event.id,event.patient_phone??undefined,event.patient_first_name??undefined);}}
-                                  style={{ width:BS, height:BS, background:"none", border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, opacity:event.patient_phone?(waSent?1:0.55):0.2, padding:0, flexShrink:0 }}>
-                                  {waSent?"🔕":"🔔"}
-                                </button>
-                                <button title={isDone?"Annulla":"Eseguita"} onClick={e=>{e.preventDefault();e.stopPropagation();if(bulkMode)toggleBulkSelect(event.id);else toggleDoneQuick(event.id,event.status);}}
-                                  style={{ width:BS, height:BS, borderRadius:99, border:`1.5px solid ${isDone?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.45)"}`, background:isDone?"rgba(255,255,255,0.9)":"transparent", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", color:statusBg(event.status), fontSize:7, fontWeight:900, padding:0, flexShrink:0 }}>
-                                  {isDone||bulkSelected.has(event.id)?"✓":""}
-                                </button>
-                              </div>
-
-                              {/* COLONNA DESTRA: testo */}
-                              <div style={{ flex:1, minWidth:0, display:"flex", flexDirection:"column", justifyContent:"space-between", overflow:"hidden" }}>
-                                {/* Orario + badge */}
-                                <div style={{ display:"flex", alignItems:"center", gap:3, overflow:"hidden", flexShrink:0 }}>
-                                  <span style={{ fontSize:9, fontWeight:700, color:"rgba(255,255,255,0.85)", whiteSpace:"nowrap", flexShrink:0 }}>{fmtTime(event.start.toISOString())}–{fmtTime(event.end.toISOString())}</span>
-                                  {isDomicile&&<span style={{ fontSize:9, flexShrink:0 }}>🏠</span>}
-                                  {event.calendar_note?.startsWith("[WEB|")&&<span style={{ fontSize:7, background:"rgba(255,255,255,0.25)", borderRadius:2, padding:"1px 3px", fontWeight:800, flexShrink:0 }}>WEB</span>}
-                                  <span style={{ marginLeft:"auto", fontSize:7, fontWeight:700, color:"#fff", background:"rgba(255,255,255,0.2)", padding:"1px 4px", borderRadius:99, whiteSpace:"nowrap", flexShrink:0 }}>{statusLabel(event.status)}</span>
-                                </div>
-                                {/* Nome — sempre visibile e non coperto */}
-                                <div style={{ fontSize:h>=55?13:h>=36?11:10, fontWeight:800, color:"#fff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1, lineHeight:1.25, paddingTop:1 }} title={event.patient_name}>
-                                  {event.patient_name}
-                                </div>
-                                {/* Tipo + importo (solo se c'è spazio) */}
-                                {h >= 50 && (
-                                  <div style={{ fontSize:9, color:"rgba(255,255,255,0.82)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flexShrink:0 }}>
-                                    {getTreatmentLabel(event.treatment_type)}{event.amount?` · €${event.amount}`:""}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    );
-                  })}
-                  <div
-                    style={{
-                      position: "absolute",
-                      left: 0,
-                      top: 0,
-                      right: 0,
-                      bottom: 0,
-                      pointerEvents: "none",
-                      zIndex: 3,
-                    }}
-                  >
-                    {(() => {
-                      const now = currentTime;
-                      const isToday = 
-                        now.getDate() === currentDate.getDate() &&
-                        now.getMonth() === currentDate.getMonth() &&
-                        now.getFullYear() === currentDate.getFullYear();
-                      
-                      if (!isToday) return null;
-                      
-                      const currentHour = now.getHours();
-                      const currentMinute = now.getMinutes();
-                      const topPosition = ((currentHour - 7) * 60 + currentMinute) * 1; // DAY_PX_PER_MIN=1
-                      
-                      return (
-                        <div
-                          style={{
-                            position: "absolute",
-                            left: `${TIME_COL}px`,
-                            top: `${topPosition}px`,
-                            width: `calc(100% - ${TIME_COL + 4}px)`,
-                            height: "2px",
-                            background: THEME.red,
-                            zIndex: 4,
-                          }}
-                        >
-                          <div
-                            style={{
-                              position: "absolute",
-                              left: "50%",
-                              top: "-4px",
-                              transform: "translateX(-50%)",
-                              width: "8px",
-                              height: "8px",
-                              borderRadius: "50%",
-                              background: THEME.red,
-                            }}
-                          />
-                        </div>
-                      );
-                    })()}
-                  </div>
-              </div>
-              </div>
-
-              {/* ── Colonna destra: sidebar giornaliera ── */}
-              {(() => {
-                const dayEvts = filteredEvents
+            <DayView
+              currentDate={currentDate}
+              dayEvents={
+                filteredEvents
                   .filter(ev =>
                     ev.start.getDate() === currentDate.getDate() &&
                     ev.start.getMonth() === currentDate.getMonth() &&
                     ev.start.getFullYear() === currentDate.getFullYear()
                   )
                   .filter(ev => ev.status !== "cancelled")
-                  .sort((a, b) => a.start.getTime() - b.start.getTime());
-
-                const totRev = dayEvts.reduce((s, ev) => s + (ev.amount ?? 0), 0);
-                const totDone = dayEvts.filter(ev => ev.status === "done").length;
-                const totPaid = dayEvts.filter(ev => ev.is_paid).length;
-                const totUnpaid = dayEvts.filter(ev => !ev.is_paid && ev.status !== "cancelled").length;
-
-                const isToday =
-                  currentDate.getDate() === new Date().getDate() &&
-                  currentDate.getMonth() === new Date().getMonth() &&
-                  currentDate.getFullYear() === new Date().getFullYear();
-
-                const dayLabel = (() => {
-                  const g = ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"][currentDate.getDay()];
-                  const mesi = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
-                  return `${g} ${currentDate.getDate()} ${mesi[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
-                })();
-
-                return (
-                  <div style={{ width: 280, flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-
-                    {/* Header sidebar */}
-                    <div style={{ background: "linear-gradient(135deg, #0d9488, #2563eb)", padding: "14px 16px" }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 2 }}>
-                        {isToday ? "Oggi" : dayLabel}
-                      </div>
-                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.7)", fontWeight: 600 }}>
-                        {isToday ? dayLabel : ""}
-                      </div>
-                    </div>
-
-                    {/* KPI strip */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0, borderBottom: `1px solid ${THEME.border}` }}>
-                      {[
-                        { label: "Appuntamenti", val: dayEvts.length, color: THEME.blue },
-                        { label: "Eseguiti", val: totDone, color: THEME.green },
-                        { label: "Fatturato", val: `€${Math.round(totRev)}`, color: THEME.teal },
-                        { label: "Non pagati", val: totUnpaid, color: totUnpaid > 0 ? THEME.amber : THEME.muted },
-                      ].map((k, i) => (
-                        <div key={i} style={{ padding: "10px 14px", borderBottom: i < 2 ? `1px solid ${THEME.border}` : "none", borderRight: i % 2 === 0 ? `1px solid ${THEME.border}` : "none" }}>
-                          <div style={{ fontSize: 10, color: THEME.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 3 }}>{k.label}</div>
-                          <div style={{ fontSize: 20, fontWeight: 800, color: k.color, lineHeight: 1 }}>{k.val}</div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Bottone nuovo appuntamento */}
-                    <div style={{ padding: "10px 12px", borderBottom: `1px solid ${THEME.border}` }}>
-                      <button
-                        onClick={() => { openCreateModal(currentDate, 9, 0); }}
-                        style={{
-                          width: "100%", padding: "8px 0", borderRadius: 8,
-                          border: `1.5px dashed ${THEME.teal}`,
-                          background: "rgba(13,148,136,0.04)", color: THEME.teal,
-                          cursor: "pointer", fontWeight: 700, fontSize: 12,
-                          letterSpacing: 0.3,
-                        }}
-                      >
-                        + Nuovo appuntamento
-                      </button>
-                    </div>
-
-                    {/* Lista appuntamenti */}
-                    <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
-                      {dayEvts.length === 0 ? (
-                        <div style={{ padding: "24px 16px", textAlign: "center", color: THEME.muted, fontSize: 13 }}>
-                          Nessun appuntamento<br/>
-                          <span style={{ fontSize: 11 }}>Clicca sulla griglia per aggiungerne uno</span>
-                        </div>
-                      ) : dayEvts.map((ev, idx) => {
-                        const isDone = ev.status === "done";
-                        const isPaid = !!ev.is_paid;
-                        const waSent = !!ev.whatsapp_sent_at;
-                        const isWeb = ev.calendar_note?.startsWith("[WEB|");
-                        const col = getEventColor(ev);
-
-                        return (
-                          <div
-                            key={ev.id}
-                            onClick={() => {
-                              setSelectedEvent({
-                                id: ev.id,
-                                title: ev.patient_name,
-                                patient_id: ev.patient_id,
-                                location: ev.location,
-                                clinic_site: ev.clinic_site,
-                                domicile_address: ev.domicile_address,
-                                treatment: ev.treatment,
-                                diagnosis: ev.diagnosis,
-                                amount: ev.amount,
-                                treatment_type: ev.treatment_type,
-                                price_type: ev.price_type,
-                                start: ev.start,
-                                end: ev.end,
-                              });
-                              setEditStatus(ev.status);
-                              setEditNote(ev.calendar_note || "");
-                              setEditAmount(ev.amount !== undefined && ev.amount !== null ? ev.amount.toString() : "");
-                              setEditTreatmentType((ev.treatment_type as "seduta" | "macchinario") || "seduta");
-                              setEditPriceType((ev.price_type as "invoiced" | "cash") || "invoiced");
-                              if (ev.patient_id) loadPatientFromEvent(ev.patient_id);
-                            }}
-                            style={{
-                              margin: "4px 10px",
-                              borderRadius: 8,
-                              border: `1.5px solid ${statusColor(ev.status)}22`,
-                              background: statusBg(ev.status) + "18",
-                              borderLeft: `4px solid ${statusColor(ev.status)}`,
-                              padding: "9px 10px",
-                              cursor: "pointer",
-                              transition: "all 0.12s",
-                            }}
-                            className="cal-event-card"
-                            onMouseEnter={e => { e.currentTarget.style.background = statusBg(ev.status) + "30"; }}
-                            onMouseLeave={e => { e.currentTarget.style.background = statusBg(ev.status) + "18"; }}
-                          >
-                            {/* Orario + badge */}
-                            <div className="ev-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                              <span style={{ fontSize: 12, fontWeight: 800, color: statusColor(ev.status) }}>
-                                {fmtTime(ev.start.toISOString())}
-                                <span style={{ fontWeight: 500, color: THEME.muted }}> – {fmtTime(ev.end.toISOString())}</span>
-                              </span>
-                              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                                {isWeb && <span style={{ fontSize: 9, fontWeight: 800, background: "#facc15", color: "#78350f", padding: "1px 5px", borderRadius: 3 }}>WEB</span>}
-                                {isPaid && <span style={{ fontSize: 9, fontWeight: 800, background: "rgba(22,163,74,0.15)", color: THEME.green, padding: "1px 5px", borderRadius: 3 }}>€✓</span>}
-                              </div>
-                            </div>
-
-                            {/* Nome paziente */}
-                            <div className="ev-name" style={{ fontSize: 13, fontWeight: 700, color: THEME.text, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {ev.patient_name}
-                            </div>
-
-                            {/* Tipo + importo */}
-                            <div className="ev-meta" style={{ fontSize: 11, color: THEME.muted, marginBottom: 6 }}>
-                              {ev.treatment_type === "macchinario" ? "Macchinario" : "Seduta"}
-                              {ev.location === "domicile" ? " · 🏠 Domicilio" : ""}
-                              {ev.amount ? ` · €${ev.amount}` : ""}
-                            </div>
-
-                            {/* Azioni rapide */}
-                            <div style={{ display: "flex", gap: 5 }}>
-                              <button
-                                title={isDone ? "Annulla eseguita" : "Segna eseguita"}
-                                onClick={e => { e.stopPropagation(); toggleDoneQuick(ev.id, ev.status); }}
-                                style={{
-                                  flex: 1, padding: "4px 0", borderRadius: 5, border: "none",
-                                  background: isDone ? THEME.green : "rgba(22,163,74,0.12)",
-                                  color: isDone ? "#fff" : THEME.green,
-                                  cursor: "pointer", fontWeight: 700, fontSize: 11,
-                                }}
-                              >
-                                {isDone ? "✓ Eseguita" : "Esegui"}
-                              </button>
-                              <button
-                                title={isPaid ? "Pagato" : "Segna pagato"}
-                                onClick={e => { e.stopPropagation(); togglePaidQuick(ev.id, isPaid); }}
-                                style={{
-                                  flex: 1, padding: "4px 0", borderRadius: 5, border: "none",
-                                  background: isPaid ? THEME.teal : "rgba(13,148,136,0.1)",
-                                  color: isPaid ? "#fff" : THEME.teal,
-                                  cursor: "pointer", fontWeight: 700, fontSize: 11,
-                                }}
-                              >
-                                {isPaid ? "€ Pagato" : "Paga"}
-                              </button>
-                              {ev.patient_phone && (
-                                <button
-                                  title={waSent ? "Reinvia WA" : "Invia promemoria WA"}
-                                  onClick={e => { e.stopPropagation(); sendReminder(ev.id, ev.patient_phone ?? undefined, ev.patient_first_name ?? undefined); }}
-                                  style={{
-                                    width: 30, padding: "4px 0", borderRadius: 5, border: "none",
-                                    background: waSent ? "rgba(37,211,102,0.2)" : "rgba(37,211,102,0.1)",
-                                    color: "#128C7E", cursor: "pointer", fontWeight: 700, fontSize: 13,
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  📲
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* Footer: totali */}
-                    {dayEvts.length > 0 && (
-                      <div style={{ borderTop: `1px solid ${THEME.border}`, padding: "10px 14px", background: THEME.panelSoft }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span style={{ fontSize: 11, color: THEME.muted, fontWeight: 600 }}>{totPaid}/{dayEvts.length} pagati</span>
-                          <span style={{ fontSize: 14, fontWeight: 800, color: THEME.teal }}>€{Math.round(totRev).toLocaleString("it-IT")}</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-            </div>
+                  .sort((a, b) => a.start.getTime() - b.start.getTime())
+              }
+              currentTime={currentTime}
+              timeSlots={timeSlots}
+              dayLabels={dayLabels}
+              TIME_COL={TIME_COL}
+              draggingOver={draggingOver}
+              showAvailableOnly={showAvailableOnly}
+              bulkMode={bulkMode}
+              bulkSelected={bulkSelected}
+              searchMatchIds={searchMatchIds}
+              onSlotClick={handleSlotClick}
+              onContextMenu={handleContextMenu}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              getDayEventPosition={getDayEventPosition}
+              getFreeWindows={getFreeWindows}
+              getEventColor={getEventColor}
+              onSelectEvent={(event) => {
+                setSelectedEvent({
+                  id: event.id,
+                  title: event.patient_name,
+                  patient_id: event.patient_id,
+                  location: event.location,
+                  clinic_site: event.clinic_site,
+                  domicile_address: event.domicile_address,
+                  treatment: event.treatment,
+                  diagnosis: event.diagnosis,
+                  amount: event.amount,
+                  treatment_type: event.treatment_type,
+                  price_type: event.price_type,
+                  start: event.start,
+                  end: event.end,
+                });
+                setEditStatus(event.status);
+                setEditNote(event.calendar_note || "");
+                setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
+                setEditTreatmentType((event.treatment_type as "seduta" | "macchinario") || "seduta");
+                setEditPriceType((event.price_type as "invoiced" | "cash") || "invoiced");
+                if (event.patient_id) loadPatientFromEvent(event.patient_id);
+              }}
+              onToggleBulkSelect={toggleBulkSelect}
+              onToggleDone={toggleDoneQuick}
+              onTogglePaid={togglePaidQuick}
+              onSendReminder={sendReminder}
+              onCreateNew={() => openCreateModal(currentDate, 9, 0)}
+            />
           )}
         </div>
       </main>
