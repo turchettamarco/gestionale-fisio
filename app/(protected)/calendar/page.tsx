@@ -67,10 +67,12 @@ import MonthDayPopover from "./components/popovers/MonthDayPopover";
 import DailySummaryDialog from "./components/popovers/DailySummaryDialog";
 import QuickActionsMenu from "./components/popovers/QuickActionsMenu";
 
-// ─── Panels (B2.3, B2.4) ─────────────────────────────────────────────────────
+// ─── Panels (B2.3, B2.4, B2.5) ───────────────────────────────────────────────
 import BookingRequestsPanel from "./components/panels/BookingRequestsPanel";
 import RightSidebar from "./components/panels/RightSidebar";
 import CalendarTopBar from "./components/panels/CalendarTopBar";
+import FiltersPopover from "./components/panels/FiltersPopover";
+import CalendarToolbar from "./components/panels/CalendarToolbar";
 
 export default function CalendarPage() {
   return (
@@ -1002,15 +1004,51 @@ diagnosis: patient?.diagnosis ?? null,
     }
   }, [currentDate, viewType, loadAppointments, clientReady]);
 
-  // filteredEvents: visibili nella vista corrente — disponibile a tutto il componente
+  // filteredEvents: applica TUTTI i filtri attivi (stato, luogo, trattamento,
+  // priceType, range importo) + filtro per data nella vista giorno.
+  // Disponibile a tutto il componente.
   const filteredEvents = useMemo(() => {
-    if (viewType === "week" || viewType === "month") return events;
-    return events.filter(e =>
-      e.start.getDate() === currentDate.getDate() &&
-      e.start.getMonth() === currentDate.getMonth() &&
-      e.start.getFullYear() === currentDate.getFullYear()
-    );
-  }, [events, viewType, currentDate]);
+    // Step 1: filtro per data se vista giorno
+    let result = (viewType === "week" || viewType === "month")
+      ? events
+      : events.filter(e =>
+          e.start.getDate() === currentDate.getDate() &&
+          e.start.getMonth() === currentDate.getMonth() &&
+          e.start.getFullYear() === currentDate.getFullYear()
+        );
+
+    // Step 2: filtro stato
+    if (statusFilter !== "all") {
+      result = result.filter(e => e.status === statusFilter);
+    }
+
+    // Step 3: filtro luogo
+    if (filters.location !== "all") {
+      result = result.filter(e => e.location === filters.location);
+    }
+
+    // Step 4: filtro trattamento
+    if (filters.treatmentType !== "all") {
+      result = result.filter(e => e.treatment_type === filters.treatmentType);
+    }
+
+    // Step 5: filtro priceType
+    if (filters.priceType !== "all") {
+      result = result.filter(e => e.price_type === filters.priceType);
+    }
+
+    // Step 6: filtro range importo
+    const min = filters.minAmount ? Number(filters.minAmount) : null;
+    const max = filters.maxAmount ? Number(filters.maxAmount) : null;
+    if (min !== null && !Number.isNaN(min)) {
+      result = result.filter(e => (e.amount ?? 0) >= min);
+    }
+    if (max !== null && !Number.isNaN(max)) {
+      result = result.filter(e => (e.amount ?? 0) <= max);
+    }
+
+    return result;
+  }, [events, viewType, currentDate, statusFilter, filters]);
 
   const stats = useMemo(() => {
     return {
@@ -2252,433 +2290,47 @@ return (
 
           {/* ── FILTRI AVANZATI — popover ── */}
           {filtersPopoverOpen && (
-            <div className="no-print" style={{ position: "fixed", inset: 0, zIndex: 29 }} onClick={() => setFiltersPopoverOpen(false)}/>
-          )}
-          {filtersPopoverOpen && (
-            <div className="no-print" style={{
-              position: "fixed", top: 70, left: "50%", transform: "translateX(-50%)",
-              zIndex: 30, background: THEME.panelBg, border: `2px solid ${THEME.border}`,
-              borderRadius: 12, padding: "18px 20px", boxShadow: "0 8px 32px rgba(30,64,175,0.14)",
-              width: 540, maxWidth: "96vw",
-            }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: THEME.blue }}>⚙ Filtri</span>
-                <button onClick={() => setFiltersPopoverOpen(false)} style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 16, color: THEME.muted, padding: "2px 6px" }}>✕</button>
-              </div>
-
-              {/* Stato */}
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase" as const, letterSpacing: 0.5, marginBottom: 8 }}>Stato appuntamento</div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const }}>
-                  {(["all", "booked", "confirmed", "done", "not_paid", "cancelled"] as const).map(status => (
-                    <button key={status} onClick={() => setStatusFilter(status as Status | "all")} style={{
-                      padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontWeight: 600, fontSize: 11, transition: "all 0.15s",
-                      border: `1px solid ${statusFilter === status ? statusColor(status as Status) : THEME.borderSoft}`,
-                      background: statusFilter === status ? statusColor(status as Status) : THEME.panelBg,
-                      color: statusFilter === status ? "#fff" : THEME.text,
-                    }}>
-                      {status === "all" ? "Tutti" : statusLabel(status as Status)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Luogo + Trattamento */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase" as const, letterSpacing: 0.5, marginBottom: 6 }}>Luogo</div>
-                  <select value={filters.location} onChange={e => setFilters(p => ({ ...p, location: e.target.value as "all"|"studio"|"domicile" }))}
-                    style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${THEME.borderSoft}`, background: THEME.panelBg, fontSize: 12, fontWeight: 600, color: THEME.text }}>
-                    <option value="all">Tutti i luoghi</option>
-                    <option value="studio">Studio</option>
-                    <option value="domicile">Domicilio</option>
-                  </select>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase" as const, letterSpacing: 0.5, marginBottom: 6 }}>Trattamento</div>
-                  <select value={filters.treatmentType} onChange={e => setFilters(p => ({ ...p, treatmentType: e.target.value as "all" | TreatmentType }))}
-                    style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${THEME.borderSoft}`, background: THEME.panelBg, fontSize: 12, fontWeight: 600, color: THEME.text }}>
-                    <option value="all">Tutti</option>
-                    {ALL_TREATMENTS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              {/* Slot liberi */}
-              <div style={{ borderTop: `1px solid ${THEME.border}`, paddingTop: 14 }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-                  <div style={{
-                    width: 36, height: 20, borderRadius: 999,
-                    background: showAvailableOnly ? THEME.green : THEME.borderSoft,
-                    position: "relative", transition: "background 0.2s", flexShrink: 0,
-                  }}>
-                    <div style={{
-                      width: 16, height: 16, borderRadius: "50%", background: "#fff",
-                      position: "absolute", top: 2,
-                      left: showAvailableOnly ? 18 : 2,
-                      transition: "left 0.2s",
-                      boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
-                    }}/>
-                    <input type="checkbox" checked={showAvailableOnly} onChange={e => setShowAvailableOnly(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }}/>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: THEME.text }}>Mostra finestre libere</div>
-                    <div style={{ fontSize: 11, color: THEME.muted, marginTop: 2 }}>Evidenzia i gap tra appuntamenti in cui puoi inserirne di nuovi</div>
-                  </div>
-                </label>
-              </div>
-
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 16, alignItems: "center" }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted }}>{filteredEvents.length} eventi visibili</div>
-                <button onClick={() => { setFilters({ location: "all", treatmentType: "all", priceType: "all", minAmount: "", maxAmount: "" }); setStatusFilter("all"); setShowAvailableOnly(false); }}
-                  style={{ padding: "6px 14px", borderRadius: 7, border: `1px solid ${THEME.borderSoft}`, background: THEME.panelSoft, color: THEME.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                  Reset tutto
-                </button>
-              </div>
-            </div>
+            <FiltersPopover
+              statusFilter={statusFilter}
+              setStatusFilter={setStatusFilter}
+              filters={filters}
+              setFilters={setFilters}
+              showAvailableOnly={showAvailableOnly}
+              setShowAvailableOnly={setShowAvailableOnly}
+              filteredEventsCount={filteredEvents.length}
+              onClose={() => setFiltersPopoverOpen(false)}
+            />
           )}
 
-          <div className={`no-print sidebar-scroll ${showAllUpcoming ? "show-scrollbar" : ""}`} style={{ 
-            display: "flex", 
-            justifyContent: "space-between", 
-            alignItems: "center", 
-            marginBottom: 16,
-            padding: "12px 16px",
-            background: THEME.panelBg,
-            borderRadius: 8,
-            border: `1.5px solid ${THEME.border}`,
-            top: 0,
-            zIndex: 9,
-          }}>
-            <div style={{ display: "flex", gap: 8 }}>
-              {viewType === "week" ? (
-                <>
-                  <button
-                    onClick={goToPreviousWeek}
-                    style={{
-                      padding: "8px 16px",
-                      borderRadius: 8,
-                      border: `1px solid ${THEME.borderSoft}`,
-                      background: THEME.panelSoft,
-                      color: THEME.text,
-                      cursor: "pointer",
-                      fontWeight: 600,
-                      fontSize: 13,
-                      minWidth: 44,
-                    }}
-                  >
-                    ◀
-                  </button>
-                  <button
-                    onClick={goToToday}
-                    style={{
-                      padding: "8px 16px",
-                      borderRadius: 8,
-                      border: `1px solid ${THEME.blueDark}`,
-                      background: THEME.blue,
-                      color: "#fff",
-                      cursor: "pointer",
-                      fontWeight: 600,
-                      fontSize: 13,
-                    }}
-                  >
-                    Oggi
-                  </button>
-                  <button
-                    onClick={goToNextWeek}
-                    style={{
-                      padding: "8px 16px",
-                      borderRadius: 8,
-                      border: `1px solid ${THEME.borderSoft}`,
-                      background: THEME.panelSoft,
-                      color: THEME.text,
-                      cursor: "pointer",
-                      fontWeight: 600,
-                      fontSize: 13,
-                      minWidth: 44,
-                    }}
-                  >
-                    ▶
-                  </button>
-                </>
-              ) : viewType === "month" ? (
-                <>
-                  <button
-                    onClick={goToPreviousMonth}
-                    style={{
-                      padding: "8px 16px",
-                      borderRadius: 8,
-                      border: `1px solid ${THEME.borderSoft}`,
-                      background: THEME.panelSoft,
-                      color: THEME.text,
-                      cursor: "pointer",
-                      fontWeight: 600,
-                      fontSize: 13,
-                      minWidth: 44,
-                    }}
-                  >
-                    ◀
-                  </button>
-                  <button
-                    onClick={goToToday}
-                    style={{
-                      padding: "8px 16px",
-                      borderRadius: 8,
-                      border: `1px solid ${THEME.blueDark}`,
-                      background: THEME.blue,
-                      color: "#fff",
-                      cursor: "pointer",
-                      fontWeight: 600,
-                      fontSize: 13,
-                    }}
-                  >
-                    Oggi
-                  </button>
-                  <button
-                    onClick={goToNextMonth}
-                    style={{
-                      padding: "8px 16px",
-                      borderRadius: 8,
-                      border: `1px solid ${THEME.borderSoft}`,
-                      background: THEME.panelSoft,
-                      color: THEME.text,
-                      cursor: "pointer",
-                      fontWeight: 600,
-                      fontSize: 13,
-                      minWidth: 44,
-                    }}
-                  >
-                    ▶
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={() => setCurrentDate(prev => addDays(prev, -1))}
-                    style={{
-                      padding: "8px 16px",
-                      borderRadius: 8,
-                      border: `1px solid ${THEME.borderSoft}`,
-                      background: THEME.panelSoft,
-                      color: THEME.text,
-                      cursor: "pointer",
-                      fontWeight: 600,
-                      fontSize: 13,
-                      minWidth: 44,
-                    }}
-                  >
-                    ◀
-                  </button>
-                  <button
-                    onClick={() => setCurrentDate(new Date())}
-                    style={{
-                      padding: "8px 16px",
-                      borderRadius: 8,
-                      border: `1px solid ${THEME.blueDark}`,
-                      background: THEME.blue,
-                      color: "#fff",
-                      cursor: "pointer",
-                      fontWeight: 600,
-                      fontSize: 13,
-                    }}
-                  >
-                    Oggi
-                  </button>
-                  <button
-                    onClick={() => setCurrentDate(prev => addDays(prev, 1))}
-                    style={{
-                      padding: "8px 16px",
-                      borderRadius: 8,
-                      border: `1px solid ${THEME.borderSoft}`,
-                      background: THEME.panelSoft,
-                      color: THEME.text,
-                      cursor: "pointer",
-                      fontWeight: 600,
-                      fontSize: 13,
-                      minWidth: 44,
-                    }}
-                  >
-                    ▶
-                  </button>
-                </>
-              )}
-            </div>
-
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginRight: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: THEME.green, background: "rgba(22, 163, 74, 0.1)", padding: "4px 8px", borderRadius: 6 }}>
-                  ✓ {stats.done}/{stats.total}
-                </div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: THEME.blue, background: "rgba(91,130,168,0.1)", padding: "4px 8px", borderRadius: 6 }}>
-                  €{stats.revenue}
-                </div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: THEME.amber, background: "rgba(245, 158, 11, 0.1)", padding: "4px 8px", borderRadius: 6 }}>
-                  € {Math.round(weeklyExpectedRevenue).toLocaleString("it-IT")} prev.
-                </div>
-              </div>
-
-              {/* Ricerca rapida */}
-              <div style={{ position: "relative" }}>
-                <input
-                  value={calendarSearch}
-                  onChange={(e) => setCalendarSearch(e.target.value)}
-                  placeholder="Cerca paziente..."
-                  style={{
-                    padding: "7px 70px 7px 12px",
-                    borderRadius: 8,
-                    border: isSearchActive ? `2px solid #f59e0b` : `1px solid ${THEME.borderSoft}`,
-                    background: isSearchActive ? "rgba(245,158,11,0.06)" : THEME.panelBg,
-                    color: THEME.text,
-                    fontWeight: 600,
-                    fontSize: 12,
-                    width: 180,
-                    outline: "none",
-                    boxShadow: isSearchActive ? "0 0 8px rgba(245,158,11,0.2)" : "none",
-                  }}
-                />
-                {calendarSearch.trim().length >= 2 && (
-                  <div style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ fontSize: 10, fontWeight: 800, color: searchMatchIds.size > 0 ? "#92400e" : THEME.red, background: searchMatchIds.size > 0 ? "rgba(245,158,11,0.25)" : "rgba(220,38,38,0.1)", padding: "2px 6px", borderRadius: 4 }}>{searchMatchIds.size}</span>
-                    <button onClick={() => setCalendarSearch("")} style={{ width: 18, height: 18, borderRadius: 4, border: "none", background: "rgba(107,114,128,0.15)", color: THEME.muted, cursor: "pointer", fontWeight: 800, fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>✕</button>
-                  </div>
-                )}
-              </div>
-
-              {/* Filtri — bottone che apre il popover */}
-              <button
-                onClick={() => setFiltersPopoverOpen(v => !v)}
-                style={{
-                  padding: "8px 14px", borderRadius: 8,
-                  border: `1.5px solid ${(filters.location !== "all" || filters.treatmentType !== "all" || filters.minAmount || filters.maxAmount) ? THEME.blue : THEME.border}`,
-                  background: (filters.location !== "all" || filters.treatmentType !== "all" || filters.minAmount || filters.maxAmount) ? "rgba(37,99,235,0.08)" : THEME.panelSoft,
-                  color: (filters.location !== "all" || filters.treatmentType !== "all" || filters.minAmount || filters.maxAmount) ? THEME.blue : THEME.text,
-                  cursor: "pointer", fontWeight: 700, fontSize: 12,
-                  display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap" as const,
-                }}
-              >
-                ⚙ Filtri{(filters.location !== "all" || filters.treatmentType !== "all" || filters.minAmount || filters.maxAmount) ? " ●" : ""}
-              </button>
-
-              {/* Menu Azioni — raggruppa CSV, Riepilogo, Bulk */}
-              <div style={{ position: "relative" }}>
-                <button
-                  onClick={() => setActionsMenuOpen(v => !v)}
-                  style={{
-                    padding: "8px 14px", borderRadius: 8,
-                    border: `1px solid ${THEME.border}`,
-                    background: THEME.panelSoft, color: THEME.text,
-                    cursor: "pointer", fontWeight: 700, fontSize: 12,
-                    display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap" as const,
-                  }}
-                >
-                  Azioni {actionsMenuOpen ? "▲" : "▼"}
-                </button>
-                {actionsMenuOpen && (
-                  <>
-                    <div style={{ position: "fixed", inset: 0, zIndex: 9998 }} onClick={() => setActionsMenuOpen(false)}/>
-                    <div style={{
-                      position: "fixed",
-                      top: 120,
-                      right: 28,
-                      background: THEME.panelBg, border: `1.5px solid ${THEME.border}`,
-                      borderRadius: 10, boxShadow: "0 8px 28px rgba(30,64,175,0.18)",
-                      zIndex: 9999, minWidth: 220, overflow: "hidden",
-                    }}>
-                      <button onClick={() => { exportAppointments(); setActionsMenuOpen(false); }}
-                        style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", borderBottom: `1px solid ${THEME.border}`, textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: THEME.text }}>
-                        ▤ Esporta CSV
-                      </button>
-                      <button onClick={() => { setDailySummaryOpen(true); setActionsMenuOpen(false); }}
-                        style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", borderBottom: `1px solid ${THEME.border}`, textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: THEME.text }}>
-                        📋 Riepilogo giornaliero
-                      </button>
-                      <button onClick={() => { setBulkMode(m => !m); setBulkSelected(new Set()); setActionsMenuOpen(false); }}
-                        style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: bulkMode ? THEME.blue : THEME.text }}>
-                        💰 {bulkMode ? `Bulk attivo (${bulkSelected.size})` : "Segna pagati in blocco"}
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* Bulk confirm — visibile solo se bulk attivo e selezione > 0 */}
-              {bulkMode && bulkSelected.size > 0 && (
-                <button onClick={bulkMarkPaid} style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: THEME.green, color: "#fff", cursor: "pointer", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" as const }}>
-                  Segna {bulkSelected.size} pagati
-                </button>
-              )}
-            </div>
-
-            <div style={{ display: "flex", gap: 4 }}>
-              <button
-                onClick={() => {
-                  setViewType("day");
-                  if (viewType !== "day") {
-                    setCurrentDate(new Date());
-                  }
-                }}
-                style={{
-                  padding: "8px 18px",
-                  borderRadius: "8px 0 0 8px",
-                  border: `2px solid ${viewType === "day" ? THEME.blue : THEME.border}`,
-                  background: viewType === "day" ? "linear-gradient(135deg, #0d9488, #2563eb)" : THEME.panelBg,
-                  color: viewType === "day" ? "#93c5fd" : THEME.text,
-                  cursor: "pointer",
-                  fontWeight: 700,
-                  fontSize: 13,
-                  minWidth: 80,
-                  letterSpacing: 0.3,
-                }}
-              >
-                Giorno
-              </button>
-              <button
-                onClick={() => {
-                  setViewType("week");
-                  if (viewType !== "week") {
-                    setCurrentDate(new Date());
-                  }
-                }}
-                style={{
-                  padding: "8px 18px",
-                  borderRadius: 0,
-                  border: `2px solid ${viewType === "week" ? THEME.blue : THEME.border}`,
-                  background: viewType === "week" ? "linear-gradient(135deg, #0d9488, #2563eb)" : THEME.panelBg,
-                  color: viewType === "week" ? "#93c5fd" : THEME.text,
-                  cursor: "pointer",
-                  fontWeight: 700,
-                  fontSize: 13,
-                  minWidth: 80,
-                  letterSpacing: 0.3,
-                }}
-              >
-                Settimana
-              </button>
-              <button
-                onClick={() => {
-                  setViewType("month");
-                  if (viewType !== "month") {
-                    setCurrentDate(new Date());
-                  }
-                }}
-                style={{
-                  padding: "8px 18px",
-                  borderRadius: "0 8px 8px 0",
-                  border: `2px solid ${viewType === "month" ? THEME.blue : THEME.border}`,
-                  background: viewType === "month" ? "linear-gradient(135deg, #0d9488, #2563eb)" : THEME.panelBg,
-                  color: viewType === "month" ? "#93c5fd" : THEME.text,
-                  cursor: "pointer",
-                  fontWeight: 700,
-                  fontSize: 13,
-                  minWidth: 80,
-                  letterSpacing: 0.3,
-                }}
-              >
-                Mese
-              </button>
-            </div>
-          </div>
-
+          {/* ── TOOLBAR settimana / mese / giorno ── */}
+          <CalendarToolbar
+            viewType={viewType}
+            setViewType={setViewType}
+            setCurrentDate={setCurrentDate}
+            onGoToPreviousWeek={goToPreviousWeek}
+            onGoToNextWeek={goToNextWeek}
+            onGoToPreviousMonth={goToPreviousMonth}
+            onGoToNextMonth={goToNextMonth}
+            onGoToToday={goToToday}
+            stats={stats}
+            weeklyExpectedRevenue={weeklyExpectedRevenue}
+            calendarSearch={calendarSearch}
+            setCalendarSearch={setCalendarSearch}
+            isSearchActive={isSearchActive}
+            searchMatchCount={searchMatchIds.size}
+            filters={filters}
+            onToggleFiltersPopover={() => setFiltersPopoverOpen(v => !v)}
+            actionsMenuOpen={actionsMenuOpen}
+            setActionsMenuOpen={setActionsMenuOpen}
+            onExportAppointments={exportAppointments}
+            onOpenDailySummary={() => setDailySummaryOpen(true)}
+            bulkMode={bulkMode}
+            setBulkMode={setBulkMode}
+            bulkSelected={bulkSelected}
+            setBulkSelected={setBulkSelected}
+            onBulkMarkPaid={bulkMarkPaid}
+            showAllUpcoming={showAllUpcoming}
+          />
 
           {viewType === "week" ? (
             <div
