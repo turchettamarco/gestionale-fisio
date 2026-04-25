@@ -18,11 +18,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// Service role per bypassare RLS — questo endpoint è server-side only
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// Service role per bypassare RLS — questo endpoint è server-side only.
+// SICUREZZA: niente fallback su anon_key. Se la SERVICE_ROLE_KEY non è configurata
+// l'endpoint deve fallire in modo controllato (vedi check in GET sotto), per
+// evitare che venga servito con permessi anon (che non vedrebbero gli appuntamenti
+// per via di RLS, ma è meglio rendere l'errore esplicito).
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const supabase =
+  SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+    ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    : null;
 
 // ── Helpers ICS ──────────────────────────────────────────────────────────────
 
@@ -72,6 +79,16 @@ function isValidUUID(str: string): boolean {
 
 export async function GET(req: NextRequest) {
   try {
+    // ─── 0. Verifica configurazione server ────────────────────────────────
+    // Se manca la SERVICE_ROLE_KEY rifiutiamo esplicitamente: niente fallback
+    // su anon_key, che maschererebbe un misconfig grave.
+    if (!supabase) {
+      return new NextResponse(
+        "Servizio temporaneamente non disponibile. Riprova più tardi.",
+        { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } }
+      );
+    }
+
     // ─── 1. Estrai e valida il token ──────────────────────────────────────
     const token = req.nextUrl.searchParams.get("token");
 
