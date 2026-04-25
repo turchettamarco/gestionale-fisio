@@ -74,6 +74,9 @@ import CalendarTopBar from "./components/panels/CalendarTopBar";
 import FiltersPopover from "./components/panels/FiltersPopover";
 import CalendarToolbar from "./components/panels/CalendarToolbar";
 
+// ─── Views (B2.6) ────────────────────────────────────────────────────────────
+import MonthView from "./components/views/MonthView";
+
 export default function CalendarPage() {
   return (
     <Suspense fallback={<div style={{ padding: 40, textAlign: "center", color: "#7b8fa3", fontFamily: "Inter, -apple-system, sans-serif", fontSize: 15 }}>Caricamento calendario…</div>}>
@@ -2844,170 +2847,17 @@ return (
             </div>
           ) : viewType === "month" ? (
             /* ━━━ MONTH VIEW — COMPACT ━━━ */
-            <div
-              style={{
-                background: THEME.panelBg,
-                border: `2px solid ${THEME.border}`,
-                borderRadius: 12,
-                overflow: "hidden",
-                boxShadow: "0 2px 12px rgba(30,64,175,0.06)",
-              }}
-            >
-              {/* Month header */}
-              <div style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(7, 1fr)",
-                background: "linear-gradient(135deg, #0d9488, #2563eb)",
-                borderRadius: "10px 10px 0 0",
-              }}>
-                {["LUN", "MAR", "MER", "GIO", "VEN", "SAB", "DOM"].map(d => (
-                  <div key={d} style={{
-                    padding: "8px 4px",
-                    textAlign: "center",
-                    fontSize: 10,
-                    fontWeight: 700,
-                    color: "rgba(255,255,255,0.8)",
-                    letterSpacing: 1,
-                  }}>{d}</div>
-                ))}
-              </div>
-
-              {/* Month grid */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
-                {monthDays.map((day, idx) => {
-                  const isCurrentMonth = day.getMonth() === currentDate.getMonth();
-                  const isToday = day.getDate() === new Date().getDate() && day.getMonth() === new Date().getMonth() && day.getFullYear() === new Date().getFullYear();
-                  const dayKey = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`;
-                  const dayEvents = monthEvents.get(dayKey) || [];
-                  const isSunday = day.getDay() === 0;
-
-                  return (
-                    <div
-                      key={idx}
-                      onClick={() => {
-                        // Single click = crea appuntamento (con delay per distinguere dal doppio click)
-                        if (monthClickTimer.current) clearTimeout(monthClickTimer.current);
-                        monthClickTimer.current = setTimeout(() => {
-                          monthClickTimer.current = null;
-                          openCreateModal(day);
-                        }, 280);
-                      }}
-                      onDoubleClick={() => {
-                        // Doppio click = vai a vista giorno
-                        if (monthClickTimer.current) {
-                          clearTimeout(monthClickTimer.current);
-                          monthClickTimer.current = null;
-                        }
-                        setCurrentDate(day);
-                        setViewType("day");
-                      }}
-                      data-month-cell="true"
-                      style={{
-                        minHeight: 130,
-                        padding: "3px 4px",
-                        borderRight: `1px solid ${THEME.borderSoft}`,
-                        borderBottom: `1px solid ${THEME.borderSoft}`,
-                        background: isToday ? "rgba(37,99,235,0.06)" : isSunday ? "rgba(107,114,128,0.04)" : "transparent",
-                        cursor: "pointer",
-                        opacity: isCurrentMonth ? 1 : 0.35,
-                        transition: "background 0.15s",
-                      }}
-                      onMouseEnter={(e) => { if (!isToday) e.currentTarget.style.background = "rgba(37,99,235,0.04)"; }}
-                      onMouseLeave={(e) => { if (!isToday) e.currentTarget.style.background = isSunday ? "rgba(107,114,128,0.04)" : "transparent"; }}
-                    >
-                      {/* Day number row — compact */}
-                      <div style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        marginBottom: 2,
-                        lineHeight: 1,
-                      }}>
-                        <span style={{
-                          fontSize: 11,
-                          fontWeight: isToday ? 800 : 600,
-                          color: isToday ? "#fff" : isSunday ? THEME.muted : THEME.text,
-                          ...(isToday ? {
-                            background: THEME.blue,
-                            borderRadius: "50%",
-                            width: 20,
-                            height: 20,
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                          } : {}),
-                        }}>
-                          {day.getDate()}
-                        </span>
-                        {dayEvents.length > 0 && (
-                          <span style={{ fontSize: 9, fontWeight: 700, color: THEME.muted }}>
-                            {dayEvents.length}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Events list — ultra compact */}
-                      <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                        {dayEvents.slice(0, 10).map((ev, i) => {
-                          const isMatch = searchMatchIds.has(ev.id);
-                          const isDimmed = isSearchActive && !isMatch;
-                          return (
-                          <div key={i}
-                            className={isMatch ? "search-highlight" : isDimmed ? "search-dimmed" : ""}
-                            title={`${ev.patient_name} · ${fmtTime(ev.start.toISOString())} – ${fmtTime(ev.end.toISOString())} · ${statusLabel(ev.status)}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                              setMonthPopover({
-                                day,
-                                events: dayEvents,
-                                x: rect.right + 8,
-                                y: rect.top,
-                              });
-                            }}
-                            style={{
-                              fontSize: isMatch ? 9.5 : 8.5,
-                              fontWeight: isMatch ? 800 : 700,
-                              color: isMatch ? "#92400e" : "#fff",
-                              overflow: "hidden",
-                              whiteSpace: "nowrap",
-                              textOverflow: "ellipsis",
-                              padding: isMatch ? "2px 4px" : "2px 4px",
-                              borderRadius: 3,
-                              background: isMatch ? "rgba(245,158,11,0.35)" : statusColor(ev.status),
-                              lineHeight: 1.3,
-                              position: "relative",
-                              zIndex: isMatch ? 5 : 0,
-                              cursor: "pointer",
-                            }}>
-                              {ev.location === "domicile" && "🏠 "}{fmtTime(ev.start.toISOString())} {ev.patient_name}
-                          </div>
-                          );
-                        })}
-                        {dayEvents.length > 10 && (
-                          <span style={{ fontSize: 8, fontWeight: 700, color: THEME.muted, paddingLeft: 3 }}>+{dayEvents.length - 10}</span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              {/* Hint */}
-              <div style={{
-                padding: "8px 12px",
-                fontSize: 11,
-                fontWeight: 600,
-                color: THEME.muted,
-                borderTop: `1px solid ${THEME.borderSoft}`,
-                display: "flex",
-                justifyContent: "center",
-                gap: 16,
-              }}>
-                <span>Click = nuovo appuntamento</span>
-                <span>•</span>
-                <span>Doppio click = vista giorno</span>
-              </div>
-            </div>
+            <MonthView
+              monthDays={monthDays}
+              monthEvents={monthEvents}
+              currentDate={currentDate}
+              monthClickTimer={monthClickTimer}
+              onOpenCreateModal={(day) => openCreateModal(day)}
+              onGoToDayView={(day) => { setCurrentDate(day); setViewType("day"); }}
+              onOpenMonthPopover={setMonthPopover}
+              isSearchActive={isSearchActive}
+              searchMatchIds={searchMatchIds}
+            />
           ) : (
             /* ━━━ DAY VIEW — timeline + sidebar ━━━ */
             <div style={{ display: "flex", gap: 0, background: THEME.panelBg, border: `2px solid ${THEME.border}`, borderRadius: 12, minHeight: 600, overflow: "clip", boxShadow: "0 2px 12px rgba(30,64,175,0.06)" }}>
