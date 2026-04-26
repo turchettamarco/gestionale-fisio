@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
 
     const { data: appt, error: apptErr } = await db
       .from("appointments")
-      .select("id, start_at, status, location, clinic_site, domicile_address, studio_id, patients(first_name,last_name)")
+      .select("id, start_at, status, location, clinic_site, domicile_address, studio_id, patient_id, patients(first_name,last_name)")
       .eq("id", tk.appointment_id)
       .maybeSingle();
 
@@ -68,6 +68,36 @@ export async function GET(req: NextRequest) {
       studio = studioRes.data || null;
     }
 
+    // ─── Lista appuntamenti futuri del paziente (max 30 giorni) ─────────
+    // Include solo: stesso patient_id, da oggi 00:00 a +30 giorni,
+    // esclusi cancelled e done (sono "chiusi", niente da fare).
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const horizon = new Date(startOfToday);
+    horizon.setDate(horizon.getDate() + 30);
+
+    let appointments_list: Array<{
+      id: string;
+      start_at: string;
+      status: string;
+      location: string | null;
+      clinic_site: string | null;
+      domicile_address: string | null;
+    }> = [];
+
+    if ((appt as any).patient_id) {
+      const listRes = await db
+        .from("appointments")
+        .select("id, start_at, status, location, clinic_site, domicile_address")
+        .eq("patient_id", (appt as any).patient_id)
+        .in("status", ["booked", "confirmed", "not_paid"])
+        .gte("start_at", startOfToday.toISOString())
+        .lte("start_at", horizon.toISOString())
+        .order("start_at", { ascending: true });
+
+      appointments_list = (listRes.data ?? []) as typeof appointments_list;
+    }
+
     return NextResponse.json({
       id: appt.id,
       start_at: appt.start_at,
@@ -76,8 +106,10 @@ export async function GET(req: NextRequest) {
       clinic_site: appt.clinic_site,
       domicile_address: appt.domicile_address,
       patient: Array.isArray(appt.patients) ? appt.patients[0] : appt.patients,
+      patient_id: (appt as any).patient_id,
       already_used: !!tk.used_at,
       studio,
+      appointments_list,
     });
   } catch (e: any) {
     console.error("[confirm GET] exception:", e?.message);
@@ -128,8 +160,13 @@ export async function POST(req: NextRequest) {
     }
 
     // CASO 2: conferma o annulla
+    // body: { token, action, appointment_id? }
+    //   - action: "confirm" | "cancel"
+    //   - appointment_id (opzionale): se presente, agisce su quell'appuntamento
+    //     invece che su quello del token. Verifica che appartenga allo
+    //     STESSO paziente del token (sicurezza).
     if (body.token && body.action) {
-      const { token, action } = body;
+      const { token, action, appointment_id: targetApptId } = body;
 
       if (action !== "confirm" && action !== "cancel") {
         return NextResponse.json({ error: "Azione non valida" }, { status: 400 });
@@ -146,21 +183,53 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Link scaduto" }, { status: 410 });
       }
 
+      // Determino su QUALE appuntamento agire: quello del token, oppure
+      // quello richiesto dal client (appointment_id nel body).
+      let actOnApptId: string = tk.appointment_id;
+
+      if (targetApptId && targetApptId !== tk.appointment_id) {
+        // Verifica sicurezza: l'appuntamento target deve essere dello
+        // stesso paziente di quello del token.
+        const { data: tokenAppt } = await db
+          .from("appointments")
+          .select("patient_id")
+          .eq("id", tk.appointment_id)
+          .maybeSingle();
+        const { data: targetAppt } = await db
+          .from("appointments")
+          .select("patient_id")
+          .eq("id", targetApptId)
+          .maybeSingle();
+
+        if (!tokenAppt || !targetAppt) {
+          return NextResponse.json({ error: "Appuntamento non trovato" }, { status: 404 });
+        }
+        if ((tokenAppt as any).patient_id !== (targetAppt as any).patient_id) {
+          return NextResponse.json({ error: "Operazione non consentita" }, { status: 403 });
+        }
+        actOnApptId = targetApptId;
+      }
+
       const newStatus = action === "cancel" ? "cancelled" : "confirmed";
 
       const { error: updErr } = await db
         .from("appointments")
         .update({ status: newStatus })
-        .eq("id", tk.appointment_id);
+        .eq("id", actOnApptId);
 
       if (updErr) throw updErr;
 
-      await db
-        .from("confirm_tokens")
-        .update({ used_at: new Date().toISOString(), last_action: action })
-        .eq("token", token);
+      // Marca il token "usato" solo se l'azione è sull'appuntamento PROPRIO del token.
+      // Per gli altri appuntamenti del paziente, il token resta valido (così può
+      // continuare a confermare/annullare anche gli altri).
+      if (actOnApptId === tk.appointment_id) {
+        await db
+          .from("confirm_tokens")
+          .update({ used_at: new Date().toISOString(), last_action: action })
+          .eq("token", token);
+      }
 
-      return NextResponse.json({ ok: true, status: newStatus });
+      return NextResponse.json({ ok: true, status: newStatus, appointment_id: actOnApptId });
     }
 
     return NextResponse.json({ error: "Richiesta non valida" }, { status: 400 });
