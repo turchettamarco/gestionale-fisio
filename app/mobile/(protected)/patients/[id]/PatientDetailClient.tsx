@@ -33,6 +33,7 @@ import { ClinicalScalesSection } from "@/app/(protected)/patients/[id]/ClinicalS
 import { SOAPNotesEditor } from "@/app/(protected)/calendar/components/SOAPNotes";
 import { PhotoGallerySection } from "@/app/(protected)/patients/[id]/PhotoGallery";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
+import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 
 /* ─── Types ───────────────────────────────────────────────────────────── */
 type Plan   = "invoice" | "no_invoice";
@@ -329,15 +330,23 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
 
       const { data } = await supabase
         .from("practice_settings")
-        .select("birthday_message, payment_message")
+        .select("birthday_message, payment_message, weekly_reminder_message")
         .eq("owner_id", ownerId)
         .maybeSingle();
       if (data) {
         setBirthdayTpl((data as any).birthday_message ?? null);
         setPaymentTpl((data as any).payment_message ?? null);
+        const wTpl = ((data as any).weekly_reminder_message ?? "").trim();
+        if (wTpl) setWeeklyReminderTemplate(wTpl);
       }
     })();
   }, []);
+
+  /* Promemoria settimanale */
+  const [weeklyReminderOpen, setWeeklyReminderOpen] = useState(false);
+  const [weeklyReminderTemplate, setWeeklyReminderTemplate] = useState<string>(
+    `Ciao {nome},\n\nti ricordo i prossimi appuntamenti:\n\n{lista_appuntamenti}\n\nA presto,\n{firma}`
+  );
 
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState("");
@@ -879,6 +888,31 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
             />
           );
         })()}
+
+        {/* Promemoria settimana — solo se il paziente ha telefono */}
+        {patient.phone && (
+          <button
+            onClick={() => setWeeklyReminderOpen(true)}
+            style={{
+              width: "100%",
+              marginTop: 8,
+              padding: "10px 14px",
+              borderRadius: 10,
+              border: `1.5px solid ${T.green}`,
+              background: T.panelSoft,
+              color: T.green,
+              fontWeight: 700,
+              fontSize: 13,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+            }}
+          >
+            📲 Promemoria settimana
+          </button>
+        )}
       </div>
 
       {/* ━━━ TABS ━━━ */}
@@ -1419,6 +1453,23 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
           </div>
         )}
       </div>
+
+      {/* Promemoria settimanale aggregato */}
+      <WeeklyReminderDialog
+        open={weeklyReminderOpen}
+        onClose={() => setWeeklyReminderOpen(false)}
+        patientId={patientId}
+        patientFirstName={patient?.first_name ?? ""}
+        patientPhone={patient?.phone ?? null}
+        appointments={appointments.map(a => ({
+          patient_id: patientId,
+          start: new Date(a.start_at),
+          status: a.status,
+        }))}
+        template={weeklyReminderTemplate}
+        signatureName={currentStudio?.signature_name}
+        signatureTitle={currentStudio?.signature_title}
+      />
     </div>
   );
 }

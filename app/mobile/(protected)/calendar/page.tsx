@@ -32,6 +32,7 @@ import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { buildReminderMessage } from "@/app/(protected)/calendar/utils/reminderMessage";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
+import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 
 /* ─── Types ───────────────────────────────────────────────────────────── */
 type Status = "booked" | "confirmed" | "done" | "cancelled" | "not_paid";
@@ -274,6 +275,22 @@ function CalendarPageInner() {
   const [editTime,      setEditTime]      = useState("09:00");
   const [editDuration,  setEditDuration]  = useState(60);
 
+  /* Promemoria settimanale aggregato (1 messaggio = N appuntamenti). */
+  const [weeklyReminderTarget, setWeeklyReminderTarget] = useState<{
+    patientId: string;
+    patientFirstName: string;
+    patientPhone: string | null;
+    appointments: Array<{
+      patient_id: string;
+      start: Date;
+      end: Date;
+      status: string | null;
+    }>;
+  } | null>(null);
+  const [weeklyReminderTemplate, setWeeklyReminderTemplate] = useState<string>(
+    `Ciao {nome},\n\nti ricordo i prossimi appuntamenti:\n\n{lista_appuntamenti}\n\nA presto,\n{firma}`
+  );
+
   // Cache link conferma e template (per apertura sincrona WA su iOS)
   const [confirmLinks, setConfirmLinks] = useState<Record<string, string>>({});
   const [reminderTplCache, setReminderTplCache] = useState<string | null>(null);
@@ -329,11 +346,13 @@ function CalendarPageInner() {
       // Load default appointment status filtrato per owner
       const { data } = await supabase
         .from("practice_settings")
-        .select("default_appointment_status, overlap_mode")
+        .select("default_appointment_status, overlap_mode, weekly_reminder_message")
         .eq("owner_id", ownerId)
         .maybeSingle();
       if (data?.default_appointment_status) setDefaultStatus(data.default_appointment_status as "confirmed"|"booked");
       if (data?.overlap_mode) setOverlapMode(data.overlap_mode as "block"|"warn"|"visual");
+      const tpl = ((data as { weekly_reminder_message?: string | null } | null)?.weekly_reminder_message ?? "").trim();
+      if (tpl) setWeeklyReminderTemplate(tpl);
     })().catch(() => {});
   }, []);
   useEffect(() => {
@@ -693,6 +712,53 @@ function CalendarPageInner() {
     setEvents(prev=>prev.map(ev=>ev.id===appointmentId?{...ev,whatsapp_sent_at:nowIso}:ev));
     setSelectedEvent(prev=>prev?.id===appointmentId?{...prev,whatsapp_sent_at:nowIso}:prev);
   }, [events, confirmLinks, reminderTplCache, confirmTplCache, currentStudio]);
+
+  /**
+   * Apre il dialog "Promemoria settimana": carica TUTTI gli appuntamenti
+   * futuri del paziente (max 30 giorni) — non si limita a quelli della
+   * settimana visibile in `events`.
+   */
+  const openWeeklyReminder = useCallback(async (
+    patientId: string,
+    firstName: string,
+    phone: string | null,
+  ) => {
+    try {
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+      const horizon = new Date(startOfToday);
+      horizon.setDate(horizon.getDate() + 30);
+
+      const { data, error } = await supabase
+        .from("appointments")
+        .select("id, start_at, end_at, status, patient_id")
+        .eq("patient_id", patientId)
+        .gte("start_at", startOfToday.toISOString())
+        .lte("start_at", horizon.toISOString())
+        .order("start_at", { ascending: true });
+
+      if (error) {
+        alert(`Errore caricamento appuntamenti: ${error.message}`);
+        return;
+      }
+
+      const mapped = (data ?? []).map(a => ({
+        patient_id: a.patient_id as string,
+        start: new Date(a.start_at as string),
+        end: new Date(a.end_at as string),
+        status: (a.status ?? null) as string | null,
+      }));
+
+      setWeeklyReminderTarget({
+        patientId,
+        patientFirstName: firstName,
+        patientPhone: phone,
+        appointments: mapped,
+      });
+    } catch (e) {
+      alert(`Errore: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, []);
 
   /* ── Open / Save / Delete ────────────────── */
   const openEvent = useCallback((ev:CalendarEvent) => {
@@ -1823,6 +1889,21 @@ function CalendarPageInner() {
                 💬 WhatsApp
               </LightBtn>
               {selectedEvent.patient_id && (
+                <LightBtn v="wa"
+                  onClick={()=>{
+                    if (!selectedEvent.patient_id) return;
+                    setSelectedEvent(null);
+                    openWeeklyReminder(
+                      selectedEvent.patient_id,
+                      selectedEvent.patient_first_name ?? "",
+                      selectedEvent.patient_phone ?? null,
+                    );
+                  }}
+                  disabled={!normalizePhone(selectedEvent.patient_phone)}>
+                  📲 Settimana
+                </LightBtn>
+              )}
+              {selectedEvent.patient_id && (
                 <LightBtn v="ghost"
                   onClick={()=>router.push(`/mobile/patients/${selectedEvent.patient_id}`)}>
                   👤 Scheda paziente
@@ -1992,6 +2073,19 @@ function CalendarPageInner() {
       <style dangerouslySetInnerHTML={{__html:`
         @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
       `}} />
+
+      {/* Promemoria settimanale aggregato (1 messaggio = N appuntamenti) */}
+      <WeeklyReminderDialog
+        open={!!weeklyReminderTarget}
+        onClose={() => setWeeklyReminderTarget(null)}
+        patientId={weeklyReminderTarget?.patientId ?? ""}
+        patientFirstName={weeklyReminderTarget?.patientFirstName ?? ""}
+        patientPhone={weeklyReminderTarget?.patientPhone ?? null}
+        appointments={weeklyReminderTarget?.appointments ?? []}
+        template={weeklyReminderTemplate}
+        signatureName={currentStudio?.signature_name}
+        signatureTitle={currentStudio?.signature_title}
+      />
     </div>
   );
 }
