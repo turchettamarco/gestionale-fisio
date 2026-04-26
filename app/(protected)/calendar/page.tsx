@@ -4,6 +4,7 @@ import Link from "next/link";
 import { BuildInfo } from "@/src/components/BuildInfo";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
+import { translateError } from "@/src/lib/translateError";
 import { SOAPNotesEditor } from "./components/SOAPNotes";
 
 import { useSearchParams } from "next/navigation";
@@ -986,7 +987,7 @@ diagnosis: patient?.diagnosis ?? null,
       if (retryCount < 2) {
         setTimeout(() => loadAppointments(startDate, endDate, retryCount + 1), 1000);
       } else {
-        setError(`Errore caricamento: ${err instanceof Error ? err.message : "connessione fallita"}`);
+        setError(`Errore caricamento: ${translateError(err)}`);
         setLoading(false);
       }
     }
@@ -1133,7 +1134,7 @@ diagnosis: patient?.diagnosis ?? null,
         .from("booking_requests")
         .update({ status: "confirmed" })
         .eq("id", req.id);
-      if (updErr) { alert("Errore aggiornamento: " + updErr.message); return; }
+      if (updErr) { alert(`Errore aggiornamento: ${translateError(updErr)}`); return; }
 
       // 2. Crea appuntamento — stesso metodo usato dal form del calendario
       const timeStr = req.requested_time.slice(0, 5); // "HH:MM"
@@ -1171,7 +1172,7 @@ diagnosis: patient?.diagnosis ?? null,
         calendar_note:    note,
         studio_id:        currentStudioId,  // multi-tenancy
       });
-      if (insErr) { alert("Errore creazione appuntamento: " + insErr.message); return; }
+      if (insErr) { alert(`Errore creazione appuntamento: ${translateError(insErr)}`); return; }
 
       await loadBookingRequests();
       // Ricarica il calendario sulla settimana corrente
@@ -1353,7 +1354,7 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
     for (const id of ids) {
       const { error } = await supabase.from("appointments").update({ is_paid: true }).eq("id", id);
       if (error) {
-        setError(`Errore aggiornamento: ${error.message}`);
+        setError(`Errore aggiornamento: ${translateError(error)}`);
         return;
       }
     }
@@ -1508,7 +1509,7 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
     setSearching(false);
 
     if (error) {
-      setError(`Errore ricerca paziente: ${error.message}`);
+      setError(`Errore ricerca paziente: ${translateError(error)}`);
       setPatientResults([]);
       return;
     }
@@ -1568,7 +1569,7 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
     const { error } = await supabase.from("appointments").update({ status: next, is_paid: next === "done" }).eq("id", apptId);
 
     if (error) {
-      setError(`Errore aggiornamento stato: ${error.message}`);
+      setError(`Errore aggiornamento stato: ${translateError(error)}`);
       return;
     }
 
@@ -1581,7 +1582,7 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
     setError("");
     const { error } = await supabase.from("appointments").update({ is_paid: !currentlyPaid }).eq("id", apptId);
     if (error) {
-      setError(`Errore aggiornamento pagamento: ${error.message}`);
+      setError(`Errore aggiornamento pagamento: ${translateError(error)}`);
       return;
     }
     const startOfWeek = startOfISOWeekMonday(currentDate);
@@ -1631,8 +1632,7 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
         setError("Paziente creato con successo! Ora puoi creare l'appuntamento.");
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(`Errore creazione paziente: ${msg}`);
+      setError(`Errore creazione paziente: ${translateError(err)}`);
     } finally {
       setCreatingQuickPatient(false);
     }
@@ -1813,8 +1813,7 @@ A presto${firma ? `,\n${firma}` : ""}`;
     await loadAppointments(startOfWeek, endOfWeek);
     
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "Errore sconosciuto";
-    setError(`Errore creazione appuntamento: ${msg}`);
+    setError(`Errore creazione appuntamento: ${translateError(e)}`);
   } finally {
     setCreating(false);
   }
@@ -1906,7 +1905,7 @@ A presto${firma ? `,\n${firma}` : ""}`;
       .eq("id", selectedEvent.id);
 
     if (error) {
-      setError(`Errore salvataggio: ${error.message}`);
+      setError(`Errore salvataggio: ${translateError(error)}`);
       return;
     }
 
@@ -1915,8 +1914,7 @@ A presto${firma ? `,\n${firma}` : ""}`;
     const endOfWeek = addDays(startOfWeek, 7);
     await loadAppointments(startOfWeek, endOfWeek);
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    setError(`Errore salvataggio: ${msg}`);
+    setError(`Errore salvataggio: ${translateError(err)}`);
   }
 }, [selectedEvent, editStatus, editNote, editAmount, editTreatmentType, editPriceType, editDate, editStartTime, editDuration, currentDate, loadAppointments]);
 
@@ -1931,7 +1929,7 @@ A presto${firma ? `,\n${firma}` : ""}`;
     const { error } = await supabase.from("appointments").delete().eq("id", selectedEvent.id);
 
     if (error) {
-      setError(`Errore eliminazione: ${error.message}`);
+      setError(`Errore eliminazione: ${translateError(error)}`);
       return;
     }
 
@@ -2040,7 +2038,7 @@ A presto${firma ? `,\n${firma}` : ""}`;
       .eq("id", apptId);
 
     if (error) {
-      setError(`Errore spostamento: ${error.message}`);
+      setError(`Errore spostamento: ${translateError(error)}`);
     } else {
       const startOfWeek = startOfISOWeekMonday(currentDate);
       const endOfWeek = addDays(startOfWeek, 7);

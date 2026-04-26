@@ -4,6 +4,7 @@ import Link from "next/link";
 import { BuildInfo } from "@/src/components/BuildInfo";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
+import { translateError } from "@/src/lib/translateError";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter } from "@/src/lib/pdfHeader";
 import { ClinicalScalesSection } from "./ClinicalScales";
@@ -962,7 +963,7 @@ export default function PatientDetailPage({
       .select("id, first_name, last_name, phone, birth_date, birth_place, tax_code, residence_city, preferred_plan, anamnesis, diagnosis, treatment, patient_status, acquisition_channel, first_visit_date, main_complaint, body_region, side, pathology_type, medical_diagnosis, expected_frequency, package_size")
       .eq("id", patientId)
       .single();
-    if (res.error) { setError(res.error.message); setPatient(null); setLoading(false); return; }
+    if (res.error) { setError(translateError(res.error)); setPatient(null); setLoading(false); return; }
     const p = res.data as Patient;
     setPatient(p);
     hydrateFromPatient(p);
@@ -978,7 +979,7 @@ export default function PatientDetailPage({
       .select("id, patient_id, doc_type, report_text, file_name, storage_path, uploaded_at")
       .eq("patient_id", patientId)
       .order("uploaded_at", { ascending: false });
-    if (res.error) { setError(res.error.message); setClinicalDocs([]); }
+    if (res.error) { setError(translateError(res.error)); setClinicalDocs([]); }
     else setClinicalDocs((res.data ?? []) as ClinicalDocument[]);
     setLoadingClinicalDocs(false);
   }
@@ -991,7 +992,7 @@ export default function PatientDetailPage({
       .select("id, start_at, end_at, status, is_paid, amount, calendar_note")
       .eq("patient_id", patientId)
       .order("start_at", { ascending: false });
-    if (res.error) { setError(res.error.message); setAppointments([]); setLoadingAppts(false); return; }
+    if (res.error) { setError(translateError(res.error)); setAppointments([]); setLoadingAppts(false); return; }
     setAppointments((res.data ?? []) as AppointmentRow[]);
     const map: Record<string, string> = {};
     (res.data ?? []).forEach((r: any) => { map[r.id] = (r.calendar_note ?? "") as string; });
@@ -1007,7 +1008,7 @@ export default function PatientDetailPage({
       .select("id, patient_id, doc_type, file_name, storage_path, uploaded_at")
       .eq("patient_id", patientId)
       .order("uploaded_at", { ascending: false });
-    if (res.error) { setError(res.error.message); setDocs([]); }
+    if (res.error) { setError(translateError(res.error)); setDocs([]); }
     else setDocs((res.data ?? []) as PatientDoc[]);
     setLoadingDocs(false);
   }
@@ -1090,7 +1091,7 @@ export default function PatientDetailPage({
       treatment:  treatment.trim() || null,
     }).eq("id", patientId);
     setSavingClinical(false);
-    if (res.error) { setError(res.error.message); return; }
+    if (res.error) { setError(translateError(res.error)); return; }
     await loadPatient();
   }
 
@@ -1109,7 +1110,7 @@ export default function PatientDetailPage({
     const safeOriginal = f.name.replace(/[^\w.\-() ]+/g, "_");
     const path = `clinical_docs/${patientId}/${Date.now()}_${safeOriginal}`;
     const uploadRes = await supabase.storage.from("patient_docs").upload(path, f, { upsert: false });
-    if (uploadRes.error) { setError(`Upload fallito: ${uploadRes.error.message}`); setSavingClinicalDoc(null); return; }
+    if (uploadRes.error) { setError(`Upload fallito: ${translateError(uploadRes.error)}`); setSavingClinicalDoc(null); return; }
     const displayName = clinicalUploadTitle.trim() || f.name;
     const ins = await supabase.from("clinical_documents").insert({
       patient_id:  patientId,
@@ -1120,7 +1121,7 @@ export default function PatientDetailPage({
       uploaded_at: new Date().toISOString(),
       studio_id:   currentStudio?.id,          // ← FIX: richiesto da RLS multi-tenant
     });
-    if (ins.error) { setError(`Errore DB: ${ins.error.message}`); setSavingClinicalDoc(null); return; }
+    if (ins.error) { setError(`Errore DB: ${translateError(ins.error)}`); setSavingClinicalDoc(null); return; }
     setClinicalUploadTitle("");
     setClinicalUploadFile(null);
     await loadClinicalDocs();
@@ -1131,7 +1132,7 @@ export default function PatientDetailPage({
     if (!doc.storage_path) { setError("Nessun file associato."); return; }
     setError("");
     const res = await supabase.storage.from("patient_docs").createSignedUrl(doc.storage_path, 60);
-    if (res.error || !res.data?.signedUrl) { setError(`Impossibile aprire: ${res.error?.message ?? "signed url missing"}`); return; }
+    if (res.error || !res.data?.signedUrl) { setError(`Impossibile aprire: ${res.error ? translateError(res.error) : "URL firmato non disponibile"}`); return; }
     window.open(res.data.signedUrl, "_blank", "noopener,noreferrer");
   }
 
@@ -1139,10 +1140,10 @@ export default function PatientDetailPage({
     if (!window.confirm(`Eliminare il documento "${clinicalDocTypeLabel(doc.doc_type)}"?`)) return;
     setError("");
     const delRow = await supabase.from("clinical_documents").delete().eq("id", doc.id);
-    if (delRow.error) { setError(delRow.error.message); return; }
+    if (delRow.error) { setError(translateError(delRow.error)); return; }
     if (doc.storage_path) {
       const delObj = await supabase.storage.from("patient_docs").remove([doc.storage_path]);
-      if (delObj.error) setError(`Record eliminato, ma file non rimosso: ${delObj.error.message}`);
+      if (delObj.error) setError(`Record eliminato, ma file non rimosso: ${translateError(delObj.error)}`);
     }
     await loadClinicalDocs();
   }
@@ -1153,7 +1154,7 @@ export default function PatientDetailPage({
     const note = (notesByApptId[apptId] ?? "").trim();
     const res = await supabase.from("appointments").update({ calendar_note: note || null }).eq("id", apptId);
     setNoteBusyByApptId(m => ({ ...m, [apptId]: false }));
-    if (res.error) setError(res.error.message);
+    if (res.error) setError(translateError(res.error));
   }
 
   function applyNoteTemplate(apptId: string) {
@@ -1168,7 +1169,7 @@ export default function PatientDetailPage({
     if (status !== "done") payload.is_paid = false;
     const res = await supabase.from("appointments").update(payload).eq("id", apptId);
     setRowBusy(m => ({ ...m, [apptId]: false }));
-    if (res.error) { setError(res.error.message); return; }
+    if (res.error) { setError(translateError(res.error)); return; }
     await loadAppointments();
   }
 
@@ -1177,7 +1178,7 @@ export default function PatientDetailPage({
     setRowBusy(m => ({ ...m, [apptId]: true }));
     const res = await supabase.from("appointments").update({ is_paid: newValue }).eq("id", apptId);
     setRowBusy(m => ({ ...m, [apptId]: false }));
-    if (res.error) { setError(res.error.message); return; }
+    if (res.error) { setError(translateError(res.error)); return; }
     await loadAppointments();
   }
 
@@ -1188,9 +1189,9 @@ export default function PatientDetailPage({
     const safeName = file.name.replace(/[^\w.\-() ]+/g, "_");
     const path = `${patientId}/${Date.now()}_${safeName}`;
     const up = await supabase.storage.from("patient_docs").upload(path, file, { upsert: false });
-    if (up.error) { setError(`Upload fallito: ${up.error.message}`); setUploading(false); return; }
+    if (up.error) { setError(`Upload fallito: ${translateError(up.error)}`); setUploading(false); return; }
     const ins = await supabase.from("patient_documents").insert({ patient_id: patientId, doc_type: docType, file_name: file.name, storage_path: path, studio_id: currentStudio?.id });
-    if (ins.error) { setError(`Errore DB: ${ins.error.message}`); setUploading(false); return; }
+    if (ins.error) { setError(`Errore DB: ${translateError(ins.error)}`); setUploading(false); return; }
     setFile(null);
     setUploading(false);
     await loadDocs();
@@ -1199,7 +1200,7 @@ export default function PatientDetailPage({
   async function openDocument(doc: PatientDoc) {
     setError("");
     const res = await supabase.storage.from("patient_docs").createSignedUrl(doc.storage_path, 60);
-    if (res.error || !res.data?.signedUrl) { setError(`Impossibile aprire: ${res.error?.message ?? "signed url missing"}`); return; }
+    if (res.error || !res.data?.signedUrl) { setError(`Impossibile aprire: ${res.error ? translateError(res.error) : "URL firmato non disponibile"}`); return; }
     const isHtml = doc.file_name?.endsWith(".html") || doc.storage_path?.endsWith(".html");
     if (isHtml) {
       // Fetch content and open as proper HTML blob so the browser renders it
@@ -1218,9 +1219,9 @@ export default function PatientDetailPage({
     if (!window.confirm("Eliminare questo documento? (DB + Storage)")) return;
     setError("");
     const delRow = await supabase.from("patient_documents").delete().eq("id", doc.id);
-    if (delRow.error) { setError(delRow.error.message); return; }
+    if (delRow.error) { setError(translateError(delRow.error)); return; }
     const delObj = await supabase.storage.from("patient_docs").remove([doc.storage_path]);
-    if (delObj.error) setError(`Record eliminato, ma file non rimosso: ${delObj.error.message}`);
+    if (delObj.error) setError(`Record eliminato, ma file non rimosso: ${translateError(delObj.error)}`);
     await loadDocs();
   }
 
@@ -1231,7 +1232,7 @@ export default function PatientDetailPage({
     setError("");
     const res = await supabase.from("patients").delete().eq("id", patientId);
     setDeletingPatient(false);
-    if (res.error) { setError(`Impossibile eliminare: ${res.error.message}. Elimina prima le sedute collegate o imposta ON DELETE CASCADE.`); return; }
+    if (res.error) { setError(`Impossibile eliminare: ${translateError(res.error)}. Elimina prima le sedute collegate o imposta ON DELETE CASCADE.`); return; }
     window.location.href = "/patients";
   }
 
@@ -1976,7 +1977,7 @@ ${rows}
       const fullUrl = `${window.location.origin}${data.url}`;
       setPubLink(fullUrl);
     } catch(e: any) {
-      setGenError(`Errore generazione link: ${e?.message}`);
+      setGenError(`Errore generazione link: ${translateError(e)}`);
     } finally {
       setPubLinkLoading(false);
     }
@@ -2007,7 +2008,7 @@ ${rows}
       const blob = new Blob([doc.html], { type: "text/html;charset=utf-8" });
       const path = `${patientId}/${doc.fname}`;
       const up   = await supabase.storage.from("patient_docs").upload(path, blob, { upsert: false, contentType: "text/html" });
-      if (up.error)  { setConsentError(`Upload fallito: ${up.error.message}`);  setConsentSaving(false); return; }
+      if (up.error)  { setConsentError(`Upload fallito: ${translateError(up.error)}`);  setConsentSaving(false); return; }
       const ins  = await supabase.from("patient_documents").insert({ patient_id: patientId, doc_type: doc.docType, file_name: doc.fname, storage_path: path, studio_id: currentStudio?.id });
       if (ins.error) { setConsentError(`Errore DB: ${ins.error.message}`); setConsentSaving(false); return; }
     }
