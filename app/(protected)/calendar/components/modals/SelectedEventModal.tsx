@@ -28,10 +28,11 @@
 import Link from "next/link";
 import { SOAPNotesEditor } from "../SOAPNotes";
 import {
-  THEME, ALL_TREATMENTS, statusColor, statusLabel,
+  THEME, ALL_TREATMENTS,
   type Status, type TreatmentType, type LocationType,
   type CalendarEvent,
 } from "../../utils";
+import StatusBadge from "@/src/components/StatusBadge";
 
 export type SelectedEventState = {
   id: string;
@@ -158,10 +159,11 @@ export default function SelectedEventModal({
             <div style={{ fontSize: 22, fontWeight: 800, color: THEME.blue, letterSpacing: -0.3 }}>
               {selectedEvent.title}
             </div>
-            <div style={{ marginTop: 6, fontSize: 13, color: THEME.muted, fontWeight: 600, letterSpacing: 0.3 }}>
-              Stato: <strong style={{ color: statusColor(editStatus) }}>{statusLabel(editStatus)}</strong>
+            <div style={{ marginTop: 6, fontSize: 13, color: THEME.muted, fontWeight: 600, letterSpacing: 0.3, display: "flex", alignItems: "center", gap: 8 }}>
+              <span>Stato:</span>
+              <StatusBadge status={editStatus} />
               {selectedEvent.location === "domicile" && (
-                <span style={{ marginLeft: 12, color: THEME.amber, fontWeight: 700 }}>⌂ DOMICILIO</span>
+                <span style={{ marginLeft: 4, color: THEME.amber, fontWeight: 700 }}>⌂ DOMICILIO</span>
               )}
             </div>
           </div>

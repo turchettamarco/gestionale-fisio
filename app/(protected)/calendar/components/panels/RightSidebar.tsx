@@ -20,10 +20,11 @@
 
 import { type RefObject } from "react";
 import {
-  THEME, fmtTime, statusBg, statusColor, statusLabel,
+  THEME, fmtTime, statusBg, statusColor,
   startOfISOWeekMonday, toDateInputValue,
   type CalendarEvent,
 } from "../../utils";
+import StatusBadge from "@/src/components/StatusBadge";
 
 export type RightSidebarProps = {
   /** Larghezza in px del pannello (es. 300) */
@@ -314,10 +315,7 @@ export default function RightSidebar({
                           </div>
 
                           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: statusColor(appointment.status), display: "flex", alignItems: "center", gap: 2 }}>
-                              <div style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor(appointment.status) }} />
-                              {statusLabel(appointment.status)}
-                            </div>
+                            <StatusBadge status={appointment.status} size="sm" />
                             {appointment.location === "domicile" && (
                               <div style={{ fontSize: 10, fontWeight: 600, color: THEME.amber, display: "flex", alignItems: "center", gap: 2 }}>
                                 ⌂ Domicilio

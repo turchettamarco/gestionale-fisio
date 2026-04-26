@@ -11,9 +11,10 @@
 "use client";
 
 import {
-  THEME, fmtTime, formatDMY, statusColor, statusLabel,
+  THEME, fmtTime, formatDMY, statusColor,
   type CalendarEvent,
 } from "../../utils";
+import StatusBadge from "@/src/components/StatusBadge";
 
 export type MonthPopoverState = {
   day: Date;
@@ -91,9 +92,7 @@ export default function MonthDayPopover({
                 )}
                 {ev.patient_name}
               </span>
-              <span style={{ fontSize: 10, fontWeight: 700, color: statusColor(ev.status) }}>
-                {statusLabel(ev.status)}
-              </span>
+              <StatusBadge status={ev.status} size="sm" />
               <span>{ev.is_paid ? "💰" : ""}</span>
             </div>
           ))}

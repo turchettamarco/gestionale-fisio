@@ -13,9 +13,10 @@
 "use client";
 
 import {
-  THEME, fmtTime, statusColor, statusLabel,
+  THEME, fmtTime,
   type CalendarEvent,
 } from "../../utils";
+import StatusBadge from "@/src/components/StatusBadge";
 
 export type HoverTooltipState = {
   event: CalendarEvent;
@@ -74,9 +75,9 @@ export default function EventHoverTooltip({
           <span style={{ color: THEME.muted }}>Orario</span>
           <span>{fmtTime(event.start.toISOString())} – {fmtTime(event.end.toISOString())}</span>
         </div>
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ color: THEME.muted }}>Stato</span>
-          <span style={{ color: statusColor(event.status), fontWeight: 700 }}>{statusLabel(event.status)}</span>
+          <StatusBadge status={event.status} size="sm" />
         </div>
         {event.patient_phone && (
           <div style={{ display: "flex", justifyContent: "space-between" }}>

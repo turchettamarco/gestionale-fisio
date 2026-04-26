@@ -12,9 +12,10 @@
 "use client";
 
 import {
-  THEME, fmtTime, formatDMY, statusColor, statusLabel,
+  THEME, fmtTime, formatDMY, statusColor,
   type CalendarEvent,
 } from "../../utils";
+import StatusBadge from "@/src/components/StatusBadge";
 
 export type DailySummaryData = {
   total: number;
@@ -132,9 +133,7 @@ export default function DailySummaryDialog({
               <span style={{ color: ev.is_paid ? THEME.green : THEME.red, fontSize: 11, fontWeight: 700 }}>
                 {ev.is_paid ? "💰" : "—"}
               </span>
-              <span style={{ color: statusColor(ev.status), fontSize: 10, fontWeight: 700, minWidth: 60, textAlign: "right" }}>
-                {statusLabel(ev.status)}
-              </span>
+              <StatusBadge status={ev.status} size="sm" />
             </div>
           ))}
           {summary.events.length === 0 && (
