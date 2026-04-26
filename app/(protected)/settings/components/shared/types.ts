@@ -45,6 +45,7 @@ export type PracticeSettingsRow = {
   welcome_message: string | null;
   booking_confirm_message: string | null;
   reminder_message: string | null;
+  weekly_reminder_message: string | null;
   payment_message: string | null;
   birthday_message: string | null;
   satisfaction_message: string | null;

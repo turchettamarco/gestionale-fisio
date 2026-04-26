@@ -37,6 +37,7 @@ export type TemplatesSectionProps = {
   welcomeMsg: string; setWelcomeMsg: (v: string) => void;
   bookingConfirmMsg: string; setBookingConfirmMsg: (v: string) => void;
   reminderMsg: string; setReminderMsg: (v: string) => void;
+  weeklyReminderMsg: string; setWeeklyReminderMsg: (v: string) => void;
   paymentMsg: string; setPaymentMsg: (v: string) => void;
   birthdayMsg: string; setBirthdayMsg: (v: string) => void;
   satisfactionMsg: string; setSatisfactionMsg: (v: string) => void;
@@ -201,6 +202,22 @@ export default function TemplatesSection(p: TemplatesSectionProps) {
                 signature={p.dynamicSignature}
                 galleryKey="reminder"
                 messageKind="promemoria appuntamento"
+              />
+              <TemplateEditor
+                label="Promemoria settimanale (più appuntamenti in un solo messaggio)"
+                value={p.weeklyReminderMsg}
+                onChange={p.setWeeklyReminderMsg}
+                rows={6}
+                helperText="Inviato dal pulsante 'Promemoria settimana' nella scheda paziente, sidebar calendario e quick actions. Riassume tutti gli appuntamenti futuri della settimana scelta in un solo messaggio."
+                placeholders={[
+                  { key: "nome", label: "Nome paziente", icon: "👤", example: "Mario" },
+                  { key: "settimana", label: "Settimana", icon: "📅", example: "questa settimana" },
+                  { key: "lista_appuntamenti", label: "Lista appuntamenti", icon: "📋", example: "• Lunedì 28/04 alle 09:00\n• Mercoledì 30/04 alle 10:30" },
+                  { key: "firma", label: "Firma studio", icon: "✍️", example: "Marco Turchetta, Fisioterapista" },
+                ]}
+                signature={p.dynamicSignature}
+                galleryKey="weekly_reminder"
+                messageKind="promemoria settimanale aggregato"
               />
               <TemplateEditor
                 label="Sollecito pagamento"

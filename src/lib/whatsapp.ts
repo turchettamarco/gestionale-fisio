@@ -175,3 +175,122 @@ export function formatPhoneForDisplay(phone: string | null | undefined): string 
   }
   return "+" + normalized;
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// PROMEMORIA SETTIMANALE (1 messaggio = N appuntamenti settimana paziente)
+// ═══════════════════════════════════════════════════════════════════════
+
+/** Scelta della settimana per il promemoria aggregato. */
+export type WeekChoice = "current" | "next";
+
+/**
+ * Calcola lunedì 00:00 e domenica 23:59:59 per la settimana scelta.
+ * "current" = settimana di oggi (lun–dom).
+ * "next"    = settimana successiva (lun–dom).
+ */
+export function getWeekRange(choice: WeekChoice, today: Date = new Date()): { start: Date; end: Date } {
+  // Lunedì = giorno 0 della nostra settimana ISO
+  // JS getDay(): 0 = domenica, 1 = lunedì, ..., 6 = sabato
+  const d = new Date(today);
+  d.setHours(0, 0, 0, 0);
+  const dow = d.getDay();
+  // Distanza in giorni dal lunedì di QUESTA settimana
+  // se oggi è domenica (0) → -6, se lunedì (1) → 0, se martedì (2) → -1, ecc.
+  const daysFromMonday = dow === 0 ? -6 : -(dow - 1);
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + daysFromMonday);
+
+  if (choice === "next") {
+    monday.setDate(monday.getDate() + 7);
+  }
+
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  sunday.setHours(23, 59, 59, 999);
+
+  return { start: monday, end: sunday };
+}
+
+/**
+ * Ritorna l'etichetta umanizzata della settimana, da inserire in {settimana}.
+ *   • "questa settimana"      (se current)
+ *   • "settimana del 28 aprile" (se next, con la data del lunedì)
+ */
+export function getWeekLabel(choice: WeekChoice, weekStart: Date): string {
+  if (choice === "current") return "questa settimana";
+  const months = [
+    "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+    "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
+  ];
+  const day = weekStart.getDate();
+  const month = months[weekStart.getMonth()];
+  return `settimana del ${day} ${month}`;
+}
+
+/** Singolo appuntamento per la lista del messaggio. */
+export type WeeklyAppointmentItem = {
+  start: Date;
+  end?: Date;
+  treatment?: string | null;
+  location?: string | null;
+};
+
+/**
+ * Formatta un singolo appuntamento per il bullet della lista.
+ *   "• Lunedì 28/04 alle 09:00"
+ */
+function formatAppointmentBullet(appt: WeeklyAppointmentItem): string {
+  const dayNames = [
+    "Domenica", "Lunedì", "Martedì", "Mercoledì",
+    "Giovedì", "Venerdì", "Sabato",
+  ];
+  const dayName = dayNames[appt.start.getDay()];
+  const dd = String(appt.start.getDate()).padStart(2, "0");
+  const mm = String(appt.start.getMonth() + 1).padStart(2, "0");
+  const hh = String(appt.start.getHours()).padStart(2, "0");
+  const min = String(appt.start.getMinutes()).padStart(2, "0");
+  return `• ${dayName} ${dd}/${mm} alle ${hh}:${min}`;
+}
+
+/**
+ * Costruisce il testo del messaggio WhatsApp di promemoria settimanale,
+ * sostituendo le variabili nel template:
+ *   • {nome}                → patientFirstName
+ *   • {settimana}           → weekLabel (resta supportato per retrocompatibilità)
+ *   • {lista_appuntamenti}  → bullet list (1 per riga)
+ *   • {firma}               → signatureName + ", " + signatureTitle
+ *
+ * Esempio output (template default):
+ *   Ciao Mario,
+ *
+ *   ti ricordo i prossimi appuntamenti:
+ *
+ *   • Lunedì 28/04 alle 09:00
+ *   • Mercoledì 30/04 alle 10:30
+ *
+ *   A presto,
+ *   Marco Turchetta, Fisioterapista e Osteopata
+ */
+export function buildWeeklyReminderMessage(opts: {
+  template: string;
+  patientFirstName: string;
+  weekLabel: string;
+  appointments: WeeklyAppointmentItem[];
+  signatureName?: string | null;
+  signatureTitle?: string | null;
+}): string {
+  const { template, patientFirstName, weekLabel, appointments } = opts;
+
+  const list = appointments.map(formatAppointmentBullet).join("\n");
+
+  const signaturePieces = [opts.signatureName, opts.signatureTitle]
+    .map(s => (s ?? "").trim())
+    .filter(s => s.length > 0);
+  const signature = signaturePieces.join(", ");
+
+  return template
+    .replaceAll("{nome}", patientFirstName || "")
+    .replaceAll("{settimana}", weekLabel)
+    .replaceAll("{lista_appuntamenti}", list)
+    .replaceAll("{firma}", signature);
+}

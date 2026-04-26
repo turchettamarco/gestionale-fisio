@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { BuildInfo } from "@/src/components/BuildInfo";
+import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { translateError } from "@/src/lib/translateError";
@@ -170,7 +171,7 @@ const handleLogout = useCallback(async () => {
       setPracticeSettingsLoaded(false);
       const { data, error } = await supabase
         .from("practice_settings")
-        .select("standard_invoice, standard_cash, machine_invoice, machine_cash, auto_apply_prices, google_review_link, default_appointment_status, overlap_mode")
+        .select("standard_invoice, standard_cash, machine_invoice, machine_cash, auto_apply_prices, google_review_link, default_appointment_status, overlap_mode, weekly_reminder_message")
         .eq("owner_id", userId)
         .maybeSingle();
 
@@ -185,6 +186,7 @@ const handleLogout = useCallback(async () => {
         google_review_link: data?.google_review_link ?? null,
         default_appointment_status: (data?.default_appointment_status ?? "confirmed") as "confirmed"|"booked",
         overlap_mode: ((data as any)?.overlap_mode ?? "warn") as "block"|"warn"|"visual",
+        weekly_reminder_message: (data as any)?.weekly_reminder_message ?? null,
       });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -486,6 +488,68 @@ const { data, error } = await supabase
     patientName?: string;
     startTime?: Date;
   } | null>(null);
+
+  // Promemoria settimanale aggregato (1 messaggio = N appuntamenti).
+  // Gli `appointments` sono PRE-CARICATI da Supabase quando si apre il dialog,
+  // perché lo stato `events` del calendar contiene solo la settimana visibile.
+  const [weeklyReminderTarget, setWeeklyReminderTarget] = useState<{
+    patientId: string;
+    patientFirstName: string;
+    patientPhone: string | null;
+    appointments: Array<{
+      patient_id: string;
+      start: Date;
+      end: Date;
+      status: string | null;
+    }>;
+  } | null>(null);
+
+  /**
+   * Carica TUTTI gli appuntamenti futuri del paziente (max 30 giorni) e
+   * apre il dialog Promemoria. Usato dai 3 punti del calendar.
+   */
+  const openWeeklyReminder = useCallback(async (
+    patientId: string,
+    firstName: string,
+    phone: string | null,
+  ) => {
+    try {
+      // Da oggi 00:00 a +30 giorni (margine extra rispetto ai 15gg del dialog)
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+      const horizon = new Date(startOfToday);
+      horizon.setDate(horizon.getDate() + 30);
+
+      const { data, error } = await supabase
+        .from("appointments")
+        .select("id, start_at, end_at, status, patient_id")
+        .eq("patient_id", patientId)
+        .gte("start_at", startOfToday.toISOString())
+        .lte("start_at", horizon.toISOString())
+        .order("start_at", { ascending: true });
+
+      if (error) {
+        setError(`Errore caricamento appuntamenti: ${translateError(error)}`);
+        return;
+      }
+
+      const mapped = (data ?? []).map(a => ({
+        patient_id: a.patient_id as string,
+        start: new Date(a.start_at as string),
+        end: new Date(a.end_at as string),
+        status: (a.status ?? null) as string | null,
+      }));
+
+      setWeeklyReminderTarget({
+        patientId,
+        patientFirstName: firstName,
+        patientPhone: phone,
+        appointments: mapped,
+      });
+    } catch (e) {
+      setError(`Errore: ${translateError(e)}`);
+    }
+  }, []);
 
   const [duplicateMode, setDuplicateMode] = useState(false);
   const [eventToDuplicate, setEventToDuplicate] = useState<CalendarEvent | null>(null);
@@ -1062,6 +1126,21 @@ diagnosis: patient?.diagnosis ?? null,
 
     return result;
   }, [events, viewType, currentDate, statusFilter, filters]);
+
+  // Template del promemoria settimanale: viene da practice_settings, con
+  // fallback al testo di default se l'utente lo ha svuotato per errore.
+  const weeklyReminderTemplate = useMemo(() => {
+    const fromDb = practiceSettings?.weekly_reminder_message?.trim();
+    if (fromDb) return fromDb;
+    return `Ciao {nome},
+
+ti ricordo i prossimi appuntamenti:
+
+{lista_appuntamenti}
+
+A presto,
+{firma}`;
+  }, [practiceSettings]);
 
   const stats = useMemo(() => {
     return {
@@ -2258,6 +2337,9 @@ return (
           setEditPriceType((appointment.price_type as "invoiced" | "cash") || "invoiced");
         }}
         onToggleDone={(eventId, currentStatus) => toggleDoneQuick(eventId, currentStatus)}
+        onSendWeeklyReminder={(patientId, firstName, phone) => {
+          openWeeklyReminder(patientId, firstName, phone);
+        }}
       />
 
       <main className="print-wrap" style={{
@@ -2601,6 +2683,10 @@ return (
           onDelete={deleteAppointment}
           onSendReminder={sendReminder}
           onSendGoogleReview={sendGoogleReview}
+          onSendWeeklyReminder={(patientId, firstName, phone) => {
+            setSelectedEvent(null);
+            openWeeklyReminder(patientId, firstName, phone);
+          }}
         />
       )}
 
@@ -2612,6 +2698,9 @@ return (
           onToggleDone={(eventId, currentStatus) => toggleDoneQuick(eventId, currentStatus)}
           onSendReminder={(eventId, phone, firstName) => sendReminder(eventId, phone, firstName)}
           onDuplicate={(event) => openCreateModal(event.start, event.start.getHours(), event.start.getMinutes(), event)}
+          onSendWeeklyReminder={(patientId, firstName, phone) => {
+            openWeeklyReminder(patientId, firstName, phone);
+          }}
           onCreateNew={() => openCreateModal(new Date())}
         />
       )}
@@ -2645,6 +2734,19 @@ return (
           onClose={() => setDailySummaryOpen(false)}
         />
       )}
+
+      {/* Feature: Promemoria settimanale aggregato (1 messaggio = N appt) */}
+      <WeeklyReminderDialog
+        open={!!weeklyReminderTarget}
+        onClose={() => setWeeklyReminderTarget(null)}
+        patientId={weeklyReminderTarget?.patientId ?? ""}
+        patientFirstName={weeklyReminderTarget?.patientFirstName ?? ""}
+        patientPhone={weeklyReminderTarget?.patientPhone ?? null}
+        appointments={weeklyReminderTarget?.appointments ?? []}
+        template={weeklyReminderTemplate}
+        signatureName={currentStudio?.signature_name}
+        signatureTitle={currentStudio?.signature_title}
+      />
     </div>
   );
 }

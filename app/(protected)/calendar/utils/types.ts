@@ -51,6 +51,8 @@ export type PracticeSettings = {
   google_review_link: string | null;
   default_appointment_status: "confirmed" | "booked" | null;
   overlap_mode: "block" | "warn" | "visual" | null;
+  /** Template del promemoria settimanale aggregato (può essere null = usa default) */
+  weekly_reminder_message: string | null;
 };
 
 export type CalendarEvent = {

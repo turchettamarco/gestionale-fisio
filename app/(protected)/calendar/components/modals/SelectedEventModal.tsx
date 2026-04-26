@@ -98,6 +98,8 @@ export type SelectedEventModalProps = {
   onSendReminder: (eventId: string, phone?: string, firstName?: string) => void;
   /** Apre WhatsApp con messaggio recensione Google */
   onSendGoogleReview: (phone?: string, firstName?: string) => void;
+  /** Apre il dialog "Promemoria settimana" per il paziente di questo appuntamento */
+  onSendWeeklyReminder: (patientId: string, firstName: string, phone: string | null) => void;
 };
 
 export default function SelectedEventModal({
@@ -114,7 +116,7 @@ export default function SelectedEventModal({
   eventColors, setEventColors,
   getEventColor, getDefaultAmount,
   onClose, onDuplicate, onSave, onDelete,
-  onSendReminder, onSendGoogleReview,
+  onSendReminder, onSendGoogleReview, onSendWeeklyReminder,
 }: SelectedEventModalProps) {
 
   // Lookup evento corrente nei dati aggiornati
@@ -485,6 +487,34 @@ export default function SelectedEventModal({
               <span>📱</span>
               Invia promemoria WhatsApp
             </button>
+
+            {/* Promemoria settimana — visibile solo se l'appuntamento ha un patient_id */}
+            {liveEvent?.patient_id && (
+              <button
+                onClick={() => {
+                  if (liveEvent?.patient_id) {
+                    onSendWeeklyReminder(
+                      liveEvent.patient_id,
+                      liveEvent.patient_first_name ?? "",
+                      liveEvent.patient_phone ?? null,
+                    );
+                  }
+                }}
+                disabled={!hasPhone}
+                style={{
+                  width: "100%", marginTop: 8, padding: "10px", borderRadius: 8,
+                  border: `1px solid ${THEME.borderSoft}`,
+                  background: THEME.panelBg, color: THEME.text,
+                  cursor: hasPhone ? "pointer" : "not-allowed",
+                  fontWeight: 600, fontSize: 12,
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  opacity: hasPhone ? 1 : 0.6,
+                }}
+              >
+                <span>📲</span>
+                Promemoria settimana
+              </button>
+            )}
           </div>
         </div>
 

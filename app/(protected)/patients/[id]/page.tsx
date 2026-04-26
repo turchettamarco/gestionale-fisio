@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { BuildInfo } from "@/src/components/BuildInfo";
+import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { translateError } from "@/src/lib/translateError";
@@ -882,6 +883,10 @@ export default function PatientDetailPage({
   const [notesByApptId,    setNotesByApptId]    = useState<Record<string, string>>({});
   const [noteBusyByApptId, setNoteBusyByApptId] = useState<Record<string, boolean>>({});
 
+  // ── Promemoria settimanale ────────────────────────────────────────────────
+  const [weeklyReminderOpen, setWeeklyReminderOpen] = useState(false);
+  const [weeklyReminderTemplate, setWeeklyReminderTemplate] = useState<string>("");
+
   // ── Documenti GDPR ────────────────────────────────────────────────────────
   const [docs,        setDocs]        = useState<PatientDoc[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
@@ -1019,6 +1024,33 @@ export default function PatientDetailPage({
     loadDocs();
     loadClinicalDocs();
   }, [patientId]);
+
+  // Carica il template del promemoria settimanale dalle impostazioni studio.
+  // Default fallback se l'utente l'ha svuotato per errore.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("practice_settings")
+        .select("weekly_reminder_message")
+        .maybeSingle();
+      if (cancelled) return;
+      const fromDb = (data?.weekly_reminder_message ?? "").trim();
+      if (fromDb) {
+        setWeeklyReminderTemplate(fromDb);
+      } else {
+        setWeeklyReminderTemplate(`Ciao {nome},
+
+ti ricordo i prossimi appuntamenti:
+
+{lista_appuntamenti}
+
+A presto,
+{firma}`);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // ─── Save / update ────────────────────────────────────────────────────────
   async function saveDemographics() {
@@ -2260,6 +2292,21 @@ ${rows}
               background: THEME.panelBg, color: THEME.blue, fontWeight: 700,
               textDecoration: "none", fontSize: 13, display: "inline-flex", alignItems: "center",
             }}>📅 Calendario</Link>
+            {patient.phone && (
+              <button
+                onClick={() => setWeeklyReminderOpen(true)}
+                title="Invia un solo messaggio WhatsApp con tutti gli appuntamenti della settimana"
+                style={{
+                  padding: "9px 16px", borderRadius: 8,
+                  border: `1.5px solid ${THEME.green}`,
+                  background: THEME.panelBg, color: THEME.green, fontWeight: 700,
+                  cursor: "pointer", fontSize: 13,
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                }}
+              >
+                📲 Promemoria settimana
+              </button>
+            )}
             <button onClick={deletePatient} disabled={deletingPatient} style={{
               padding: "9px 16px", borderRadius: 8, border: `1.5px solid ${THEME.red}`,
               background: "rgba(220,38,38,0.06)", color: THEME.red, fontWeight: 700,
@@ -3436,6 +3483,23 @@ ${rows}
           </div>
           )}
         </section>
+
+        <WeeklyReminderDialog
+          open={weeklyReminderOpen}
+          onClose={() => setWeeklyReminderOpen(false)}
+          patientId={patientId as string}
+          patientFirstName={firstName || (patient?.first_name ?? "")}
+          patientPhone={phone || patient?.phone || null}
+          appointments={appointments.map(a => ({
+            patient_id: patientId as string,
+            start: new Date(a.start_at),
+            end: new Date(a.end_at),
+            status: a.status,
+          }))}
+          template={weeklyReminderTemplate}
+          signatureName={currentStudio?.signature_name}
+          signatureTitle={currentStudio?.signature_title}
+        />
 
       </main>
     </div>

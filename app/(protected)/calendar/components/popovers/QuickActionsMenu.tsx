@@ -42,6 +42,8 @@ export type QuickActionsMenuProps = {
   onSendReminder: (eventId: string, phone?: string, firstName?: string) => void;
   /** Duplica un appuntamento esistente */
   onDuplicate: (event: CalendarEvent) => void;
+  /** Apre il dialog Promemoria settimana */
+  onSendWeeklyReminder: (patientId: string, firstName: string, phone: string | null) => void;
   /** Crea nuovo appuntamento (slot vuoto, default oggi) */
   onCreateNew: () => void;
 };
@@ -68,7 +70,7 @@ const itemWithBorder: React.CSSProperties = {
 
 export default function QuickActionsMenu({
   state, events,
-  onClose, onToggleDone, onSendReminder, onDuplicate, onCreateNew,
+  onClose, onToggleDone, onSendReminder, onDuplicate, onSendWeeklyReminder, onCreateNew,
 }: QuickActionsMenuProps) {
 
   const event = state.eventId
@@ -115,6 +117,22 @@ export default function QuickActionsMenu({
           >
             ◈ Invia WhatsApp
           </button>
+
+          {event.patient_id && (
+            <button
+              onClick={() => {
+                onSendWeeklyReminder(
+                  event.patient_id!,
+                  event.patient_first_name ?? "",
+                  event.patient_phone ?? null,
+                );
+                onClose();
+              }}
+              style={itemWithBorder}
+            >
+              📲 Promemoria settimana
+            </button>
+          )}
 
           <button
             onClick={() => {

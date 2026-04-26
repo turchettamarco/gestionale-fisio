@@ -66,6 +66,9 @@ export type RightSidebarProps = {
 
   /** Toggle eseguito rapido */
   onToggleDone: (eventId: string, currentStatus: CalendarEvent["status"]) => void;
+
+  /** Apre il dialog Promemoria settimana per il paziente dell'appuntamento */
+  onSendWeeklyReminder: (patientId: string, firstName: string, phone: string | null) => void;
 };
 
 const MESI = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"];
@@ -77,7 +80,7 @@ export default function RightSidebar({
   events, todaysAppointments, currentTime,
   showAllUpcoming, setShowAllUpcoming,
   weeklyExpectedRevenue,
-  onSelectEvent, onToggleDone,
+  onSelectEvent, onToggleDone, onSendWeeklyReminder,
 }: RightSidebarProps) {
 
   // ─── Mini-calendario ──────────────────────────────────────────────
@@ -324,23 +327,48 @@ export default function RightSidebar({
                           </div>
                         </div>
 
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            onToggleDone(appointment.id, appointment.status);
-                          }}
-                          title={appointment.status === "done" ? "Segna come non eseguito" : "Segna come eseguito"}
-                          style={{
-                            width: 20, height: 20, borderRadius: 4,
-                            border: `2px solid ${appointment.status === "done" ? THEME.greenDark : THEME.border}`,
-                            background: appointment.status === "done" ? THEME.greenDark : "transparent",
-                            cursor: "pointer", flex: "0 0 auto",
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            fontSize: 10, color: "#fff",
-                          }}
-                        >
-                          {appointment.status === "done" && "✓"}
-                        </button>
+                        <div style={{ display: "flex", alignItems: "center", gap: 4, flex: "0 0 auto" }}>
+                          {appointment.patient_id && appointment.patient_phone && (
+                            <button
+                              onClick={e => {
+                                e.stopPropagation();
+                                onSendWeeklyReminder(
+                                  appointment.patient_id!,
+                                  appointment.patient_first_name ?? "",
+                                  appointment.patient_phone ?? null,
+                                );
+                              }}
+                              title="Promemoria settimana via WhatsApp"
+                              style={{
+                                width: 22, height: 22, borderRadius: 4,
+                                border: `1px solid ${THEME.border}`,
+                                background: "transparent",
+                                cursor: "pointer",
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                fontSize: 11,
+                              }}
+                            >
+                              📲
+                            </button>
+                          )}
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              onToggleDone(appointment.id, appointment.status);
+                            }}
+                            title={appointment.status === "done" ? "Segna come non eseguito" : "Segna come eseguito"}
+                            style={{
+                              width: 20, height: 20, borderRadius: 4,
+                              border: `2px solid ${appointment.status === "done" ? THEME.greenDark : THEME.border}`,
+                              background: appointment.status === "done" ? THEME.greenDark : "transparent",
+                              cursor: "pointer",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              fontSize: 10, color: "#fff",
+                            }}
+                          >
+                            {appointment.status === "done" && "✓"}
+                          </button>
+                        </div>
                       </div>
 
                       {appointment.calendar_note && (

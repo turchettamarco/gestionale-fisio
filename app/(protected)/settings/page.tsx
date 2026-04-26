@@ -278,12 +278,13 @@ export default function SettingsPage() {
   const [durTens, setDurTens]           = useState("20");
 
   // Messaggi automatici
-  const [welcomeMsg, setWelcomeMsg]               = useState("");
-  const [bookingConfirmMsg, setBookingConfirmMsg] = useState("");
-  const [reminderMsg, setReminderMsg]             = useState("");
-  const [paymentMsg, setPaymentMsg]               = useState("");
-  const [birthdayMsg, setBirthdayMsg]             = useState("");
-  const [satisfactionMsg, setSatisfactionMsg]     = useState("");
+  const [welcomeMsg, setWelcomeMsg]                       = useState("");
+  const [bookingConfirmMsg, setBookingConfirmMsg]         = useState("");
+  const [reminderMsg, setReminderMsg]                     = useState("");
+  const [weeklyReminderMsg, setWeeklyReminderMsg]         = useState("");
+  const [paymentMsg, setPaymentMsg]                       = useState("");
+  const [birthdayMsg, setBirthdayMsg]                     = useState("");
+  const [satisfactionMsg, setSatisfactionMsg]             = useState("");
 
   // Gestione
   const [monthlyGoal, setMonthlyGoal]       = useState("2000");
@@ -305,7 +306,7 @@ export default function SettingsPage() {
       const uid = await requireUserId();
       const { data, error } = await supabase
         .from("practice_settings")
-        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, logo_base64, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices, reminder_message, payment_message, birthday_message, satisfaction_message, default_appointment_status, overlap_mode, monthly_revenue_goal, inactive_threshold_days, reminder_hours_before, welcome_message, booking_confirm_message, duration_seduta, duration_macchinario, duration_laser, duration_tecar, duration_onde_urto, duration_tens")
+        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, logo_base64, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices, reminder_message, weekly_reminder_message, payment_message, birthday_message, satisfaction_message, default_appointment_status, overlap_mode, monthly_revenue_goal, inactive_threshold_days, reminder_hours_before, welcome_message, booking_confirm_message, duration_seduta, duration_macchinario, duration_laser, duration_tecar, duration_onde_urto, duration_tens")
         .eq("owner_id", uid)
         .maybeSingle();
       if (error) throw new Error(error.message);
@@ -337,7 +338,7 @@ export default function SettingsPage() {
           duration_laser: 20, duration_tecar: 30,
           duration_onde_urto: 15, duration_tens: 20,
           welcome_message: null, booking_confirm_message: null,
-          reminder_message: null, payment_message: null,
+          reminder_message: null, weekly_reminder_message: null, payment_message: null,
           birthday_message: null, satisfaction_message: null,
           default_appointment_status: "confirmed", overlap_mode: "warn",
           monthly_revenue_goal: 2000, inactive_threshold_days: 45,
@@ -379,6 +380,7 @@ export default function SettingsPage() {
       setWelcomeMsg(data.welcome_message ?? "");
       setBookingConfirmMsg(data.booking_confirm_message ?? "");
       setReminderMsg(data.reminder_message ?? "");
+      setWeeklyReminderMsg((data as PracticeSettingsRow).weekly_reminder_message ?? "");
       setPaymentMsg(data.payment_message ?? "");
       setBirthdayMsg(data.birthday_message ?? "");
       setSatisfactionMsg(data.satisfaction_message ?? "");
@@ -433,6 +435,7 @@ export default function SettingsPage() {
         welcome_message:          welcomeMsg.trim() || null,
         booking_confirm_message:  bookingConfirmMsg.trim() || null,
         reminder_message:         reminderMsg.trim() || null,
+        weekly_reminder_message:  weeklyReminderMsg.trim() || null,
         payment_message:          paymentMsg.trim() || null,
         birthday_message:         birthdayMsg.trim() || null,
         satisfaction_message:     satisfactionMsg.trim() || null,
@@ -1128,6 +1131,7 @@ export default function SettingsPage() {
               welcomeMsg={welcomeMsg} setWelcomeMsg={setWelcomeMsg}
               bookingConfirmMsg={bookingConfirmMsg} setBookingConfirmMsg={setBookingConfirmMsg}
               reminderMsg={reminderMsg} setReminderMsg={setReminderMsg}
+              weeklyReminderMsg={weeklyReminderMsg} setWeeklyReminderMsg={setWeeklyReminderMsg}
               paymentMsg={paymentMsg} setPaymentMsg={setPaymentMsg}
               birthdayMsg={birthdayMsg} setBirthdayMsg={setBirthdayMsg}
               satisfactionMsg={satisfactionMsg} setSatisfactionMsg={setSatisfactionMsg}
