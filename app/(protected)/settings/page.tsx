@@ -48,6 +48,7 @@ import BlockedDaysSection from "./components/sections/BlockedDaysSection";
 import ManagementSection from "./components/sections/ManagementSection";
 import PasswordSection from "./components/sections/PasswordSection";
 import IntegrationsSection from "./components/sections/IntegrationsSection";
+import SettingsTabs, { type SettingsTab } from "./components/SettingsTabs";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Componente principale
@@ -77,6 +78,9 @@ export default function SettingsPage() {
     setTimeout(() => setSuccess(""), 3000);
   }
 
+  // ── Tab corrente (raggruppa le sezioni per categoria) ─────────────────────
+  const [activeTab, setActiveTab] = useState<SettingsTab>("studio");
+
   // ── Stato sezioni accordion (apri/chiudi) ────────────────────────────────
   const [showStudio,    setShowStudio]    = useState(true);
   const [showPractice,  setShowPractice]  = useState(true);
@@ -89,6 +93,19 @@ export default function SettingsPage() {
   const [showGestione,  setShowGestione]  = useState(false);
   const [showPassword,  setShowPassword]  = useState(false);
   const [showBackup,    setShowBackup]    = useState(false);
+
+  // ── Preferenza tab in localStorage ────────────────────────────────────────
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = localStorage.getItem("settings_active_tab");
+    if (saved === "studio" || saved === "calendar" || saved === "communications" || saved === "account") {
+      setActiveTab(saved);
+    }
+  }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("settings_active_tab", activeTab);
+  }, [activeTab]);
 
   // ── Caricamento iniziale ────────────────────────────────────────────────
   const [loadingPractice,  setLoadingPractice]  = useState(true);
@@ -981,39 +998,44 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* ─── Le 12 sezioni ─── */}
-        <StudioBrandingSection
-          show={showStudio} onToggle={() => setShowStudio(!showStudio)}
-          studioName={studioName} setStudioName={setStudioName}
-          studioAddress={studioAddress} setStudioAddress={setStudioAddress}
-          studioPhone={studioPhone} setStudioPhone={setStudioPhone}
-          studioEmail={studioEmail} setStudioEmail={setStudioEmail}
-          studioWebsite={studioWebsite} setStudioWebsite={setStudioWebsite}
-          studioGoogleReview={studioGoogleReview} setStudioGoogleReview={setStudioGoogleReview}
-          studioSignatureName={studioSignatureName} setStudioSignatureName={setStudioSignatureName}
-          studioSignatureTitle={studioSignatureTitle} setStudioSignatureTitle={setStudioSignatureTitle}
-          savingStudio={savingStudio}
-          onSave={() => void saveStudio()}
-        />
+        {/* ─── Tab bar 4 categorie ─── */}
+        <SettingsTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
-        <PracticeSection
-          show={showPractice} onToggle={() => setShowPractice(!showPractice)}
-          loadingPractice={loadingPractice} savingPractice={savingPractice}
-          practiceName={practiceName} setPracticeName={setPracticeName}
-          ownerFullName={ownerFullName} setOwnerFullName={setOwnerFullName}
-          vatNumber={vatNumber} setVatNumber={setVatNumber}
-          phone={phone} setPhone={setPhone}
-          pecEmail={pecEmail} setPecEmail={setPecEmail}
-          address={address} setAddress={setAddress}
-          logoBase64={logoBase64} setLogoBase64={setLogoBase64}
-          googleReviewLink={googleReviewLink} setGoogleReviewLink={setGoogleReviewLink}
-          onReload={() => void loadPracticeSettings()}
-          onSave={() => void savePracticeSettings()}
-        />
+        {/* ─── Tab "Studio": StudioBranding + Practice + Prezzi + Orari ─── */}
+        {activeTab === "studio" && (
+          <>
+            <StudioBrandingSection
+              show={showStudio} onToggle={() => setShowStudio(!showStudio)}
+              studioName={studioName} setStudioName={setStudioName}
+              studioAddress={studioAddress} setStudioAddress={setStudioAddress}
+              studioPhone={studioPhone} setStudioPhone={setStudioPhone}
+              studioEmail={studioEmail} setStudioEmail={setStudioEmail}
+              studioWebsite={studioWebsite} setStudioWebsite={setStudioWebsite}
+              studioGoogleReview={studioGoogleReview} setStudioGoogleReview={setStudioGoogleReview}
+              studioSignatureName={studioSignatureName} setStudioSignatureName={setStudioSignatureName}
+              studioSignatureTitle={studioSignatureTitle} setStudioSignatureTitle={setStudioSignatureTitle}
+              savingStudio={savingStudio}
+              onSave={() => void saveStudio()}
+            />
 
-        <PricesSection
-          show={showPrices} onToggle={() => setShowPrices(!showPrices)}
-          loadingPractice={loadingPractice} savingPractice={savingPractice}
+            <PracticeSection
+              show={showPractice} onToggle={() => setShowPractice(!showPractice)}
+              loadingPractice={loadingPractice} savingPractice={savingPractice}
+              practiceName={practiceName} setPracticeName={setPracticeName}
+              ownerFullName={ownerFullName} setOwnerFullName={setOwnerFullName}
+              vatNumber={vatNumber} setVatNumber={setVatNumber}
+              phone={phone} setPhone={setPhone}
+              pecEmail={pecEmail} setPecEmail={setPecEmail}
+              address={address} setAddress={setAddress}
+              logoBase64={logoBase64} setLogoBase64={setLogoBase64}
+              googleReviewLink={googleReviewLink} setGoogleReviewLink={setGoogleReviewLink}
+              onReload={() => void loadPracticeSettings()}
+              onSave={() => void savePracticeSettings()}
+            />
+
+            <PricesSection
+              show={showPrices} onToggle={() => setShowPrices(!showPrices)}
+              loadingPractice={loadingPractice} savingPractice={savingPractice}
           standardInvoice={standardInvoice} setStandardInvoice={setStandardInvoice}
           standardCash={standardCash} setStandardCash={setStandardCash}
           machineInvoice={machineInvoice} setMachineInvoice={setMachineInvoice}
@@ -1039,95 +1061,112 @@ export default function SettingsPage() {
           onReload={() => void loadWorkingHours()}
           onSave={() => void saveWorkingHours()}
         />
+          </>
+        )}
 
-        <TemplatesSection
-          show={showTemplates} onToggle={() => setShowTemplates(!showTemplates)}
-          loadingTemplates={loadingTemplates} savingPractice={savingPractice}
-          templates={templates} dynamicSignature={dynamicSignature}
-          editingId={editingId} setEditingId={setEditingId}
-          editName={editName} setEditName={setEditName}
-          editTemplate={editTemplate} setEditTemplate={setEditTemplate}
-          newName={newName} setNewName={setNewName}
-          newTemplate={newTemplate} setNewTemplate={setNewTemplate}
-          addingNew={addingNew} setAddingNew={setAddingNew}
-          onSaveTemplate={(id) => void saveTemplate(id)}
-          onDeleteTemplate={(id) => void deleteTemplate(id)}
-          onSetAsDefault={(id) => void setAsDefault(id)}
-          onCreateNewTemplate={() => void createNewTemplate()}
-          welcomeMsg={welcomeMsg} setWelcomeMsg={setWelcomeMsg}
-          bookingConfirmMsg={bookingConfirmMsg} setBookingConfirmMsg={setBookingConfirmMsg}
-          reminderMsg={reminderMsg} setReminderMsg={setReminderMsg}
-          paymentMsg={paymentMsg} setPaymentMsg={setPaymentMsg}
-          birthdayMsg={birthdayMsg} setBirthdayMsg={setBirthdayMsg}
-          satisfactionMsg={satisfactionMsg} setSatisfactionMsg={setSatisfactionMsg}
-          onSaveAutoMessages={() => void savePracticeSettings()}
-        />
+        {/* ─── Tab "Calendario": Durate + CalendarPrefs + Servizi + Giorni bloccati ─── */}
+        {activeTab === "calendar" && (
+          <>
+            <DurationsSection
+              show={showDurations} onToggle={() => setShowDurations(!showDurations)}
+              savingPractice={savingPractice}
+              durSeduta={durSeduta} setDurSeduta={setDurSeduta}
+              durMacchina={durMacchina} setDurMacchina={setDurMacchina}
+              durLaser={durLaser} setDurLaser={setDurLaser}
+              durTecar={durTecar} setDurTecar={setDurTecar}
+              durOndeUrto={durOndeUrto} setDurOndeUrto={setDurOndeUrto}
+              durTens={durTens} setDurTens={setDurTens}
+              onSave={() => void savePracticeSettings()}
+            />
 
-        <DurationsSection
-          show={showDurations} onToggle={() => setShowDurations(!showDurations)}
-          savingPractice={savingPractice}
-          durSeduta={durSeduta} setDurSeduta={setDurSeduta}
-          durMacchina={durMacchina} setDurMacchina={setDurMacchina}
-          durLaser={durLaser} setDurLaser={setDurLaser}
-          durTecar={durTecar} setDurTecar={setDurTecar}
-          durOndeUrto={durOndeUrto} setDurOndeUrto={setDurOndeUrto}
-          durTens={durTens} setDurTens={setDurTens}
-          onSave={() => void savePracticeSettings()}
-        />
+            <CalendarPrefsSection
+              savingPractice={savingPractice}
+              defaultApptStatus={defaultApptStatus} setDefaultApptStatus={setDefaultApptStatus}
+              overlapMode={overlapMode} setOverlapMode={setOverlapMode}
+              onSave={() => void savePracticeSettings()}
+            />
 
-        <CalendarPrefsSection
-          savingPractice={savingPractice}
-          defaultApptStatus={defaultApptStatus} setDefaultApptStatus={setDefaultApptStatus}
-          overlapMode={overlapMode} setOverlapMode={setOverlapMode}
-          onSave={() => void savePracticeSettings()}
-        />
+            <BookableServicesSection
+              show={showServices} onToggle={() => setShowServices(!showServices)}
+              loadingServices={loadingServices} savingSvc={savingSvc}
+              services={services}
+              newSvcName={newSvcName} setNewSvcName={setNewSvcName}
+              newSvcDuration={newSvcDuration} setNewSvcDuration={setNewSvcDuration}
+              newSvcPrice={newSvcPrice} setNewSvcPrice={setNewSvcPrice}
+              onAdd={() => void addService()}
+              onDelete={(id) => void deleteService(id)}
+            />
 
-        <BookableServicesSection
-          show={showServices} onToggle={() => setShowServices(!showServices)}
-          loadingServices={loadingServices} savingSvc={savingSvc}
-          services={services}
-          newSvcName={newSvcName} setNewSvcName={setNewSvcName}
-          newSvcDuration={newSvcDuration} setNewSvcDuration={setNewSvcDuration}
-          newSvcPrice={newSvcPrice} setNewSvcPrice={setNewSvcPrice}
-          onAdd={() => void addService()}
-          onDelete={(id) => void deleteService(id)}
-        />
+            <BlockedDaysSection
+              show={showBlockDays} onToggle={() => setShowBlockDays(!showBlockDays)}
+              savingBlock={savingBlock} blockDays={blockDays}
+              newBlockDate={newBlockDate} setNewBlockDate={setNewBlockDate}
+              newBlockLabel={newBlockLabel} setNewBlockLabel={setNewBlockLabel}
+              onAdd={() => void addBlockDay()}
+              onDelete={(id) => void deleteBlockDay(id)}
+            />
+          </>
+        )}
 
-        <BlockedDaysSection
-          show={showBlockDays} onToggle={() => setShowBlockDays(!showBlockDays)}
-          savingBlock={savingBlock} blockDays={blockDays}
-          newBlockDate={newBlockDate} setNewBlockDate={setNewBlockDate}
-          newBlockLabel={newBlockLabel} setNewBlockLabel={setNewBlockLabel}
-          onAdd={() => void addBlockDay()}
-          onDelete={(id) => void deleteBlockDay(id)}
-        />
+        {/* ─── Tab "Comunicazioni": Templates messaggi + Integrazioni ─── */}
+        {activeTab === "communications" && (
+          <>
+            <TemplatesSection
+              show={showTemplates} onToggle={() => setShowTemplates(!showTemplates)}
+              loadingTemplates={loadingTemplates} savingPractice={savingPractice}
+              templates={templates} dynamicSignature={dynamicSignature}
+              editingId={editingId} setEditingId={setEditingId}
+              editName={editName} setEditName={setEditName}
+              editTemplate={editTemplate} setEditTemplate={setEditTemplate}
+              newName={newName} setNewName={setNewName}
+              newTemplate={newTemplate} setNewTemplate={setNewTemplate}
+              addingNew={addingNew} setAddingNew={setAddingNew}
+              onSaveTemplate={(id) => void saveTemplate(id)}
+              onDeleteTemplate={(id) => void deleteTemplate(id)}
+              onSetAsDefault={(id) => void setAsDefault(id)}
+              onCreateNewTemplate={() => void createNewTemplate()}
+              welcomeMsg={welcomeMsg} setWelcomeMsg={setWelcomeMsg}
+              bookingConfirmMsg={bookingConfirmMsg} setBookingConfirmMsg={setBookingConfirmMsg}
+              reminderMsg={reminderMsg} setReminderMsg={setReminderMsg}
+              paymentMsg={paymentMsg} setPaymentMsg={setPaymentMsg}
+              birthdayMsg={birthdayMsg} setBirthdayMsg={setBirthdayMsg}
+              satisfactionMsg={satisfactionMsg} setSatisfactionMsg={setSatisfactionMsg}
+              onSaveAutoMessages={() => void savePracticeSettings()}
+            />
 
-        <ManagementSection
-          show={showGestione} onToggle={() => setShowGestione(!showGestione)}
-          savingPractice={savingPractice}
-          monthlyGoal={monthlyGoal} setMonthlyGoal={setMonthlyGoal}
-          inactiveThresh={inactiveThresh} setInactiveThresh={setInactiveThresh}
-          reminderHours={reminderHours} setReminderHours={setReminderHours}
-          onSave={() => void savePracticeSettings()}
-        />
+            <IntegrationsSection
+              show={showBackup} onToggle={() => setShowBackup(!showBackup)}
+              exportingBackup={exportingBackup} onExportBackup={() => void exportBackup()}
+              calendarToken={calendarToken}
+              calendarTokenLoading={calendarTokenLoading}
+              calendarTokenRotating={calendarTokenRotating}
+              onRotateToken={rotateCalendarToken}
+              onCopyLink={copyCalendarLink}
+            />
+          </>
+        )}
 
-        <PasswordSection
-          show={showPassword} onToggle={() => setShowPassword(!showPassword)}
-          pwSaving={pwSaving} pwError={pwError} pwSuccess={pwSuccess}
-          pwNew={pwNew} setPwNew={setPwNew}
-          pwConfirm={pwConfirm} setPwConfirm={setPwConfirm}
-          onChange={() => void changePassword()}
-        />
+        {/* ─── Tab "Account": Password + Gestione ─── */}
+        {activeTab === "account" && (
+          <>
+            <PasswordSection
+              show={showPassword} onToggle={() => setShowPassword(!showPassword)}
+              pwSaving={pwSaving} pwError={pwError} pwSuccess={pwSuccess}
+              pwNew={pwNew} setPwNew={setPwNew}
+              pwConfirm={pwConfirm} setPwConfirm={setPwConfirm}
+              onChange={() => void changePassword()}
+            />
 
-        <IntegrationsSection
-          show={showBackup} onToggle={() => setShowBackup(!showBackup)}
-          exportingBackup={exportingBackup} onExportBackup={() => void exportBackup()}
-          calendarToken={calendarToken}
-          calendarTokenLoading={calendarTokenLoading}
-          calendarTokenRotating={calendarTokenRotating}
-          onRotateToken={rotateCalendarToken}
-          onCopyLink={copyCalendarLink}
-        />
+            <ManagementSection
+              show={showGestione} onToggle={() => setShowGestione(!showGestione)}
+              savingPractice={savingPractice}
+              monthlyGoal={monthlyGoal} setMonthlyGoal={setMonthlyGoal}
+              inactiveThresh={inactiveThresh} setInactiveThresh={setInactiveThresh}
+              reminderHours={reminderHours} setReminderHours={setReminderHours}
+              onSave={() => void savePracticeSettings()}
+            />
+          </>
+        )}
 
         <div style={{ textAlign: "center", fontSize: 12, color: THEME.muted, padding: "8px 0 16px" }}>
           FisioHub · {new Date().getFullYear()}
