@@ -216,3 +216,29 @@ body {
     font-size: 11px !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MOBILE PHONE — max 767px
+   Fix per overflow orizzontale e safe-area iPhone (Dynamic Island, notch)
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 767px) {
+  html, body {
+    overflow-x: hidden !important;
+    max-width: 100vw !important;
+    width: 100% !important;
+    /* iOS Safari: previene overscroll/bounce orizzontale */
+    overscroll-behavior-x: none;
+    /* Fix per font su iOS */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* Garantisce che il #__next (root Next.js) e il primo div di pagina
+     non superino il viewport. Non tocchiamo position absolute/fixed
+     così non rompiamo modali/tooltip che possono uscire intenzionalmente. */
+  body > div,
+  #__next,
+  #__next > div {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+}
