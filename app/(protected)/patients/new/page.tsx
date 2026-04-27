@@ -7,6 +7,7 @@ import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { usePlanLimits } from "@/src/hooks/usePlanLimits";
 import UpgradeBanner from "@/src/components/UpgradeBanner";
+import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 
 // --- TIPI ---
 type Plan = "invoice" | "no_invoice";
@@ -279,8 +280,12 @@ export default function NewPatientPage() {
                       msg = `Buongiorno ${nome},\n\nbenvenuto/a nello studio di ${nomeOpEntry}!\n\nSiamo lieti di averla come nuovo paziente. A presto!${firmaLine}`;
                     }
 
-                    const p = savedPhone.replace(/[\s\(\)\-\.]/g,"").replace(/^\+/,"");
-                    const n = p.startsWith("00")?p.slice(2):p.startsWith("0")?"39"+p:!p.startsWith("39")&&p.length<=10?"39"+p:p;
+                    const n = normalizePhoneForWA(savedPhone);
+                    if (!n) {
+                      alert("Il numero di telefono non è valido. Verifica e riprova.");
+                      setShowWelcomeWA(false);
+                      return;
+                    }
                     const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
                     const url = isMobile
                       ? `https://wa.me/${n}?text=${encodeURIComponent(msg)}`

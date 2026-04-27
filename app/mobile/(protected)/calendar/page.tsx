@@ -1,8 +1,33 @@
 "use client";
 
+import Link from "next/link";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { supabase } from "@/src/lib/supabaseClient";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { buildReminderMessage } from "@/app/(protected)/calendar/utils/reminderMessage";
+import { normalizePhoneForWA } from "@/src/lib/whatsapp";
+import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
+
+/**
+ * Apre WhatsApp con un numero pre-popolato e un messaggio.
+ *
+ * Implementazione: delega a `normalizePhoneForWA` (già usato altrove)
+ * che ha la pulizia più robusta — strip di TUTTI i caratteri non-numerici
+ * (incluse lettere o simboli inattesi). Poi costruisce l'URL nello stesso
+ * modo della vecchia openWA per non cambiare comportamento sugli schemi
+ * `whatsapp://` vs `wa.me` vs `web.whatsapp.com`.
+ *
+ * Se il numero risulta vuoto/invalido dopo la normalizzazione, mostra un
+ * alert invece di aprire WhatsApp con phone vuoto (che farebbe aprire il
+ * selettore contatti — comportamento confondente).
+ */
 function openWA(phone: string, message: string = ""): void {
-  const p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
-  const n = p.startsWith("00") ? p.slice(2) : p.startsWith("0") ? "39" + p : !p.startsWith("39") && p.length <= 10 ? "39" + p : p;
+  const n = normalizePhoneForWA(phone);
+  if (!n) {
+    alert("Il numero di telefono del paziente non è valido. Verifica e riprova.");
+    return;
+  }
   const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
   if (isMobile) {
     // Schema URI nativo: apre l'app WhatsApp DIRETTAMENTE (no api.whatsapp.com)
@@ -24,15 +49,6 @@ function openWA(phone: string, message: string = ""): void {
     document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200);
   }
 }
-
-import Link from "next/link";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { supabase } from "@/src/lib/supabaseClient";
-import { useCurrentStudio } from "@/src/contexts/StudioContext";
-import { buildReminderMessage } from "@/app/(protected)/calendar/utils/reminderMessage";
-import { normalizePhoneForWA } from "@/src/lib/whatsapp";
-import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 
 /* ─── Types ───────────────────────────────────────────────────────────── */
 type Status = "booked" | "confirmed" | "done" | "cancelled" | "not_paid";

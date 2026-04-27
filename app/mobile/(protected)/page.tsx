@@ -494,6 +494,10 @@ export default function MobileHomePage() {
     // Apri WhatsApp usando schema URI nativo whatsapp:// (apre app diretta)
     // con fallback a wa.me se l'app non è installata
     const clean = formatPhoneForWA(phone);
+    if (!clean) {
+      alert("Il numero di telefono del paziente non è valido. Verifica e riprova.");
+      return;
+    }
     const enc = encodeURIComponent(message);
     const nativeUrl = `whatsapp://send?phone=${clean}&text=${enc}`;
     const fallbackUrl = `https://wa.me/${clean}?text=${enc}`;
@@ -784,6 +788,12 @@ export default function MobileHomePage() {
       firmaLine;
 
     const clean = formatPhoneForWA(patientPhone);
+    if (!clean) {
+      alert("Il numero di telefono del paziente non è valido. Verifica e riprova.");
+      setWaConfirmOpen(false);
+      setWaConfirmData(null);
+      return;
+    }
     const enc = encodeURIComponent(confMsg);
     const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator!=="undefined"?navigator.userAgent:"");
     if (isMobile) {
