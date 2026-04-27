@@ -200,6 +200,12 @@ export default function MobileHomePage() {
     time: string;
   } | null>(null);
 
+  // Slot orari occupati per il giorno selezionato in qaDate.
+  // Set di stringhe "HH:MM" che sono in conflitto con appuntamenti esistenti
+  // (cioè rientrano in una finestra [start, end) di un appuntamento non cancellato).
+  // Caricato/aggiornato dinamicamente quando cambia qaDate o si apre il modale.
+  const [qaBusyTimes, setQaBusyTimes] = useState<Set<string>>(new Set());
+
   // User
   const [userEmail,    setUserEmail]    = useState<string | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -561,6 +567,58 @@ export default function MobileHomePage() {
 
   // ─── Quick-add ────────────────────────────────────────────────────────────
 
+  // Carica slot orari occupati per il giorno scelto in qaDate.
+  // Si attiva all'apertura del modale e ogni volta che cambia qaDate.
+  // Nota: se l'utente cambia "Giorno" mentre il modale è aperto, si ricarica.
+  useEffect(() => {
+    if (!quickAddOpen || !qaDate) {
+      setQaBusyTimes(new Set());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      // Carica appuntamenti del giorno scelto (range YYYY-MM-DD 00:00 → 23:59:59)
+      const startISO = `${qaDate}T00:00:00.000Z`;
+      const endISO   = `${qaDate}T23:59:59.999Z`;
+      const { data, error } = await supabase
+        .from("appointments")
+        .select("start_at, end_at, status")
+        .gte("start_at", startISO)
+        .lte("start_at", endISO);
+      if (cancelled) return;
+      if (error || !data) {
+        setQaBusyTimes(new Set());
+        return;
+      }
+      // Per ogni slot WORK_HOURS (es. "09:00", "09:30") verifica se è dentro
+      // la finestra [start, end) di un appuntamento non cancellato.
+      const busy = new Set<string>();
+      for (const slot of WORK_HOURS) {
+        const [hh, mm] = slot.split(":").map(Number);
+        const slotStart = new Date(`${qaDate}T${slot}:00`);
+        for (const appt of data) {
+          if (appt.status === "cancelled") continue;
+          const aStart = new Date(appt.start_at);
+          const aEnd = new Date(appt.end_at);
+          // slot è occupato se cade nella finestra [aStart, aEnd)
+          if (slotStart.getTime() >= aStart.getTime() && slotStart.getTime() < aEnd.getTime()) {
+            busy.add(slot);
+            break;
+          }
+        }
+      }
+      setQaBusyTimes(busy);
+      // Se l'orario attualmente selezionato è ora occupato (es. ho cambiato
+      // giorno e in quel nuovo giorno è già preso), lo deseleziono per non
+      // far prenotare per errore.
+      if (qaTime && busy.has(qaTime)) {
+        setQaTime("");
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickAddOpen, qaDate]);
+
   function openQuickAdd() {
     // Default to next available half-hour
     const now = new Date();
@@ -635,6 +693,10 @@ export default function MobileHomePage() {
   async function saveQuickAdd() {
     if (!qaTime) return;
     if (!qaDate) { alert("Seleziona la data."); return; }
+    if (qaBusyTimes.has(qaTime)) {
+      alert("L'orario selezionato è già occupato. Scegline un altro.");
+      return;
+    }
     setQaSaving(true);
     try {
       let patientId = qaPatientId;
@@ -1563,21 +1625,62 @@ export default function MobileHomePage() {
             {/* Time picker */}
             <div style={{ marginBottom: 14 }}>
               <div style={{
-                fontSize: 11, fontWeight: 700, color: THEME.muted,
-                textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6,
-              }}>Orario</div>
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                marginBottom: 6,
+              }}>
+                <div style={{
+                  fontSize: 11, fontWeight: 700, color: THEME.muted,
+                  textTransform: "uppercase", letterSpacing: 0.5,
+                }}>Orario</div>
+                {qaBusyTimes.size > 0 && (
+                  <div style={{
+                    fontSize: 10, fontWeight: 600, color: THEME.muted,
+                    display: "flex", alignItems: "center", gap: 4,
+                  }}>
+                    <span style={{
+                      display: "inline-block", width: 8, height: 8, borderRadius: 2,
+                      background: "#fee2e2", border: "1px solid #fca5a5",
+                    }} />
+                    occupato
+                  </div>
+                )}
+              </div>
               <div style={{
                 display: "flex", gap: 5, flexWrap: "wrap",
               }}>
-                {WORK_HOURS.map(h => (
-                  <button key={h} onClick={() => setQaTime(h)} style={{
-                    padding: "6px 11px", borderRadius: 7, fontSize: 13, fontWeight: 700,
-                    border: qaTime === h ? `2px solid ${THEME.blue}` : `1px solid ${THEME.border}`,
-                    background: qaTime === h ? "rgba(37,99,235,0.08)" : THEME.panelSoft,
-                    color: qaTime === h ? THEME.blue : THEME.text,
-                    cursor: "pointer",
-                  }}>{h}</button>
-                ))}
+                {WORK_HOURS.map(h => {
+                  const isBusy = qaBusyTimes.has(h);
+                  const isSelected = qaTime === h;
+                  return (
+                    <button
+                      key={h}
+                      onClick={() => { if (!isBusy) setQaTime(h); }}
+                      disabled={isBusy}
+                      title={isBusy ? "Orario già occupato" : undefined}
+                      style={{
+                        padding: "6px 11px", borderRadius: 7, fontSize: 13, fontWeight: 700,
+                        border: isSelected
+                          ? `2px solid ${THEME.blue}`
+                          : isBusy
+                          ? `1px solid #fca5a5`
+                          : `1px solid ${THEME.border}`,
+                        background: isSelected
+                          ? "rgba(37,99,235,0.08)"
+                          : isBusy
+                          ? "#fee2e2"
+                          : THEME.panelSoft,
+                        color: isSelected
+                          ? THEME.blue
+                          : isBusy
+                          ? "#991b1b"
+                          : THEME.text,
+                        cursor: isBusy ? "not-allowed" : "pointer",
+                        textDecoration: isBusy ? "line-through" : "none",
+                        opacity: isBusy ? 0.7 : 1,
+                      }}
+                    >{h}</button>
+                  );
+                })}
               </div>
             </div>
 
