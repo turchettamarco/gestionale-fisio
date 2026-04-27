@@ -1635,11 +1635,19 @@ export default function MobileHomePage() {
                 value={qaDate}
                 onChange={e => setQaDate(e.target.value)}
                 style={{
-                  width: "100%", padding: "8px 12px", borderRadius: 7,
+                  display: "block",
+                  width: "100%",
+                  maxWidth: "100%",
+                  boxSizing: "border-box",
+                  padding: "8px 12px", borderRadius: 7,
                   border: `1px solid ${THEME.border}`,
                   background: THEME.panelSoft,
                   fontSize: 13, fontWeight: 600, color: THEME.text,
                   fontFamily: "inherit",
+                  // iOS Safari: senza queste l'input type=date può ignorare width:100%
+                  WebkitAppearance: "none",
+                  appearance: "none",
+                  minHeight: 36,
                 }}
               />
             </div>
@@ -2020,17 +2028,21 @@ export default function MobileHomePage() {
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Data</div>
                 <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} style={{
-                  width: "100%", padding: "9px 10px", borderRadius: 10,
+                  display: "block", width: "100%", maxWidth: "100%", boxSizing: "border-box",
+                  padding: "9px 10px", borderRadius: 10,
                   border: `1.5px solid ${THEME.border}`, background: THEME.panelSoft,
                   fontSize: 14, fontWeight: 600, color: THEME.text,
+                  WebkitAppearance: "none", appearance: "none", minHeight: 38,
                 }}/>
               </div>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Orario</div>
                 <input type="time" value={editTime} onChange={e => setEditTime(e.target.value)} style={{
-                  width: "100%", padding: "9px 10px", borderRadius: 10,
+                  display: "block", width: "100%", maxWidth: "100%", boxSizing: "border-box",
+                  padding: "9px 10px", borderRadius: 10,
                   border: `1.5px solid ${THEME.border}`, background: THEME.panelSoft,
                   fontSize: 14, fontWeight: 600, color: THEME.text,
+                  WebkitAppearance: "none", appearance: "none", minHeight: 38,
                 }}/>
               </div>
             </div>
