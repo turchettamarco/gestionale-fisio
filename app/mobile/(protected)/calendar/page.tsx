@@ -1175,7 +1175,8 @@ function CalendarPageInner() {
   return (
     <div
       style={{minHeight:"100vh",background:THEME.appBg,paddingBottom:BOTTOM_TAB_H+16,
-              fontFamily:"Inter,-apple-system,sans-serif"}}
+              fontFamily:"Inter,-apple-system,sans-serif",
+              overflowX:"hidden",maxWidth:"100vw"}}
       onTouchStart={handlePullStart}
       onTouchMove={handlePullMove}
       onTouchEnd={handlePullEnd}

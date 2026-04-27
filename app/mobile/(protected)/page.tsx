@@ -895,9 +895,11 @@ export default function MobileHomePage() {
     <div style={{
       minHeight: "100dvh", background: THEME.appBg,
       fontFamily: "-apple-system,'SF Pro Text',Inter,sans-serif",
+      overflowX: "hidden",
+      maxWidth: "100vw",
     }}>
       <style>{`
-        html, body { overscroll-behavior-y: none; -webkit-overflow-scrolling: touch; }
+        html, body { overscroll-behavior-y: none; -webkit-overflow-scrolling: touch; overflow-x: hidden; max-width: 100vw; }
         * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
@@ -910,6 +912,8 @@ export default function MobileHomePage() {
         background: THEME.gradient,
         padding: "0 16px",
         paddingTop: "env(safe-area-inset-top, 0px)",
+        paddingLeft: "max(16px, env(safe-area-inset-left, 0px))",
+        paddingRight: "max(16px, env(safe-area-inset-right, 0px))",
       }}>
         {/* Top row: logo + user */}
         <div style={{
@@ -1015,6 +1019,8 @@ export default function MobileHomePage() {
         background: THEME.panelBg, borderTop: `1px solid ${THEME.border}`,
         display: "flex", boxShadow: "0 -2px 12px rgba(15,23,42,0.06)",
         paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)",
+        paddingLeft: "env(safe-area-inset-left, 0px)",
+        paddingRight: "env(safe-area-inset-right, 0px)",
       }}>
         {[
           { href: "/mobile",          label: "Home",       icon: "⌂",  active: true },
@@ -1049,7 +1055,8 @@ export default function MobileHomePage() {
         style={{
           position: "fixed",
           bottom: "calc(max(env(safe-area-inset-bottom, 0px), 6px) + 56px)",
-          right: 16, zIndex: 40,
+          right: "calc(16px + env(safe-area-inset-right, 0px))",
+          zIndex: 40,
           width: 50, height: 50, borderRadius: "50%",
           background: THEME.gradient, color: "#fff", border: "none", cursor: "pointer",
           fontSize: 24, display: "flex", alignItems: "center", justifyContent: "center",
@@ -1064,6 +1071,8 @@ export default function MobileHomePage() {
         onTouchEnd={onTouchEnd}
         style={{
           padding: "12px 14px",
+          paddingLeft: "max(14px, env(safe-area-inset-left, 0px))",
+          paddingRight: "max(14px, env(safe-area-inset-right, 0px))",
           paddingBottom: "calc(max(env(safe-area-inset-bottom, 0px), 6px) + 80px)",
         }}
       >
@@ -1565,6 +1574,8 @@ export default function MobileHomePage() {
             position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 51,
             background: THEME.panelBg, borderRadius: "16px 16px 0 0",
             padding: "16px 18px",
+            paddingLeft: "max(18px, env(safe-area-inset-left, 0px))",
+            paddingRight: "max(18px, env(safe-area-inset-right, 0px))",
             paddingBottom: "max(20px, env(safe-area-inset-bottom, 20px))",
             boxShadow: "0 -6px 32px rgba(15,23,42,0.15)",
             animation: "slideUp 0.25s ease",
@@ -1961,6 +1972,8 @@ export default function MobileHomePage() {
             position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 51,
             background: THEME.panelBg, borderRadius: "16px 16px 0 0",
             padding: "16px 18px",
+            paddingLeft: "max(18px, env(safe-area-inset-left, 0px))",
+            paddingRight: "max(18px, env(safe-area-inset-right, 0px))",
             paddingBottom: "max(20px, env(safe-area-inset-bottom, 20px))",
             boxShadow: "0 -6px 32px rgba(15,23,42,0.15)",
             maxHeight: "85vh", overflowY: "auto",

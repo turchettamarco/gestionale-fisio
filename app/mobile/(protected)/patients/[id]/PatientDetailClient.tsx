@@ -715,7 +715,8 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   /* ─────────────────── RENDER ─────────────────────────────────────── */
   return (
     <div style={{ minHeight: "100vh", background: T.appBg,
-      paddingBottom: BOTTOM_TAB_H + 16, fontFamily: "Inter,-apple-system,sans-serif" }}>
+      paddingBottom: BOTTOM_TAB_H + 16, fontFamily: "Inter,-apple-system,sans-serif",
+      overflowX: "hidden", maxWidth: "100vw" }}>
 
       {/* ━━━ NAVBAR ━━━ */}
       <header style={{
