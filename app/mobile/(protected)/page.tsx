@@ -1579,7 +1579,8 @@ export default function MobileHomePage() {
             paddingBottom: "max(20px, env(safe-area-inset-bottom, 20px))",
             boxShadow: "0 -6px 32px rgba(15,23,42,0.15)",
             animation: "slideUp 0.25s ease",
-            maxHeight: "88vh", overflowY: "auto",
+            maxHeight: "88vh", overflowY: "auto", overflowX: "hidden",
+            boxSizing: "border-box",
           }}>
             {/* Handle */}
             <div style={{ width: 32, height: 3.5, borderRadius: 99, background: THEME.border, margin: "0 auto 14px" }}/>
@@ -1657,10 +1658,12 @@ export default function MobileHomePage() {
                   <div style={{
                     fontSize: 10, fontWeight: 600, color: THEME.muted,
                     display: "flex", alignItems: "center", gap: 4,
+                    flexShrink: 0,
                   }}>
                     <span style={{
                       display: "inline-block", width: 8, height: 8, borderRadius: 2,
                       background: "#fee2e2", border: "1px solid #fca5a5",
+                      flexShrink: 0,
                     }} />
                     occupato
                   </div>
@@ -1727,10 +1730,17 @@ export default function MobileHomePage() {
                     }}
                   />
                   {qaPatientId && (
-                    <div style={{ marginTop: 4, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ fontSize: 12, color: THEME.green, fontWeight: 700 }}>✓ {qaPatientLabel}</span>
+                    <div style={{ marginTop: 4, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                      <span style={{
+                        fontSize: 12, color: THEME.green, fontWeight: 700,
+                        flex: 1, minWidth: 0,
+                        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                      }}>✓ {qaPatientLabel}</span>
                       <button onClick={() => { setQaPatientId(null); setQaPatientLabel(""); setQaPatientSearch(""); }}
-                        style={{ fontSize: 11, color: THEME.muted, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>
+                        style={{
+                          fontSize: 11, color: THEME.muted, background: "none", border: "none",
+                          cursor: "pointer", fontWeight: 600, flexShrink: 0,
+                        }}>
                         Cambia
                       </button>
                     </div>
