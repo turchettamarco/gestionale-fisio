@@ -172,6 +172,7 @@ export default function MobileHomePage() {
 
   // Quick-add
   const [quickAddOpen,    setQuickAddOpen]    = useState(false);
+  const [qaDate,          setQaDate]          = useState("");  // YYYY-MM-DD del nuovo appuntamento (default: dateYMD corrente)
   const [qaTime,          setQaTime]          = useState("");
   const [qaPatientSearch, setQaPatientSearch] = useState("");
   const [qaPatientId,     setQaPatientId]     = useState<string | null>(null);
@@ -187,6 +188,17 @@ export default function MobileHomePage() {
   const [qaNewFirst,  setQaNewFirst]  = useState("");
   const [qaNewLast,   setQaNewLast]   = useState("");
   const [qaNewPhone,  setQaNewPhone]  = useState("");
+
+  // Dialog WA confirm dopo creazione appuntamento.
+  // Mostrato dopo saveQuickAdd() quando il paziente ha un telefono.
+  // L'utente può scegliere se inviare il messaggio o saltare.
+  const [waConfirmOpen, setWaConfirmOpen] = useState(false);
+  const [waConfirmData, setWaConfirmData] = useState<{
+    patientPhone: string;
+    patientFirstName: string;
+    startDate: Date;
+    time: string;
+  } | null>(null);
 
   // User
   const [userEmail,    setUserEmail]    = useState<string | null>(null);
@@ -556,6 +568,7 @@ export default function MobileHomePage() {
     const nextM = now.getMinutes() < 30 ? 30 : 0;
     const h = nextM === 0 ? nextH + 1 : nextH;
     setQaTime(h >= 8 && h < 20 ? `${pad2(h)}:${pad2(nextM)}` : "09:00");
+    setQaDate(dateYMD); // default: stesso giorno della home (di solito "oggi")
     setQaPatientSearch("");
     setQaPatientId(null);
     setQaPatientLabel("");
@@ -621,6 +634,7 @@ export default function MobileHomePage() {
 
   async function saveQuickAdd() {
     if (!qaTime) return;
+    if (!qaDate) { alert("Seleziona la data."); return; }
     setQaSaving(true);
     try {
       let patientId = qaPatientId;
@@ -654,7 +668,7 @@ export default function MobileHomePage() {
         return;
       }
 
-      const startDate = new Date(`${dateYMD}T${qaTime}:00`);
+      const startDate = new Date(`${qaDate}T${qaTime}:00`);
       const startISO = startDate.toISOString();
       const endISO   = new Date(startDate.getTime() + 3600000).toISOString();
 
@@ -668,42 +682,63 @@ export default function MobileHomePage() {
       });
       if (error) throw error;
 
-      // Auto-send WhatsApp confirmation
-      if (patientPhone) {
-        const patientName = patientFirst || "gentile paziente";
-        const luogo = CLINIC_ADDRESSES["Studio Pontecorvo"] || currentStudio?.address || "Studio";
-        const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
-        const firmaLine = firma ? `Cordiali saluti,\n${firma}` : "Cordiali saluti";
-        const confMsg =
-          `Buongiorno ${patientName},\n\n` +
-          `Le confermiamo il suo appuntamento di ${formatDateRelative(startDate)} ` +
-          `alle ore ⏰ ${qaTime}.\n\n` +
-          `📍 ${luogo}\n\n` +
-          `Per qualsiasi necessità non esiti a contattarci.\n\n` +
-          firmaLine;
-
-        const clean = formatPhoneForWA(patientPhone);
-        const enc = encodeURIComponent(confMsg);
-        const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator!=="undefined"?navigator.userAgent:"");
-        if (isMobile) {
-          window.location.href = `whatsapp://send?phone=${clean}&text=${enc}`;
-          setTimeout(() => {
-            if (document.visibilityState === "visible") {
-              window.location.href = `https://wa.me/${clean}?text=${enc}`;
-            }
-          }, 1500);
-        } else {
-          const url = `https://web.whatsapp.com/send?phone=${clean}&text=${enc}`;
-          const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
-          document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
-        }
-      }
-
+      // Chiudi modale e ricarica appuntamenti
       setQuickAddOpen(false);
       await loadAll();
-    } catch (e: any) {
-      alert(e?.message ?? "Errore nella creazione");
+
+      // Se il paziente ha un telefono, mostra dialog di conferma WA
+      // (invece di aprire WhatsApp direttamente)
+      if (patientPhone && patientPhone.trim().length > 0) {
+        setWaConfirmData({
+          patientPhone: patientPhone.trim(),
+          patientFirstName: patientFirst || "gentile paziente",
+          startDate,
+          time: qaTime,
+        });
+        setWaConfirmOpen(true);
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Errore nella creazione";
+      alert(msg);
     } finally { setQaSaving(false); }
+  }
+
+  /**
+   * Apre WhatsApp con il messaggio di conferma per il paziente.
+   * Chiamato dal dialog waConfirm dopo che l'utente clicca "Invia".
+   */
+  function sendQuickAddWhatsApp() {
+    if (!waConfirmData) return;
+    const { patientPhone, patientFirstName, startDate, time } = waConfirmData;
+    const luogo = CLINIC_ADDRESSES["Studio Pontecorvo"] || currentStudio?.address || "Studio";
+    const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+    const firmaLine = firma ? `Cordiali saluti,\n${firma}` : "Cordiali saluti";
+    const confMsg =
+      `Buongiorno ${patientFirstName},\n\n` +
+      `Le confermiamo il suo appuntamento di ${formatDateRelative(startDate)} ` +
+      `alle ore ⏰ ${time}.\n\n` +
+      `📍 ${luogo}\n\n` +
+      `Per qualsiasi necessità non esiti a contattarci.\n\n` +
+      firmaLine;
+
+    const clean = formatPhoneForWA(patientPhone);
+    const enc = encodeURIComponent(confMsg);
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator!=="undefined"?navigator.userAgent:"");
+    if (isMobile) {
+      window.location.href = `whatsapp://send?phone=${clean}&text=${enc}`;
+      setTimeout(() => {
+        if (document.visibilityState === "visible") {
+          window.location.href = `https://wa.me/${clean}?text=${enc}`;
+        }
+      }, 1500);
+    } else {
+      const url = `https://web.whatsapp.com/send?phone=${clean}&text=${enc}`;
+      const a = document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
+      document.body.appendChild(a); a.click(); setTimeout(()=>document.body.removeChild(a),200);
+    }
+
+    setWaConfirmOpen(false);
+    setWaConfirmData(null);
   }
 
   // ─── Auth ─────────────────────────────────────────────────────────────────
@@ -1470,7 +1505,59 @@ export default function MobileHomePage() {
               Nuovo appuntamento
             </div>
             <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 16 }}>
-              {isToday ? "Oggi" : headerDateLabel}
+              Scegli data, orario e paziente
+            </div>
+
+            {/* Date picker — scelta rapida giorno + selettore esteso */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{
+                fontSize: 11, fontWeight: 700, color: THEME.muted,
+                textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6,
+              }}>Giorno</div>
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 6 }}>
+                {(() => {
+                  // Bottoni rapidi: Oggi / Domani / Dopodomani / +3gg
+                  const today = new Date(); today.setHours(0,0,0,0);
+                  const quickChoices = [
+                    { label: "Oggi",       offset: 0 },
+                    { label: "Domani",     offset: 1 },
+                    { label: "Dopodomani", offset: 2 },
+                    { label: "+3 giorni",  offset: 3 },
+                  ];
+                  return quickChoices.map(({ label, offset }) => {
+                    const d = new Date(today);
+                    d.setDate(d.getDate() + offset);
+                    const ymd = toYMD(d);
+                    const active = qaDate === ymd;
+                    return (
+                      <button
+                        key={label}
+                        onClick={() => setQaDate(ymd)}
+                        style={{
+                          padding: "6px 11px", borderRadius: 7, fontSize: 12, fontWeight: 700,
+                          border: active ? `2px solid ${THEME.blue}` : `1px solid ${THEME.border}`,
+                          background: active ? "rgba(37,99,235,0.08)" : THEME.panelSoft,
+                          color: active ? THEME.blue : THEME.text,
+                          cursor: "pointer",
+                        }}
+                      >{label}</button>
+                    );
+                  });
+                })()}
+              </div>
+              {/* Selettore data nativo (per scegliere altri giorni) */}
+              <input
+                type="date"
+                value={qaDate}
+                onChange={e => setQaDate(e.target.value)}
+                style={{
+                  width: "100%", padding: "8px 12px", borderRadius: 7,
+                  border: `1px solid ${THEME.border}`,
+                  background: THEME.panelSoft,
+                  fontSize: 13, fontWeight: 600, color: THEME.text,
+                  fontFamily: "inherit",
+                }}
+              />
             </div>
 
             {/* Time picker */}
@@ -1650,6 +1737,98 @@ export default function MobileHomePage() {
                 cursor: "pointer", textAlign: "center",
               }}
             >Opzioni avanzate → Calendario</button>
+          </div>
+        </>
+      )}
+
+      {/* ━━━ DIALOG: Vuoi inviare il messaggio di conferma su WhatsApp? ━━━ */}
+      {waConfirmOpen && waConfirmData && (
+        <>
+          <div
+            onClick={() => { setWaConfirmOpen(false); setWaConfirmData(null); }}
+            style={{
+              position: "fixed", inset: 0, zIndex: 60,
+              background: "rgba(15,23,42,0.55)",
+              backdropFilter: "blur(2px)",
+            }}
+          />
+          <div style={{
+            position: "fixed",
+            left: "50%", top: "50%", transform: "translate(-50%, -50%)",
+            zIndex: 61,
+            width: "92vw", maxWidth: 420,
+            background: THEME.panelBg, borderRadius: 16,
+            padding: "22px 20px",
+            boxShadow: "0 24px 64px rgba(15,23,42,0.22)",
+          }}>
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+              <div style={{
+                width: 42, height: 42, borderRadius: 12,
+                background: "#25d366",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 22, color: "#fff",
+              }}>📱</div>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: THEME.text }}>
+                  Inviare conferma su WhatsApp?
+                </div>
+                <div style={{ fontSize: 11, color: THEME.muted, fontWeight: 600, marginTop: 2 }}>
+                  Appuntamento creato con successo
+                </div>
+              </div>
+            </div>
+
+            {/* Riepilogo destinatario + appuntamento */}
+            <div style={{
+              background: THEME.panelSoft,
+              border: `1px solid ${THEME.border}`,
+              borderRadius: 10,
+              padding: "12px 14px",
+              marginBottom: 16,
+              fontSize: 13,
+              lineHeight: 1.5,
+            }}>
+              <div style={{ marginBottom: 4 }}>
+                <strong>{waConfirmData.patientFirstName}</strong>
+              </div>
+              <div style={{ color: THEME.muted, fontSize: 12, fontWeight: 600 }}>
+                📞 {waConfirmData.patientPhone}
+              </div>
+              <div style={{ color: THEME.muted, fontSize: 12, fontWeight: 600, marginTop: 6 }}>
+                📅 {formatDateRelative(waConfirmData.startDate)} alle {waConfirmData.time}
+              </div>
+            </div>
+
+            {/* Bottoni Salta + Invia */}
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={() => { setWaConfirmOpen(false); setWaConfirmData(null); }}
+                style={{
+                  flex: 1, padding: "12px", borderRadius: 10,
+                  border: `1px solid ${THEME.border}`,
+                  background: THEME.panelSoft, color: THEME.text,
+                  fontWeight: 700, fontSize: 13,
+                  cursor: "pointer", fontFamily: "inherit",
+                }}
+              >
+                Salta
+              </button>
+              <button
+                onClick={sendQuickAddWhatsApp}
+                style={{
+                  flex: 1, padding: "12px", borderRadius: 10,
+                  border: "none",
+                  background: "#25d366", color: "#fff",
+                  fontWeight: 800, fontSize: 13,
+                  cursor: "pointer", fontFamily: "inherit",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                }}
+              >
+                <span>📱</span>
+                Invia WhatsApp
+              </button>
+            </div>
           </div>
         </>
       )}
