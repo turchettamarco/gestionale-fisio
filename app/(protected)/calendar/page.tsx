@@ -261,7 +261,7 @@ const userInitials = useMemo(() => {
   // Stati per modifica orario e giorno
   const [editDate, setEditDate] = useState<string>("");
   const [editStartTime, setEditStartTime] = useState<string>("09:00");
-  const [editDuration, setEditDuration] = useState<"1" | "1.5" | "2">("1");
+  const [editDuration, setEditDuration] = useState<"0.5" | "0.75" | "1" | "1.5" | "2">("1");
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createStartISO, setCreateStartISO] = useState<string>("");
@@ -288,7 +288,7 @@ const userInitials = useMemo(() => {
   }, [getDefaultAmount, treatmentType, priceType]);
 
   const [selectedStartTime, setSelectedStartTime] = useState<string>("09:00");
-  const [selectedDuration, setSelectedDuration] = useState<"1" | "1.5" | "2">("1");
+  const [selectedDuration, setSelectedDuration] = useState<"0.5" | "0.75" | "1" | "1.5" | "2">("1");
 
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurringDays, setRecurringDays] = useState<number[]>([1, 2, 3, 4, 5, 6]);
@@ -2159,7 +2159,9 @@ A presto${firma ? `,\n${firma}` : ""}`;
         setEditStartTime(`${pad2(event.start.getHours())}:${pad2(event.start.getMinutes())}`);
         
         const durationHours = (event.end.getTime() - event.start.getTime()) / (60 * 60000);
-        if (durationHours === 1) setEditDuration("1");
+        if (durationHours === 0.5) setEditDuration("0.5");
+        else if (durationHours === 0.75) setEditDuration("0.75");
+        else if (durationHours === 1) setEditDuration("1");
         else if (durationHours === 1.5) setEditDuration("1.5");
         else if (durationHours === 2) setEditDuration("2");
       }

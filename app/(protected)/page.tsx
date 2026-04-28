@@ -428,7 +428,7 @@ export default function HomePage() {
   const [editNextTime, setEditNextTime]   = useState(false);
   const [editDate, setEditDate]           = useState("");
   const [editStart, setEditStart]         = useState("");
-  const [editDuration, setEditDuration]   = useState<"1" | "1.5" | "2">("1");
+  const [editDuration, setEditDuration]   = useState<"0.5" | "0.75" | "1" | "1.5" | "2">("1");
   const [savingTime, setSavingTime]       = useState(false);
 
   // ── Tab agenda ──────────────────────────────────────────────────────

@@ -26,7 +26,7 @@ export type LeftColumnSectionProps = {
   setEditNextTime: (v: boolean) => void;
   editDate: string; setEditDate: (v: string) => void;
   editStart: string; setEditStart: (v: string) => void;
-  editDuration: "1" | "1.5" | "2"; setEditDuration: (v: "1" | "1.5" | "2") => void;
+  editDuration: "0.5" | "0.75" | "1" | "1.5" | "2"; setEditDuration: (v: "0.5" | "0.75" | "1" | "1.5" | "2") => void;
   savingTime: boolean;
   onSaveNextTime: () => void;
 
@@ -148,9 +148,11 @@ export default function LeftColumnSection(p: LeftColumnSectionProps) {
                     <div style={{ fontSize: 9, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>DURATA</div>
                     <select
                       value={p.editDuration}
-                      onChange={e => p.setEditDuration(e.target.value as "1" | "1.5" | "2")}
+                      onChange={e => p.setEditDuration(e.target.value as "0.5" | "0.75" | "1" | "1.5" | "2")}
                       style={{ ...inpStyle, width: "100%", appearance: "none" as const }}
                     >
+                      <option value="0.5">30min</option>
+                      <option value="0.75">45min</option>
                       <option value="1">1h</option>
                       <option value="1.5">1h30</option>
                       <option value="2">2h</option>

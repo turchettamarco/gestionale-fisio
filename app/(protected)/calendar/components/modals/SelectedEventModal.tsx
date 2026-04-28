@@ -72,8 +72,8 @@ export type SelectedEventModalProps = {
   setEditDate: (s: string) => void;
   editStartTime: string;
   setEditStartTime: (s: string) => void;
-  editDuration: "1" | "1.5" | "2";
-  setEditDuration: (d: "1" | "1.5" | "2") => void;
+  editDuration: "0.5" | "0.75" | "1" | "1.5" | "2";
+  setEditDuration: (d: "0.5" | "0.75" | "1" | "1.5" | "2") => void;
 
   // Slot orari disponibili
   timeSelectSlots: string[];
@@ -256,7 +256,7 @@ export default function SelectedEventModal({
               </label>
               <select
                 value={editDuration}
-                onChange={e => setEditDuration(e.target.value as "1" | "1.5" | "2")}
+                onChange={e => setEditDuration(e.target.value as "0.5" | "0.75" | "1" | "1.5" | "2")}
                 style={{
                   width: "100%", padding: "8px 10px", borderRadius: 8,
                   border: `1px solid ${THEME.borderSoft}`,
@@ -264,6 +264,8 @@ export default function SelectedEventModal({
                   outline: "none", fontWeight: 600, fontSize: 13,
                 }}
               >
+                <option value="0.5">30 min</option>
+                <option value="0.75">45 min</option>
                 <option value="1">1 ora</option>
                 <option value="1.5">1.5 ore</option>
                 <option value="2">2 ore</option>

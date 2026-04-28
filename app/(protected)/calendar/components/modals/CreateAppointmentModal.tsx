@@ -44,8 +44,8 @@ export type CreateAppointmentModalProps = {
   // ─── Orario ───────────────────────────────────────────────
   createStartISO: string;
   createEndISO: string;
-  selectedDuration: "1" | "1.5" | "2";
-  setSelectedDuration: (d: "1" | "1.5" | "2") => void;
+  selectedDuration: "0.5" | "0.75" | "1" | "1.5" | "2";
+  setSelectedDuration: (d: "0.5" | "0.75" | "1" | "1.5" | "2") => void;
   selectedStartTime: string;
   setSelectedStartTime: (s: string) => void;
   setCreateStartISO: (iso: string) => void;
@@ -357,7 +357,7 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
               <select
                 value={selectedDuration}
                 onChange={e => {
-                  const newDuration = e.target.value as "1" | "1.5" | "2";
+                  const newDuration = e.target.value as "0.5" | "0.75" | "1" | "1.5" | "2";
                   setSelectedDuration(newDuration);
                   if (duplicateMode && duplicateDate && duplicateTime) {
                     updateDuplicateDateTime(duplicateDate, duplicateTime);
@@ -370,6 +370,8 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
                   outline: "none", fontWeight: 600, fontSize: 13,
                 }}
               >
+                <option value="0.5">30 min</option>
+                <option value="0.75">45 min</option>
                 <option value="1">1 ora</option>
                 <option value="1.5">1.5 ore</option>
                 <option value="2">2 ore</option>

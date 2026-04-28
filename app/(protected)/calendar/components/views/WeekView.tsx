@@ -33,6 +33,22 @@ import type { DraggingOverState, FreeWindow } from "./DayTimeline";
 
 const WEEK_PX_PER_MIN = 1;
 
+/**
+ * Versione abbreviata di statusLabel — usata nelle card 45min (vista MEDIUM)
+ * dove lo spazio orizzontale è ristretto. La versione lunga resta in statusLabel
+ * e si usa nelle card ≥60min.
+ */
+function statusShortLabel(s: CalendarEvent["status"]): string {
+  switch (s) {
+    case "booked":    return "Pren.";
+    case "confirmed": return "Conf.";
+    case "done":      return "Eseg.";
+    case "cancelled": return "Ann.";
+    case "not_paid":  return "N.pag.";
+    default:          return statusLabel(s);
+  }
+}
+
 export type DraggingEventState = {
   id: string;
   originalStart: Date;
@@ -363,7 +379,12 @@ export default function WeekView({
             const isDimmed = isSearchActive && !isMatch;
 
             const cardH = Math.max(height - 2, 28);
-            const isShort = cardH < 38;
+            // 3 livelli di rendering in base all'altezza:
+            //   • isShort  (≤30min, < 38px) → 1 riga: orario + nome
+            //   • isMedium (45min,  38–55px) → 2 righe: orario+icone / nome+tipo+prezzo+stato
+            //   • full     (≥60min, ≥ 56px)  → 3 righe come prima
+            const isShort  = cardH < 38;
+            const isMedium = !isShort && cardH < 56;
 
             return (
               <div
@@ -414,13 +435,104 @@ export default function WeekView({
                 }}
               >
                 {isShort ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: 4, overflow: "hidden", height: "100%" }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, overflow: "hidden", height: "100%" }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.85)", flexShrink: 0, lineHeight: 1 }}>
+                      {fmtTime(event.start.toISOString())}{isDomicile && " 🏠"}
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
                       {event.patient_name}
                     </span>
-                    {isPaid && <span style={{ fontSize: 10, flexShrink: 0 }}>🪙</span>}
-                    {isDomicile && <span style={{ fontSize: 10, flexShrink: 0 }}>🏠</span>}
+                    {isPaid && <span style={{ fontSize: 9, flexShrink: 0, opacity: 0.9 }}>🪙</span>}
+                    {event.amount && (
+                      <span style={{ fontSize: 9, flexShrink: 0, color: "rgba(255,255,255,0.9)", fontWeight: 600 }}>
+                        €{event.amount}
+                      </span>
+                    )}
+                    <span style={{
+                      fontSize: 9, fontWeight: 700, color: "#fff",
+                      background: "rgba(255,255,255,0.25)", padding: "1px 4px",
+                      borderRadius: 99, whiteSpace: "nowrap", flexShrink: 0,
+                    }}>
+                      {statusShortLabel(event.status)}
+                    </span>
                   </div>
+                ) : isMedium ? (
+                  <>
+                    {/* MEDIUM (45min) — 2 righe compatte: orario+icone / nome+tipo+prezzo+stato */}
+                    {/* Riga 1: orario a sx, indicatori pagato/eseguito a dx */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 2, flexShrink: 0, marginBottom: 1 }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.85)", whiteSpace: "nowrap", lineHeight: 1 }}>
+                        {fmtTime(event.start.toISOString())}
+                        {isDomicile && " 🏠"}
+                      </span>
+                      <div style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0 }}>
+                        {/* Pagato (compatto, solo emoji) */}
+                        <button
+                          onClick={e => { e.preventDefault(); e.stopPropagation(); onTogglePaid(event.id, isPaid); }}
+                          title={isPaid ? "Pagato — clicca per annullare" : "Segna pagato"}
+                          style={{
+                            background: "none", border: "none", cursor: "pointer", padding: 0,
+                            fontSize: 11, lineHeight: 1, opacity: isPaid ? 1 : 0.5,
+                          }}
+                        >🪙</button>
+                        {/* Eseguito */}
+                        <button
+                          onClick={e => {
+                            e.preventDefault(); e.stopPropagation();
+                            if (bulkMode) onToggleBulkSelect(event.id);
+                            else onToggleDone(event.id, event.status);
+                          }}
+                          title={isDone ? "Annulla eseguita" : "Segna eseguita"}
+                          style={{
+                            width: 14, height: 14, borderRadius: 99, flexShrink: 0,
+                            border: `1.5px solid ${isDone ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.5)"}`,
+                            background: isDone ? "rgba(255,255,255,0.9)" : "transparent",
+                            cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                            color: statusBg(event.status), fontSize: 8, fontWeight: 800,
+                          }}
+                        >
+                          {isDone || bulkSelected.has(event.id) ? "✓" : ""}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Riga 2: nome (priorità alta) + tipo+prezzo+stato (si nascondono se stretto) */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 5, minWidth: 0 }}>
+                      <span style={{
+                        fontWeight: 700, fontSize: 12, color: "#fff", lineHeight: 1.15,
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        flex: 1, minWidth: 0,
+                      }}>
+                        {event.calendar_note?.startsWith("[WEB|") && (
+                          <span style={{
+                            fontSize: 8, background: "rgba(255,255,255,0.25)",
+                            borderRadius: 3, padding: "1px 3px", marginRight: 3,
+                            fontWeight: 700, verticalAlign: "middle",
+                          }}>WEB</span>
+                        )}
+                        {event.patient_name}
+                      </span>
+                      <div style={{ display: "flex", gap: 4, alignItems: "center", flexShrink: 0, fontSize: 9, color: "rgba(255,255,255,0.9)" }}>
+                        {/* Tipo + prezzo abbreviato (si nasconde su colonne strettissime) */}
+                        {event.amount && (
+                          <span style={{ whiteSpace: "nowrap", fontWeight: 600 }}>
+                            <span className="evt-type-label">
+                              {event.treatment_type === "macchinario" ? "Mac." : "Sed."}
+                            </span>
+                            €{event.amount}
+                          </span>
+                        )}
+                        {/* Badge stato (sempre visibile) */}
+                        <span style={{
+                          fontWeight: 700, color: "#fff",
+                          background: "rgba(255,255,255,0.25)", padding: "1px 5px",
+                          borderRadius: 99, whiteSpace: "nowrap",
+                        }}>
+                          {statusShortLabel(event.status)}
+                        </span>
+                      </div>
+                    </div>
+                  </>
                 ) : (
                   <>
                     {/* Riga 1: orario + bottoni */}
