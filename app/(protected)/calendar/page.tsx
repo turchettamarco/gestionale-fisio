@@ -280,6 +280,10 @@ const userInitials = useMemo(() => {
 
   const [treatmentType, setTreatmentType] = useState<TreatmentType>("seduta");
   const [priceType, setPriceType] = useState<"invoiced" | "cash">("cash"); // default: non fatturato
+  // Metodo pagamento — usato solo quando priceType === "invoiced".
+  // Default null (l'utente DEVE scegliere prima di salvare se fatturato).
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "pos" | "bank_transfer" | null>(null);
+  const [editPaymentMethod, setEditPaymentMethod] = useState<"cash" | "pos" | "bank_transfer" | null>(null);
   const [customAmount, setCustomAmount] = useState<string>("");
   const [useCustomPrice, setUseCustomPrice] = useState(false);
 
@@ -769,6 +773,7 @@ const { data, error } = await supabase
       setCreateDomicileAddress(duplicateEvent.domicile_address || "");
       setTreatmentType((duplicateEvent.treatment_type as "seduta" | "macchinario") || "seduta");
       setPriceType((duplicateEvent.price_type as "invoiced" | "cash") || "invoiced");
+      setPaymentMethod((duplicateEvent.payment_method as "cash" | "pos" | "bank_transfer" | null) || null);
       setCustomAmount(duplicateEvent.amount ? duplicateEvent.amount.toString() : "");
       setUseCustomPrice(!!duplicateEvent.amount);
       
@@ -807,6 +812,7 @@ const { data, error } = await supabase
       setCreateDomicileAddress("");
       setTreatmentType("seduta");
       setPriceType("invoiced");
+      setPaymentMethod(null);
       setCustomAmount("");
       setUseCustomPrice(false);
     }
@@ -945,7 +951,7 @@ const { data, error } = await supabase
       const { data, error } = await supabase
         .from("appointments")
           .select(`
-          id, patient_id, start_at, end_at, status, calendar_note, location, clinic_site, domicile_address, treatment_type, price_type, amount,
+          id, patient_id, start_at, end_at, status, calendar_note, location, clinic_site, domicile_address, treatment_type, price_type, payment_method, amount,
           expected_price, is_paid,
           reminder_sent_at, reminder_status,
           whatsapp_sent_at,
@@ -983,6 +989,7 @@ const mapped = (data ?? []).map(
       domicile_address?: string | null;
       treatment_type?: string | null;
       price_type?: string | null;
+      payment_method?: string | null;
       amount?: number | null;
       expected_price?: number | null;
       is_paid?: boolean | null;
@@ -1025,6 +1032,7 @@ const mapped = (data ?? []).map(
       domicile_address: a.domicile_address ?? null,
       treatment_type: a.treatment_type ?? null,
       price_type: a.price_type ?? null,
+      payment_method: (a.payment_method ?? null) as "cash" | "pos" | "bank_transfer" | null,
       amount: a.amount ?? null,
       expected_price: a.expected_price ?? null,
       is_paid: a.is_paid ?? false,
@@ -1786,6 +1794,12 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
     }
   }
 
+  // Validazione: se fatturato, payment_method è obbligatorio
+  if (priceType === "invoiced" && !paymentMethod) {
+    alert("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");
+    return;
+  }
+
   setCreating(true);
 
   const basePayload = {
@@ -1797,6 +1811,7 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
     domicile_address: createLocation === "domicile" ? createDomicileAddress.trim() : null,
     treatment_type: treatmentType,
     price_type: priceType,
+    payment_method: priceType === "invoiced" ? paymentMethod : null,
     amount: amount,
     studio_id: currentStudioId,  // multi-tenancy
   };
@@ -1959,6 +1974,12 @@ A presto${firma ? `,\n${firma}` : ""}`;
     return;
   }
 
+  // Validazione: se fatturato, payment_method è obbligatorio
+  if (editPriceType === "invoiced" && !editPaymentMethod) {
+    alert("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");
+    return;
+  }
+
   // Creiamo l'oggetto di aggiornamento
   const updateData = {
     status: normalizedStatus,
@@ -1968,13 +1989,19 @@ A presto${firma ? `,\n${firma}` : ""}`;
     amount: amount,
     treatment_type: editTreatmentType,
     price_type: editPriceType,
+    payment_method: editPriceType === "invoiced" ? editPaymentMethod : null,
     start_at: newStartDate.toISOString(),
     end_at: newEndDate.toISOString(),
   };
 
   // Rimuoviamo le proprietà undefined/null
+  // ECCEZIONE: payment_method deve poter essere settato a null
+  // (quando passi da "fatturato" a "contanti", devi cancellare il metodo)
   const cleanedData = Object.fromEntries(
-    Object.entries(updateData).filter(([_, v]) => v !== null && v !== undefined)
+    Object.entries(updateData).filter(([k, v]) => {
+      if (k === "payment_method") return v !== undefined; // null è valido
+      return v !== null && v !== undefined;
+    })
   );
 
   try {
@@ -2153,6 +2180,7 @@ A presto${firma ? `,\n${firma}` : ""}`;
         setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
         setEditTreatmentType((event.treatment_type as "seduta" | "macchinario") || "seduta");
         setEditPriceType((event.price_type as "invoiced" | "cash") || "invoiced");
+        setEditPaymentMethod((event.payment_method as "cash" | "pos" | "bank_transfer" | null) || null);
         
         // Imposta i valori per la modifica di orario e giorno
         setEditDate(toDateInputValue(event.start));
@@ -2337,6 +2365,7 @@ return (
           setEditAmount(appointment.amount !== undefined && appointment.amount !== null ? appointment.amount.toString() : "");
           setEditTreatmentType((appointment.treatment_type as "seduta" | "macchinario") || "seduta");
           setEditPriceType((appointment.price_type as "invoiced" | "cash") || "invoiced");
+          setEditPaymentMethod((appointment.payment_method as "cash" | "pos" | "bank_transfer" | null) || null);
         }}
         onToggleDone={(eventId, currentStatus) => toggleDoneQuick(eventId, currentStatus)}
         onSendWeeklyReminder={(patientId, firstName, phone) => {
@@ -2484,6 +2513,7 @@ return (
                 setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
                 setEditTreatmentType((event.treatment_type as "seduta" | "macchinario") || "seduta");
                 setEditPriceType((event.price_type as "invoiced" | "cash") || "invoiced");
+        setEditPaymentMethod((event.payment_method as "cash" | "pos" | "bank_transfer" | null) || null);
                 if (event.patient_id) loadPatientFromEvent(event.patient_id);
               }}
               onToggleBulkSelect={toggleBulkSelect}
@@ -2558,6 +2588,7 @@ return (
                 setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
                 setEditTreatmentType((event.treatment_type as "seduta" | "macchinario") || "seduta");
                 setEditPriceType((event.price_type as "invoiced" | "cash") || "invoiced");
+        setEditPaymentMethod((event.payment_method as "cash" | "pos" | "bank_transfer" | null) || null);
                 if (event.patient_id) loadPatientFromEvent(event.patient_id);
               }}
               onToggleBulkSelect={toggleBulkSelect}
@@ -2602,6 +2633,8 @@ return (
           setTreatmentType={setTreatmentType}
           priceType={priceType}
           setPriceType={setPriceType}
+          paymentMethod={paymentMethod}
+          setPaymentMethod={setPaymentMethod}
           useCustomPrice={useCustomPrice}
           setUseCustomPrice={setUseCustomPrice}
           customAmount={customAmount}
@@ -2668,6 +2701,8 @@ return (
           setEditTreatmentType={setEditTreatmentType}
           editPriceType={editPriceType}
           setEditPriceType={setEditPriceType}
+          editPaymentMethod={editPaymentMethod}
+          setEditPaymentMethod={setEditPaymentMethod}
           editDate={editDate}
           setEditDate={setEditDate}
           editStartTime={editStartTime}

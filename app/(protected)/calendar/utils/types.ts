@@ -68,6 +68,8 @@ export type CalendarEvent = {
   domicile_address: string | null;
   treatment_type: string | null;
   price_type: string | null;
+  /** Metodo pagamento per le sedute fatturate. Solo se price_type === "invoiced". */
+  payment_method: "cash" | "pos" | "bank_transfer" | null;
   amount: number | null;
   expected_price: number | null;
   is_paid: boolean;

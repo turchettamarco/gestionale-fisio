@@ -68,6 +68,9 @@ export type SelectedEventModalProps = {
   setEditTreatmentType: (t: TreatmentType) => void;
   editPriceType: "invoiced" | "cash";
   setEditPriceType: (p: "invoiced" | "cash") => void;
+  /** Metodo pagamento (solo se editPriceType === "invoiced"). Obbligatorio per fatturati. */
+  editPaymentMethod: "cash" | "pos" | "bank_transfer" | null;
+  setEditPaymentMethod: (m: "cash" | "pos" | "bank_transfer" | null) => void;
   editDate: string;
   setEditDate: (s: string) => void;
   editStartTime: string;
@@ -109,6 +112,7 @@ export default function SelectedEventModal({
   editAmount, setEditAmount,
   editTreatmentType, setEditTreatmentType,
   editPriceType, setEditPriceType,
+  editPaymentMethod, setEditPaymentMethod,
   editDate, setEditDate,
   editStartTime, setEditStartTime,
   editDuration, setEditDuration,
@@ -343,6 +347,37 @@ export default function SelectedEventModal({
                   Contanti
                 </button>
               </div>
+
+              {/* ── Metodo Pagamento — visibile solo se "Fatturato" ── */}
+              {editPriceType === "invoiced" && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: THEME.muted, marginBottom: 6 }}>
+                    Metodo pagamento <span style={{ color: "#dc2626" }}>*</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {([
+                      { v: "cash",          label: "Contanti" },
+                      { v: "pos",           label: "POS" },
+                      { v: "bank_transfer", label: "Bonifico" },
+                    ] as const).map(opt => {
+                      const active = editPaymentMethod === opt.v;
+                      return (
+                        <button
+                          key={opt.v}
+                          onClick={() => setEditPaymentMethod(opt.v)}
+                          style={{
+                            flex: 1, padding: "7px 6px", borderRadius: 7,
+                            border: `1px solid ${active ? THEME.blue : THEME.borderSoft}`,
+                            background: active ? "rgba(37,99,235,0.08)" : "#fff",
+                            color: active ? THEME.blue : THEME.text,
+                            cursor: "pointer", fontWeight: 600, fontSize: 11,
+                          }}
+                        >{opt.label}</button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

@@ -156,6 +156,19 @@ export default function ReportsPage(){
   const[bestDay,      setBestDay]     =useState<string|null>(null);
   const[revenuePerVisit,setRevPerVisit]=useState<number|null>(null);
 
+  // ── Aggregati per metodo di pagamento ──
+  // Calcolati nelle fetch principali; mostrati nella sezione "Incassi del periodo".
+  type PaymentBreakdown = {
+    cash: number; pos: number; bank_transfer: number; none: number;
+    cashCount: number; posCount: number; bankCount: number; noneCount: number;
+    cashRegimeTotal: number; cashRegimeCount: number;
+  };
+  const [paymentBreakdown, setPaymentBreakdown] = useState<PaymentBreakdown>({
+    cash: 0, pos: 0, bank_transfer: 0, none: 0,
+    cashCount: 0, posCount: 0, bankCount: 0, noneCount: 0,
+    cashRegimeTotal: 0, cashRegimeCount: 0,
+  });
+
   const baseDate=useMemo(()=>{const[y,m,d]=dateStr.split("-").map(Number);return new Date(y,m-1,d);},[dateStr]);
 
   // ref per annullare chiamate in corso se period/date cambiano prima che finiscano
@@ -191,7 +204,7 @@ export default function ReportsPage(){
 
       // ── Appuntamenti periodo ──
       const[{data:done},{data:unp},{data:allA},{data:cancelled}]=await Promise.all([
-        supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id").eq("status","done").gte("amount",0.01).gte("start_at",fs).lte("start_at",ts).order("start_at",{ascending:false}),
+        supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id,price_type,payment_method").eq("status","done").gte("amount",0.01).gte("start_at",fs).lte("start_at",ts).order("start_at",{ascending:false}),
         supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id").eq("status","not_paid").gte("start_at",fs).lte("start_at",ts).order("start_at",{ascending:false}),
         supabase.from("appointments").select("status,start_at,patient_id").gte("start_at",fs).lte("start_at",ts),
         supabase.from("appointments").select("status,start_at").eq("status","cancelled").gte("start_at",fs).lte("start_at",ts),
@@ -213,6 +226,35 @@ export default function ReportsPage(){
       const sess=paidList.length;
       setRevenue(rev);setSessions(sess);
       setRevPerVisit(sess>0?rev/sess:null);
+
+      // ── Aggregati per metodo di pagamento (sedute fatturate eseguite) ──
+      // Solo quelle con price_type === "invoiced" hanno un metodo significativo
+      const byMethod = { cash: 0, pos: 0, bank_transfer: 0, none: 0 };
+      const byMethodCount = { cash: 0, pos: 0, bank_transfer: 0, none: 0 };
+      let cashRegimeTotal = 0; // sedute "Contanti" (= price_type "cash")
+      let cashRegimeCount = 0;
+      doneData.forEach((r:any)=>{
+        const amt = parseFloat(String(r.amount))||0;
+        if (amt <= 0) return;
+        if (r.price_type === "cash") {
+          cashRegimeTotal += amt;
+          cashRegimeCount++;
+        } else if (r.price_type === "invoiced") {
+          const m = (r.payment_method as keyof typeof byMethod) || "none";
+          if (m in byMethod) {
+            byMethod[m] += amt;
+            byMethodCount[m]++;
+          } else {
+            byMethod.none += amt;
+            byMethodCount.none++;
+          }
+        }
+      });
+      setPaymentBreakdown({
+        cash: byMethod.cash, pos: byMethod.pos, bank_transfer: byMethod.bank_transfer, none: byMethod.none,
+        cashCount: byMethodCount.cash, posCount: byMethodCount.pos, bankCount: byMethodCount.bank_transfer, noneCount: byMethodCount.none,
+        cashRegimeTotal, cashRegimeCount,
+      });
 
       // ── Tutti i non pagati (storico) ──
       const{data:allUnp}=await supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id").eq("status","not_paid").order("start_at",{ascending:false}).limit(2000);
@@ -434,7 +476,7 @@ export default function ReportsPage(){
 
       const{data,error}=await supabase
         .from("appointments")
-        .select("start_at,end_at,status,location,clinic_site,domicile_address,treatment_type,price_type,amount,is_paid,calendar_note,patients:patient_id(first_name,last_name,phone)")
+        .select("start_at,end_at,status,location,clinic_site,domicile_address,treatment_type,price_type,payment_method,amount,is_paid,calendar_note,patients:patient_id(first_name,last_name,phone)")
         .gte("start_at",fs).lte("start_at",ts)
         .order("start_at",{ascending:true});
       if(error) throw new Error(error.message);
@@ -443,7 +485,14 @@ export default function ReportsPage(){
       const statusLabel:Record<string,string>={done:"Eseguito",confirmed:"Confermato",booked:"Prenotato",cancelled:"Annullato",not_paid:"Non pagato"};
 
       // Intestazioni (separatore punto e virgola — standard Excel italiano)
-      const headers=["Data","Ora inizio","Ora fine","Cognome","Nome","Telefono","Stato","Tipo trattamento","Fatturazione","Sede","Indirizzo domicilio","Importo (€)","Pagato","Note"];
+      const headers=["Data","Ora inizio","Ora fine","Cognome","Nome","Telefono","Stato","Tipo trattamento","Fatturazione","Metodo pagamento","Sede","Indirizzo domicilio","Importo (€)","Pagato","Note"];
+
+      // Mappa metodo pagamento → label
+      const paymentMethodLabel: Record<string, string> = {
+        cash: "Contanti",
+        pos: "POS",
+        bank_transfer: "Bonifico",
+      };
 
       // Righe
       const rows=(data||[]).map((r:any)=>{
@@ -453,6 +502,7 @@ export default function ReportsPage(){
         const importo=r.amount!=null?Number(r.amount).toFixed(2).replace(".",","):"";
         const treatment=r.treatment_type==="seduta"?"Seduta":r.treatment_type==="macchinario"?"Macchinario":(r.treatment_type||"");
         const priceLabel=r.price_type==="invoiced"?"Con ricevuta":r.price_type==="cash"?"Contanti":"";
+        const paymentLabel = r.payment_method ? (paymentMethodLabel[r.payment_method] || r.payment_method) : "";
         const sede=r.location==="studio"?(r.clinic_site||"Studio"):"Domicilio";
         const indirizzo=r.location==="domicile"?(r.domicile_address||""):"";
         const pagato=r.is_paid?"Sì":"No";
@@ -467,6 +517,7 @@ export default function ReportsPage(){
           statusLabel[r.status]||r.status,
           treatment,
           priceLabel,
+          paymentLabel,
           sede,
           indirizzo,
           importo,
@@ -776,6 +827,50 @@ export default function ReportsPage(){
                 </div>
               ))}
             </div>
+
+            {/* ── Ripartizione metodi di pagamento ── */}
+            {(() => {
+              const pb = paymentBreakdown;
+              const totFatt = pb.cash + pb.pos + pb.bank_transfer + pb.none;
+              const totGen = totFatt + pb.cashRegimeTotal;
+              if (totGen === 0) return null;
+              const items = [
+                { label: "Contanti (fatt.)", value: pb.cash, count: pb.cashCount, color: T.amber },
+                { label: "POS",              value: pb.pos, count: pb.posCount, color: T.blue },
+                { label: "Bonifico",         value: pb.bank_transfer, count: pb.bankCount, color: T.teal },
+                ...(pb.none > 0 ? [{ label: "Non specificato", value: pb.none, count: pb.noneCount, color: T.muted }] : []),
+                ...(pb.cashRegimeTotal > 0 ? [{ label: "Contanti (non fatt.)", value: pb.cashRegimeTotal, count: pb.cashRegimeCount, color: T.red }] : []),
+              ];
+              return (
+                <div style={{...card,padding:"18px 22px"}}>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
+                    <div style={{ fontSize:13,fontWeight:700,color:T.text }}>Incassi per metodo di pagamento</div>
+                    <div style={{ fontSize:11,color:T.muted }}>{euro.format(totGen)} totale</div>
+                  </div>
+                  <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10 }}>
+                    {items.map((it, i) => {
+                      const pct = totGen > 0 ? (it.value / totGen) * 100 : 0;
+                      return (
+                        <div key={i} style={{
+                          padding: "12px 14px", borderRadius: 10,
+                          background: T.soft, border: `1px solid ${T.borderSoft}`,
+                        }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase" as const, letterSpacing: 0.7, marginBottom: 6 }}>
+                            {it.label}
+                          </div>
+                          <div style={{ fontSize: 18, fontWeight: 900, color: it.color, lineHeight: 1 }}>
+                            {euro.format(it.value)}
+                          </div>
+                          <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
+                            {it.count} sed. · {pct.toFixed(0)}%
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* ── Confronto periodi vicini ── */}
             {compBars.length>0&&(

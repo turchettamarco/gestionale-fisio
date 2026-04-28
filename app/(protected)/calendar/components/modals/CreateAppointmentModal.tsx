@@ -77,6 +77,9 @@ export type CreateAppointmentModalProps = {
   setTreatmentType: (t: TreatmentType) => void;
   priceType: "invoiced" | "cash";
   setPriceType: (p: "invoiced" | "cash") => void;
+  /** Metodo pagamento (solo se priceType === "invoiced"). Obbligatorio per fatturati. */
+  paymentMethod: "cash" | "pos" | "bank_transfer" | null;
+  setPaymentMethod: (m: "cash" | "pos" | "bank_transfer" | null) => void;
   useCustomPrice: boolean;
   setUseCustomPrice: (v: boolean) => void;
   customAmount: string;
@@ -135,6 +138,7 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
     createDomicileAddress, setCreateDomicileAddress,
     treatmentType, setTreatmentType,
     priceType, setPriceType,
+    paymentMethod, setPaymentMethod,
     useCustomPrice, setUseCustomPrice,
     customAmount, setCustomAmount,
     computedDefaultAmount, getDefaultAmount,
@@ -445,6 +449,37 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
                   {`€ ${Number(getDefaultAmount(treatmentType, "cash") ?? 0).toFixed(2)} contanti`}
                 </button>
               </div>
+
+              {/* ── Metodo Pagamento — visibile solo se "Fatturato" ── */}
+              {priceType === "invoiced" && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: THEME.muted, marginBottom: 6 }}>
+                    Metodo pagamento <span style={{ color: "#dc2626" }}>*</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {([
+                      { v: "cash",          label: "Contanti" },
+                      { v: "pos",           label: "POS" },
+                      { v: "bank_transfer", label: "Bonifico" },
+                    ] as const).map(opt => {
+                      const active = paymentMethod === opt.v;
+                      return (
+                        <button
+                          key={opt.v}
+                          onClick={() => setPaymentMethod(opt.v)}
+                          style={{
+                            flex: 1, padding: "9px 6px", borderRadius: 7,
+                            border: `1px solid ${active ? THEME.blue : THEME.borderSoft}`,
+                            background: active ? "rgba(37,99,235,0.08)" : "#fff",
+                            color: active ? THEME.blue : THEME.text,
+                            cursor: "pointer", fontWeight: 600, fontSize: 12,
+                          }}
+                        >{opt.label}</button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

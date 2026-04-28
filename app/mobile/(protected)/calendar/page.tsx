@@ -65,7 +65,7 @@ type CalendarEvent = {
   calendar_note: string | null; location: LocationType | null;
   clinic_site: string | null; domicile_address: string | null;
   amount: number | null; is_paid: boolean;
-  treatment_type: string | null; price_type: string | null;
+  treatment_type: string | null; price_type: string | null; payment_method: string | null;
   whatsapp_sent_at: string | null;
 };
 
@@ -87,6 +87,8 @@ type CreateModalProps = {
   createDomicileAddress: string; setCreateDomicileAddress: (v: string) => void;
   createAmount: string; setCreateAmount: (v: string) => void;
   createNote: string; setCreateNote: (v: string) => void;
+  createPriceType: "invoiced" | "cash"; setCreatePriceType: (v: "invoiced" | "cash") => void;
+  createPaymentMethod: "cash" | "pos" | "bank_transfer" | null; setCreatePaymentMethod: (v: "cash" | "pos" | "bank_transfer" | null) => void;
   createAppointment: () => Promise<void>;
   createRecurring: boolean; setCreateRecurring: (v: boolean) => void;
   createRecurringCount: number; setCreateRecurringCount: (v: number) => void;
@@ -287,6 +289,9 @@ function CalendarPageInner() {
   const [editStatus,    setEditStatus]    = useState<Status>("booked");
   const [editNote,      setEditNote]      = useState("");
   const [editAmount,    setEditAmount]    = useState("");
+  // Fatturazione e metodo pagamento (allineati al desktop)
+  const [editPriceType, setEditPriceType] = useState<"invoiced" | "cash">("invoiced");
+  const [editPaymentMethod, setEditPaymentMethod] = useState<"cash" | "pos" | "bank_transfer" | null>(null);
   const [editDate,      setEditDate]      = useState(toISODateLocal(new Date()));
   const [editTime,      setEditTime]      = useState("09:00");
   const [editDuration,  setEditDuration]  = useState(60);
@@ -325,6 +330,9 @@ function CalendarPageInner() {
   const [createDomicileAddress, setCreateDomicileAddress] = useState("");
   const [createAmount,          setCreateAmount]          = useState("");
   const [createNote,            setCreateNote]            = useState("");
+  // Fatturazione + metodo pagamento allineati al desktop
+  const [createPriceType,       setCreatePriceType]       = useState<"invoiced" | "cash">("invoiced");
+  const [createPaymentMethod,   setCreatePaymentMethod]   = useState<"cash" | "pos" | "bank_transfer" | null>(null);
 
   /* patient search (create) */
   const [patientQuery,    setPatientQuery]    = useState("");
@@ -388,7 +396,7 @@ function CalendarPageInner() {
     const {data,error:err} = await supabase.from("appointments").select(`
       id,patient_id,start_at,end_at,status,calendar_note,is_paid,
       location,clinic_site,domicile_address,
-      amount,treatment_type,price_type,whatsapp_sent_at,
+      amount,treatment_type,price_type,payment_method,whatsapp_sent_at,
       patients:patient_id(first_name,last_name,phone)
     `).gte("start_at",s0.toISOString()).lt("start_at",e0.toISOString())
       .order("start_at",{ascending:true});
@@ -404,7 +412,7 @@ function CalendarPageInner() {
         is_paid:a.is_paid??false,
         location:(a.location??null) as LocationType|null, clinic_site:a.clinic_site??null,
         domicile_address:a.domicile_address??null, amount:a.amount??null,
-        treatment_type:a.treatment_type??null, price_type:a.price_type??null,
+        treatment_type:a.treatment_type??null, price_type:a.price_type??null, payment_method:a.payment_method??null,
         whatsapp_sent_at:a.whatsapp_sent_at??null,
       };
     });
@@ -452,7 +460,7 @@ function CalendarPageInner() {
     const {data, error:err} = await supabase.from("appointments").select(`
       id,patient_id,start_at,end_at,status,calendar_note,is_paid,
       location,clinic_site,domicile_address,
-      amount,treatment_type,price_type,whatsapp_sent_at,
+      amount,treatment_type,price_type,payment_method,whatsapp_sent_at,
       patients:patient_id(first_name,last_name,phone)
     `).gte("start_at", firstDay.toISOString()).lte("start_at", lastDay.toISOString())
       .order("start_at", {ascending:true});
@@ -468,7 +476,7 @@ function CalendarPageInner() {
           is_paid:a.is_paid??false,
           location:(a.location??null) as LocationType|null, clinic_site:a.clinic_site??null,
           domicile_address:a.domicile_address??null, amount:a.amount??null,
-          treatment_type:a.treatment_type??null, price_type:a.price_type??null,
+          treatment_type:a.treatment_type??null, price_type:a.price_type??null, payment_method:a.payment_method??null,
           whatsapp_sent_at:a.whatsapp_sent_at??null,
         };
       });
@@ -780,6 +788,8 @@ function CalendarPageInner() {
   const openEvent = useCallback((ev:CalendarEvent) => {
     setSelectedEvent(ev); setEditStatus(ev.status);
     setEditNote(ev.calendar_note??""); setEditAmount(ev.amount==null?"":String(ev.amount));
+    setEditPriceType((ev.price_type as "invoiced" | "cash") || "invoiced");
+    setEditPaymentMethod((ev.payment_method as "cash" | "pos" | "bank_transfer" | null) || null);
     setEditDate(toISODateLocal(ev.start));
     setEditTime(`${pad2(ev.start.getHours())}:${pad2(ev.start.getMinutes())}`);
     setEditDuration(Math.max(15,Math.round((ev.end.getTime()-ev.start.getTime())/60_000)));
@@ -817,10 +827,21 @@ function CalendarPageInner() {
 
   const saveEvent = useCallback(async () => {
     if (!selectedEvent) return;
+    // Validazione: se fatturato, payment_method è obbligatorio
+    if (editPriceType === "invoiced" && !editPaymentMethod) {
+      alert("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");
+      return;
+    }
     setBusy(true); setError("");
     const amount = editAmount.trim()===""?null
       :(()=>{const n=Number(editAmount.replace(",",".")); return isFinite(n)?n:null;})();
-    const upd:Record<string,unknown>={status:editStatus,calendar_note:editNote.trim()||null,amount};
+    const upd:Record<string,unknown>={
+      status:editStatus,
+      calendar_note:editNote.trim()||null,
+      amount,
+      price_type: editPriceType,
+      payment_method: editPriceType === "invoiced" ? editPaymentMethod : null,
+    };
     if (isValidISODate(editDate)&&isValidHHMM(editTime)) {
       const ns=buildDateTime(editDate,editTime);
       const d=Number(editDuration);
@@ -833,7 +854,7 @@ function CalendarPageInner() {
     const {error:e}=await supabase.from("appointments").update(upd).eq("id",selectedEvent.id);
     if (e){setError(`Errore: ${e.message}`);setBusy(false);return;}
     setSelectedEvent(null); setBusy(false); await loadAppointments(currentDate);
-  }, [selectedEvent,editStatus,editNote,editAmount,editDate,editTime,editDuration,currentDate,loadAppointments]);
+  }, [selectedEvent,editStatus,editNote,editAmount,editPriceType,editPaymentMethod,editDate,editTime,editDuration,currentDate,loadAppointments]);
 
   const deleteEvent = useCallback(async () => {
     if (!selectedEvent||!window.confirm("Eliminare definitivamente questo appuntamento?")) return;
@@ -891,6 +912,11 @@ function CalendarPageInner() {
     if (!selectedPatient){setError("Seleziona un paziente.");return;}
     const dur=Number(createDuration);
     if (!isFinite(dur)||dur<=0){setError("Durata non valida.");return;}
+    // Validazione: se fatturato, payment_method è obbligatorio
+    if (createPriceType === "invoiced" && !createPaymentMethod) {
+      setError("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");
+      return;
+    }
     setBusy(true);setError("");
     const amount=createAmount.trim()===""?null
       :(()=>{const n=Number(createAmount.replace(",",".")); return isFinite(n)?n:null;})();
@@ -912,6 +938,8 @@ function CalendarPageInner() {
         clinic_site:createLocation==="studio"?(createClinicSite.trim()||DEFAULT_CLINIC):null,
         domicile_address:createLocation==="domicile"?(createDomicileAddress.trim()||null):null,
         amount,
+        price_type: createPriceType,
+        payment_method: createPriceType === "invoiced" ? createPaymentMethod : null,
         studio_id: currentStudioId,  // multi-tenancy
       });
     }
@@ -966,7 +994,8 @@ function CalendarPageInner() {
       setShowWhatsAppConfirm(true);
     }
   }, [selectedPatient,createDuration,createDate,createTime,createStatus,createNote,
-      createLocation,createClinicSite,createDomicileAddress,createAmount,currentDate,loadAppointments,
+      createLocation,createClinicSite,createDomicileAddress,createAmount,
+      createPriceType,createPaymentMethod,currentDate,loadAppointments,
       createRecurring,createRecurringCount,createRecurringInterval,overlapMode,events]);
 
   /* ── Move appointment (drag) ─────────────── */
@@ -1892,6 +1921,60 @@ function CalendarPageInner() {
               <input value={editAmount} onChange={e=>setEditAmount(e.target.value)}
                 style={inputS()} placeholder="Es. 40" inputMode="decimal" />
             </FG>
+
+            {/* Fatturazione */}
+            <FG label="Fatturazione">
+              <div style={{ display: "flex", gap: 6 }}>
+                <button
+                  onClick={() => setEditPriceType("invoiced")}
+                  style={{
+                    flex: 1, padding: "9px 10px", borderRadius: 8,
+                    border: `1px solid ${editPriceType === "invoiced" ? THEME.green : THEME.border}`,
+                    background: editPriceType === "invoiced" ? THEME.green : THEME.panelBg,
+                    color: editPriceType === "invoiced" ? "#fff" : THEME.text,
+                    fontWeight: 700, fontSize: 13, cursor: "pointer",
+                  }}
+                >Fatturato</button>
+                <button
+                  onClick={() => setEditPriceType("cash")}
+                  style={{
+                    flex: 1, padding: "9px 10px", borderRadius: 8,
+                    border: `1px solid ${editPriceType === "cash" ? "#f59e0b" : THEME.border}`,
+                    background: editPriceType === "cash" ? "rgba(245,158,11,0.1)" : THEME.panelBg,
+                    color: editPriceType === "cash" ? "#b45309" : THEME.text,
+                    fontWeight: 700, fontSize: 13, cursor: "pointer",
+                  }}
+                >Contanti</button>
+              </div>
+            </FG>
+
+            {/* Metodo Pagamento — solo se Fatturato */}
+            {editPriceType === "invoiced" && (
+              <FG label="Metodo pagamento *">
+                <div style={{ display: "flex", gap: 6 }}>
+                  {([
+                    { v: "cash",          label: "Contanti" },
+                    { v: "pos",           label: "POS" },
+                    { v: "bank_transfer", label: "Bonifico" },
+                  ] as const).map(opt => {
+                    const active = editPaymentMethod === opt.v;
+                    return (
+                      <button
+                        key={opt.v}
+                        onClick={() => setEditPaymentMethod(opt.v)}
+                        style={{
+                          flex: 1, padding: "9px 6px", borderRadius: 8,
+                          border: `1px solid ${active ? THEME.blue : THEME.border}`,
+                          background: active ? "rgba(37,99,235,0.10)" : THEME.panelBg,
+                          color: active ? THEME.blue : THEME.text,
+                          fontWeight: 700, fontSize: 12, cursor: "pointer",
+                        }}
+                      >{opt.label}</button>
+                    );
+                  })}
+                </div>
+              </FG>
+            )}
             {selectedEvent.whatsapp_sent_at&&(
               <div style={{fontSize:12,fontWeight:600,color:THEME.green,padding:"6px 10px",borderRadius:8,
                 background:"rgba(22,163,74,0.08)",border:"1px solid rgba(22,163,74,0.2)"}}>
@@ -1953,6 +2036,8 @@ function CalendarPageInner() {
           createDomicileAddress={createDomicileAddress} setCreateDomicileAddress={setCreateDomicileAddress}
           createAmount={createAmount}     setCreateAmount={setCreateAmount}
           createNote={createNote}         setCreateNote={setCreateNote}
+          createPriceType={createPriceType}     setCreatePriceType={setCreatePriceType}
+          createPaymentMethod={createPaymentMethod} setCreatePaymentMethod={setCreatePaymentMethod}
           createAppointment={createAppointment}
           createRecurring={createRecurring} setCreateRecurring={setCreateRecurring}
           createRecurringCount={createRecurringCount} setCreateRecurringCount={setCreateRecurringCount}
@@ -2202,6 +2287,7 @@ function CreateModal(props:CreateModalProps) {
     createStatus,setCreateStatus,createLocation,setCreateLocation,
     createClinicSite,setCreateClinicSite,createDomicileAddress,setCreateDomicileAddress,
     createAmount,setCreateAmount,createNote,setCreateNote,createAppointment,
+    createPriceType,setCreatePriceType,createPaymentMethod,setCreatePaymentMethod,
     createRecurring,setCreateRecurring,createRecurringCount,setCreateRecurringCount,
     createRecurringInterval,setCreateRecurringInterval,
   }=props;
@@ -2276,6 +2362,61 @@ function CreateModal(props:CreateModalProps) {
         <FG label="Importo">
           <input value={createAmount} onChange={e=>setCreateAmount(e.target.value)} style={inputS()} placeholder="Es. 40" inputMode="decimal" />
         </FG>
+
+        {/* Fatturazione */}
+        <FG label="Fatturazione">
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              onClick={() => setCreatePriceType("invoiced")}
+              style={{
+                flex: 1, padding: "9px 10px", borderRadius: 8,
+                border: `1px solid ${createPriceType === "invoiced" ? THEME.green : THEME.border}`,
+                background: createPriceType === "invoiced" ? THEME.green : THEME.panelBg,
+                color: createPriceType === "invoiced" ? "#fff" : THEME.text,
+                fontWeight: 700, fontSize: 13, cursor: "pointer",
+              }}
+            >Fatturato</button>
+            <button
+              onClick={() => setCreatePriceType("cash")}
+              style={{
+                flex: 1, padding: "9px 10px", borderRadius: 8,
+                border: `1px solid ${createPriceType === "cash" ? "#f59e0b" : THEME.border}`,
+                background: createPriceType === "cash" ? "rgba(245,158,11,0.1)" : THEME.panelBg,
+                color: createPriceType === "cash" ? "#b45309" : THEME.text,
+                fontWeight: 700, fontSize: 13, cursor: "pointer",
+              }}
+            >Contanti</button>
+          </div>
+        </FG>
+
+        {/* Metodo Pagamento — solo se Fatturato */}
+        {createPriceType === "invoiced" && (
+          <FG label="Metodo pagamento *">
+            <div style={{ display: "flex", gap: 6 }}>
+              {([
+                { v: "cash",          label: "Contanti" },
+                { v: "pos",           label: "POS" },
+                { v: "bank_transfer", label: "Bonifico" },
+              ] as const).map(opt => {
+                const active = createPaymentMethod === opt.v;
+                return (
+                  <button
+                    key={opt.v}
+                    onClick={() => setCreatePaymentMethod(opt.v)}
+                    style={{
+                      flex: 1, padding: "9px 6px", borderRadius: 8,
+                      border: `1px solid ${active ? THEME.blue : THEME.border}`,
+                      background: active ? "rgba(37,99,235,0.10)" : THEME.panelBg,
+                      color: active ? THEME.blue : THEME.text,
+                      fontWeight: 700, fontSize: 12, cursor: "pointer",
+                    }}
+                  >{opt.label}</button>
+                );
+              })}
+            </div>
+          </FG>
+        )}
+
         <FG label="Note">
           <textarea value={createNote} onChange={e=>setCreateNote(e.target.value)} style={{...inputS(),minHeight:80,resize:"vertical"}} />
         </FG>
