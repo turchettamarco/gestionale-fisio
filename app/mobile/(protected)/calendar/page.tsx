@@ -629,8 +629,24 @@ function CalendarPageInner() {
 
   /* ─── NEW: segna pagato rapido ───────────── */
   const togglePaid = useCallback(async (id:string, isPaid:boolean) => {
-    setEvents(prev=>prev.map(e=>e.id===id?{...e,is_paid:!isPaid}:e));
-    await supabase.from("appointments").update({is_paid:!isPaid}).eq("id",id);
+    // Se sto MARCANDO come pagato (false → true), lo status passa anche a "done".
+    // Se sto TOGLIENDO il pagato (true → false), lascio lo status invariato.
+    const willBePaid = !isPaid;
+    if (willBePaid) {
+      setEvents(prev => prev.map(e =>
+        e.id === id ? { ...e, is_paid: true, status: "done" as Status } : e
+      ));
+      await supabase.from("appointments")
+        .update({ is_paid: true, status: "done" })
+        .eq("id", id);
+    } else {
+      setEvents(prev => prev.map(e =>
+        e.id === id ? { ...e, is_paid: false } : e
+      ));
+      await supabase.from("appointments")
+        .update({ is_paid: false })
+        .eq("id", id);
+    }
   }, []);
 
   /* ─── NEW: swipe card actions ────────────── */
