@@ -296,23 +296,34 @@ export default function SelectedEventModal({
               <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 8 }}>
                 Trattamento
               </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {ALL_TREATMENTS.map(t => (
-                  <button
-                    key={t.value}
-                    onClick={() => setEditTreatmentType(t.value as TreatmentType)}
-                    style={{
-                      padding: "7px 12px", borderRadius: 7, cursor: "pointer",
-                      fontWeight: 700, fontSize: 12,
-                      border: `2px solid ${editTreatmentType === t.value ? t.color : THEME.borderSoft}`,
-                      background: editTreatmentType === t.value ? t.color : "#fff",
-                      color: editTreatmentType === t.value ? "#fff" : THEME.text,
-                      transition: "all 0.15s",
-                    }}
-                  >
-                    {t.label}
-                  </button>
-                ))}
+              <div style={{ position: "relative" }}>
+                {/* Pallino colore a sinistra */}
+                <div style={{
+                  position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
+                  width: 12, height: 12, borderRadius: "50%",
+                  background: ALL_TREATMENTS.find(t => t.value === editTreatmentType)?.color ?? "#94a3b8",
+                  pointerEvents: "none", zIndex: 1,
+                  border: "1px solid rgba(0,0,0,0.06)",
+                }} />
+                <select
+                  value={editTreatmentType}
+                  onChange={e => setEditTreatmentType(e.target.value as TreatmentType)}
+                  style={{
+                    width: "100%", padding: "9px 32px 9px 32px", borderRadius: 7,
+                    border: `1.5px solid ${THEME.borderSoft}`, fontSize: 13, fontWeight: 700,
+                    background: "#fff", color: THEME.text, cursor: "pointer",
+                    appearance: "none", WebkitAppearance: "none", MozAppearance: "none",
+                  }}
+                >
+                  {ALL_TREATMENTS.map(t => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
+                  ))}
+                </select>
+                {/* Freccia destra */}
+                <div style={{
+                  position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
+                  pointerEvents: "none", color: THEME.muted, fontSize: 10,
+                }}>▼</div>
               </div>
             </div>
 
