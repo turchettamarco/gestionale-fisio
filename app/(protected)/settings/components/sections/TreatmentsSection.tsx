@@ -240,14 +240,10 @@ export default function TreatmentsSection(p: TreatmentsSectionProps) {
     }
   }
 
-  // ── Cancella (solo voci custom) ─────────────────────────────────────────
+  // ── Cancella ─────────────────────────────────────────────────────────────
   async function deleteRow(row: TreatmentTypeRow) {
-    if (row.is_builtin) {
-      alert("Le voci di sistema non possono essere cancellate. Puoi disattivarle.");
-      return;
-    }
     const ok = confirm(
-      `Cancellare definitivamente "${row.label}"?\n\nGli appuntamenti già creati con questo tipo manterranno la dicitura, ma non potrai più crearne di nuovi.`
+      `Cancellare definitivamente "${row.label}"?\n\nGli appuntamenti già creati con questo tipo manterranno la dicitura, ma non potrai più crearne di nuovi.${row.is_builtin ? "\n\n⚠️ Stai cancellando una voce di sistema. Verrà comunque ricreata se reinstalli il gestionale o crei un nuovo studio." : ""}`
     );
     if (!ok) return;
     setSaving(true);
@@ -412,17 +408,15 @@ export default function TreatmentsSection(p: TreatmentsSectionProps) {
                   Modifica
                 </button>
 
-                {/* Cancella (solo non-builtin) */}
-                {!row.is_builtin && (
-                  <button
-                    onClick={() => void deleteRow(row)}
-                    disabled={saving}
-                    title="Cancella"
-                    style={{ padding: "6px 8px", borderRadius: 6, border: `1px solid ${THEME.border}`, background: "#fff", color: THEME.red, fontSize: 13, cursor: "pointer" }}
-                  >
-                    🗑
-                  </button>
-                )}
+                {/* Cancella (sempre visibile) */}
+                <button
+                  onClick={() => void deleteRow(row)}
+                  disabled={saving}
+                  title="Cancella"
+                  style={{ padding: "6px 8px", borderRadius: 6, border: `1px solid ${THEME.border}`, background: "#fff", color: THEME.red, fontSize: 13, cursor: "pointer" }}
+                >
+                  🗑
+                </button>
               </div>
             ))}
           </div>

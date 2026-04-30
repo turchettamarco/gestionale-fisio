@@ -33,6 +33,7 @@ export {
   GOOGLE_REVIEW_LINK_FALLBACK,
   CLINIC_ADDRESSES,
   ALL_TREATMENTS,
+  setTreatmentCatalog,
   statusColor,
   statusBg,
   statusLabel,

@@ -39,7 +39,19 @@ export const CLINIC_ADDRESSES: Record<string, string> = {
   "Studio Pontecorvo": "Pontecorvo, Via Galileo Galilei 5, dietro il Bar Principe",
 };
 
-export const ALL_TREATMENTS: { value: TreatmentType; label: string; color: string }[] = [
+/**
+ * Catalogo trattamenti.
+ *
+ * Inizialmente popolato con i 6 built-in di sistema come fallback.
+ * Una volta che il calendario carica il catalogo dal DB (treatment_types),
+ * chiama `setTreatmentCatalog(...)` per aggiornare ovunque (compresi gli
+ * helper sotto, che restano sincroni e leggono da questo array).
+ *
+ * Nota: si tratta di un singleton mutabile in memoria. Va bene perché:
+ *   - viene popolato una volta al mount del calendario;
+ *   - il calendario è single-tenant per sessione (uno studio attivo).
+ */
+export let ALL_TREATMENTS: { value: TreatmentType; label: string; color: string }[] = [
   { value: "seduta",      label: "Seduta",      color: "#0d9488" },
   { value: "macchinario", label: "Macchinario", color: "#2563eb" },
   { value: "laser",       label: "Laser",       color: "#d97706" },
@@ -47,6 +59,17 @@ export const ALL_TREATMENTS: { value: TreatmentType; label: string; color: strin
   { value: "onde_urto",   label: "Onde d'urto", color: "#7c3aed" },
   { value: "tens",        label: "TENS",        color: "#059669" },
 ];
+
+/**
+ * Aggiorna il catalogo trattamenti runtime (chiamato dal calendario dopo
+ * aver caricato `treatment_types` dal DB).
+ */
+export function setTreatmentCatalog(
+  rows: { value: string; label: string; color: string }[]
+): void {
+  if (!rows || rows.length === 0) return; // mai svuotare → resta il fallback
+  ALL_TREATMENTS = rows.slice();
+}
 
 // ─── Status helpers ──────────────────────────────────────────────────────
 
@@ -91,12 +114,19 @@ export function getTreatmentColor(tt: string | null | undefined): string {
 
 export function getTreatmentLabel(tt: string | null | undefined): string {
   const found = ALL_TREATMENTS.find(t => t.value === tt);
-  return found ? found.label : "Seduta";
+  if (found) return found.label;
+  // Fallback: capitalizza la chiave (es. "linfodrenaggio_vodder" → "Linfodrenaggio Vodder")
+  if (!tt) return "Seduta";
+  return tt
+    .split("_")
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 export function asTreatmentType(v: string | null | undefined): TreatmentType {
-  const found = ALL_TREATMENTS.find(t => t.value === v);
-  return found ? found.value : "seduta";
+  // Restituisce il valore così com'è se valido, altrimenti il primo del catalogo (di solito "seduta")
+  if (v && typeof v === "string" && v.length > 0) return v;
+  return ALL_TREATMENTS[0]?.value ?? "seduta";
 }
 
 export function asPriceType(v: string | null | undefined): "invoiced" | "cash" {
