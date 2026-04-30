@@ -39,6 +39,7 @@ import SettingsNavBar from "./components/SettingsNavBar";
 import StudioBrandingSection from "./components/sections/StudioBrandingSection";
 import PracticeSection from "./components/sections/PracticeSection";
 import PricesSection from "./components/sections/PricesSection";
+import TreatmentsSection from "./components/sections/TreatmentsSection";
 import WorkingHoursSection from "./components/sections/WorkingHoursSection";
 import TemplatesSection from "./components/sections/TemplatesSection";
 import DurationsSection from "./components/sections/DurationsSection";
@@ -85,6 +86,7 @@ export default function SettingsPage() {
   const [showStudio,    setShowStudio]    = useState(true);
   const [showPractice,  setShowPractice]  = useState(true);
   const [showPrices,    setShowPrices]    = useState(true);
+  const [showTreatments, setShowTreatments] = useState(false);
   const [showHours,     setShowHours]     = useState(true);
   const [showTemplates, setShowTemplates] = useState(true);
   const [showDurations, setShowDurations] = useState(false);
@@ -1054,6 +1056,12 @@ export default function SettingsPage() {
           autoApplyPrices={autoApplyPrices} setAutoApplyPrices={setAutoApplyPrices}
           onReload={() => void loadPracticeSettings()}
           onSave={() => void savePracticeSettings()}
+        />
+
+        <TreatmentsSection
+          show={showTreatments}
+          onToggle={() => setShowTreatments(!showTreatments)}
+          studioId={studio?.id ?? null}
         />
 
         <WorkingHoursSection
