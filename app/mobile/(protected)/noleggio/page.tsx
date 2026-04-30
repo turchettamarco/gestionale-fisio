@@ -143,8 +143,11 @@ export default function MobileNoleggioPage() {
     if(!confirm(`Creare paziente "${n.patient_name}" in anagrafica?`)) return;
     setCreatingPatient(n.id);
     try {
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData.user?.id ?? null;
+      if (!userId) { alert("Sessione non valida."); return; }
       const parts=n.patient_name.trim().split(/\s+/);
-      const {data,error}=await supabase.from("patients").insert({first_name:parts.slice(1).join(" ")||"",last_name:parts[0]||n.patient_name,phone:n.patient_phone||"",studio_id:currentStudioId}).select("id").single();
+      const {data,error}=await supabase.from("patients").insert({first_name:parts.slice(1).join(" ")||"",last_name:parts[0]||n.patient_name,phone:n.patient_phone||"",owner_id:userId,studio_id:currentStudioId}).select("id").single();
       if(error){alert("Errore: "+error.message);return;}
       await supabase.from("noleggios").update({patient_id:data.id}).eq("id",n.id);
       setNoleggios(p=>p.map(x=>x.id===n.id?{...x,patient_id:data.id}:x));

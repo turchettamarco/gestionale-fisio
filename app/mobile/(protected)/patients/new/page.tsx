@@ -159,12 +159,21 @@ export default function NewPatientPage() {
     }
 
     setSaving(true);
+    // Recupero userId per owner_id (NOT NULL nel DB)
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id ?? null;
+    if (!userId) {
+      setSaving(false);
+      setError("Sessione non valida. Effettua di nuovo il login.");
+      return;
+    }
     const { error: insErr } = await supabase.from("patients").insert({
       first_name:     firstName.trim(),
       last_name:      lastName.trim(),
       phone:          phone.trim(),
       birth_date:     birthDate.trim() || null,
       preferred_plan: preferredPlan,
+      owner_id:       userId,           // NOT NULL nel DB
       studio_id:      currentStudioId,  // multi-tenancy
     });
     setSaving(false);
