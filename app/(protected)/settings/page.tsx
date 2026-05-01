@@ -38,10 +38,9 @@ import {
 import SettingsNavBar from "./components/SettingsNavBar";
 import StudioBrandingSection from "./components/sections/StudioBrandingSection";
 import PracticeSection from "./components/sections/PracticeSection";
-import PricesSection from "./components/sections/PricesSection";
+import TreatmentsSection from "./components/sections/TreatmentsSection";
 import WorkingHoursSection from "./components/sections/WorkingHoursSection";
 import TemplatesSection from "./components/sections/TemplatesSection";
-import DurationsSection from "./components/sections/DurationsSection";
 import CalendarPrefsSection from "./components/sections/CalendarPrefsSection";
 import BookableServicesSection from "./components/sections/BookableServicesSection";
 import BlockedDaysSection from "./components/sections/BlockedDaysSection";
@@ -84,10 +83,9 @@ export default function SettingsPage() {
   // ── Stato sezioni accordion (apri/chiudi) ────────────────────────────────
   const [showStudio,    setShowStudio]    = useState(true);
   const [showPractice,  setShowPractice]  = useState(true);
-  const [showPrices,    setShowPrices]    = useState(true);
+  const [showTreatments, setShowTreatments] = useState(true);
   const [showHours,     setShowHours]     = useState(true);
   const [showTemplates, setShowTemplates] = useState(true);
-  const [showDurations, setShowDurations] = useState(false);
   const [showServices,  setShowServices]  = useState(false);
   const [showBlockDays, setShowBlockDays] = useState(false);
   const [showGestione,  setShowGestione]  = useState(false);
@@ -1036,24 +1034,10 @@ export default function SettingsPage() {
               onSave={() => void savePracticeSettings()}
             />
 
-            <PricesSection
-              show={showPrices} onToggle={() => setShowPrices(!showPrices)}
-              loadingPractice={loadingPractice} savingPractice={savingPractice}
-          standardInvoice={standardInvoice} setStandardInvoice={setStandardInvoice}
-          standardCash={standardCash} setStandardCash={setStandardCash}
-          machineInvoice={machineInvoice} setMachineInvoice={setMachineInvoice}
-          machineCash={machineCash} setMachineCash={setMachineCash}
-          laserInvoice={laserInvoice} setLaserInvoice={setLaserInvoice}
-          laserCash={laserCash} setLaserCash={setLaserCash}
-          tecarInvoice={tecarInvoice} setTecarInvoice={setTecarInvoice}
-          tecarCash={tecarCash} setTecarCash={setTecarCash}
-          ondeUrtoInvoice={ondeUrtoInvoice} setOndeUrtoInvoice={setOndeUrtoInvoice}
-          ondeUrtoCash={ondeUrtoCash} setOndeUrtoCash={setOndeUrtoCash}
-          tensInvoice={tensInvoice} setTensInvoice={setTensInvoice}
-          tensCash={tensCash} setTensCash={setTensCash}
-          autoApplyPrices={autoApplyPrices} setAutoApplyPrices={setAutoApplyPrices}
-          onReload={() => void loadPracticeSettings()}
-          onSave={() => void savePracticeSettings()}
+            <TreatmentsSection
+          show={showTreatments}
+          onToggle={() => setShowTreatments(!showTreatments)}
+          studioId={studio?.id ?? null}
         />
 
         <WorkingHoursSection
@@ -1070,18 +1054,6 @@ export default function SettingsPage() {
         {/* ─── Tab "Calendario": Durate + CalendarPrefs + Servizi + Giorni bloccati ─── */}
         {activeTab === "calendar" && (
           <>
-            <DurationsSection
-              show={showDurations} onToggle={() => setShowDurations(!showDurations)}
-              savingPractice={savingPractice}
-              durSeduta={durSeduta} setDurSeduta={setDurSeduta}
-              durMacchina={durMacchina} setDurMacchina={setDurMacchina}
-              durLaser={durLaser} setDurLaser={setDurLaser}
-              durTecar={durTecar} setDurTecar={setDurTecar}
-              durOndeUrto={durOndeUrto} setDurOndeUrto={setDurOndeUrto}
-              durTens={durTens} setDurTens={setDurTens}
-              onSave={() => void savePracticeSettings()}
-            />
-
             <CalendarPrefsSection
               savingPractice={savingPractice}
               defaultApptStatus={defaultApptStatus} setDefaultApptStatus={setDefaultApptStatus}

@@ -366,16 +366,27 @@ export default function WeekView({
             // Calcolo lane positions per OGNI giorno separatamente
             // (l'overlap si verifica solo all'interno dello stesso giorno).
             // Massimo 3 lane visibili: oltre, ultima ingloba badge "+N altri".
+            //
+            // DURANTE DRAG: salto il calcolo lane → tutte le card tornano a piena
+            // larghezza per facilitare lo spostamento (ricompaiono affiancate
+            // appena finisce il drag).
             const lanePositions = new Map<string, ReturnType<typeof assignLanes> extends Map<string, infer V> ? V : never>();
-            for (let i = 0; i < weekDays.length; i++) {
-              const day = weekDays[i];
-              const dayEvents = filteredEvents.filter(e =>
-                e.start.getDate() === day.getDate() &&
-                e.start.getMonth() === day.getMonth() &&
-                e.start.getFullYear() === day.getFullYear()
-              );
-              const dayLanes = assignLanes(dayEvents, 3);
-              dayLanes.forEach((v, k) => lanePositions.set(k, v));
+            if (!draggingEvent) {
+              for (let i = 0; i < weekDays.length; i++) {
+                const day = weekDays[i];
+                const dayEvents = filteredEvents.filter(e =>
+                  e.start.getDate() === day.getDate() &&
+                  e.start.getMonth() === day.getMonth() &&
+                  e.start.getFullYear() === day.getFullYear()
+                );
+                const dayLanes = assignLanes(dayEvents, 3);
+                dayLanes.forEach((v, k) => lanePositions.set(k, v));
+              }
+            } else {
+              // Drag in corso: lane = 0, totalLanes = 1 (full width) per tutti
+              for (const ev of filteredEvents) {
+                lanePositions.set(ev.id, { lane: 0, totalLanes: 1 });
+              }
             }
 
             return filteredEvents.map(event => {

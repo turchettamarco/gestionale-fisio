@@ -28,6 +28,7 @@ import {
   GOOGLE_REVIEW_LINK_FALLBACK,
   CLINIC_ADDRESSES,
   ALL_TREATMENTS,
+  setTreatmentCatalog,
   // Status / treatment helpers
   statusColor,
   statusBg,
@@ -106,6 +107,14 @@ function CalendarPageInner() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Catalogo trattamenti dinamico (treatment_types). Riempie ALL_TREATMENTS
+  // tramite setTreatmentCatalog, e tiene una copia in stato React per
+  // forzare il re-render quando cambia.
+  const [treatmentCatalog, setTreatmentCatalogState] = useState<{ key: string; label: string; color: string; price_invoice: number; price_cash: number; duration_min: number }[]>([]);
+
+  // Orari di lavoro dello studio (per calcolare la finestra oraria della griglia calendario).
+  const [workingHours, setWorkingHours] = useState<{ day_of_week: number; open_time: string; close_time: string; is_open: boolean }[]>([]);
 
 // User menu (Logout + Settings)
 const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -202,8 +211,92 @@ const handleLogout = useCallback(async () => {
     loadPracticeSettings();
   }, [userId, loadPracticeSettings]);
 
+  // ─── Carica catalogo trattamenti dinamico (treatment_types) ──────────────
+  // Sostituisce la lista hardcoded ALL_TREATMENTS con i trattamenti che
+  // l'utente ha configurato in Impostazioni → Catalogo Trattamenti.
+  useEffect(() => {
+    if (!currentStudioId) return;
+    let mounted = true;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("treatment_types")
+          .select("key, label, color, price_invoice, price_cash, duration_min, is_active, sort_order")
+          .eq("studio_id", currentStudioId)
+          .eq("is_active", true)
+          .order("sort_order", { ascending: true });
+        if (error) throw error;
+        if (!mounted) return;
+        const rows = (data ?? []).map(r => ({
+          key: r.key as string,
+          label: r.label as string,
+          color: r.color as string,
+          price_invoice: Number(r.price_invoice ?? 0),
+          price_cash: Number(r.price_cash ?? 0),
+          duration_min: Number(r.duration_min ?? 30),
+        }));
+        setTreatmentCatalogState(rows);
+        // Aggiorna anche il singleton runtime usato da getTreatmentColor/Label/ALL_TREATMENTS
+        setTreatmentCatalog(rows.map(r => ({ value: r.key, label: r.label, color: r.color })));
+      } catch (e) {
+        console.warn("[calendar] errore carica treatment_types:", e instanceof Error ? e.message : e);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [currentStudioId]);
+
+  // ─── Carica orari di lavoro dello studio ─────────────────────────────────
+  // Determina la finestra oraria visibile della griglia calendario in base
+  // agli orari di apertura/chiusura impostati dall'utente.
+  useEffect(() => {
+    if (!currentStudioId) return;
+    let mounted = true;
+    (async () => {
+      const { data, error } = await supabase
+        .from("working_hours")
+        .select("day_of_week, open_time, close_time, is_open")
+        .eq("studio_id", currentStudioId)
+        .order("day_of_week");
+      if (!mounted) return;
+      if (error || !data) {
+        setWorkingHours([]);
+        return;
+      }
+      setWorkingHours(data as { day_of_week: number; open_time: string; close_time: string; is_open: boolean }[]);
+    })();
+    return () => { mounted = false; };
+  }, [currentStudioId]);
+
+  // Calcola la finestra oraria globale della griglia (min open, max close)
+  // tra tutti i giorni aperti. Default 7-22 se non ci sono orari configurati.
+  const gridHourRange = useMemo(() => {
+    const openDays = workingHours.filter(w => w.is_open);
+    if (openDays.length === 0) return { start: 7, end: 22 };
+    const parseHour = (t: string): number => {
+      const [h] = t.split(":").map(Number);
+      return h;
+    };
+    const parseHourCeil = (t: string): number => {
+      const [h, m] = t.split(":").map(Number);
+      return (m && m > 0) ? h + 1 : h;
+    };
+    const minStart = Math.min(...openDays.map(w => parseHour(w.open_time)));
+    const maxEnd   = Math.max(...openDays.map(w => parseHourCeil(w.close_time)));
+    // Margine di +/- 0 per evitare slot vuoti, ma garantisco minimo 1h di range
+    const start = Math.max(0, minStart);
+    const end   = Math.min(24, Math.max(maxEnd, start + 1));
+    return { start, end };
+  }, [workingHours]);
+
   const getDefaultAmount = useCallback((tType: TreatmentType, pType: "invoiced" | "cash") => {
-    // fallback sicuri (i tuoi vecchi default)
+    // 1. Prima cerca nel catalogo dinamico (treatment_types)
+    const fromCatalog = treatmentCatalog.find(t => t.key === tType);
+    if (fromCatalog) {
+      return pType === "invoiced" ? fromCatalog.price_invoice : fromCatalog.price_cash;
+    }
+
+    // 2. Fallback ai prezzi legacy in practice_settings (per compatibilità con
+    //    appuntamenti storici creati prima del catalogo dinamico)
     const fallback = tType === "seduta"
       ? (pType === "invoiced" ? 40 : 35)
       : (pType === "invoiced" ? 25 : 20);
@@ -217,7 +310,7 @@ const handleLogout = useCallback(async () => {
       const v = pType === "invoiced" ? practiceSettings.machine_invoice : practiceSettings.machine_cash;
       return (typeof v === "number" && !Number.isNaN(v)) ? v : fallback;
     }
-  }, [practiceSettings]);
+  }, [practiceSettings, treatmentCatalog]);
 
 const userLabel = useMemo(() => {
   if (!userEmail) return "Account";
@@ -810,7 +903,7 @@ const { data, error } = await supabase
       setCreateLocation("studio");
       setCreateClinicSite(DEFAULT_CLINIC_SITE);
       setCreateDomicileAddress("");
-      setTreatmentType("seduta");
+      setTreatmentType(treatmentCatalog[0]?.key ?? "seduta");
       setPriceType("invoiced");
       setPaymentMethod(null);
       setCustomAmount("");
@@ -891,21 +984,21 @@ const { data, error } = await supabase
 
   const timeSlots = useMemo(() => {
     const slots = [];
-    for (let hour = 7; hour < 22; hour++) {
+    for (let hour = gridHourRange.start; hour < gridHourRange.end; hour++) {
       slots.push(`${pad2(hour)}:00`);
     }
     return slots;
-  }, []);
+  }, [gridHourRange]);
 
   const getEventPosition = useCallback((start: Date, end: Date) => {
-    return getEventYPosition(start, end, 1);
-  }, []);
+    return getEventYPosition(start, end, 1, gridHourRange.start);
+  }, [gridHourRange.start]);
 
   // Vista giorno: 2px per minuto → 1 ora = 120px, molto più leggibile
   const DAY_PX_PER_MIN = 1;
   const getDayEventPosition = useCallback((start: Date, end: Date) => {
-    return getEventYPosition(start, end, DAY_PX_PER_MIN);
-  }, []);
+    return getEventYPosition(start, end, DAY_PX_PER_MIN, gridHourRange.start);
+  }, [gridHourRange.start]);
 
   const getEventColor = useCallback((event: CalendarEvent | { status: Status; patient_id?: string; treatment_type?: string | null }) => {
     if (event.patient_id && eventColors[event.patient_id]) {
@@ -918,11 +1011,13 @@ const { data, error } = await supabase
   }, [eventColors]);
 
   const handleEventHover = useCallback((e: React.MouseEvent, event: CalendarEvent) => {
+    // Non mostrare il tooltip durante un drag in corso (rende difficile lo spostamento)
+    if (draggingEvent) return;
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
     hoverTimer.current = setTimeout(() => {
       setHoverTooltip({ event, x: e.clientX, y: e.clientY });
     }, 600);
-  }, []);
+  }, [draggingEvent]);
 
   const handleEventHoverEnd = useCallback(() => {
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
@@ -2081,9 +2176,12 @@ A presto${firma ? `,\n${firma}` : ""}`;
 
   const handleDragStart = useCallback((event: React.DragEvent, apptId: string, originalStart: Date, originalEnd: Date) => {
     setDraggingEvent({ id: apptId, originalStart, originalEnd });
+    // Nascondi subito il tooltip — non deve interferire con il drag
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    setHoverTooltip(null);
     event.dataTransfer.setData("text/plain", apptId);
     event.dataTransfer.effectAllowed = "move";
-    
+
     if (event.currentTarget instanceof HTMLElement) {
       event.currentTarget.style.opacity = "0.35";
       event.currentTarget.style.transform = "scale(0.96)";
@@ -2564,6 +2662,7 @@ return (
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
+              draggingEventId={draggingEvent?.id ?? null}
               getDayEventPosition={getDayEventPosition}
               getFreeWindows={getFreeWindows}
               getEventColor={getEventColor}

@@ -223,17 +223,15 @@ export default function OnboardingPage() {
       }
 
       if (currentStep.key === "rates") {
-        // Salva su practice_settings (struttura preesistente)
-        const { data: existing } = await supabase
-          .from("practice_settings")
-          .select("owner_id")
-          .limit(1)
-          .maybeSingle();
+        // Salva su practice_settings (sempre legato all'utente corrente).
+        // FIX: rimossa la SELECT senza filtro che poteva restituire il record
+        // di un altro utente quando le RLS lo permettevano, causando upsert
+        // sull'owner_id sbagliato e leak dei dati tra studi diversi.
         const { data: userData } = await supabase.auth.getUser();
         const userId = userData.user?.id;
         if (userId) {
           await supabase.from("practice_settings").upsert({
-            owner_id: existing?.owner_id ?? userId,
+            owner_id: userId,
             studio_id: studio.id,
             standard_invoice: Number(rateSeduta) || 40,
             standard_cash: Number(rateSeduta) || 40,
@@ -243,7 +241,7 @@ export default function OnboardingPage() {
             laser_cash: Number(rateLaser) || 30,
             tecar_invoice: Number(rateTecar) || 30,
             tecar_cash: Number(rateTecar) || 30,
-          });
+          }, { onConflict: "owner_id" });
         }
       }
 

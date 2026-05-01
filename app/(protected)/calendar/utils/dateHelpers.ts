@@ -170,17 +170,18 @@ export function getAvailableSlotsInDay(
 }
 
 // Posizione verticale in pixel di un evento all'interno della griglia oraria
-// che parte dalle 7:00. Usata dalla vista settimana e giorno.
+// che parte da `gridStartHour` (default 7:00). Usata dalla vista settimana e giorno.
 export function getEventYPosition(
   start: Date,
   end: Date,
   pxPerMinute: number = 1,
+  gridStartHour: number = 7,
 ): { top: number; height: number } {
   const startHour = start.getHours();
   const startMinute = start.getMinutes();
   const endHour = end.getHours();
   const endMinute = end.getMinutes();
-  const top = ((startHour - 7) * 60 + startMinute) * pxPerMinute;
+  const top = ((startHour - gridStartHour) * 60 + startMinute) * pxPerMinute;
   const height = ((endHour - startHour) * 60 + (endMinute - startMinute)) * pxPerMinute;
   return { top, height };
 }

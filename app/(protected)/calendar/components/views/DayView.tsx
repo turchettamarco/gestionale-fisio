@@ -42,6 +42,7 @@ export type DayViewProps = {
   onDragOver: DayTimelineProps["onDragOver"];
   onDragLeave: DayTimelineProps["onDragLeave"];
   onDrop: DayTimelineProps["onDrop"];
+  draggingEventId?: DayTimelineProps["draggingEventId"];
   getDayEventPosition: DayTimelineProps["getDayEventPosition"];
   getFreeWindows: DayTimelineProps["getFreeWindows"];
   getEventColor: DayTimelineProps["getEventColor"];
@@ -63,6 +64,7 @@ export default function DayView({
   draggingOver, showAvailableOnly, bulkMode, bulkSelected, searchMatchIds,
   onSlotClick, onContextMenu,
   onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
+  draggingEventId,
   getDayEventPosition, getFreeWindows, getEventColor,
   onSelectEvent, onToggleBulkSelect,
   onToggleDone, onTogglePaid, onSendReminder,
@@ -98,6 +100,7 @@ export default function DayView({
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
+        draggingEventId={draggingEventId}
         getDayEventPosition={getDayEventPosition}
         getFreeWindows={getFreeWindows}
         getEventColor={getEventColor}

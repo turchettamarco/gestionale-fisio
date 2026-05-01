@@ -4,7 +4,14 @@ export type Status = "booked" | "confirmed" | "done" | "cancelled" | "not_paid";
 
 export type LocationType = "studio" | "domicile";
 
-export type TreatmentType = "seduta" | "macchinario" | "laser" | "tecar" | "onde_urto" | "tens";
+/**
+ * Tipo trattamento — chiave stabile da treatment_types.key.
+ * Era un union ristretto a 6 valori, ora è `string` per supportare
+ * il catalogo dinamico (es. "linfodrenaggio_vodder").
+ * Le 6 chiavi originali ("seduta", "macchinario", "laser", "tecar",
+ * "onde_urto", "tens") restano valide come built-in.
+ */
+export type TreatmentType = string;
 
 export type BookingRequest = {
   id: string;

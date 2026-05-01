@@ -522,6 +522,17 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
     if (!newApptDate || !newApptTime) { setError("Inserisci data e ora."); return; }
     const dur = Number(newApptDur);
     setSavingAppt(true); setError("");
+
+    // Recupero utente e studio (richiesti dalle RLS multi-tenancy)
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id ?? null;
+    const studioId = currentStudio?.id ?? null;
+    if (!userId || !studioId) {
+      setSavingAppt(false);
+      setError("Sessione o studio non disponibili. Ricarica la pagina.");
+      return;
+    }
+
     const start = new Date(`${newApptDate}T${newApptTime}:00`);
     const end   = new Date(start); end.setMinutes(end.getMinutes() + dur);
     const amount = newApptAmt.trim() === "" ? null : (() => {
@@ -533,6 +544,8 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
       end_at: end.toISOString(),
       status: newApptStatus,
       amount,
+      owner_id: userId,
+      studio_id: studioId,
     });
     setSavingAppt(false);
     if (res.error) { setError(res.error.message); return; }

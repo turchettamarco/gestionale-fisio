@@ -63,6 +63,8 @@ export type DayTimelineProps = {
   onContextMenu: (e: React.MouseEvent, event?: CalendarEvent) => void;
   /** Drag start su una card evento */
   onDragStart: (e: React.DragEvent, eventId: string, originalStart: Date, originalEnd: Date) => void;
+  /** ID dell'evento attualmente in drag (se esiste). Usato per disattivare le lane affiancate durante il drag. */
+  draggingEventId?: string | null;
   /** Drag end */
   onDragEnd: (e: React.DragEvent) => void;
   /** Drag over su uno slot */
@@ -97,6 +99,7 @@ export default function DayTimeline({
   draggingOver, showAvailableOnly, bulkMode, bulkSelected, searchMatchIds,
   onSlotClick, onContextMenu,
   onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
+  draggingEventId,
   getDayEventPosition, getFreeWindows, getEventColor,
   onSelectEvent, onToggleBulkSelect,
   onToggleDone, onTogglePaid, onSendReminder,
@@ -291,7 +294,12 @@ export default function DayTimeline({
 
         {/* ─── Card evento posizionate assolute ─────────────── */}
         {(() => {
-          const lanePositions = assignLanes(dayEvents, 3);
+          // Lane assignment per affiancare card sovrapposte (Google-style).
+          // DURANTE DRAG: salto il calcolo → tutte le card tornano a piena larghezza
+          // per facilitare lo spostamento (ricompaiono affiancate appena finisce).
+          const lanePositions: ReturnType<typeof assignLanes> = draggingEventId
+            ? new Map(dayEvents.map(e => [e.id, { lane: 0, totalLanes: 1 }]))
+            : assignLanes(dayEvents, 3);
           return dayEvents.map(event => {
             const lanePos = lanePositions.get(event.id);
             if (event.status !== "cancelled" && !lanePos) return null;

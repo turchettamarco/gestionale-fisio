@@ -120,13 +120,44 @@ function formatDateRelative(date: Date): string {
 }
 
 // ─── Work hours for quick-add ─────────────────────────────────────────────────
+//
+// Genera gli slot di prenotazione (es. "08:00", "08:30", ...) basandosi sugli
+// orari di lavoro dello studio per il giorno specificato. Step di 30 minuti.
+//
+// Esempio: open=08:00, close=22:00 → ["08:00","08:30",...,"21:30","22:00"]
+// Se open=close o is_open=false → array vuoto (giorno chiuso).
 
-const WORK_HOURS = Array.from({ length: 24 }, (_, i) => {
-  const h = 8 + Math.floor(i / 2);
-  const m = (i % 2) * 30;
-  if (h > 19) return null;
-  return `${pad2(h)}:${pad2(m)}`;
-}).filter(Boolean) as string[];
+type WorkingHour = {
+  day_of_week: number;  // 0=Dom, 1=Lun, ..., 6=Sab
+  open_time: string;    // "HH:MM:SS" o "HH:MM"
+  close_time: string;
+  is_open: boolean;
+};
+
+function buildSlotsForDay(workingHours: WorkingHour[], date: string): string[] {
+  if (!date) return [];
+  const dayOfWeek = new Date(`${date}T00:00:00`).getDay(); // 0=Dom..6=Sab
+  const wh = workingHours.find(w => w.day_of_week === dayOfWeek);
+  if (!wh || !wh.is_open) return [];
+
+  const parseTime = (t: string): { h: number; m: number } => {
+    const [h, m] = t.split(":").map(Number);
+    return { h, m: m || 0 };
+  };
+  const { h: oh, m: om } = parseTime(wh.open_time);
+  const { h: ch, m: cm } = parseTime(wh.close_time);
+  const startMin = oh * 60 + om;
+  const endMin   = ch * 60 + cm;
+  if (endMin <= startMin) return [];
+
+  const slots: string[] = [];
+  for (let m = startMin; m <= endMin; m += 30) {
+    const hh = Math.floor(m / 60);
+    const mm = m % 60;
+    slots.push(`${pad2(hh)}:${pad2(mm)}`);
+  }
+  return slots;
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -135,6 +166,10 @@ export default function MobileHomePage() {
 
   // Studio corrente (multi-tenancy)
   const { studio: currentStudio } = useCurrentStudio();
+  const currentStudioId = currentStudio?.id ?? null;
+
+  // Orari di lavoro dello studio (per generare slot dinamici nel quick-add)
+  const [workingHours, setWorkingHours] = useState<WorkingHour[]>([]);
 
   const nowRef   = useRef<Date>(new Date());
   const todayYMD = useMemo(() => toYMD(new Date()), []);
@@ -244,6 +279,30 @@ export default function MobileHomePage() {
   }, [userMenuOpen]);
 
   useEffect(() => { void loadAll(); }, [dateYMD]); // eslint-disable-line
+
+  // Carica orari di lavoro dello studio (per generare slot dinamici nel quick-add).
+  // Si ricarica se cambia studio (multi-tenancy).
+  useEffect(() => {
+    if (!currentStudioId) {
+      setWorkingHours([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("working_hours")
+        .select("day_of_week, open_time, close_time, is_open")
+        .eq("studio_id", currentStudioId)
+        .order("day_of_week");
+      if (cancelled) return;
+      if (error || !data) {
+        setWorkingHours([]);
+        return;
+      }
+      setWorkingHours(data as WorkingHour[]);
+    })();
+    return () => { cancelled = true; };
+  }, [currentStudioId]);
 
   // ── Noleggio in scadenza ────────────────────────────────────────────────
   const [noleggioExpiring, setNoleggioExpiring] = useState<{id:string;patient_name:string;end_date:string;device_name:string;days_remaining:number}[]>([]);
@@ -594,10 +653,11 @@ export default function MobileHomePage() {
         setQaBusyTimes(new Set());
         return;
       }
-      // Per ogni slot WORK_HOURS (es. "09:00", "09:30") verifica se è dentro
-      // la finestra [start, end) di un appuntamento non cancellato.
+      // Per ogni slot disponibile per il giorno (basato su working_hours dello studio)
+      // verifica se è dentro la finestra [start, end) di un appuntamento non cancellato.
+      const slotsForDay = buildSlotsForDay(workingHours, qaDate);
       const busy = new Set<string>();
-      for (const slot of WORK_HOURS) {
+      for (const slot of slotsForDay) {
         const [hh, mm] = slot.split(":").map(Number);
         const slotStart = new Date(`${qaDate}T${slot}:00`);
         for (const appt of data) {
@@ -621,7 +681,7 @@ export default function MobileHomePage() {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quickAddOpen, qaDate]);
+  }, [quickAddOpen, qaDate, workingHours]);
 
   function openQuickAdd() {
     // Default to next available half-hour
@@ -703,6 +763,14 @@ export default function MobileHomePage() {
     }
     setQaSaving(true);
     try {
+      // Recupero utente e studio (necessari per owner_id / studio_id su INSERT)
+      const { data: userData, error: userErr } = await supabase.auth.getUser();
+      if (userErr) throw new Error(`Sessione non valida: ${userErr.message}`);
+      const userId = userData.user?.id;
+      if (!userId) throw new Error("Utente non autenticato. Effettua di nuovo il login.");
+      const studioId = currentStudio?.id ?? null;
+      if (!studioId) throw new Error("Studio non disponibile. Ricarica la pagina.");
+
       let patientId = qaPatientId;
       let patientPhone = qaPatientPhone;
       let patientFirst = qaPatientFirst;
@@ -719,10 +787,12 @@ export default function MobileHomePage() {
             first_name: qaNewFirst.trim(),
             last_name: qaNewLast.trim(),
             phone: qaNewPhone.trim() || null,
+            owner_id: userId,        // NOT NULL nel DB
+            studio_id: studioId,     // richiesto dalle RLS
           })
           .select("id")
           .single();
-        if (patErr) throw patErr;
+        if (patErr) throw new Error(`Creazione paziente: ${patErr.message}`);
         patientId = newPat.id;
         patientPhone = qaNewPhone.trim() || null;
         patientFirst = qaNewFirst.trim();
@@ -745,8 +815,10 @@ export default function MobileHomePage() {
         status: "confirmed",
         location: "studio",
         clinic_site: "Studio Pontecorvo",
+        owner_id: userId,        // per coerenza multi-tenancy
+        studio_id: studioId,     // richiesto dalle RLS
       });
-      if (error) throw error;
+      if (error) throw new Error(`Creazione appuntamento: ${error.message}`);
 
       // Chiudi modale e ricarica appuntamenti
       setQuickAddOpen(false);
@@ -765,6 +837,7 @@ export default function MobileHomePage() {
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Errore nella creazione";
+      console.error("[saveQuickAdd]", e);
       alert(msg);
     } finally { setQaSaving(false); }
   }
@@ -1680,7 +1753,16 @@ export default function MobileHomePage() {
               <div style={{
                 display: "flex", gap: 5, flexWrap: "wrap",
               }}>
-                {WORK_HOURS.map(h => {
+                {(() => {
+                  const slotsForDay = buildSlotsForDay(workingHours, qaDate);
+                  if (slotsForDay.length === 0) {
+                    return (
+                      <div style={{ fontSize: 12, color: THEME.muted, padding: "8px 4px" }}>
+                        Studio chiuso in questo giorno. Cambia data o aggiorna gli orari di lavoro nelle Impostazioni.
+                      </div>
+                    );
+                  }
+                  return slotsForDay.map(h => {
                   const isBusy = qaBusyTimes.has(h);
                   const isSelected = qaTime === h;
                   return (
@@ -1712,7 +1794,8 @@ export default function MobileHomePage() {
                       }}
                     >{h}</button>
                   );
-                })}
+                });
+                })()}
               </div>
             </div>
 
