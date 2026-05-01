@@ -553,9 +553,11 @@ export default function HomePage() {
     setBusyRow(m => ({ ...m, [id]: true }));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const patch: any = { status: next };
-    if (next === "done")     patch.is_paid = true;
-    if (next === "not_paid") patch.is_paid = false;
-    if (next === "confirmed" || next === "booked") patch.is_paid = false;
+    // Mantiene coerenza col CHECK constraint appointments_paid_consistency:
+    // ogni volta che tocchiamo is_paid, dobbiamo coerentemente settare paid_at (mig. 010).
+    if (next === "done")     { patch.is_paid = true;  patch.paid_at = new Date().toISOString(); }
+    if (next === "not_paid") { patch.is_paid = false; patch.paid_at = null; }
+    if (next === "confirmed" || next === "booked") { patch.is_paid = false; patch.paid_at = null; }
     const { error } = await supabase.from("appointments").update(patch).eq("id", id);
     setBusyRow(m => ({ ...m, [id]: false }));
     if (error) alert("Errore: " + error.message);

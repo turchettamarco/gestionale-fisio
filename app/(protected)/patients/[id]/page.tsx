@@ -1198,7 +1198,10 @@ A presto,
     setError("");
     setRowBusy(m => ({ ...m, [apptId]: true }));
     const payload: any = { status };
-    if (status !== "done") payload.is_paid = false;
+    // Mantiene coerenza col CHECK constraint appointments_paid_consistency:
+    // ogni volta che tocchiamo is_paid, dobbiamo coerentemente settare paid_at (mig. 010).
+    if (status === "done")  { payload.is_paid = true;  payload.paid_at = new Date().toISOString(); }
+    else                    { payload.is_paid = false; payload.paid_at = null; }
     const res = await supabase.from("appointments").update(payload).eq("id", apptId);
     setRowBusy(m => ({ ...m, [apptId]: false }));
     if (res.error) { setError(translateError(res.error)); return; }
