@@ -475,10 +475,15 @@ export default function SettingsPage() {
   async function loadWorkingHours() {
     setLoadingHours(true);
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from("working_hours")
         .select("day_of_week, open_time, close_time, is_open")
         .order("day_of_week", { ascending: true });
+      // Filtro esplicito per studio se disponibile (oltre alle RLS)
+      if (studio?.id) {
+        query = query.eq("studio_id", studio.id);
+      }
+      const { data, error } = await query;
       if (error) throw new Error(error.message);
 
       const byDay = new Map<number, WorkingHourRow>();
@@ -525,10 +530,11 @@ export default function SettingsPage() {
         open_time: r.open_time,
         close_time: r.close_time,
         is_open: r.is_open,
+        studio_id: studio?.id ?? null,
       }));
       const { error } = await supabase
         .from("working_hours")
-        .upsert(payload, { onConflict: "day_of_week" });
+        .upsert(payload, { onConflict: "studio_id,day_of_week" });
       if (error) throw new Error(error.message);
       flashSuccess("Orari salvati.");
     } catch (e) {
@@ -871,7 +877,7 @@ export default function SettingsPage() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // Caricamento iniziale (al mount)
+  // Caricamento iniziale (al mount + cambio studio)
   // ═══════════════════════════════════════════════════════════════════════
   useEffect(() => {
     void (async () => {
@@ -885,7 +891,7 @@ export default function SettingsPage() {
       ]);
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [studio?.id]);
 
   // ═══════════════════════════════════════════════════════════════════════
   // Render

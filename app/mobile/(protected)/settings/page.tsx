@@ -83,7 +83,7 @@ export default function MobileSettingsPage() {
   const [pwError, setPwError] = useState("");
   const [pwSuccess, setPwSuccess] = useState("");
 
-  // ── Load ──
+  // ── Load practice settings ──
   useEffect(()=>{
     (async()=>{
       try {
@@ -100,15 +100,32 @@ export default function MobileSettingsPage() {
           setInactiveThresh(String((data as any).inactive_threshold_days||45));
           setOverlapMode(((data as any).overlap_mode ?? "warn") as "block"|"warn"|"visual");
         }
-        const { data: wh } = await supabase.from("working_hours").select("*").order("day_of_week");
-        if (wh && wh.length) {
-          setHours(wh.map((r:any)=>({day_of_week:r.day_of_week,open_time:(r.open_time||"09:00").slice(0,5),close_time:(r.close_time||"19:00").slice(0,5),is_open:r.is_open??true})));
-        } else {
-          setHours(Array.from({length:7},(_,d)=>({day_of_week:d,open_time:"09:00",close_time:"19:00",is_open:d!==0})));
-        }
       } catch(e:any){ setError(e?.message||"Errore caricamento"); }
     })();
   },[]);
+
+  // ── Load working_hours dello studio corrente (filtrati esplicitamente) ──
+  useEffect(() => {
+    if (!currentStudioId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: wh } = await supabase
+          .from("working_hours")
+          .select("*")
+          .eq("studio_id", currentStudioId)
+          .order("day_of_week");
+        if (cancelled) return;
+        if (wh && wh.length) {
+          setHours(wh.map((r:any)=>({day_of_week:r.day_of_week,open_time:(r.open_time||"09:00").slice(0,5),close_time:(r.close_time||"19:00").slice(0,5),is_open:r.is_open??true})));
+        } else {
+          // Studio nuovo senza orari → defaults
+          setHours(Array.from({length:7},(_,d)=>({day_of_week:d,open_time:"09:00",close_time:"19:00",is_open:d!==0})));
+        }
+      } catch(e:any){ setError(e?.message||"Errore caricamento orari"); }
+    })();
+    return () => { cancelled = true; };
+  },[currentStudioId]);
 
   // ── Carica catalogo trattamenti per lo studio corrente ──
   const reloadTreatments = useCallback(async () => {
@@ -142,8 +159,8 @@ export default function MobileSettingsPage() {
       // Save working hours
       if (hours.length) {
         await supabase.from("working_hours").upsert(
-          hours.map(h=>({day_of_week:h.day_of_week,open_time:h.open_time,close_time:h.close_time,is_open:h.is_open})),
-          { onConflict:"day_of_week" }
+          hours.map(h=>({day_of_week:h.day_of_week,open_time:h.open_time,close_time:h.close_time,is_open:h.is_open,studio_id:currentStudioId})),
+          { onConflict:"studio_id,day_of_week" }
         );
       }
       setSuccess("Impostazioni salvate.");
