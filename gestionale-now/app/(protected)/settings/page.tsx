@@ -1,0 +1,1159 @@
+"use client";
+
+// ═══════════════════════════════════════════════════════════════════════
+// app/(protected)/settings/page.tsx
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Pagina Impostazioni — orchestratore.
+// La UI è suddivisa in 12 componenti (in components/sections/) che ricevono
+// stato e handler via props. Questo file mantiene:
+//   • Lo stato (useState) di tutti i campi
+//   • Le funzioni di caricamento/salvataggio verso Supabase
+//   • Lo stato di apertura/chiusura delle sezioni accordion
+//
+// Per modificare l'aspetto di una sezione, edita il file in
+// components/sections/<NomeSezione>.tsx.
+//
+// ═══════════════════════════════════════════════════════════════════════
+
+import { useEffect, useMemo, useState, useCallback } from "react";
+import Link from "next/link";
+import { supabase } from "@/src/lib/supabaseClient";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { usePlanLimits } from "@/src/hooks/usePlanLimits";
+
+// Theme & utils condivisi
+import { THEME } from "./components/shared/theme";
+import { toMoneyString, toNumberSafe } from "./components/shared/utils";
+import {
+  type MessageTemplate,
+  type PracticeSettingsRow,
+  type WorkingHourRow,
+  type BookableService,
+  type BlockedDay,
+  DAY_LABELS,
+} from "./components/shared/types";
+
+// Sezioni
+import SettingsNavBar from "./components/SettingsNavBar";
+import StudioBrandingSection from "./components/sections/StudioBrandingSection";
+import PracticeSection from "./components/sections/PracticeSection";
+import TreatmentsSection from "./components/sections/TreatmentsSection";
+import WorkingHoursSection from "./components/sections/WorkingHoursSection";
+import TemplatesSection from "./components/sections/TemplatesSection";
+import CalendarPrefsSection from "./components/sections/CalendarPrefsSection";
+import BookableServicesSection from "./components/sections/BookableServicesSection";
+import BlockedDaysSection from "./components/sections/BlockedDaysSection";
+import ManagementSection from "./components/sections/ManagementSection";
+import PasswordSection from "./components/sections/PasswordSection";
+import IntegrationsSection from "./components/sections/IntegrationsSection";
+import SettingsTabs, { type SettingsTab } from "./components/SettingsTabs";
+
+// ═══════════════════════════════════════════════════════════════════════
+// Componente principale
+// ═══════════════════════════════════════════════════════════════════════
+export default function SettingsPage() {
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      setUserEmail(data?.user?.email ?? null);
+    })();
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    try { await supabase.auth.signOut(); } finally { window.location.href = "/login"; }
+  }, []);
+
+  // ── Stato globale (feedback) ─────────────────────────────────────────────
+  const [error, setError]     = useState("");
+  const [success, setSuccess] = useState("");
+
+  function flashSuccess(msg: string) {
+    setSuccess(msg);
+    setTimeout(() => setSuccess(""), 3000);
+  }
+
+  // ── Tab corrente (raggruppa le sezioni per categoria) ─────────────────────
+  const [activeTab, setActiveTab] = useState<SettingsTab>("studio");
+
+  // ── Stato sezioni accordion (apri/chiudi) ────────────────────────────────
+  const [showStudio,    setShowStudio]    = useState(true);
+  const [showPractice,  setShowPractice]  = useState(true);
+  const [showTreatments, setShowTreatments] = useState(true);
+  const [showHours,     setShowHours]     = useState(true);
+  const [showTemplates, setShowTemplates] = useState(true);
+  const [showServices,  setShowServices]  = useState(false);
+  const [showBlockDays, setShowBlockDays] = useState(false);
+  const [showGestione,  setShowGestione]  = useState(false);
+  const [showPassword,  setShowPassword]  = useState(false);
+  const [showBackup,    setShowBackup]    = useState(false);
+
+  // ── Preferenza tab in localStorage ────────────────────────────────────────
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = localStorage.getItem("settings_active_tab");
+    if (saved === "studio" || saved === "calendar" || saved === "communications" || saved === "account") {
+      setActiveTab(saved);
+    }
+  }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("settings_active_tab", activeTab);
+  }, [activeTab]);
+
+  // ── Caricamento iniziale ────────────────────────────────────────────────
+  const [loadingPractice,  setLoadingPractice]  = useState(true);
+  const [savingPractice,   setSavingPractice]   = useState(false);
+  const [loadingTemplates, setLoadingTemplates] = useState(true);
+
+  // ── Studio (multi-tenancy) ───────────────────────────────────────────────
+  const { studio, refresh: refreshStudio } = useCurrentStudio();
+  const planLimits = usePlanLimits();
+
+  const [studioName, setStudioName]                     = useState("");
+  const [studioAddress, setStudioAddress]               = useState("");
+  const [studioPhone, setStudioPhone]                   = useState("");
+  const [studioEmail, setStudioEmail]                   = useState("");
+  const [studioGoogleReview, setStudioGoogleReview]     = useState("");
+  const [studioSignatureName, setStudioSignatureName]   = useState("");
+  const [studioSignatureTitle, setStudioSignatureTitle] = useState("");
+  const [studioWebsite, setStudioWebsite]               = useState("");
+  const [savingStudio, setSavingStudio]                 = useState(false);
+
+  // Popola i campi studio quando arriva il contesto
+  useEffect(() => {
+    if (!studio) return;
+    setStudioName(studio.name || "");
+    setStudioAddress(studio.address || "");
+    setStudioPhone(studio.phone || "");
+    setStudioEmail(studio.email || "");
+    setStudioGoogleReview(studio.google_review_link || "");
+    setStudioSignatureName(studio.signature_name || "");
+    setStudioSignatureTitle(studio.signature_title || "");
+    setStudioWebsite(studio.website || "");
+  }, [studio]);
+
+  const saveStudio = useCallback(async () => {
+    if (!studio?.id) { alert("Studio non disponibile"); return; }
+    if (!studioName.trim()) { alert("Il nome dello studio è obbligatorio"); return; }
+    setSavingStudio(true);
+    try {
+      const { error } = await supabase.from("studios").update({
+        name:               studioName.trim(),
+        address:            studioAddress.trim() || null,
+        phone:              studioPhone.trim() || null,
+        email:              studioEmail.trim() || null,
+        google_review_link: studioGoogleReview.trim() || null,
+        signature_name:     studioSignatureName.trim() || null,
+        signature_title:    studioSignatureTitle.trim() || null,
+        website:            studioWebsite.trim() || null,
+      }).eq("id", studio.id);
+      if (error) { alert("Errore: " + error.message); return; }
+      await refreshStudio();
+      flashSuccess("Studio salvato.");
+    } finally {
+      setSavingStudio(false);
+    }
+  }, [studio, studioName, studioAddress, studioPhone, studioEmail,
+      studioGoogleReview, studioSignatureName, studioSignatureTitle, studioWebsite,
+      refreshStudio]);
+
+  // ── Calendar feed token ──────────────────────────────────────────────────
+  const [calendarToken, setCalendarToken]                 = useState<string | null>(null);
+  const [calendarTokenLoading, setCalendarTokenLoading]   = useState(true);
+  const [calendarTokenRotating, setCalendarTokenRotating] = useState(false);
+
+  useEffect(() => {
+    if (!studio?.id) return;
+    let cancelled = false;
+    (async () => {
+      setCalendarTokenLoading(true);
+      try {
+        const { data: sess } = await supabase.auth.getSession();
+        const accessToken = sess.session?.access_token;
+        if (!accessToken) {
+          if (!cancelled) setCalendarToken(null);
+          return;
+        }
+        const r = await fetch("/api/calendar-token", {
+          method: "GET",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const j = await r.json();
+        if (!cancelled) setCalendarToken(r.ok ? (j.token ?? null) : null);
+      } catch {
+        if (!cancelled) setCalendarToken(null);
+      } finally {
+        if (!cancelled) setCalendarTokenLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [studio?.id]);
+
+  const rotateCalendarToken = async () => {
+    if (!confirm(
+      "Sei sicuro di voler rigenerare il token?\n\n" +
+      "Il vecchio URL non funzionerà più. Dovrai aggiornare l'URL anche " +
+      "in Google Calendar (rimuovi il vecchio calendario e aggiungi quello nuovo)."
+    )) return;
+    setCalendarTokenRotating(true);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const accessToken = sess.session?.access_token;
+      if (!accessToken) {
+        alert("Sessione scaduta. Ricarica la pagina e riprova.");
+        return;
+      }
+      const r = await fetch("/api/calendar-token", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const j = await r.json();
+      if (r.ok && j.token) {
+        setCalendarToken(j.token);
+        flashSuccess("Nuovo token generato. Aggiorna l'URL in Google Calendar.");
+      } else {
+        alert(j.error || "Errore generazione nuovo token");
+      }
+    } catch {
+      alert("Errore di rete. Riprova.");
+    } finally {
+      setCalendarTokenRotating(false);
+    }
+  };
+
+  const copyCalendarLink = (url: string) => {
+    navigator.clipboard.writeText(url).then(() => {
+      flashSuccess("Link copiato!");
+    });
+  };
+
+  // ── Firma dinamica (passata ai TemplateEditor) ───────────────────────────
+  const dynamicSignature = useMemo(
+    () => [studioSignatureName, studioSignatureTitle].filter(s => s.trim()).join("\n"),
+    [studioSignatureName, studioSignatureTitle]
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Practice settings (anagrafica, tariffe, durate, msg automatici, gestione)
+  // ═══════════════════════════════════════════════════════════════════════
+  const [practiceName, setPracticeName]       = useState("");
+  const [logoBase64, setLogoBase64]           = useState("");
+  const [defaultApptStatus, setDefaultApptStatus] = useState<"confirmed" | "booked">("confirmed");
+  const [overlapMode, setOverlapMode]         = useState<"block" | "warn" | "visual">("warn");
+  const [ownerFullName, setOwnerFullName]     = useState("");
+  const [vatNumber, setVatNumber]             = useState("");
+  const [address, setAddress]                 = useState("");
+  const [pecEmail, setPecEmail]               = useState("");
+  const [phone, setPhone]                     = useState("");
+  const [googleReviewLink, setGoogleReviewLink] = useState("");
+
+  // Tariffe
+  const [standardInvoice, setStandardInvoice] = useState("40.00");
+  const [standardCash, setStandardCash]       = useState("35.00");
+  const [machineInvoice, setMachineInvoice]   = useState("25.00");
+  const [machineCash, setMachineCash]         = useState("20.00");
+  const [laserInvoice, setLaserInvoice]       = useState("30.00");
+  const [laserCash, setLaserCash]             = useState("25.00");
+  const [tecarInvoice, setTecarInvoice]       = useState("30.00");
+  const [tecarCash, setTecarCash]             = useState("25.00");
+  const [ondeUrtoInvoice, setOndeUrtoInvoice] = useState("40.00");
+  const [ondeUrtoCash, setOndeUrtoCash]       = useState("35.00");
+  const [tensInvoice, setTensInvoice]         = useState("20.00");
+  const [tensCash, setTensCash]               = useState("15.00");
+  const [autoApplyPrices, setAutoApplyPrices] = useState(true);
+
+  // Durate
+  const [durSeduta, setDurSeduta]       = useState("60");
+  const [durMacchina, setDurMacchina]   = useState("30");
+  const [durLaser, setDurLaser]         = useState("20");
+  const [durTecar, setDurTecar]         = useState("30");
+  const [durOndeUrto, setDurOndeUrto]   = useState("15");
+  const [durTens, setDurTens]           = useState("20");
+
+  // Messaggi automatici
+  const [welcomeMsg, setWelcomeMsg]                       = useState("");
+  const [bookingConfirmMsg, setBookingConfirmMsg]         = useState("");
+  const [reminderMsg, setReminderMsg]                     = useState("");
+  const [weeklyReminderMsg, setWeeklyReminderMsg]         = useState("");
+  const [paymentMsg, setPaymentMsg]                       = useState("");
+  const [birthdayMsg, setBirthdayMsg]                     = useState("");
+  const [satisfactionMsg, setSatisfactionMsg]             = useState("");
+
+  // Gestione
+  const [monthlyGoal, setMonthlyGoal]       = useState("2000");
+  const [inactiveThresh, setInactiveThresh] = useState("45");
+  const [reminderHours, setReminderHours]   = useState("24");
+
+  async function requireUserId(): Promise<string> {
+    const { data, error } = await supabase.auth.getUser();
+    if (error) throw new Error(error.message);
+    const uid = data?.user?.id;
+    if (!uid) throw new Error("Utente non autenticato.");
+    return uid;
+  }
+
+  async function loadPracticeSettings() {
+    setLoadingPractice(true);
+    setError("");
+    try {
+      const uid = await requireUserId();
+      const { data, error } = await supabase
+        .from("practice_settings")
+        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, logo_base64, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices, reminder_message, weekly_reminder_message, payment_message, birthday_message, satisfaction_message, default_appointment_status, overlap_mode, monthly_revenue_goal, inactive_threshold_days, reminder_hours_before, welcome_message, booking_confirm_message, duration_seduta, duration_macchinario, duration_laser, duration_tecar, duration_onde_urto, duration_tens")
+        .eq("owner_id", uid)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+
+      if (!data) {
+        // Crea record di default e ricarica
+        const { data: uData, error: uErr } = await supabase.auth.getUser();
+        if (uErr) throw new Error(uErr.message);
+        const u = uData?.user;
+        const fullName = (
+          (u?.user_metadata?.full_name ||
+           u?.user_metadata?.name ||
+           [u?.user_metadata?.first_name, u?.user_metadata?.last_name].filter(Boolean).join(" ") ||
+           u?.email || "Titolare") + ""
+        ).trim() || "Titolare";
+
+        const seed: PracticeSettingsRow = {
+          owner_id: uid, studio_id: studio?.id ?? null,
+          practice_name: "FisioHub", owner_full_name: fullName,
+          vat_number: "", address: "", pec_email: "", phone: "",
+          google_review_link: "", logo_base64: null,
+          standard_invoice: 40, standard_cash: 35,
+          machine_invoice: 25, machine_cash: 20,
+          laser_invoice: 30, laser_cash: 25,
+          tecar_invoice: 30, tecar_cash: 25,
+          onde_urto_invoice: 40, onde_urto_cash: 35,
+          tens_invoice: 20, tens_cash: 15,
+          duration_seduta: 60, duration_macchinario: 30,
+          duration_laser: 20, duration_tecar: 30,
+          duration_onde_urto: 15, duration_tens: 20,
+          welcome_message: null, booking_confirm_message: null,
+          reminder_message: null, weekly_reminder_message: null, payment_message: null,
+          birthday_message: null, satisfaction_message: null,
+          default_appointment_status: "confirmed", overlap_mode: "warn",
+          monthly_revenue_goal: 2000, inactive_threshold_days: 45,
+          reminder_hours_before: 24, auto_apply_prices: true,
+        };
+        const { error: upsertErr } = await supabase.from("practice_settings").upsert(seed, { onConflict: "owner_id" });
+        if (upsertErr) throw new Error(upsertErr.message);
+        return await loadPracticeSettings();
+      }
+
+      // Popolamento campi
+      setPracticeName(data.practice_name ?? "");
+      setLogoBase64((data as PracticeSettingsRow).logo_base64 ?? "");
+      setOwnerFullName(data.owner_full_name ?? "");
+      setVatNumber(data.vat_number ?? "");
+      setAddress(data.address ?? "");
+      setPecEmail(data.pec_email ?? "");
+      setPhone(data.phone ?? "");
+      setGoogleReviewLink(data.google_review_link ?? "");
+      setStandardInvoice(toMoneyString(data.standard_invoice, "40.00"));
+      setStandardCash(toMoneyString(data.standard_cash, "35.00"));
+      setMachineInvoice(toMoneyString(data.machine_invoice, "25.00"));
+      setMachineCash(toMoneyString(data.machine_cash, "20.00"));
+      setLaserInvoice(toMoneyString(data.laser_invoice, "30.00"));
+      setLaserCash(toMoneyString(data.laser_cash, "25.00"));
+      setTecarInvoice(toMoneyString(data.tecar_invoice, "30.00"));
+      setTecarCash(toMoneyString(data.tecar_cash, "25.00"));
+      setOndeUrtoInvoice(toMoneyString(data.onde_urto_invoice, "40.00"));
+      setOndeUrtoCash(toMoneyString(data.onde_urto_cash, "35.00"));
+      setTensInvoice(toMoneyString(data.tens_invoice, "20.00"));
+      setTensCash(toMoneyString(data.tens_cash, "15.00"));
+      setAutoApplyPrices(data.auto_apply_prices ?? true);
+      setDurSeduta(String(data.duration_seduta ?? 60));
+      setDurMacchina(String(data.duration_macchinario ?? 30));
+      setDurLaser(String(data.duration_laser ?? 20));
+      setDurTecar(String(data.duration_tecar ?? 30));
+      setDurOndeUrto(String(data.duration_onde_urto ?? 15));
+      setDurTens(String(data.duration_tens ?? 20));
+      setWelcomeMsg(data.welcome_message ?? "");
+      setBookingConfirmMsg(data.booking_confirm_message ?? "");
+      setReminderMsg(data.reminder_message ?? "");
+      setWeeklyReminderMsg((data as PracticeSettingsRow).weekly_reminder_message ?? "");
+      setPaymentMsg(data.payment_message ?? "");
+      setBirthdayMsg(data.birthday_message ?? "");
+      setSatisfactionMsg(data.satisfaction_message ?? "");
+      setDefaultApptStatus((data.default_appointment_status ?? "confirmed") as "confirmed" | "booked");
+      setOverlapMode((data.overlap_mode ?? "warn") as "block" | "warn" | "visual");
+      setMonthlyGoal(String(data.monthly_revenue_goal ?? 2000));
+      setInactiveThresh(String(data.inactive_threshold_days ?? 45));
+      setReminderHours(String(data.reminder_hours_before ?? 24));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Errore nel caricamento impostazioni.";
+      setError(msg);
+    } finally {
+      setLoadingPractice(false);
+    }
+  }
+
+  async function savePracticeSettings() {
+    setSavingPractice(true);
+    setError("");
+    try {
+      const uid = await requireUserId();
+      const payload: PracticeSettingsRow = {
+        owner_id:        uid,
+        studio_id:       studio?.id ?? null,
+        practice_name:   practiceName.trim() || "FisioHub",
+        logo_base64:     logoBase64 || null,
+        owner_full_name: ownerFullName.trim() || "Titolare",
+        vat_number:      vatNumber.trim() || "",
+        address:         address.trim() || "",
+        pec_email:       pecEmail.trim() || "",
+        phone:           phone.trim() || "",
+        google_review_link: googleReviewLink.trim() || "",
+        standard_invoice:  toNumberSafe(standardInvoice, 40),
+        standard_cash:     toNumberSafe(standardCash, 35),
+        machine_invoice:   toNumberSafe(machineInvoice, 25),
+        machine_cash:      toNumberSafe(machineCash, 20),
+        laser_invoice:     toNumberSafe(laserInvoice, 30),
+        laser_cash:        toNumberSafe(laserCash, 25),
+        tecar_invoice:     toNumberSafe(tecarInvoice, 30),
+        tecar_cash:        toNumberSafe(tecarCash, 25),
+        onde_urto_invoice: toNumberSafe(ondeUrtoInvoice, 40),
+        onde_urto_cash:    toNumberSafe(ondeUrtoCash, 35),
+        tens_invoice:      toNumberSafe(tensInvoice, 20),
+        tens_cash:         toNumberSafe(tensCash, 15),
+        auto_apply_prices: autoApplyPrices,
+        duration_seduta:       parseInt(durSeduta) || 60,
+        duration_macchinario:  parseInt(durMacchina) || 30,
+        duration_laser:        parseInt(durLaser) || 20,
+        duration_tecar:        parseInt(durTecar) || 30,
+        duration_onde_urto:    parseInt(durOndeUrto) || 15,
+        duration_tens:         parseInt(durTens) || 20,
+        welcome_message:          welcomeMsg.trim() || null,
+        booking_confirm_message:  bookingConfirmMsg.trim() || null,
+        reminder_message:         reminderMsg.trim() || null,
+        weekly_reminder_message:  weeklyReminderMsg.trim() || null,
+        payment_message:          paymentMsg.trim() || null,
+        birthday_message:         birthdayMsg.trim() || null,
+        satisfaction_message:     satisfactionMsg.trim() || null,
+        default_appointment_status: defaultApptStatus,
+        overlap_mode: overlapMode,
+        monthly_revenue_goal:    parseFloat(monthlyGoal) || 2000,
+        inactive_threshold_days: parseInt(inactiveThresh) || 45,
+        reminder_hours_before:   parseInt(reminderHours) || 24,
+      };
+      const { error } = await supabase.from("practice_settings").upsert(payload, { onConflict: "owner_id" });
+      if (error) throw new Error(error.message);
+
+      // Sincronizza il logo anche sulla tabella studios.
+      // Le pagine pubbliche (portale, conferma, esercizi, survey) leggono
+      // da studios — quindi senza questa replica il logo non sarebbe visibile
+      // ai pazienti. La fonte di verità per il logo resta practice_settings.
+      if (studio?.id) {
+        await supabase.from("studios")
+          .update({ logo_base64: logoBase64 || null })
+          .eq("id", studio.id);
+      }
+
+      flashSuccess("Impostazioni salvate.");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Errore nel salvataggio.";
+      setError(msg);
+    } finally {
+      setSavingPractice(false);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Working hours
+  // ═══════════════════════════════════════════════════════════════════════
+  const [workingHours, setWorkingHours] = useState<WorkingHourRow[]>([]);
+  const [loadingHours, setLoadingHours] = useState(true);
+  const [savingHours, setSavingHours]   = useState(false);
+
+  async function loadWorkingHours() {
+    setLoadingHours(true);
+    try {
+      let query = supabase
+        .from("working_hours")
+        .select("day_of_week, open_time, close_time, is_open")
+        .order("day_of_week", { ascending: true });
+      // Filtro esplicito per studio se disponibile (oltre alle RLS)
+      if (studio?.id) {
+        query = query.eq("studio_id", studio.id);
+      }
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+
+      const byDay = new Map<number, WorkingHourRow>();
+      (data || []).forEach((r: WorkingHourRow) => {
+        byDay.set(r.day_of_week, {
+          day_of_week: r.day_of_week,
+          open_time: (r.open_time || "09:00").slice(0, 5),
+          close_time: (r.close_time || "19:00").slice(0, 5),
+          is_open: r.is_open ?? true,
+        });
+      });
+
+      const complete: WorkingHourRow[] = [];
+      for (let d = 0; d < 7; d++) {
+        complete.push(byDay.get(d) ?? {
+          day_of_week: d, open_time: "09:00", close_time: "19:00",
+          is_open: d !== 0, // Domenica chiusa di default
+        });
+      }
+      setWorkingHours(complete);
+    } catch (e) {
+      console.warn("Errore caricamento orari:", e);
+      const fallback: WorkingHourRow[] = [];
+      for (let d = 0; d < 7; d++) {
+        fallback.push({ day_of_week: d, open_time: "09:00", close_time: "19:00", is_open: d !== 0 });
+      }
+      setWorkingHours(fallback);
+    } finally {
+      setLoadingHours(false);
+    }
+  }
+
+  async function saveWorkingHours() {
+    setSavingHours(true);
+    setError("");
+    try {
+      for (const r of workingHours) {
+        if (r.is_open && r.open_time >= r.close_time) {
+          throw new Error(`${DAY_LABELS[r.day_of_week]}: l'ora di apertura deve essere precedente alla chiusura.`);
+        }
+      }
+      const payload = workingHours.map(r => ({
+        day_of_week: r.day_of_week,
+        open_time: r.open_time,
+        close_time: r.close_time,
+        is_open: r.is_open,
+        studio_id: studio?.id ?? null,
+      }));
+      const { error } = await supabase
+        .from("working_hours")
+        .upsert(payload, { onConflict: "studio_id,day_of_week" });
+      if (error) throw new Error(error.message);
+      flashSuccess("Orari salvati.");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Errore nel salvataggio degli orari.";
+      setError(msg);
+    } finally {
+      setSavingHours(false);
+    }
+  }
+
+  function updateHour(day: number, patch: Partial<WorkingHourRow>) {
+    setWorkingHours(prev => prev.map(r => r.day_of_week === day ? { ...r, ...patch } : r));
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Templates promemoria (calendario)
+  // ═══════════════════════════════════════════════════════════════════════
+  const [templates, setTemplates]     = useState<MessageTemplate[]>([]);
+  const [editingId, setEditingId]     = useState<string | null>(null);
+  const [editName, setEditName]       = useState("");
+  const [editTemplate, setEditTemplate] = useState("");
+  const [newName, setNewName]         = useState("");
+  const [newTemplate, setNewTemplate] = useState("");
+  const [addingNew, setAddingNew]     = useState(false);
+
+  async function loadTemplates() {
+    setLoadingTemplates(true);
+    setError("");
+    try {
+      const { data, error } = await supabase
+        .from("message_templates")
+        .select("*")
+        .order("is_default", { ascending: false })
+        .order("created_at", { ascending: false });
+      if (error) throw new Error(error.message);
+      setTemplates((data as MessageTemplate[]) || []);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Errore nel caricamento dei template";
+      setError(msg);
+      setTemplates([]);
+    } finally {
+      setLoadingTemplates(false);
+    }
+  }
+
+  async function saveTemplate(id: string) {
+    if (!editName.trim() || !editTemplate.trim()) {
+      setError("Nome e template sono obbligatori"); return;
+    }
+    setError("");
+    try {
+      const { error } = await supabase
+        .from("message_templates")
+        .update({ name: editName.trim(), template: editTemplate.trim(), updated_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) throw new Error(error.message);
+      flashSuccess("Template salvato.");
+      setEditingId(null);
+      await loadTemplates();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Errore nel salvataggio del template";
+      setError(msg);
+    }
+  }
+
+  async function deleteTemplate(id: string) {
+    if (templates.length <= 1) {
+      setError("Non puoi eliminare l'unico template disponibile"); return;
+    }
+    const t = templates.find(t => t.id === id);
+    if (!t) return;
+    if (!confirm("Eliminare questo template? L'operazione non può essere annullata.")) return;
+    setError("");
+    try {
+      if (t.is_default) {
+        const other = templates.find(x => x.id !== id);
+        if (other) {
+          const { error: e1 } = await supabase
+            .from("message_templates")
+            .update({ is_default: true })
+            .eq("id", other.id);
+          if (e1) throw new Error(e1.message);
+        }
+      }
+      const { error } = await supabase.from("message_templates").delete().eq("id", id);
+      if (error) throw new Error(error.message);
+      flashSuccess("Template eliminato.");
+      await loadTemplates();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Errore nell'eliminazione";
+      setError(msg);
+    }
+  }
+
+  async function setAsDefault(id: string) {
+    setError("");
+    try {
+      const { error: e1 } = await supabase
+        .from("message_templates")
+        .update({ is_default: false })
+        .neq("id", id);
+      if (e1) throw new Error(e1.message);
+      const { error: e2 } = await supabase
+        .from("message_templates")
+        .update({ is_default: true })
+        .eq("id", id);
+      if (e2) throw new Error(e2.message);
+      flashSuccess("Template impostato come predefinito.");
+      await loadTemplates();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Errore";
+      setError(msg);
+    }
+  }
+
+  async function createNewTemplate() {
+    if (!newName.trim() || !newTemplate.trim()) {
+      setError("Nome e template sono obbligatori"); return;
+    }
+    if (!studio?.id) {
+      setError("Studio non identificato. Ricarica la pagina."); return;
+    }
+    setError("");
+    try {
+      const { error } = await supabase.from("message_templates").insert({
+        name: newName.trim(),
+        template: newTemplate.trim(),
+        is_default: templates.length === 0,
+        studio_id: studio.id,
+      });
+      if (error) throw new Error(error.message);
+      flashSuccess("Nuovo template creato.");
+      setNewName(""); setNewTemplate(""); setAddingNew(false);
+      await loadTemplates();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Errore nella creazione";
+      setError(msg);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Servizi prenotabili
+  // ═══════════════════════════════════════════════════════════════════════
+  const [services, setServices]               = useState<BookableService[]>([]);
+  const [loadingServices, setLoadingServices] = useState(false);
+  const [savingSvc, setSavingSvc]             = useState(false);
+  const [newSvcName, setNewSvcName]           = useState("");
+  const [newSvcDuration, setNewSvcDuration]   = useState("60");
+  const [newSvcPrice, setNewSvcPrice]         = useState("40");
+
+  async function loadServices() {
+    setLoadingServices(true);
+    try {
+      const { data } = await supabase.from("booking_services").select("*").order("name");
+      setServices((data as BookableService[]) || []);
+    } catch (e) {
+      console.warn(e);
+    } finally {
+      setLoadingServices(false);
+    }
+  }
+
+  async function addService() {
+    if (!newSvcName.trim()) return;
+    if (!studio?.id) {
+      setError("Studio non identificato. Ricarica la pagina."); return;
+    }
+    setSavingSvc(true);
+    try {
+      const { error } = await supabase.from("booking_services").insert({
+        name: newSvcName.trim(),
+        duration: parseInt(newSvcDuration) || 60,
+        price: parseFloat(newSvcPrice) || 40,
+        studio_id: studio.id,
+      });
+      if (error) throw new Error(error.message);
+      setNewSvcName(""); setNewSvcDuration("60"); setNewSvcPrice("40");
+      await loadServices();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Errore";
+      setError(msg);
+    } finally {
+      setSavingSvc(false);
+    }
+  }
+
+  async function deleteService(id: string) {
+    if (!confirm("Eliminare questo servizio?")) return;
+    await supabase.from("booking_services").delete().eq("id", id);
+    await loadServices();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Giorni di blocco
+  // ═══════════════════════════════════════════════════════════════════════
+  const [blockDays, setBlockDays]       = useState<BlockedDay[]>([]);
+  const [savingBlock, setSavingBlock]   = useState(false);
+  const [newBlockDate, setNewBlockDate] = useState("");
+  const [newBlockLabel, setNewBlockLabel] = useState("");
+
+  async function loadBlockDays() {
+    try {
+      const { data } = await supabase.from("blocked_days").select("*").order("date");
+      setBlockDays((data as BlockedDay[]) || []);
+    } catch (e) {
+      console.warn(e);
+    }
+  }
+
+  async function addBlockDay() {
+    if (!newBlockDate) return;
+    if (!studio?.id) {
+      setError("Studio non identificato. Ricarica la pagina."); return;
+    }
+    setSavingBlock(true);
+    try {
+      const { error } = await supabase.from("blocked_days").insert({
+        date: newBlockDate,
+        label: newBlockLabel.trim() || "Chiuso",
+        studio_id: studio.id,
+      });
+      if (error) throw new Error(error.message);
+      setNewBlockDate(""); setNewBlockLabel("");
+      await loadBlockDays();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Errore";
+      setError(msg);
+    } finally {
+      setSavingBlock(false);
+    }
+  }
+
+  async function deleteBlockDay(id: string) {
+    await supabase.from("blocked_days").delete().eq("id", id);
+    await loadBlockDays();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Cambio password
+  // ═══════════════════════════════════════════════════════════════════════
+  const [pwNew, setPwNew]         = useState("");
+  const [pwConfirm, setPwConfirm] = useState("");
+  const [pwSaving, setPwSaving]   = useState(false);
+  const [pwError, setPwError]     = useState("");
+  const [pwSuccess, setPwSuccess] = useState("");
+
+  async function changePassword() {
+    setPwError(""); setPwSuccess("");
+    if (!pwNew.trim()) { setPwError("Inserisci la nuova password."); return; }
+    if (pwNew.length < 8) { setPwError("La password deve essere di almeno 8 caratteri."); return; }
+    if (pwNew !== pwConfirm) { setPwError("Le password non coincidono."); return; }
+    setPwSaving(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: pwNew });
+      if (error) throw new Error(error.message);
+      setPwSuccess("Password aggiornata con successo.");
+      setPwNew(""); setPwConfirm("");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Errore aggiornamento password.";
+      setPwError(msg);
+    } finally {
+      setPwSaving(false);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Backup CSV
+  // ═══════════════════════════════════════════════════════════════════════
+  const [exportingBackup, setExportingBackup] = useState(false);
+
+  async function exportBackup() {
+    setExportingBackup(true);
+    try {
+      const [{ data: pts }, { data: appts }, { data: nols }] = await Promise.all([
+        supabase.from("patients").select("*").order("last_name"),
+        supabase.from("appointments")
+          .select("*,patients:patient_id(first_name,last_name)")
+          .order("start_at", { ascending: false }),
+        supabase.from("noleggios").select("*").order("created_at", { ascending: false }),
+      ]);
+
+      // Escape CSV: virgolette se contiene `;`, `"`, newline o CR
+      const esc = (v: unknown): string => {
+        const s = String(v ?? "");
+        if (s.indexOf(";") >= 0 || s.indexOf('"') >= 0 || s.indexOf("\n") >= 0 || s.indexOf("\r") >= 0) {
+          return `"${s.replace(/"/g, '""')}"`;
+        }
+        return s;
+      };
+      const bom = "\uFEFF";
+
+      // Pazienti
+      const ptHeaders = ["ID", "Cognome", "Nome", "Telefono", "Data nascita", "Codice fiscale", "Indirizzo", "Piano fatturazione", "Creato il"];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ptRows = (pts || []).map((p: any) =>
+        [p.id, p.last_name, p.first_name, p.phone, p.birth_date, p.tax_code, p.res_city, p.preferred_plan, p.created_at?.slice(0, 10)].map(esc).join(";")
+      );
+      const ptCsv = bom + [ptHeaders.map(esc).join(";"), ...ptRows].join("\r\n");
+
+      // Appuntamenti
+      const apHeaders = ["Data", "Ora", "Cognome", "Nome", "Stato", "Tipo", "Importo", "Pagato", "Sede", "Fatturazione"];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const apRows = (appts || []).map((a: any) => {
+        const p = Array.isArray(a.patients) ? a.patients[0] : a.patients;
+        return [a.start_at?.slice(0, 10), a.start_at?.slice(11, 16), p?.last_name, p?.first_name, a.status, a.treatment_type, a.amount, a.is_paid ? "Si" : "No", a.clinic_site || a.location, a.price_type].map(esc).join(";");
+      });
+      const apCsv = bom + [apHeaders.map(esc).join(";"), ...apRows].join("\r\n");
+
+      // Noleggi
+      const nlHeaders = ["Paziente", "Dispositivo", "Data inizio", "Data fine", "Prezzo/gg", "Totale", "Pagato", "Reso"];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const nlRows = (nols || []).map((n: any) =>
+        [n.patient_name, n.device_name, n.start_date, n.end_date, n.price_per_day, n.total_amount, n.is_paid ? "Si" : "No", n.is_returned ? "Si" : "No"].map(esc).join(";")
+      );
+      const nlCsv = bom + [nlHeaders.map(esc).join(";"), ...nlRows].join("\r\n");
+
+      const timestamp = new Date().toISOString().slice(0, 10);
+      const files = [
+        { data: ptCsv, name: `fisiohub_pazienti_${timestamp}.csv` },
+        { data: apCsv, name: `fisiohub_appuntamenti_${timestamp}.csv` },
+        { data: nlCsv, name: `fisiohub_noleggii_${timestamp}.csv` },
+      ];
+
+      files.forEach(({ data, name }) => {
+        const blob = new Blob([data], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = name;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      });
+      flashSuccess("Backup scaricato: 3 file CSV (pazienti, appuntamenti, noleggii).");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Errore durante il backup.";
+      setError(msg);
+    } finally {
+      setExportingBackup(false);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Caricamento iniziale (al mount + cambio studio)
+  // ═══════════════════════════════════════════════════════════════════════
+  useEffect(() => {
+    void (async () => {
+      setError("");
+      await Promise.all([
+        loadPracticeSettings(),
+        loadTemplates(),
+        loadWorkingHours(),
+        loadServices(),
+        loadBlockDays(),
+      ]);
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studio?.id]);
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Render
+  // ═══════════════════════════════════════════════════════════════════════
+  return (
+    <div style={{ minHeight: "100vh", background: THEME.appBg, fontFamily: "'Outfit','Segoe UI',system-ui,sans-serif" }}>
+      <style jsx global>{`
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+        *{-webkit-font-smoothing:antialiased;box-sizing:border-box;}
+        body{font-family:'Outfit','Segoe UI',system-ui,sans-serif;margin:0;background:${THEME.appBg};}
+        a{text-decoration:none;}
+        select,input,textarea,button{font-family:inherit;}
+        input:focus,select:focus,textarea:focus{border-color:${THEME.blue}!important;box-shadow:0 0 0 3px rgba(37,99,235,0.10)!important;outline:none!important;}
+        @media(min-width:768px)and(max-width:1024px){.th{display:none!important}}
+      `}</style>
+
+      <SettingsNavBar userEmail={userEmail} onLogout={handleLogout} />
+
+      <main style={{ padding: "28px 32px", maxWidth: 900, margin: "0 auto" }}>
+
+        {/* Page title */}
+        <div style={{ marginBottom: 24 }}>
+          <h1 style={{ margin: 0, fontWeight: 800, fontSize: 24, color: THEME.text, letterSpacing: -0.4 }}>Impostazioni</h1>
+          <p style={{ margin: "4px 0 0", fontSize: 13, color: THEME.muted }}>Dati studio · Tariffe trattamenti · Template WhatsApp</p>
+        </div>
+
+        {/* ━━━ PIANO E ABBONAMENTO (card riepilogo) ━━━ */}
+        <Link
+          href="/piano"
+          style={{
+            display: "block",
+            background: THEME.panelBg,
+            border: `1px solid ${THEME.border}`,
+            borderRadius: 12,
+            padding: "20px 24px",
+            marginBottom: 20,
+            textDecoration: "none",
+            color: "inherit",
+            transition: "border-color 0.15s, box-shadow 0.15s",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = THEME.teal;
+            e.currentTarget.style.boxShadow = "0 4px 12px rgba(13,148,136,0.08)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = THEME.border;
+            e.currentTarget.style.boxShadow = "none";
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>
+                Piano e abbonamento
+              </div>
+              {planLimits.loading ? (
+                <div style={{ fontSize: 16, color: THEME.muted }}>Caricamento…</div>
+              ) : planLimits.plan?.plan_id ? (
+                <>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: THEME.text, letterSpacing: -0.3 }}>
+                    {planLimits.plan.plan_name}
+                    {planLimits.plan.price_monthly_cents ? (
+                      <span style={{ fontSize: 14, fontWeight: 500, color: THEME.muted, marginLeft: 8 }}>
+                        €{(planLimits.plan.price_monthly_cents / 100).toFixed(0)}/mese
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 14, fontWeight: 500, color: THEME.muted, marginLeft: 8 }}>
+                        Gratuito
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 13, color: THEME.muted, marginTop: 4 }}>
+                    {planLimits.usage.patients}
+                    <span style={{ color: "#94a3b8" }}>
+                      /{planLimits.plan.max_patients ?? "∞"}
+                    </span>{" "}
+                    pazienti · {planLimits.usage.appointments_this_month}
+                    <span style={{ color: "#94a3b8" }}>
+                      /{planLimits.plan.max_appointments_per_month ?? "∞"}
+                    </span>{" "}
+                    appuntamenti/mese
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: THEME.text, letterSpacing: -0.3 }}>
+                    Nessun piano attivo
+                  </div>
+                  <div style={{ fontSize: 13, color: THEME.amber, marginTop: 4, fontWeight: 600 }}>
+                    → Configura ora il tuo piano
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: THEME.teal, fontSize: 14, fontWeight: 600, flexShrink: 0 }}>
+              Gestisci
+              <span style={{ fontSize: 18 }}>→</span>
+            </div>
+          </div>
+        </Link>
+
+        {/* Feedback banners */}
+        {error && (
+          <div style={{ marginBottom: 16, padding: "11px 16px", borderRadius: 8, background: "rgba(220,38,38,0.05)", border: "1px solid rgba(220,38,38,0.2)", color: THEME.red, fontWeight: 600, fontSize: 13 }}>
+            {error}
+          </div>
+        )}
+        {success && (
+          <div style={{ marginBottom: 16, padding: "11px 16px", borderRadius: 8, background: "rgba(22,163,74,0.06)", border: "1px solid rgba(22,163,74,0.2)", color: THEME.green, fontWeight: 600, fontSize: 13 }}>
+            {success}
+          </div>
+        )}
+
+        {/* ─── Tab bar 4 categorie ─── */}
+        <SettingsTabs activeTab={activeTab} onTabChange={setActiveTab} />
+
+        {/* ─── Tab "Studio": StudioBranding + Practice + Prezzi + Orari ─── */}
+        {activeTab === "studio" && (
+          <>
+            <StudioBrandingSection
+              show={showStudio} onToggle={() => setShowStudio(!showStudio)}
+              studioName={studioName} setStudioName={setStudioName}
+              studioAddress={studioAddress} setStudioAddress={setStudioAddress}
+              studioPhone={studioPhone} setStudioPhone={setStudioPhone}
+              studioEmail={studioEmail} setStudioEmail={setStudioEmail}
+              studioWebsite={studioWebsite} setStudioWebsite={setStudioWebsite}
+              studioGoogleReview={studioGoogleReview} setStudioGoogleReview={setStudioGoogleReview}
+              studioSignatureName={studioSignatureName} setStudioSignatureName={setStudioSignatureName}
+              studioSignatureTitle={studioSignatureTitle} setStudioSignatureTitle={setStudioSignatureTitle}
+              savingStudio={savingStudio}
+              onSave={() => void saveStudio()}
+            />
+
+            <PracticeSection
+              show={showPractice} onToggle={() => setShowPractice(!showPractice)}
+              loadingPractice={loadingPractice} savingPractice={savingPractice}
+              practiceName={practiceName} setPracticeName={setPracticeName}
+              ownerFullName={ownerFullName} setOwnerFullName={setOwnerFullName}
+              vatNumber={vatNumber} setVatNumber={setVatNumber}
+              phone={phone} setPhone={setPhone}
+              pecEmail={pecEmail} setPecEmail={setPecEmail}
+              address={address} setAddress={setAddress}
+              logoBase64={logoBase64} setLogoBase64={setLogoBase64}
+              googleReviewLink={googleReviewLink} setGoogleReviewLink={setGoogleReviewLink}
+              onReload={() => void loadPracticeSettings()}
+              onSave={() => void savePracticeSettings()}
+            />
+
+            <TreatmentsSection
+          show={showTreatments}
+          onToggle={() => setShowTreatments(!showTreatments)}
+          studioId={studio?.id ?? null}
+        />
+
+        <WorkingHoursSection
+          show={showHours} onToggle={() => setShowHours(!showHours)}
+          loadingHours={loadingHours} savingHours={savingHours}
+          workingHours={workingHours}
+          onUpdateHour={updateHour}
+          onReload={() => void loadWorkingHours()}
+          onSave={() => void saveWorkingHours()}
+        />
+          </>
+        )}
+
+        {/* ─── Tab "Calendario": Durate + CalendarPrefs + Servizi + Giorni bloccati ─── */}
+        {activeTab === "calendar" && (
+          <>
+            <CalendarPrefsSection
+              savingPractice={savingPractice}
+              defaultApptStatus={defaultApptStatus} setDefaultApptStatus={setDefaultApptStatus}
+              overlapMode={overlapMode} setOverlapMode={setOverlapMode}
+              onSave={() => void savePracticeSettings()}
+            />
+
+            <BookableServicesSection
+              show={showServices} onToggle={() => setShowServices(!showServices)}
+              loadingServices={loadingServices} savingSvc={savingSvc}
+              services={services}
+              newSvcName={newSvcName} setNewSvcName={setNewSvcName}
+              newSvcDuration={newSvcDuration} setNewSvcDuration={setNewSvcDuration}
+              newSvcPrice={newSvcPrice} setNewSvcPrice={setNewSvcPrice}
+              onAdd={() => void addService()}
+              onDelete={(id) => void deleteService(id)}
+            />
+
+            <BlockedDaysSection
+              show={showBlockDays} onToggle={() => setShowBlockDays(!showBlockDays)}
+              savingBlock={savingBlock} blockDays={blockDays}
+              newBlockDate={newBlockDate} setNewBlockDate={setNewBlockDate}
+              newBlockLabel={newBlockLabel} setNewBlockLabel={setNewBlockLabel}
+              onAdd={() => void addBlockDay()}
+              onDelete={(id) => void deleteBlockDay(id)}
+            />
+          </>
+        )}
+
+        {/* ─── Tab "Comunicazioni": Templates messaggi + Integrazioni ─── */}
+        {activeTab === "communications" && (
+          <>
+            <TemplatesSection
+              show={showTemplates} onToggle={() => setShowTemplates(!showTemplates)}
+              loadingTemplates={loadingTemplates} savingPractice={savingPractice}
+              templates={templates} dynamicSignature={dynamicSignature}
+              editingId={editingId} setEditingId={setEditingId}
+              editName={editName} setEditName={setEditName}
+              editTemplate={editTemplate} setEditTemplate={setEditTemplate}
+              newName={newName} setNewName={setNewName}
+              newTemplate={newTemplate} setNewTemplate={setNewTemplate}
+              addingNew={addingNew} setAddingNew={setAddingNew}
+              onSaveTemplate={(id) => void saveTemplate(id)}
+              onDeleteTemplate={(id) => void deleteTemplate(id)}
+              onSetAsDefault={(id) => void setAsDefault(id)}
+              onCreateNewTemplate={() => void createNewTemplate()}
+              welcomeMsg={welcomeMsg} setWelcomeMsg={setWelcomeMsg}
+              bookingConfirmMsg={bookingConfirmMsg} setBookingConfirmMsg={setBookingConfirmMsg}
+              reminderMsg={reminderMsg} setReminderMsg={setReminderMsg}
+              weeklyReminderMsg={weeklyReminderMsg} setWeeklyReminderMsg={setWeeklyReminderMsg}
+              paymentMsg={paymentMsg} setPaymentMsg={setPaymentMsg}
+              birthdayMsg={birthdayMsg} setBirthdayMsg={setBirthdayMsg}
+              satisfactionMsg={satisfactionMsg} setSatisfactionMsg={setSatisfactionMsg}
+              onSaveAutoMessages={() => void savePracticeSettings()}
+            />
+
+            <IntegrationsSection
+              show={showBackup} onToggle={() => setShowBackup(!showBackup)}
+              exportingBackup={exportingBackup} onExportBackup={() => void exportBackup()}
+              calendarToken={calendarToken}
+              calendarTokenLoading={calendarTokenLoading}
+              calendarTokenRotating={calendarTokenRotating}
+              onRotateToken={rotateCalendarToken}
+              onCopyLink={copyCalendarLink}
+            />
+          </>
+        )}
+
+        {/* ─── Tab "Account": Password + Gestione ─── */}
+        {activeTab === "account" && (
+          <>
+            <PasswordSection
+              show={showPassword} onToggle={() => setShowPassword(!showPassword)}
+              pwSaving={pwSaving} pwError={pwError} pwSuccess={pwSuccess}
+              pwNew={pwNew} setPwNew={setPwNew}
+              pwConfirm={pwConfirm} setPwConfirm={setPwConfirm}
+              onChange={() => void changePassword()}
+            />
+
+            <ManagementSection
+              show={showGestione} onToggle={() => setShowGestione(!showGestione)}
+              savingPractice={savingPractice}
+              monthlyGoal={monthlyGoal} setMonthlyGoal={setMonthlyGoal}
+              inactiveThresh={inactiveThresh} setInactiveThresh={setInactiveThresh}
+              reminderHours={reminderHours} setReminderHours={setReminderHours}
+              onSave={() => void savePracticeSettings()}
+            />
+          </>
+        )}
+
+        <div style={{ textAlign: "center", fontSize: 12, color: THEME.muted, padding: "8px 0 16px" }}>
+          FisioHub · {new Date().getFullYear()}
+        </div>
+      </main>
+    </div>
+  );
+}

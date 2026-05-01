@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/src/lib/supabaseServer";
 import GlobalSearch from "./components/GlobalSearch";
 import WelcomeTour from "./components/WelcomeTour";
-import ActivityTracker from "./components/ActivityTracker";
 import ProtectedProviders from "@/src/contexts/ProtectedProviders";
 
 export default async function ProtectedLayout({
@@ -20,7 +19,6 @@ export default async function ProtectedLayout({
       {children}
       <GlobalSearch />
       <WelcomeTour />
-      <ActivityTracker />
     </ProtectedProviders>
   );
 }
