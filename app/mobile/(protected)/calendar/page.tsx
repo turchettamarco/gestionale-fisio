@@ -673,20 +673,23 @@ function CalendarPageInner() {
   const togglePaid = useCallback(async (id:string, isPaid:boolean) => {
     // Se sto MARCANDO come pagato (false → true), lo status passa anche a "done".
     // Se sto TOGLIENDO il pagato (true → false), lascio lo status invariato.
+    // Mantiene coerenza col CHECK constraint appointments_paid_consistency:
+    // is_paid=true ↔ paid_at NOT NULL (mig. 010).
     const willBePaid = !isPaid;
     if (willBePaid) {
+      const nowIso = new Date().toISOString();
       setEvents(prev => prev.map(e =>
         e.id === id ? { ...e, is_paid: true, status: "done" as Status } : e
       ));
       await supabase.from("appointments")
-        .update({ is_paid: true, status: "done" })
+        .update({ is_paid: true, status: "done", paid_at: nowIso })
         .eq("id", id);
     } else {
       setEvents(prev => prev.map(e =>
         e.id === id ? { ...e, is_paid: false } : e
       ));
       await supabase.from("appointments")
-        .update({ is_paid: false })
+        .update({ is_paid: false, paid_at: null })
         .eq("id", id);
     }
   }, []);

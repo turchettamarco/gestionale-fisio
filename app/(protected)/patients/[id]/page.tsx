@@ -1208,7 +1208,12 @@ A presto,
   async function togglePaid(apptId: string, newValue: boolean) {
     setError("");
     setRowBusy(m => ({ ...m, [apptId]: true }));
-    const res = await supabase.from("appointments").update({ is_paid: newValue }).eq("id", apptId);
+    // Mantiene coerenza col CHECK constraint appointments_paid_consistency:
+    // is_paid=true ↔ paid_at NOT NULL (mig. 010).
+    const payload = newValue
+      ? { is_paid: true,  paid_at: new Date().toISOString() }
+      : { is_paid: false, paid_at: null };
+    const res = await supabase.from("appointments").update(payload).eq("id", apptId);
     setRowBusy(m => ({ ...m, [apptId]: false }));
     if (res.error) { setError(translateError(res.error)); return; }
     await loadAppointments();

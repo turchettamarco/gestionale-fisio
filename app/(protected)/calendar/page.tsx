@@ -1556,9 +1556,12 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
     if (bulkSelected.size === 0) return;
     setError("");
     const ids = Array.from(bulkSelected);
-    
+    // Mantiene coerenza col CHECK constraint appointments_paid_consistency:
+    // is_paid=true ↔ paid_at NOT NULL (mig. 010).
+    const nowIso = new Date().toISOString();
+
     for (const id of ids) {
-      const { error } = await supabase.from("appointments").update({ is_paid: true }).eq("id", id);
+      const { error } = await supabase.from("appointments").update({ is_paid: true, paid_at: nowIso }).eq("id", id);
       if (error) {
         setError(`Errore aggiornamento: ${translateError(error)}`);
         return;
@@ -1772,7 +1775,13 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
     setError("");
     const next: Status = current === "done" ? "confirmed" : "done";
 
-    const { error } = await supabase.from("appointments").update({ status: next, is_paid: next === "done" }).eq("id", apptId);
+    // Mantiene coerenza col CHECK constraint appointments_paid_consistency:
+    // is_paid=true ↔ paid_at NOT NULL (mig. 010).
+    const willBePaid = next === "done";
+    const payload = willBePaid
+      ? { status: next, is_paid: true,  paid_at: new Date().toISOString() }
+      : { status: next, is_paid: false, paid_at: null };
+    const { error } = await supabase.from("appointments").update(payload).eq("id", apptId);
 
     if (error) {
       setError(`Errore aggiornamento stato: ${translateError(error)}`);
@@ -1786,7 +1795,13 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
 
   const togglePaidQuick = useCallback(async (apptId: string, currentlyPaid: boolean) => {
     setError("");
-    const { error } = await supabase.from("appointments").update({ is_paid: !currentlyPaid }).eq("id", apptId);
+    // Mantiene coerenza col CHECK constraint appointments_paid_consistency:
+    // is_paid=true ↔ paid_at NOT NULL (mig. 010).
+    const willBePaid = !currentlyPaid;
+    const payload = willBePaid
+      ? { is_paid: true,  paid_at: new Date().toISOString() }
+      : { is_paid: false, paid_at: null };
+    const { error } = await supabase.from("appointments").update(payload).eq("id", apptId);
     if (error) {
       setError(`Errore aggiornamento pagamento: ${translateError(error)}`);
       return;

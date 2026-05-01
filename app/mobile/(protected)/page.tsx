@@ -460,8 +460,11 @@ export default function MobileHomePage() {
   async function handleMarkDone(appt: Appointment) {
     if (markingDone) return;
     setMarkingDone(appt.id);
+    // Mantiene coerenza col CHECK constraint appointments_paid_consistency:
+    // is_paid=true ↔ paid_at NOT NULL (mig. 010).
+    const nowIso = new Date().toISOString();
     const { error } = await supabase.from("appointments")
-      .update({ status: "done", is_paid: true }).eq("id", appt.id);
+      .update({ status: "done", is_paid: true, paid_at: nowIso }).eq("id", appt.id);
     if (!error) {
       const updater = (prev: Appointment[]) => prev.map(a =>
         a.id === appt.id ? { ...a, status: "done" as Status, is_paid: true } : a
@@ -475,8 +478,11 @@ export default function MobileHomePage() {
   async function handleIncassa(appt: Appointment) {
     if (incassando) return;
     setIncassando(appt.id);
+    // Mantiene coerenza col CHECK constraint appointments_paid_consistency:
+    // is_paid=true ↔ paid_at NOT NULL (mig. 010).
+    const nowIso = new Date().toISOString();
     const { error } = await supabase.from("appointments")
-      .update({ is_paid: true, status: "done" }).eq("id", appt.id);
+      .update({ is_paid: true, status: "done", paid_at: nowIso }).eq("id", appt.id);
     if (!error) {
       const updater = (prev: Appointment[]) => prev.map(a =>
         a.id === appt.id ? { ...a, is_paid: true, status: "done" as Status } : a
@@ -490,8 +496,10 @@ export default function MobileHomePage() {
   async function handleNotPaid(appt: Appointment) {
     if (notPaying) return;
     setNotPaying(appt.id);
+    // Mantiene coerenza col CHECK constraint appointments_paid_consistency:
+    // is_paid=false ↔ paid_at NULL (mig. 010).
     const { error } = await supabase.from("appointments")
-      .update({ status: "not_paid", is_paid: false }).eq("id", appt.id);
+      .update({ status: "not_paid", is_paid: false, paid_at: null }).eq("id", appt.id);
     if (!error) {
       const updater = (prev: Appointment[]) => prev.map(a =>
         a.id === appt.id ? { ...a, status: "not_paid" as Status, is_paid: false } : a

@@ -563,7 +563,12 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
     await loadAppointments();
   }
   async function togglePaid(id: string, isPaid: boolean) {
-    await supabase.from("appointments").update({ is_paid: isPaid }).eq("id", id);
+    // Mantiene coerenza col CHECK constraint appointments_paid_consistency:
+    // is_paid=true ↔ paid_at NOT NULL (mig. 010).
+    const payload = isPaid
+      ? { is_paid: true,  paid_at: new Date().toISOString() }
+      : { is_paid: false, paid_at: null };
+    await supabase.from("appointments").update(payload).eq("id", id);
     await loadAppointments();
   }
   async function saveApptAmount(id: string) {

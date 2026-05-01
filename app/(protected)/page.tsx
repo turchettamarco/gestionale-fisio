@@ -564,7 +564,12 @@ export default function HomePage() {
 
   const togglePaid = useCallback(async (id: string, isPaid: boolean) => {
     setBusyRow(m => ({ ...m, [id]: true }));
-    const { error } = await supabase.from("appointments").update({ is_paid: isPaid }).eq("id", id);
+    // Mantiene coerenza col CHECK constraint appointments_paid_consistency:
+    // is_paid=true ↔ paid_at NOT NULL (mig. 010).
+    const payload = isPaid
+      ? { is_paid: true,  paid_at: new Date().toISOString() }
+      : { is_paid: false, paid_at: null };
+    const { error } = await supabase.from("appointments").update(payload).eq("id", id);
     setBusyRow(m => ({ ...m, [id]: false }));
     if (error) alert("Errore: " + error.message);
     else { fetchAppts(); fetchOpenBalances(); }
