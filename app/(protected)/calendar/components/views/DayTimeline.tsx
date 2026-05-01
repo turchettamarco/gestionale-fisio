@@ -21,6 +21,7 @@
 
 import {
   THEME, fmtTime, formatDMY, pad2, statusBg, statusLabel, getTreatmentLabel,
+  assignLanes,
   type CalendarEvent,
 } from "../../utils";
 
@@ -289,8 +290,17 @@ export default function DayTimeline({
         })}
 
         {/* ─── Card evento posizionate assolute ─────────────── */}
-        {dayEvents.map(event => {
-          const { top, height } = getDayEventPosition(event.start, event.end);
+        {(() => {
+          const lanePositions = assignLanes(dayEvents, 3);
+          return dayEvents.map(event => {
+            const lanePos = lanePositions.get(event.id);
+            if (event.status !== "cancelled" && !lanePos) return null;
+            const lane = lanePos?.lane ?? 0;
+            const totalLanes = lanePos?.totalLanes ?? 1;
+            const hidden = lanePos?.hidden ?? 0;
+            const hiddenIds = lanePos?.hiddenIds ?? [];
+
+            const { top, height } = getDayEventPosition(event.start, event.end);
           const isDone     = event.status === "done";
           const isDomicile = event.location === "domicile";
           const isPaid     = !!event.is_paid;
@@ -309,9 +319,10 @@ export default function DayTimeline({
               onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 1px 3px rgba(15,23,42,0.06)"; }}
               style={{
                 position: "absolute",
-                left: "82px",
+                // Larghezza divisa per totalLanes; offset orizzontale per lane
+                left: `calc(82px + ${lane} * ((100% - 88px) / ${totalLanes}))`,
                 top: `${top + 1}px`,
-                width: "calc(100% - 88px)",
+                width: `calc((100% - 88px) / ${totalLanes} - ${totalLanes > 1 ? 2 : 0}px)`,
                 height: `${Math.max(height - 2, 28)}px`,
                 background: statusBg(event.status),
                 color: "#fff",
@@ -438,9 +449,42 @@ export default function DayTimeline({
                   </div>
                 </div>
               )}
+              {/* Badge "+N altri" — quando questa card "ingloba" altri eventi
+                  nascosti per via del limite max 3 lane visibili */}
+              {hidden > 0 && (
+                <div
+                  onClick={e => {
+                    e.stopPropagation();
+                    const allOverlapping = [event.id, ...hiddenIds];
+                    const names = allOverlapping
+                      .map(id => dayEvents.find(ev => ev.id === id))
+                      .filter(Boolean)
+                      .map(ev => `• ${fmtTime(ev!.start.toISOString())} — ${ev!.patient_name}`)
+                      .join("\n");
+                    alert(`${1 + hidden} appuntamenti sovrapposti:\n\n${names}`);
+                  }}
+                  style={{
+                    position: "absolute",
+                    top: 4, right: 4,
+                    background: "rgba(255,255,255,0.95)",
+                    color: statusBg(event.status),
+                    padding: "2px 8px",
+                    borderRadius: 99,
+                    fontSize: 10,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    zIndex: 5,
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+                  }}
+                  title={`+${hidden} altri appuntamenti sovrapposti`}
+                >
+                  +{hidden}
+                </div>
+              )}
             </div>
           );
-        })}
+          });
+        })()}
 
         {/* ─── Linea "now" rossa ─────────────────────────────── */}
         <div

@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { buildReminderMessage } from "@/app/(protected)/calendar/utils/reminderMessage";
+import { assignLanes } from "@/app/(protected)/calendar/utils/laneAssignment";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 
@@ -89,8 +90,6 @@ type CreateModalProps = {
   createNote: string; setCreateNote: (v: string) => void;
   createPriceType: "invoiced" | "cash"; setCreatePriceType: (v: "invoiced" | "cash") => void;
   createPaymentMethod: "cash" | "pos" | "bank_transfer" | null; setCreatePaymentMethod: (v: "cash" | "pos" | "bank_transfer" | null) => void;
-  createTreatmentType: string; setCreateTreatmentType: (v: string) => void;
-  treatmentCatalog: { key: string; label: string; color: string; price_invoice: number; price_cash: number; duration_min: number }[];
   createAppointment: () => Promise<void>;
   createRecurring: boolean; setCreateRecurring: (v: boolean) => void;
   createRecurringCount: number; setCreateRecurringCount: (v: number) => void;
@@ -297,13 +296,6 @@ function CalendarPageInner() {
   const [editDate,      setEditDate]      = useState(toISODateLocal(new Date()));
   const [editTime,      setEditTime]      = useState("09:00");
   const [editDuration,  setEditDuration]  = useState(60);
-  const [editTreatmentType, setEditTreatmentType] = useState<string>("seduta");
-
-  // Catalogo trattamenti dinamico (treatment_types) caricato dal DB
-  const [treatmentCatalog, setTreatmentCatalog] = useState<{
-    key: string; label: string; color: string;
-    price_invoice: number; price_cash: number; duration_min: number;
-  }[]>([]);
 
   /* Promemoria settimanale aggregato (1 messaggio = N appuntamenti). */
   const [weeklyReminderTarget, setWeeklyReminderTarget] = useState<{
@@ -342,7 +334,6 @@ function CalendarPageInner() {
   // Fatturazione + metodo pagamento allineati al desktop
   const [createPriceType,       setCreatePriceType]       = useState<"invoiced" | "cash">("invoiced");
   const [createPaymentMethod,   setCreatePaymentMethod]   = useState<"cash" | "pos" | "bank_transfer" | null>(null);
-  const [createTreatmentType,   setCreateTreatmentType]   = useState<string>("seduta");
 
   /* patient search (create) */
   const [patientQuery,    setPatientQuery]    = useState("");
@@ -462,37 +453,6 @@ function CalendarPageInner() {
   }, []);
 
   useEffect(() => { loadAppointments(currentDate); }, [currentDate, loadAppointments]);
-
-  // Carica il catalogo trattamenti dinamico (treatment_types) per lo studio corrente.
-  // Riempie il dropdown del modal di creazione e modifica appuntamenti.
-  useEffect(() => {
-    if (!currentStudioId) return;
-    let mounted = true;
-    (async () => {
-      try {
-        const { data, error: catErr } = await supabase
-          .from("treatment_types")
-          .select("key, label, color, price_invoice, price_cash, duration_min")
-          .eq("studio_id", currentStudioId)
-          .eq("is_active", true)
-          .order("sort_order", { ascending: true });
-        if (catErr) throw catErr;
-        if (!mounted) return;
-        const rows = (data ?? []).map((r: { key: string; label: string; color: string; price_invoice: number | null; price_cash: number | null; duration_min: number | null }) => ({
-          key: r.key,
-          label: r.label,
-          color: r.color,
-          price_invoice: Number(r.price_invoice ?? 0),
-          price_cash: Number(r.price_cash ?? 0),
-          duration_min: Number(r.duration_min ?? 30),
-        }));
-        setTreatmentCatalog(rows);
-      } catch (e) {
-        console.warn("[mobile-calendar] errore carica treatment_types:", e instanceof Error ? e.message : e);
-      }
-    })();
-    return () => { mounted = false; };
-  }, [currentStudioId]);
 
   const loadMonthAppointments = useCallback(async (date: Date) => {
     setMonthLoading(true);
@@ -850,7 +810,6 @@ function CalendarPageInner() {
     setEditDate(toISODateLocal(ev.start));
     setEditTime(`${pad2(ev.start.getHours())}:${pad2(ev.start.getMinutes())}`);
     setEditDuration(Math.max(15,Math.round((ev.end.getTime()-ev.start.getTime())/60_000)));
-    setEditTreatmentType(ev.treatment_type ?? "seduta");
 
     // Pre-fetch link conferma AL MOMENTO dell'apertura del modal.
     // Marco apre il modal, guarda i dettagli (1-2 secondi), poi clicca WA → il link è pronto.
@@ -899,7 +858,6 @@ function CalendarPageInner() {
       amount,
       price_type: editPriceType,
       payment_method: editPriceType === "invoiced" ? editPaymentMethod : null,
-      treatment_type: editTreatmentType || null,
     };
     if (isValidISODate(editDate)&&isValidHHMM(editTime)) {
       const ns=buildDateTime(editDate,editTime);
@@ -913,7 +871,7 @@ function CalendarPageInner() {
     const {error:e}=await supabase.from("appointments").update(upd).eq("id",selectedEvent.id);
     if (e){setError(`Errore: ${e.message}`);setBusy(false);return;}
     setSelectedEvent(null); setBusy(false); await loadAppointments(currentDate);
-  }, [selectedEvent,editStatus,editNote,editAmount,editPriceType,editPaymentMethod,editDate,editTime,editDuration,editTreatmentType,currentDate,loadAppointments]);
+  }, [selectedEvent,editStatus,editNote,editAmount,editPriceType,editPaymentMethod,editDate,editTime,editDuration,currentDate,loadAppointments]);
 
   const deleteEvent = useCallback(async () => {
     if (!selectedEvent||!window.confirm("Eliminare definitivamente questo appuntamento?")) return;
@@ -932,8 +890,7 @@ function CalendarPageInner() {
     setCreateTime(prefillTime&&isValidHHMM(prefillTime)?prefillTime:"09:00");
     setCreateDuration(60); setCreateStatus(defaultStatus); setCreateLocation("studio");
     setCreateClinicSite(DEFAULT_CLINIC); setCreateDomicileAddress(""); setCreateAmount(""); setCreateNote("");
-    setCreateTreatmentType(treatmentCatalog[0]?.key ?? "seduta");
-  }, [currentDate, defaultStatus, treatmentCatalog]);
+  }, [currentDate]);
 
   /* ── Patient search (create) ─────────────── */
   const debRef = useRef<number|null>(null);
@@ -1000,7 +957,6 @@ function CalendarPageInner() {
         amount,
         price_type: createPriceType,
         payment_method: createPriceType === "invoiced" ? createPaymentMethod : null,
-        treatment_type: createTreatmentType || null,
         studio_id: currentStudioId,  // multi-tenancy
       });
     }
@@ -1056,7 +1012,7 @@ function CalendarPageInner() {
     }
   }, [selectedPatient,createDuration,createDate,createTime,createStatus,createNote,
       createLocation,createClinicSite,createDomicileAddress,createAmount,
-      createPriceType,createPaymentMethod,createTreatmentType,currentStudioId,currentDate,loadAppointments,
+      createPriceType,createPaymentMethod,currentDate,loadAppointments,
       createRecurring,createRecurringCount,createRecurringInterval,overlapMode,events]);
 
   /* ── Move appointment (drag) ─────────────── */
@@ -1132,7 +1088,7 @@ function CalendarPageInner() {
   }
 
   /* ─── NEW: event card con swipe actions ──── */
-  const renderEventCard = useCallback((ev:CalendarEvent) => {
+  const renderEventCard = useCallback((ev:CalendarEvent, lanePos?: { lane: number; totalLanes: number; hidden?: number; hiddenIds?: string[] }) => {
     const {top,height}=getEventPosition(ev.start,ev.end);
     const col        = statusColor(ev.status);
     const bg         = ev.location==="domicile" ? "rgba(13,148,136,0.06)" : statusBg(ev.status);
@@ -1141,6 +1097,10 @@ function CalendarPageInner() {
     const displayTop = isDragging&&touchDragY!==null?touchDragY:top;
     const short      = height<52;
     const waSent     = !!ev.whatsapp_sent_at;
+    const lane       = lanePos?.lane ?? 0;
+    const totalLanes = lanePos?.totalLanes ?? 1;
+    const hidden     = lanePos?.hidden ?? 0;
+    const hiddenIds  = lanePos?.hiddenIds ?? [];
     const isPast     = ev.end<currentTime && ev.status!=="done" && ev.status!=="cancelled";
     const swipeX     = swipeState?.id===ev.id?swipeState.x:0;
 
@@ -1148,7 +1108,16 @@ function CalendarPageInner() {
       <div
         key={ev.id}
         style={{
-          position:"absolute",left:52,right:8,top:displayTop,height,
+          position:"absolute",
+          // 52px sidebar a sx, 8px gap a dx; lo spazio rimanente (calc(100% - 60px)) è diviso per totalLanes
+          left: totalLanes > 1
+            ? `calc(52px + ${lane} * ((100% - 60px) / ${totalLanes}))`
+            : 52,
+          width: totalLanes > 1
+            ? `calc((100% - 60px) / ${totalLanes} - 2px)`
+            : undefined,
+          right: totalLanes > 1 ? undefined : 8,
+          top:displayTop,height,
           zIndex:isDragging?10:3,touchAction:"none",
         }}
       >
@@ -1253,9 +1222,42 @@ function CalendarPageInner() {
             <span style={{fontSize:10,color:THEME.muted,flexShrink:0}}>{fmtTime(ev.start)}</span>
           )}
         </div>
+        {/* Badge "+N altri" — quando questa card "ingloba" altri eventi
+            nascosti per via del limite max 3 lane visibili */}
+        {hidden > 0 && (
+          <div
+            onClick={e => {
+              e.stopPropagation();
+              const allOverlapping = [ev.id, ...hiddenIds];
+              const names = allOverlapping
+                .map(id => events.find(x => x.id === id))
+                .filter(Boolean)
+                .map(x => `• ${fmtTime(x!.start)} — ${x!.patient_name}`)
+                .join("\n");
+              alert(`${1 + hidden} appuntamenti sovrapposti:\n\n${names}`);
+            }}
+            style={{
+              position: "absolute",
+              top: 4, right: 4,
+              background: "rgba(255,255,255,0.95)",
+              color: statusBg(ev.status),
+              padding: "2px 8px",
+              borderRadius: 99,
+              fontSize: 10,
+              fontWeight: 800,
+              cursor: "pointer",
+              zIndex: 5,
+              boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+            }}
+            title={`+${hidden} altri appuntamenti sovrapposti`}
+          >
+            +{hidden}
+          </div>
+        )}
       </div>
     );
   }, [getEventPosition,touchDraggingId,touchDragY,draggingId,currentTime,swipeState,
+      events,
       handleEventTouchStart,handleCardSwipeStart,handleCardSwipeMove,handleCardSwipeEnd,
       handleTimelineTouchEnd,openEvent,togglePaid,sendReminder]);
 
@@ -1695,7 +1697,12 @@ function CalendarPageInner() {
                   boxShadow:`0 0 8px ${THEME.blue}80`}} />
               )}
 
-              {dayEvents.map(renderEventCard)}
+              {(() => {
+                const lanePositions = assignLanes(dayEvents, 3);
+                return dayEvents
+                  .filter(ev => ev.status === "cancelled" || lanePositions.has(ev.id))
+                  .map(ev => renderEventCard(ev, lanePositions.get(ev.id)));
+              })()}
 
               {/* ─── Slot liberi ─── */}
               {freeSlots.map((slot,i) => {
@@ -1974,32 +1981,6 @@ function CalendarPageInner() {
                 <option value="cancelled">Annullato</option>
               </select>
             </FG>
-            <FG label="Trattamento">
-              <div style={{ position: "relative" }}>
-                <div style={{
-                  position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
-                  width: 12, height: 12, borderRadius: "50%",
-                  background: treatmentCatalog.find(t => t.key === editTreatmentType)?.color ?? "#94a3b8",
-                  pointerEvents: "none", zIndex: 1,
-                  border: "1px solid rgba(0,0,0,0.06)",
-                }} />
-                <select
-                  value={editTreatmentType}
-                  onChange={e=>setEditTreatmentType(e.target.value)}
-                  style={{ ...inputS(), paddingLeft: 32, fontWeight: 700 }}
-                >
-                  {/* se il trattamento corrente non è più nel catalogo (disattivato/cancellato), lo aggiungo come "fantasma" */}
-                  {editTreatmentType && !treatmentCatalog.find(t => t.key === editTreatmentType) && (
-                    <option value={editTreatmentType}>
-                      {editTreatmentType.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")} (non più attivo)
-                    </option>
-                  )}
-                  {treatmentCatalog.map(t => (
-                    <option key={t.key} value={t.key}>{t.label}</option>
-                  ))}
-                </select>
-              </div>
-            </FG>
             <FG label="Note">
               <textarea value={editNote} onChange={e=>setEditNote(e.target.value)}
                 style={{...inputS(),minHeight:80,resize:"vertical"}} />
@@ -2125,8 +2106,6 @@ function CalendarPageInner() {
           createNote={createNote}         setCreateNote={setCreateNote}
           createPriceType={createPriceType}     setCreatePriceType={setCreatePriceType}
           createPaymentMethod={createPaymentMethod} setCreatePaymentMethod={setCreatePaymentMethod}
-          createTreatmentType={createTreatmentType} setCreateTreatmentType={setCreateTreatmentType}
-          treatmentCatalog={treatmentCatalog}
           createAppointment={createAppointment}
           createRecurring={createRecurring} setCreateRecurring={setCreateRecurring}
           createRecurringCount={createRecurringCount} setCreateRecurringCount={setCreateRecurringCount}
@@ -2377,7 +2356,6 @@ function CreateModal(props:CreateModalProps) {
     createClinicSite,setCreateClinicSite,createDomicileAddress,setCreateDomicileAddress,
     createAmount,setCreateAmount,createNote,setCreateNote,createAppointment,
     createPriceType,setCreatePriceType,createPaymentMethod,setCreatePaymentMethod,
-    createTreatmentType,setCreateTreatmentType,treatmentCatalog,
     createRecurring,setCreateRecurring,createRecurringCount,setCreateRecurringCount,
     createRecurringInterval,setCreateRecurringInterval,
   }=props;
@@ -2439,29 +2417,6 @@ function CreateModal(props:CreateModalProps) {
             <option value="done">Eseguito</option><option value="not_paid">Non pagata</option>
             <option value="cancelled">Annullato</option>
           </select>
-        </FG>
-        <FG label="Trattamento">
-          <div style={{ position: "relative" }}>
-            <div style={{
-              position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
-              width: 12, height: 12, borderRadius: "50%",
-              background: treatmentCatalog.find(t => t.key === createTreatmentType)?.color ?? "#94a3b8",
-              pointerEvents: "none", zIndex: 1,
-              border: "1px solid rgba(0,0,0,0.06)",
-            }} />
-            <select
-              value={createTreatmentType}
-              onChange={e=>setCreateTreatmentType(e.target.value)}
-              style={{ ...inputS(), paddingLeft: 32, fontWeight: 700 }}
-            >
-              {treatmentCatalog.length === 0 && (
-                <option value="seduta">Seduta</option>
-              )}
-              {treatmentCatalog.map(t => (
-                <option key={t.key} value={t.key}>{t.label}</option>
-              ))}
-            </select>
-          </div>
         </FG>
         <FG label="Luogo">
           <select value={createLocation} onChange={e=>setCreateLocation(e.target.value as LocationType)} style={inputS()}>

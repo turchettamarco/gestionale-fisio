@@ -33,7 +33,6 @@ export {
   GOOGLE_REVIEW_LINK_FALLBACK,
   CLINIC_ADDRESSES,
   ALL_TREATMENTS,
-  setTreatmentCatalog,
   statusColor,
   statusBg,
   statusLabel,
@@ -80,3 +79,7 @@ export {
   DEFAULT_TEMPLATE_CONFERMA,
   DEFAULT_TEMPLATE_PROMEMORIA,
 } from "./reminderMessage";
+
+// Lane assignment per visualizzazione overlap appuntamenti (Google-style)
+export { assignLanes } from "./laneAssignment";
+export type { LanePosition } from "./laneAssignment";

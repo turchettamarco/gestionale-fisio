@@ -28,7 +28,6 @@ import {
   GOOGLE_REVIEW_LINK_FALLBACK,
   CLINIC_ADDRESSES,
   ALL_TREATMENTS,
-  setTreatmentCatalog,
   // Status / treatment helpers
   statusColor,
   statusBg,
@@ -107,11 +106,6 @@ function CalendarPageInner() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
-  // Catalogo trattamenti dinamico (treatment_types). Riempie ALL_TREATMENTS
-  // tramite setTreatmentCatalog, e tiene una copia in stato React per
-  // forzare il re-render quando cambia.
-  const [treatmentCatalog, setTreatmentCatalogState] = useState<{ key: string; label: string; color: string; price_invoice: number; price_cash: number; duration_min: number }[]>([]);
 
 // User menu (Logout + Settings)
 const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -208,49 +202,8 @@ const handleLogout = useCallback(async () => {
     loadPracticeSettings();
   }, [userId, loadPracticeSettings]);
 
-  // ─── Carica catalogo trattamenti dinamico (treatment_types) ──────────────
-  // Sostituisce la lista hardcoded ALL_TREATMENTS con i trattamenti che
-  // l'utente ha configurato in Impostazioni → Catalogo Trattamenti.
-  useEffect(() => {
-    if (!currentStudioId) return;
-    let mounted = true;
-    (async () => {
-      try {
-        const { data, error } = await supabase
-          .from("treatment_types")
-          .select("key, label, color, price_invoice, price_cash, duration_min, is_active, sort_order")
-          .eq("studio_id", currentStudioId)
-          .eq("is_active", true)
-          .order("sort_order", { ascending: true });
-        if (error) throw error;
-        if (!mounted) return;
-        const rows = (data ?? []).map(r => ({
-          key: r.key as string,
-          label: r.label as string,
-          color: r.color as string,
-          price_invoice: Number(r.price_invoice ?? 0),
-          price_cash: Number(r.price_cash ?? 0),
-          duration_min: Number(r.duration_min ?? 30),
-        }));
-        setTreatmentCatalogState(rows);
-        // Aggiorna anche il singleton runtime usato da getTreatmentColor/Label/ALL_TREATMENTS
-        setTreatmentCatalog(rows.map(r => ({ value: r.key, label: r.label, color: r.color })));
-      } catch (e) {
-        console.warn("[calendar] errore carica treatment_types:", e instanceof Error ? e.message : e);
-      }
-    })();
-    return () => { mounted = false; };
-  }, [currentStudioId]);
-
   const getDefaultAmount = useCallback((tType: TreatmentType, pType: "invoiced" | "cash") => {
-    // 1. Prima cerca nel catalogo dinamico (treatment_types)
-    const fromCatalog = treatmentCatalog.find(t => t.key === tType);
-    if (fromCatalog) {
-      return pType === "invoiced" ? fromCatalog.price_invoice : fromCatalog.price_cash;
-    }
-
-    // 2. Fallback ai prezzi legacy in practice_settings (per compatibilità con
-    //    appuntamenti storici creati prima del catalogo dinamico)
+    // fallback sicuri (i tuoi vecchi default)
     const fallback = tType === "seduta"
       ? (pType === "invoiced" ? 40 : 35)
       : (pType === "invoiced" ? 25 : 20);
@@ -264,7 +217,7 @@ const handleLogout = useCallback(async () => {
       const v = pType === "invoiced" ? practiceSettings.machine_invoice : practiceSettings.machine_cash;
       return (typeof v === "number" && !Number.isNaN(v)) ? v : fallback;
     }
-  }, [practiceSettings, treatmentCatalog]);
+  }, [practiceSettings]);
 
 const userLabel = useMemo(() => {
   if (!userEmail) return "Account";
@@ -857,7 +810,7 @@ const { data, error } = await supabase
       setCreateLocation("studio");
       setCreateClinicSite(DEFAULT_CLINIC_SITE);
       setCreateDomicileAddress("");
-      setTreatmentType(treatmentCatalog[0]?.key ?? "seduta");
+      setTreatmentType("seduta");
       setPriceType("invoiced");
       setPaymentMethod(null);
       setCustomAmount("");

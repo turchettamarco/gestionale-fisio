@@ -27,6 +27,7 @@
 import {
   THEME, fmtTime, formatDMY, pad2, statusBg, statusLabel,
   autoNameFontSize,
+  assignLanes,
   type CalendarEvent,
 } from "../../utils";
 import type { DraggingOverState, FreeWindow } from "./DayTimeline";
@@ -361,13 +362,37 @@ export default function WeekView({
           )}
 
           {/* ─── Eventi posizionati ─────────────────────────── */}
-          {filteredEvents.map(event => {
-            const dayIndex = weekDays.findIndex(day =>
-              event.start.getDate() === day.getDate() &&
-              event.start.getMonth() === day.getMonth() &&
-              event.start.getFullYear() === day.getFullYear()
-            );
-            if (dayIndex === -1) return null;
+          {(() => {
+            // Calcolo lane positions per OGNI giorno separatamente
+            // (l'overlap si verifica solo all'interno dello stesso giorno).
+            // Massimo 3 lane visibili: oltre, ultima ingloba badge "+N altri".
+            const lanePositions = new Map<string, ReturnType<typeof assignLanes> extends Map<string, infer V> ? V : never>();
+            for (let i = 0; i < weekDays.length; i++) {
+              const day = weekDays[i];
+              const dayEvents = filteredEvents.filter(e =>
+                e.start.getDate() === day.getDate() &&
+                e.start.getMonth() === day.getMonth() &&
+                e.start.getFullYear() === day.getFullYear()
+              );
+              const dayLanes = assignLanes(dayEvents, 3);
+              dayLanes.forEach((v, k) => lanePositions.set(k, v));
+            }
+
+            return filteredEvents.map(event => {
+              const dayIndex = weekDays.findIndex(day =>
+                event.start.getDate() === day.getDate() &&
+                event.start.getMonth() === day.getMonth() &&
+                event.start.getFullYear() === day.getFullYear()
+              );
+              if (dayIndex === -1) return null;
+
+              // Se l'evento è nascosto (overflow oltre 3 lane), non lo renderizzo
+              const lanePos = lanePositions.get(event.id);
+              if (event.status !== "cancelled" && !lanePos) return null;
+              const lane = lanePos?.lane ?? 0;
+              const totalLanes = lanePos?.totalLanes ?? 1;
+              const hidden = lanePos?.hidden ?? 0;
+              const hiddenIds = lanePos?.hiddenIds ?? [];
 
             const { top, height } = getEventPosition(event.start, event.end);
             const isDone     = event.status === "done";
@@ -411,9 +436,10 @@ export default function WeekView({
                 }}
                 style={{
                   position: "absolute",
-                  left: `calc(${TIME_COL}px + ${dayIndex} * calc((100% - ${TIME_COL}px) / 6) + 2px)`,
+                  // Larghezza colonna giorno
+                  left: `calc(${TIME_COL}px + ${dayIndex} * calc((100% - ${TIME_COL}px) / 6) + 2px + ${lane} * ((calc((100% - ${TIME_COL}px) / 6) - 8px) / ${totalLanes}))`,
                   top: `${top + 1}px`,
-                  width: `calc((100% - ${TIME_COL}px) / 6 - 8px)`,
+                  width: `calc(((100% - ${TIME_COL}px) / 6 - 8px) / ${totalLanes} - ${totalLanes > 1 ? 2 : 0}px)`,
                   height: `${cardH}px`,
                   background: isMatch ? "#f59e0b" : statusBg(event.status),
                   color: "#fff",
@@ -622,9 +648,44 @@ export default function WeekView({
                     </div>
                   </>
                 )}
+                {/* Badge "+N altri" — quando questa card "ingloba" altri eventi
+                    nascosti per via del limite max 3 lane visibili */}
+                {hidden > 0 && (
+                  <div
+                    onClick={e => {
+                      e.stopPropagation();
+                      // Mostra dialog/popup con la lista degli appt nascosti.
+                      // Per ora alert semplice — il popup verr&agrave; rifinito in seguito.
+                      const allOverlapping = [event.id, ...hiddenIds];
+                      const names = allOverlapping
+                        .map(id => filteredEvents.find(ev => ev.id === id))
+                        .filter(Boolean)
+                        .map(ev => `• ${fmtTime(ev!.start.toISOString())} — ${ev!.patient_name}`)
+                        .join("\n");
+                      alert(`${1 + hidden} appuntamenti sovrapposti:\n\n${names}\n\nClicca su una card per modificarla.`);
+                    }}
+                    style={{
+                      position: "absolute",
+                      top: 2, right: 2,
+                      background: "rgba(255,255,255,0.95)",
+                      color: statusBg(event.status),
+                      padding: "2px 6px",
+                      borderRadius: 99,
+                      fontSize: 9,
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      zIndex: 5,
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+                    }}
+                    title={`+${hidden} altri appuntamenti sovrapposti`}
+                  >
+                    +{hidden}
+                  </div>
+                )}
               </div>
             );
-          })}
+          });
+          })()}
 
           {/* ─── Finestre libere ─────────────────────────── */}
           {showAvailableOnly && weekDays.map((day, dayIndex) => {

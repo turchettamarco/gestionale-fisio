@@ -4,42 +4,31 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
-import { useCurrentStudio } from "@/src/contexts/StudioContext";
-import {
-  type TreatmentTypeRow,
-  loadTreatmentTypes,
-  keyFromLabel,
-} from "@/src/lib/treatmentTypes";
 
 const THEME = {
-  appBg:"#f1f5f9", panelBg:"#ffffff", panelSoft:"#f7f9fd", text:"#0f172a", muted:"#334155",
+  appBg:"#f1f5f9", panelBg:"#ffffff", text:"#0f172a", muted:"#334155",
   border:"#cbd5e1", blue:"#2563eb", teal:"#0d9488", green:"#16a34a",
   red:"#dc2626", amber:"#f97316", gray:"#94a3b8",
   gradient:"linear-gradient(135deg,#0d9488,#2563eb)",
 };
 
-// ─── Palette colori (stessa del desktop) ─────────────────────────────────
-const COLOR_PALETTE: { value: string; name: string }[] = [
-  { value: "#0d9488", name: "Teal" },
-  { value: "#2563eb", name: "Blu" },
-  { value: "#d97706", name: "Ambra" },
-  { value: "#ea580c", name: "Arancio" },
-  { value: "#7c3aed", name: "Viola" },
-  { value: "#059669", name: "Verde" },
-  { value: "#db2777", name: "Rosa" },
-  { value: "#4f46e5", name: "Indaco" },
-  { value: "#dc2626", name: "Rosso" },
-  { value: "#475569", name: "Grigio" },
+const ALL_TREATMENTS = [
+  {value:"seduta",label:"Seduta",color:"#0d9488"},
+  {value:"macchinario",label:"Macchinario",color:"#2563eb"},
+  {value:"laser",label:"Laser",color:"#d97706"},
+  {value:"tecar",label:"Tecar",color:"#ea580c"},
+  {value:"onde_urto",label:"Onde d'urto",color:"#7c3aed"},
+  {value:"tens",label:"TENS",color:"#059669"},
 ];
-
 const DAY_LABELS = ["Domenica","Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato"];
 const DAY_ORDER = [1,2,3,4,5,6,0];
 
+function toMoneyString(n:any, fallback:string){ if(typeof n!=="number"||Number.isNaN(n))return fallback; return n.toFixed(2); }
+function toNum(s:string,fb:number){ const n=Number(String(s).replace(",",".")); return Number.isFinite(n)?n:fb; }
+function validatePrice(v:string){ const c=v.replace(/[^\d.,]/g,"").replace(",","."); const p=c.split("."); if(p.length>1)return `${p[0]}.${p[1].slice(0,2)}`; return c||"0.00"; }
+
 export default function MobileSettingsPage() {
   const router = useRouter();
-  const { studio: currentStudio } = useCurrentStudio();
-  const currentStudioId = currentStudio?.id ?? null;
-
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -52,21 +41,17 @@ export default function MobileSettingsPage() {
   const [address, setAddress] = useState("");
   const [googleReviewLink, setGoogleReviewLink] = useState("");
 
-  // ── Catalogo Trattamenti (sostituisce le vecchie tariffe + durate) ──
-  const [treatments, setTreatments] = useState<TreatmentTypeRow[]>([]);
-  const [loadingTreatments, setLoadingTreatments] = useState(false);
-  const [savingTreatment, setSavingTreatment] = useState(false);
-  const [treatmentModalOpen, setTreatmentModalOpen] = useState(false);
-  const [editingTreatment, setEditingTreatment] = useState<{
-    id: string | null;
-    label: string;
-    color: string;
-    priceInvoice: string;
-    priceCash: string;
-    durationMin: string;
-    isActive: boolean;
-    isBuiltin: boolean;
-  } | null>(null);
+  // ── Prices ──
+  const [prices, setPrices] = useState<Record<string,{iv:string,cv:string}>>({
+    standard:{iv:"40.00",cv:"35.00"}, macchinario:{iv:"25.00",cv:"20.00"},
+    laser:{iv:"30.00",cv:"25.00"}, tecar:{iv:"30.00",cv:"25.00"},
+    onde_urto:{iv:"40.00",cv:"35.00"}, tens:{iv:"20.00",cv:"15.00"},
+  });
+
+  // ── Durations ──
+  const [durations, setDurations] = useState<Record<string,string>>({
+    seduta:"60",macchinario:"30",laser:"20",tecar:"30",onde_urto:"15",tens:"20",
+  });
 
   // ── Working hours ──
   const [hours, setHours] = useState<{day_of_week:number;open_time:string;close_time:string;is_open:boolean}[]>([]);
@@ -96,6 +81,22 @@ export default function MobileSettingsPage() {
           setPhone(data.phone||"");
           setAddress(data.address||"");
           setGoogleReviewLink(data.google_review_link||"");
+          setPrices({
+            standard:{iv:toMoneyString(data.standard_invoice,"40.00"),cv:toMoneyString(data.standard_cash,"35.00")},
+            macchinario:{iv:toMoneyString(data.machine_invoice,"25.00"),cv:toMoneyString(data.machine_cash,"20.00")},
+            laser:{iv:toMoneyString((data as any).laser_invoice,"30.00"),cv:toMoneyString((data as any).laser_cash,"25.00")},
+            tecar:{iv:toMoneyString((data as any).tecar_invoice,"30.00"),cv:toMoneyString((data as any).tecar_cash,"25.00")},
+            onde_urto:{iv:toMoneyString((data as any).onde_urto_invoice,"40.00"),cv:toMoneyString((data as any).onde_urto_cash,"35.00")},
+            tens:{iv:toMoneyString((data as any).tens_invoice,"20.00"),cv:toMoneyString((data as any).tens_cash,"15.00")},
+          });
+          setDurations({
+            seduta:String((data as any).duration_seduta||60),
+            macchinario:String((data as any).duration_macchinario||30),
+            laser:String((data as any).duration_laser||20),
+            tecar:String((data as any).duration_tecar||30),
+            onde_urto:String((data as any).duration_onde_urto||15),
+            tens:String((data as any).duration_tens||20),
+          });
           setMonthlyGoal(String((data as any).monthly_revenue_goal||2000));
           setInactiveThresh(String((data as any).inactive_threshold_days||45));
           setOverlapMode(((data as any).overlap_mode ?? "warn") as "block"|"warn"|"visual");
@@ -110,23 +111,6 @@ export default function MobileSettingsPage() {
     })();
   },[]);
 
-  // ── Carica catalogo trattamenti per lo studio corrente ──
-  const reloadTreatments = useCallback(async () => {
-    if (!currentStudioId) return;
-    setLoadingTreatments(true);
-    try {
-      const rows = await loadTreatmentTypes(currentStudioId, false);
-      setTreatments(rows);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Errore caricamento trattamenti.";
-      setError(msg);
-    } finally {
-      setLoadingTreatments(false);
-    }
-  }, [currentStudioId]);
-
-  useEffect(() => { void reloadTreatments(); }, [reloadTreatments]);
-
   async function save() {
     setSaving(true); setError(""); setSuccess("");
     try {
@@ -135,6 +119,18 @@ export default function MobileSettingsPage() {
       await supabase.from("practice_settings").upsert({
         owner_id:user.id, practice_name:practiceName, owner_full_name:ownerName,
         phone, address, google_review_link:googleReviewLink,
+        standard_invoice:toNum(prices.standard.iv,40), standard_cash:toNum(prices.standard.cv,35),
+        machine_invoice:toNum(prices.macchinario.iv,25), machine_cash:toNum(prices.macchinario.cv,20),
+        laser_invoice:toNum(prices.laser.iv,30), laser_cash:toNum(prices.laser.cv,25),
+        tecar_invoice:toNum(prices.tecar.iv,30), tecar_cash:toNum(prices.tecar.cv,25),
+        onde_urto_invoice:toNum(prices.onde_urto.iv,40), onde_urto_cash:toNum(prices.onde_urto.cv,35),
+        tens_invoice:toNum(prices.tens.iv,20), tens_cash:toNum(prices.tens.cv,15),
+        duration_seduta:parseInt(durations.seduta)||60,
+        duration_macchinario:parseInt(durations.macchinario)||30,
+        duration_laser:parseInt(durations.laser)||20,
+        duration_tecar:parseInt(durations.tecar)||30,
+        duration_onde_urto:parseInt(durations.onde_urto)||15,
+        duration_tens:parseInt(durations.tens)||20,
         monthly_revenue_goal:parseFloat(monthlyGoal)||2000,
         inactive_threshold_days:parseInt(inactiveThresh)||45,
         overlap_mode: overlapMode,
@@ -150,142 +146,6 @@ export default function MobileSettingsPage() {
       setTimeout(()=>setSuccess(""),3000);
     } catch(e:any){ setError(e?.message||"Errore salvataggio"); }
     finally { setSaving(false); }
-  }
-
-  // ─── Catalogo Trattamenti: handlers ──────────────────────────────────
-  function openNewTreatment() {
-    setEditingTreatment({
-      id: null,
-      label: "",
-      color: COLOR_PALETTE[0].value,
-      priceInvoice: "",
-      priceCash: "",
-      durationMin: "30",
-      isActive: true,
-      isBuiltin: false,
-    });
-    setTreatmentModalOpen(true);
-  }
-
-  function openEditTreatment(row: TreatmentTypeRow) {
-    setEditingTreatment({
-      id: row.id,
-      label: row.label,
-      color: row.color,
-      priceInvoice: String(row.price_invoice ?? ""),
-      priceCash: String(row.price_cash ?? ""),
-      durationMin: String(row.duration_min ?? 30),
-      isActive: row.is_active,
-      isBuiltin: row.is_builtin,
-    });
-    setTreatmentModalOpen(true);
-  }
-
-  function closeTreatmentModal() {
-    setTreatmentModalOpen(false);
-    setEditingTreatment(null);
-  }
-
-  async function saveTreatment() {
-    if (!currentStudioId || !editingTreatment) return;
-    const f = editingTreatment;
-    const label = f.label.trim();
-    if (label.length < 2) { setError("Nome trattamento troppo corto."); return; }
-    const pi = Number(f.priceInvoice.replace(",", "."));
-    const pc = Number(f.priceCash.replace(",", "."));
-    const dm = Number(f.durationMin);
-    if (!Number.isFinite(pi) || pi < 0) { setError("Prezzo con ricevuta non valido."); return; }
-    if (!Number.isFinite(pc) || pc < 0) { setError("Prezzo in contanti non valido."); return; }
-    if (!Number.isFinite(dm) || dm <= 0 || dm > 480) { setError("Durata non valida (1-480 min)."); return; }
-
-    setSavingTreatment(true);
-    setError("");
-    try {
-      if (f.id) {
-        const { error: upErr } = await supabase
-          .from("treatment_types")
-          .update({ label, color: f.color, price_invoice: pi, price_cash: pc, duration_min: dm, is_active: f.isActive })
-          .eq("id", f.id);
-        if (upErr) throw new Error(upErr.message);
-      } else {
-        let key = keyFromLabel(label);
-        const existingKeys = new Set(treatments.map(t => t.key));
-        if (existingKeys.has(key)) {
-          let n = 2;
-          while (existingKeys.has(`${key}_${n}`)) n++;
-          key = `${key}_${n}`;
-        }
-        const maxOrder = treatments.reduce((m, t) => Math.max(m, t.sort_order), 0);
-        const { error: insErr } = await supabase
-          .from("treatment_types")
-          .insert({
-            studio_id: currentStudioId,
-            key, label, color: f.color,
-            price_invoice: pi, price_cash: pc, duration_min: dm,
-            is_active: f.isActive,
-            sort_order: maxOrder + 10,
-            is_builtin: false,
-          });
-        if (insErr) throw new Error(insErr.message);
-      }
-      closeTreatmentModal();
-      await reloadTreatments();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Errore salvataggio.");
-    } finally {
-      setSavingTreatment(false);
-    }
-  }
-
-  async function toggleTreatmentActive(row: TreatmentTypeRow) {
-    if (row.is_builtin && row.is_active) {
-      const ok = confirm(`Disattivare "${row.label}"?\n\nNon comparirà più nei selettori del calendario, ma gli appuntamenti già esistenti restano invariati.`);
-      if (!ok) return;
-    }
-    setSavingTreatment(true);
-    try {
-      const { error: upErr } = await supabase.from("treatment_types").update({ is_active: !row.is_active }).eq("id", row.id);
-      if (upErr) throw new Error(upErr.message);
-      await reloadTreatments();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Errore.");
-    } finally {
-      setSavingTreatment(false);
-    }
-  }
-
-  async function deleteTreatment(row: TreatmentTypeRow) {
-    const ok = confirm(`Cancellare "${row.label}"?\n\nGli appuntamenti già creati con questo tipo manterranno la dicitura, ma non potrai più crearne di nuovi.${row.is_builtin ? "\n\n⚠️ Stai cancellando una voce di sistema." : ""}`);
-    if (!ok) return;
-    setSavingTreatment(true);
-    try {
-      const { error: delErr } = await supabase.from("treatment_types").delete().eq("id", row.id);
-      if (delErr) throw new Error(delErr.message);
-      await reloadTreatments();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Errore cancellazione.");
-    } finally {
-      setSavingTreatment(false);
-    }
-  }
-
-  async function moveTreatment(row: TreatmentTypeRow, direction: -1 | 1) {
-    const sorted = [...treatments].sort((a, b) => a.sort_order - b.sort_order);
-    const idx = sorted.findIndex(t => t.id === row.id);
-    if (idx < 0) return;
-    const newIdx = idx + direction;
-    if (newIdx < 0 || newIdx >= sorted.length) return;
-    const other = sorted[newIdx];
-    setSavingTreatment(true);
-    try {
-      await supabase.from("treatment_types").update({ sort_order: other.sort_order }).eq("id", row.id);
-      await supabase.from("treatment_types").update({ sort_order: row.sort_order }).eq("id", other.id);
-      await reloadTreatments();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Errore riordino.");
-    } finally {
-      setSavingTreatment(false);
-    }
   }
 
   async function changePassword() {
@@ -337,109 +197,33 @@ export default function MobileSettingsPage() {
           </div>
         </Section>
 
-        <Section
-          id="catalogo"
-          title="Catalogo Trattamenti"
-          sub={loadingTreatments ? "Caricamento…" : `${treatments.filter(t=>t.is_active).length} attivi · ${treatments.length} totali`}
-        >
+        <Section id="tariffe" title="Tariffe" sub="Prezzi per tipo trattamento">
           <div style={{ display:"flex", flexDirection:"column", gap:10, paddingTop:14 }}>
-            <div style={{ fontSize:12, color:THEME.muted, lineHeight:1.5 }}>
-              Aggiungi nuovi tipi di trattamento, modifica nome/prezzo/durata, riordina o disattiva quelli che non usi. Le modifiche valgono ovunque (calendario, ricevute, report).
-            </div>
-
-            <button
-              onClick={openNewTreatment}
-              disabled={!currentStudioId || savingTreatment}
-              style={{
-                width:"100%", padding:"12px", borderRadius:10, border:"none",
-                background:THEME.gradient, color:"#fff", fontWeight:700, fontSize:14,
-                cursor:"pointer", opacity:(!currentStudioId||savingTreatment)?0.6:1,
-              }}
-            >
-              + Nuovo trattamento
-            </button>
-
-            {treatments.length === 0 && !loadingTreatments && (
-              <div style={{ padding:20, textAlign:"center", color:THEME.muted, fontSize:13, border:`1px dashed ${THEME.border}`, borderRadius:10 }}>
-                Nessun trattamento configurato. Tocca <b>+ Nuovo trattamento</b> per aggiungerne uno.
-              </div>
-            )}
-
-            {[...treatments].sort((a,b)=>a.sort_order-b.sort_order).map((row, idx, sorted) => (
-              <div
-                key={row.id}
-                style={{
-                  display:"flex", alignItems:"center", gap:10,
-                  padding:"12px", borderRadius:10,
-                  border:`1px solid ${THEME.border}`,
-                  background: row.is_active ? "#fff" : THEME.appBg,
-                  opacity: row.is_active ? 1 : 0.65,
-                }}
-              >
-                {/* Frecce ordinamento */}
-                <div style={{ display:"flex", flexDirection:"column", gap:1, marginRight:2 }}>
-                  <button
-                    onClick={()=>void moveTreatment(row, -1)}
-                    disabled={idx===0 || savingTreatment}
-                    style={{ background:"none", border:"none", cursor: idx===0 ? "default" : "pointer", color: idx===0 ? THEME.gray : THEME.muted, fontSize:14, padding:"2px 6px", lineHeight:1 }}
-                    aria-label="Sposta su"
-                  >▲</button>
-                  <button
-                    onClick={()=>void moveTreatment(row, 1)}
-                    disabled={idx===sorted.length-1 || savingTreatment}
-                    style={{ background:"none", border:"none", cursor: idx===sorted.length-1 ? "default" : "pointer", color: idx===sorted.length-1 ? THEME.gray : THEME.muted, fontSize:14, padding:"2px 6px", lineHeight:1 }}
-                    aria-label="Sposta giù"
-                  >▼</button>
-                </div>
-
-                {/* Pallino colore */}
-                <div style={{ width:14, height:14, borderRadius:"50%", background:row.color, flexShrink:0, border:"1px solid rgba(0,0,0,0.06)" }} />
-
-                {/* Info trattamento (toccabile per modifica) */}
-                <div
-                  onClick={()=>openEditTreatment(row)}
-                  style={{ flex:1, minWidth:0, cursor:"pointer" }}
-                >
-                  <div style={{ fontWeight:700, fontSize:14, color:THEME.text, display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
-                    <span>{row.label}</span>
-                    {row.is_builtin && (
-                      <span style={{ fontSize:9, fontWeight:700, padding:"2px 5px", borderRadius:4, background:"#e2e8f0", color:THEME.muted, letterSpacing:0.3 }}>SIST</span>
-                    )}
-                    {!row.is_active && (
-                      <span style={{ fontSize:9, fontWeight:700, padding:"2px 5px", borderRadius:4, background:"#fee2e2", color:THEME.red, letterSpacing:0.3 }}>OFF</span>
-                    )}
-                  </div>
-                  <div style={{ fontSize:11, color:THEME.muted, marginTop:2 }}>
-                    €{row.price_invoice} fatt · €{row.price_cash} contanti · {row.duration_min} min
+            {ALL_TREATMENTS.map(t=>{
+              const key = t.value==="seduta"?"standard":t.value;
+              const p = prices[key]||{iv:"0.00",cv:"0.00"};
+              return (
+                <div key={t.value} style={{ padding:"12px", borderRadius:10, border:`2px solid ${t.color}22`, background:`${t.color}08` }}>
+                  <div style={{ fontWeight:700, fontSize:13, color:t.color, marginBottom:8 }}>{t.label}</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                    <div><label style={lbl}>Con ricevuta</label><input type="number" value={p.iv} onChange={e=>setPrices(prev=>({...prev,[key]:{...prev[key],iv:validatePrice(e.target.value)}}))} style={{ ...inp, textAlign:"right", fontWeight:700 }}/></div>
+                    <div><label style={lbl}>Contanti</label><input type="number" value={p.cv} onChange={e=>setPrices(prev=>({...prev,[key]:{...prev[key],cv:validatePrice(e.target.value)}}))} style={{ ...inp, textAlign:"right", fontWeight:700 }}/></div>
                   </div>
                 </div>
+              );
+            })}
+          </div>
+        </Section>
 
-                {/* Switch attivo */}
-                <button
-                  onClick={()=>void toggleTreatmentActive(row)}
-                  disabled={savingTreatment}
-                  aria-label={row.is_active ? "Disattiva" : "Attiva"}
-                  style={{
-                    width:42, height:24, borderRadius:12, border:"none",
-                    background: row.is_active ? THEME.teal : THEME.gray,
-                    position:"relative", cursor:"pointer", flexShrink:0,
-                    transition:"background 0.15s",
-                  }}
-                >
-                  <span style={{
-                    position:"absolute", top:2, left: row.is_active ? 20 : 2,
-                    width:20, height:20, borderRadius:"50%", background:"#fff",
-                    transition:"left 0.15s",
-                  }} />
-                </button>
-
-                {/* Cestino */}
-                <button
-                  onClick={()=>void deleteTreatment(row)}
-                  disabled={savingTreatment}
-                  aria-label="Cancella"
-                  style={{ padding:"8px 10px", borderRadius:8, border:`1px solid ${THEME.border}`, background:"#fff", color:THEME.red, fontSize:14, cursor:"pointer", flexShrink:0 }}
-                >🗑</button>
+        <Section id="durate" title="Durate Appuntamento" sub="Minuti predefiniti per tipo">
+          <div style={{ display:"flex", flexDirection:"column", gap:10, paddingTop:14 }}>
+            {ALL_TREATMENTS.map(t=>(
+              <div key={t.value} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 14px", borderRadius:10, border:`2px solid ${t.color}22`, background:`${t.color}06` }}>
+                <span style={{ fontWeight:700, fontSize:14, color:t.color }}>{t.label}</span>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <input type="number" value={durations[t.value]||"30"} onChange={e=>setDurations(prev=>({...prev,[t.value]:e.target.value}))} min={5} max={240} step={5} style={{ ...inp, width:70, textAlign:"right", fontWeight:700, padding:"8px 10px" }}/>
+                  <span style={{ fontSize:12, color:THEME.muted }}>min</span>
+                </div>
               </div>
             ))}
           </div>
@@ -522,159 +306,6 @@ export default function MobileSettingsPage() {
 
         <div style={{ textAlign:"center", fontSize:11, color:THEME.gray, paddingBottom:8 }}>FisioHub · {new Date().getFullYear()}</div>
       </div>
-
-      {/* Modal Catalogo Trattamenti (fullscreen) */}
-      {treatmentModalOpen && editingTreatment && (
-        <div
-          style={{
-            position:"fixed", inset:0, background:"#fff", zIndex:50,
-            display:"flex", flexDirection:"column",
-            animation:"slideUp 0.18s ease-out",
-          }}
-        >
-          <style>{`@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}`}</style>
-
-          {/* Header modal */}
-          <div style={{ background:THEME.gradient, padding:"14px 18px", display:"flex", alignItems:"center", gap:12 }}>
-            <button
-              onClick={closeTreatmentModal}
-              style={{ background:"rgba(255,255,255,0.2)", border:"1.5px solid rgba(255,255,255,0.3)", borderRadius:8, color:"#fff", fontWeight:700, fontSize:18, cursor:"pointer", padding:"4px 12px", lineHeight:1 }}
-            >×</button>
-            <div style={{ fontWeight:800, fontSize:16, color:"#fff" }}>
-              {editingTreatment.id ? "Modifica trattamento" : "Nuovo trattamento"}
-            </div>
-          </div>
-
-          {/* Body modal scrollable */}
-          <div style={{ flex:1, overflowY:"auto", padding:"18px", paddingBottom:100 }}>
-            {error && (
-              <div style={{ marginBottom:14, padding:"10px 14px", borderRadius:10, background:"rgba(220,38,38,0.06)", border:"1px solid rgba(220,38,38,0.2)", color:THEME.red, fontWeight:600, fontSize:13 }}>{error}</div>
-            )}
-
-            {editingTreatment.isBuiltin && (
-              <div style={{ marginBottom:14, padding:"10px 14px", borderRadius:10, background:"#f1f5f9", border:`1px solid ${THEME.border}`, color:THEME.muted, fontSize:12 }}>
-                Voce di sistema — puoi modificare tutto.
-              </div>
-            )}
-
-            {/* Nome */}
-            <div style={{ marginBottom:16 }}>
-              <label style={lbl}>Nome trattamento</label>
-              <input
-                value={editingTreatment.label}
-                onChange={e=>setEditingTreatment(prev=>prev ? {...prev, label:e.target.value} : prev)}
-                placeholder="Es. Linfodrenaggio Vodder"
-                style={inp}
-                disabled={savingTreatment}
-              />
-            </div>
-
-            {/* Colore */}
-            <div style={{ marginBottom:16 }}>
-              <label style={lbl}>Colore</label>
-              <div style={{ display:"flex", flexWrap:"wrap", gap:10, marginTop:4 }}>
-                {COLOR_PALETTE.map(c => {
-                  const selected = editingTreatment.color === c.value;
-                  return (
-                    <button
-                      key={c.value}
-                      onClick={()=>setEditingTreatment(prev=>prev ? {...prev, color:c.value} : prev)}
-                      title={c.name}
-                      disabled={savingTreatment}
-                      style={{
-                        width:36, height:36, borderRadius:"50%",
-                        background:c.value,
-                        border: selected ? `3px solid ${THEME.text}` : "2px solid rgba(0,0,0,0.06)",
-                        cursor:"pointer",
-                        transform: selected ? "scale(1.1)" : "scale(1)",
-                        transition:"transform 0.1s",
-                      }}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Prezzi */}
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
-              <div>
-                <label style={lbl}>Con ricevuta (€)</label>
-                <input
-                  value={editingTreatment.priceInvoice}
-                  onChange={e=>setEditingTreatment(prev=>prev ? {...prev, priceInvoice:e.target.value} : prev)}
-                  placeholder="0.00"
-                  inputMode="decimal"
-                  style={{ ...inp, textAlign:"right", fontWeight:700 }}
-                  disabled={savingTreatment}
-                />
-              </div>
-              <div>
-                <label style={lbl}>In contanti (€)</label>
-                <input
-                  value={editingTreatment.priceCash}
-                  onChange={e=>setEditingTreatment(prev=>prev ? {...prev, priceCash:e.target.value} : prev)}
-                  placeholder="0.00"
-                  inputMode="decimal"
-                  style={{ ...inp, textAlign:"right", fontWeight:700 }}
-                  disabled={savingTreatment}
-                />
-              </div>
-            </div>
-
-            {/* Durata */}
-            <div style={{ marginBottom:16 }}>
-              <label style={lbl}>Durata (minuti)</label>
-              <input
-                value={editingTreatment.durationMin}
-                onChange={e=>setEditingTreatment(prev=>prev ? {...prev, durationMin:e.target.value} : prev)}
-                placeholder="30"
-                inputMode="numeric"
-                style={{ ...inp, maxWidth:140, textAlign:"right", fontWeight:700 }}
-                disabled={savingTreatment}
-              />
-            </div>
-
-            {/* Switch attivo */}
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, padding:"14px 16px", borderRadius:10, border:`1px solid ${THEME.border}`, background:THEME.panelSoft, marginBottom:14 }}>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:14, fontWeight:700, color:THEME.text }}>Attivo</div>
-                <div style={{ fontSize:11, color:THEME.muted, marginTop:2 }}>Se disattivato non compare nei selettori del calendario.</div>
-              </div>
-              <button
-                onClick={()=>setEditingTreatment(prev=>prev ? {...prev, isActive:!prev.isActive} : prev)}
-                disabled={savingTreatment}
-                style={{
-                  width:48, height:28, borderRadius:14, border:"none",
-                  background: editingTreatment.isActive ? THEME.teal : THEME.gray,
-                  position:"relative", cursor:"pointer", flexShrink:0,
-                }}
-              >
-                <span style={{
-                  position:"absolute", top:2, left: editingTreatment.isActive ? 22 : 2,
-                  width:24, height:24, borderRadius:"50%", background:"#fff",
-                  transition:"left 0.15s",
-                }} />
-              </button>
-            </div>
-          </div>
-
-          {/* Footer modal sticky */}
-          <div style={{ borderTop:`1px solid ${THEME.border}`, padding:"12px 16px", display:"flex", gap:10, background:"#fff", boxShadow:"0 -2px 10px rgba(0,0,0,0.04)" }}>
-            <button
-              onClick={closeTreatmentModal}
-              disabled={savingTreatment}
-              style={{ flex:1, padding:"13px", borderRadius:10, border:`1.5px solid ${THEME.border}`, background:"#fff", color:THEME.muted, fontWeight:700, fontSize:14, cursor:"pointer" }}
-            >Annulla</button>
-            <button
-              onClick={()=>void saveTreatment()}
-              disabled={savingTreatment}
-              style={{ flex:2, padding:"13px", borderRadius:10, border:"none", background:THEME.gradient, color:"#fff", fontWeight:700, fontSize:14, cursor:"pointer", opacity:savingTreatment?0.6:1 }}
-            >
-              {savingTreatment ? "Salvataggio…" : (editingTreatment.id ? "Salva modifiche" : "Crea trattamento")}
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Bottom nav */}
       <nav style={{ position:"fixed", bottom:0, left:0, right:0, height:58, background:"#fff", borderTop:`1px solid ${THEME.border}`, display:"flex", zIndex:30 }}>

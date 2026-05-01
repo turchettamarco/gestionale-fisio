@@ -703,14 +703,6 @@ export default function MobileHomePage() {
     }
     setQaSaving(true);
     try {
-      // Recupero utente e studio (necessari per owner_id / studio_id su INSERT)
-      const { data: userData, error: userErr } = await supabase.auth.getUser();
-      if (userErr) throw new Error(`Sessione non valida: ${userErr.message}`);
-      const userId = userData.user?.id;
-      if (!userId) throw new Error("Utente non autenticato. Effettua di nuovo il login.");
-      const studioId = currentStudio?.id ?? null;
-      if (!studioId) throw new Error("Studio non disponibile. Ricarica la pagina.");
-
       let patientId = qaPatientId;
       let patientPhone = qaPatientPhone;
       let patientFirst = qaPatientFirst;
@@ -727,12 +719,10 @@ export default function MobileHomePage() {
             first_name: qaNewFirst.trim(),
             last_name: qaNewLast.trim(),
             phone: qaNewPhone.trim() || null,
-            owner_id: userId,        // NOT NULL nel DB
-            studio_id: studioId,     // richiesto dalle RLS
           })
           .select("id")
           .single();
-        if (patErr) throw new Error(`Creazione paziente: ${patErr.message}`);
+        if (patErr) throw patErr;
         patientId = newPat.id;
         patientPhone = qaNewPhone.trim() || null;
         patientFirst = qaNewFirst.trim();
@@ -755,10 +745,8 @@ export default function MobileHomePage() {
         status: "confirmed",
         location: "studio",
         clinic_site: "Studio Pontecorvo",
-        owner_id: userId,        // per coerenza multi-tenancy
-        studio_id: studioId,     // richiesto dalle RLS
       });
-      if (error) throw new Error(`Creazione appuntamento: ${error.message}`);
+      if (error) throw error;
 
       // Chiudi modale e ricarica appuntamenti
       setQuickAddOpen(false);
@@ -777,7 +765,6 @@ export default function MobileHomePage() {
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Errore nella creazione";
-      console.error("[saveQuickAdd]", e);
       alert(msg);
     } finally { setQaSaving(false); }
   }
