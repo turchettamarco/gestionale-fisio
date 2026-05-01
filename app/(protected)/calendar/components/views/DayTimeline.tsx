@@ -341,6 +341,9 @@ export default function DayTimeline({
                 borderLeft: event.calendar_note?.startsWith("[WEB|") ? "4px solid #facc15" : "none",
                 cursor: "move",
                 zIndex: 2,
+                // Durante un drag in corso, le card non draggate "lasciano passare"
+                // gli eventi mouse alle celle sotto, per droppare anche su slot occupati.
+                pointerEvents: draggingEventId && draggingEventId !== event.id ? "none" : "auto",
                 overflow: "hidden",
                 transition: "box-shadow 0.15s",
                 display: "flex",

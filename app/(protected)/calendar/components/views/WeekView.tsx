@@ -337,29 +337,38 @@ export default function WeekView({
           ))}
 
           {/* ─── Drag ghost preview ─────────────────────────── */}
-          {draggingEvent && draggingOver && (
-            <div style={{
-              position: "absolute",
-              left: `calc(${TIME_COL}px + ${draggingOver.dayIndex} * calc((100% - ${TIME_COL}px) / 6) + 2px)`,
-              top: `${(draggingOver.hour - 7) * 60 + draggingOver.minute}px`,
-              width: `calc((100% - ${TIME_COL}px) / 6 - 8px)`,
-              height: `${Math.max((draggingEvent.originalEnd.getTime() - draggingEvent.originalStart.getTime()) / 60000, 28)}px`,
-              background: "rgba(37,99,235,0.12)",
-              border: `2px dashed ${THEME.blue}`,
-              borderRadius: 8,
-              zIndex: 5,
-              pointerEvents: "none",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 11,
-              fontWeight: 700,
-              color: THEME.blue,
-              transition: "top 0.1s ease, left 0.1s ease",
-            }}>
-              {`${pad2(draggingOver.hour)}:${pad2(draggingOver.minute)}`}
-            </div>
-          )}
+          {draggingEvent && draggingOver && (() => {
+            // Calcolo top usando getEventPosition (rispetta gridHourRange dinamico)
+            const fakeDay = weekDays[draggingOver.dayIndex] ?? weekDays[0];
+            const ghostStart = new Date(fakeDay);
+            ghostStart.setHours(draggingOver.hour, draggingOver.minute, 0, 0);
+            const ghostDuration = draggingEvent.originalEnd.getTime() - draggingEvent.originalStart.getTime();
+            const ghostEnd = new Date(ghostStart.getTime() + ghostDuration);
+            const { top: ghostTop, height: ghostHeight } = getEventPosition(ghostStart, ghostEnd);
+            return (
+              <div style={{
+                position: "absolute",
+                left: `calc(${TIME_COL}px + ${draggingOver.dayIndex} * calc((100% - ${TIME_COL}px) / 6) + 2px)`,
+                top: `${ghostTop}px`,
+                width: `calc((100% - ${TIME_COL}px) / 6 - 8px)`,
+                height: `${Math.max(ghostHeight, 28)}px`,
+                background: "rgba(37,99,235,0.12)",
+                border: `2px dashed ${THEME.blue}`,
+                borderRadius: 8,
+                zIndex: 5,
+                pointerEvents: "none",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 11,
+                fontWeight: 700,
+                color: THEME.blue,
+                transition: "top 0.1s ease, left 0.1s ease",
+              }}>
+                {`${pad2(draggingOver.hour)}:${pad2(draggingOver.minute)}`}
+              </div>
+            );
+          })()}
 
           {/* ─── Eventi posizionati ─────────────────────────── */}
           {(() => {
@@ -461,6 +470,10 @@ export default function WeekView({
                   borderLeft: event.calendar_note?.startsWith("[WEB|") ? "4px solid #facc15" : "none",
                   cursor: "move",
                   zIndex: isMatch ? 10 : 2,
+                  // Durante un drag in corso, le card non draggate "lasciano passare"
+                  // gli eventi mouse alle celle sotto, così è possibile droppare
+                  // anche su uno slot occupato da un altro appuntamento.
+                  pointerEvents: draggingEvent && draggingEvent.id !== event.id ? "none" : "auto",
                   overflow: "hidden",
                   transition: "box-shadow 0.15s, opacity 0.3s",
                   display: "flex",
