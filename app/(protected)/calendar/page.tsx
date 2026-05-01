@@ -2114,11 +2114,14 @@ A presto${firma ? `,\n${firma}` : ""}`;
     return;
   }
 
-  // Creiamo l'oggetto di aggiornamento
+  // Creiamo l'oggetto di aggiornamento.
+  // is_paid segue lo stato: done => pagato, altrimenti non pagato.
+  // paid_at deve essere coerente con is_paid (CHECK appointments_paid_consistency, mig. 010).
+  const willBePaid = normalizedStatus === "done";
   const updateData = {
     status: normalizedStatus,
-    // is_paid segue lo stato: done => pagato, altrimenti non pagato
-    is_paid: normalizedStatus === "done",
+    is_paid: willBePaid,
+    paid_at: willBePaid ? new Date().toISOString() : null,
     calendar_note: editNote,
     amount: amount,
     treatment_type: editTreatmentType,
@@ -2129,11 +2132,12 @@ A presto${firma ? `,\n${firma}` : ""}`;
   };
 
   // Rimuoviamo le proprietà undefined/null
-  // ECCEZIONE: payment_method deve poter essere settato a null
-  // (quando passi da "fatturato" a "contanti", devi cancellare il metodo)
+  // ECCEZIONE: payment_method e paid_at devono poter essere settati a null
+  // (quando passi da "fatturato" a "contanti", devi cancellare il metodo;
+  //  quando l'appuntamento non è più done, paid_at va azzerato per il CHECK)
   const cleanedData = Object.fromEntries(
     Object.entries(updateData).filter(([k, v]) => {
-      if (k === "payment_method") return v !== undefined; // null è valido
+      if (k === "payment_method" || k === "paid_at") return v !== undefined; // null è valido
       return v !== null && v !== undefined;
     })
   );
