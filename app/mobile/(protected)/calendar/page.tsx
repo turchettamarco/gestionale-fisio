@@ -65,7 +65,7 @@ type CalendarEvent = {
   start: Date; end: Date; status: Status;
   calendar_note: string | null; location: LocationType | null;
   clinic_site: string | null; domicile_address: string | null;
-  amount: number | null; is_paid: boolean;
+  amount: number | null; is_paid: boolean; paid_at: Date | null;
   treatment_type: string | null; price_type: string | null; payment_method: string | null;
   whatsapp_sent_at: string | null;
 };
@@ -405,7 +405,7 @@ function CalendarPageInner() {
     const s0=new Date(date); s0.setHours(0,0,0,0);
     const e0=new Date(date); e0.setHours(23,59,59,999);
     const {data,error:err} = await supabase.from("appointments").select(`
-      id,patient_id,start_at,end_at,status,calendar_note,is_paid,
+      id,patient_id,start_at,end_at,status,calendar_note,is_paid,paid_at,
       location,clinic_site,domicile_address,
       amount,treatment_type,price_type,payment_method,whatsapp_sent_at,
       patients:patient_id(first_name,last_name,phone)
@@ -421,6 +421,7 @@ function CalendarPageInner() {
         patient_phone:p?.phone??null, start:new Date(a.start_at), end:new Date(a.end_at),
         status:(a.status??"booked") as Status, calendar_note:a.calendar_note??null,
         is_paid:a.is_paid??false,
+        paid_at:a.paid_at?new Date(a.paid_at):null,
         location:(a.location??null) as LocationType|null, clinic_site:a.clinic_site??null,
         domicile_address:a.domicile_address??null, amount:a.amount??null,
         treatment_type:a.treatment_type??null, price_type:a.price_type??null, payment_method:a.payment_method??null,
@@ -500,7 +501,7 @@ function CalendarPageInner() {
     const firstDay = new Date(date.getFullYear(), date.getMonth(), 1);
     const lastDay  = new Date(date.getFullYear(), date.getMonth()+1, 0, 23, 59, 59, 999);
     const {data, error:err} = await supabase.from("appointments").select(`
-      id,patient_id,start_at,end_at,status,calendar_note,is_paid,
+      id,patient_id,start_at,end_at,status,calendar_note,is_paid,paid_at,
       location,clinic_site,domicile_address,
       amount,treatment_type,price_type,payment_method,whatsapp_sent_at,
       patients:patient_id(first_name,last_name,phone)
@@ -516,6 +517,7 @@ function CalendarPageInner() {
           patient_phone:p?.phone??null, start:new Date(a.start_at), end:new Date(a.end_at),
           status:(a.status??"booked") as Status, calendar_note:a.calendar_note??null,
           is_paid:a.is_paid??false,
+          paid_at:a.paid_at?new Date(a.paid_at):null,
           location:(a.location??null) as LocationType|null, clinic_site:a.clinic_site??null,
           domicile_address:a.domicile_address??null, amount:a.amount??null,
           treatment_type:a.treatment_type??null, price_type:a.price_type??null, payment_method:a.payment_method??null,

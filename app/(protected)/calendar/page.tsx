@@ -1071,7 +1071,7 @@ const { data, error } = await supabase
         .from("appointments")
           .select(`
           id, patient_id, start_at, end_at, status, calendar_note, location, clinic_site, domicile_address, treatment_type, price_type, payment_method, amount,
-          expected_price, is_paid,
+          expected_price, is_paid, paid_at,
           reminder_sent_at, reminder_status,
           whatsapp_sent_at,
           patients:patient_id ( first_name, last_name, treatment, diagnosis, phone )
@@ -1112,6 +1112,7 @@ const mapped = (data ?? []).map(
       amount?: number | null;
       expected_price?: number | null;
       is_paid?: boolean | null;
+      paid_at?: string | null;
       reminder_sent_at?: string | null;
       reminder_status?: string | null;
       whatsapp_sent_at?: string | null;
@@ -1155,6 +1156,7 @@ const mapped = (data ?? []).map(
       amount: a.amount ?? null,
       expected_price: a.expected_price ?? null,
       is_paid: a.is_paid ?? false,
+      paid_at: a.paid_at ? new Date(a.paid_at) : null,
       reminder_sent_at: a.reminder_sent_at ? new Date(a.reminder_sent_at) : null,
       reminder_status: a.reminder_status ?? null,
       whatsapp_sent_at: a.whatsapp_sent_at ? new Date(a.whatsapp_sent_at) : null,
@@ -1810,6 +1812,43 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
     const endOfWeek = addDays(startOfWeek, 7);
     await loadAppointments(startOfWeek, endOfWeek);
   }, [currentDate, loadAppointments]);
+
+  // Handler completo per il PaidIconButton/PaidPill: scrive is_paid + paid_at +
+  // payment_method tutti insieme, in modo coerente con il CHECK constraint
+  // (mig. 010) e con l'invariante "non fatturato = sempre contante" (mig. 011,
+  // garantita anche dal trigger DB).
+  const handleUpdatePayment = useCallback(
+    async (
+      apptId: string,
+      next: {
+        is_paid: boolean;
+        paid_at: string | null;
+        payment_method: "cash" | "pos" | "bank_transfer" | null;
+      }
+    ) => {
+      setError("");
+      const payload: Record<string, unknown> = {
+        is_paid: next.is_paid,
+        paid_at: next.paid_at,
+      };
+      // payment_method va settato esplicitamente solo quando l'utente lo
+      // sceglie nel popover. Se non pagato, lo azzeriamo.
+      if (!next.is_paid) {
+        payload.payment_method = null;
+      } else if (next.payment_method) {
+        payload.payment_method = next.payment_method;
+      }
+      const { error } = await supabase.from("appointments").update(payload).eq("id", apptId);
+      if (error) {
+        setError(`Errore aggiornamento pagamento: ${translateError(error)}`);
+        return;
+      }
+      const startOfWeek = startOfISOWeekMonday(currentDate);
+      const endOfWeek = addDays(startOfWeek, 7);
+      await loadAppointments(startOfWeek, endOfWeek);
+    },
+    [currentDate, loadAppointments]
+  );
 
   const createQuickPatient = useCallback(async () => {
     if (!quickPatientFirstName.trim() || !quickPatientLastName.trim()) {
@@ -2660,6 +2699,7 @@ return (
               onToggleBulkSelect={toggleBulkSelect}
               onToggleDone={toggleDoneQuick}
               onTogglePaid={togglePaidQuick}
+              onUpdatePayment={handleUpdatePayment}
               onSendReminder={sendReminder}
             />
           ) : viewType === "month" ? (
@@ -2736,6 +2776,7 @@ return (
               onToggleBulkSelect={toggleBulkSelect}
               onToggleDone={toggleDoneQuick}
               onTogglePaid={togglePaidQuick}
+              onUpdatePayment={handleUpdatePayment}
               onSendReminder={sendReminder}
               onCreateNew={() => openCreateModal(currentDate, 9, 0)}
             />

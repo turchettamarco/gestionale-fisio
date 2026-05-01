@@ -80,6 +80,8 @@ export type CalendarEvent = {
   amount: number | null;
   expected_price: number | null;
   is_paid: boolean;
+  /** Data e ora del pagamento. NULL se non pagato. Coerente con is_paid (mig. 010). */
+  paid_at: Date | null;
   reminder_sent_at: Date | null;
   reminder_status: string | null;
   whatsapp_sent_at: Date | null;

@@ -31,6 +31,8 @@ import {
   type CalendarEvent,
 } from "../../utils";
 import type { DraggingOverState, FreeWindow } from "./DayTimeline";
+import PaidIconButton from "@/src/components/PaidIconButton";
+import type { PaymentMethod } from "@/src/components/PaidPopover";
 
 const WEEK_PX_PER_MIN = 1;
 
@@ -110,6 +112,18 @@ export type WeekViewProps = {
   onToggleBulkSelect: (eventId: string) => void;
   onToggleDone: (eventId: string, currentStatus: CalendarEvent["status"]) => void;
   onTogglePaid: (eventId: string, currentlyPaid: boolean) => void;
+  /**
+   * Nuovo handler completo per modificare il pagamento (metodo + data).
+   * Se presente, sostituisce onTogglePaid sui bottoni pagamento.
+   */
+  onUpdatePayment?: (
+    eventId: string,
+    next: {
+      is_paid: boolean;
+      paid_at: string | null;
+      payment_method: PaymentMethod | null;
+    }
+  ) => Promise<void> | void;
   onSendReminder: (eventId: string, phone?: string, firstName?: string) => void;
 };
 
@@ -123,7 +137,7 @@ export default function WeekView({
   onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
   onEventHover, onEventHoverEnd,
   onSelectEvent, onToggleBulkSelect,
-  onToggleDone, onTogglePaid, onSendReminder,
+  onToggleDone, onTogglePaid, onUpdatePayment, onSendReminder,
 }: WeekViewProps) {
   // ─── Note: la variabile non è usata direttamente ma mantenuta nelle props
   //     per future estensioni (es. bordo evento basato su getEventColor)
@@ -516,15 +530,29 @@ export default function WeekView({
                         {isDomicile && " 🏠"}
                       </span>
                       <div style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0 }}>
-                        {/* Pagato (compatto, solo emoji) */}
-                        <button
-                          onClick={e => { e.preventDefault(); e.stopPropagation(); onTogglePaid(event.id, isPaid); }}
-                          title={isPaid ? "Pagato — clicca per annullare" : "Segna pagato"}
-                          style={{
-                            background: "none", border: "none", cursor: "pointer", padding: 0,
-                            fontSize: 11, lineHeight: 1, opacity: isPaid ? 1 : 0.5,
-                          }}
-                        >🪙</button>
+                        {/* Pagato — micro icon button con popover */}
+                        {onUpdatePayment ? (
+                          <PaidIconButton
+                            data={{
+                              is_paid: isPaid,
+                              paid_at: event.paid_at,
+                              payment_method: event.payment_method,
+                              price_type: event.price_type,
+                            }}
+                            onUpdate={async (next) => onUpdatePayment(event.id, next)}
+                            tone="light"
+                            size={14}
+                          />
+                        ) : (
+                          <button
+                            onClick={e => { e.preventDefault(); e.stopPropagation(); onTogglePaid(event.id, isPaid); }}
+                            title={isPaid ? "Pagato — clicca per annullare" : "Segna pagato"}
+                            style={{
+                              background: "none", border: "none", cursor: "pointer", padding: 0,
+                              fontSize: 11, lineHeight: 1, opacity: isPaid ? 1 : 0.5,
+                            }}
+                          >🪙</button>
+                        )}
                         {/* Eseguito */}
                         <button
                           onClick={e => {
@@ -592,20 +620,34 @@ export default function WeekView({
                         {isDomicile && " 🏠"}
                       </span>
                       <div style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0 }}>
-                        {/* Pagato */}
-                        <button
-                          onClick={e => { e.preventDefault(); e.stopPropagation(); onTogglePaid(event.id, isPaid); }}
-                          title={isPaid ? "Pagato — clicca per annullare" : "Segna pagato"}
-                          style={{
-                            background: isPaid ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.15)",
-                            border: `1px solid ${isPaid ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.3)"}`,
-                            borderRadius: 4, cursor: "pointer", padding: "0 5px",
-                            fontSize: 13, lineHeight: "18px",
-                            display: "flex", alignItems: "center", gap: 2, height: 18,
-                          }}
-                        >
-                          🪙{isPaid && <span style={{ fontSize: 10, fontWeight: 800, color: "#fff" }}>✓</span>}
-                        </button>
+                        {/* Pagato — micro icon button con popover */}
+                        {onUpdatePayment ? (
+                          <PaidIconButton
+                            data={{
+                              is_paid: isPaid,
+                              paid_at: event.paid_at,
+                              payment_method: event.payment_method,
+                              price_type: event.price_type,
+                            }}
+                            onUpdate={async (next) => onUpdatePayment(event.id, next)}
+                            tone="light"
+                            size={18}
+                          />
+                        ) : (
+                          <button
+                            onClick={e => { e.preventDefault(); e.stopPropagation(); onTogglePaid(event.id, isPaid); }}
+                            title={isPaid ? "Pagato — clicca per annullare" : "Segna pagato"}
+                            style={{
+                              background: isPaid ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.15)",
+                              border: `1px solid ${isPaid ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.3)"}`,
+                              borderRadius: 4, cursor: "pointer", padding: "0 5px",
+                              fontSize: 13, lineHeight: "18px",
+                              display: "flex", alignItems: "center", gap: 2, height: 18,
+                            }}
+                          >
+                            🪙{isPaid && <span style={{ fontSize: 10, fontWeight: 800, color: "#fff" }}>✓</span>}
+                          </button>
+                        )}
                         {/* WA promemoria */}
                         {event.status !== "cancelled" && event.patient_phone && (
                           <button

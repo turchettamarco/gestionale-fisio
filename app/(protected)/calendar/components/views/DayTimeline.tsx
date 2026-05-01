@@ -24,6 +24,8 @@ import {
   assignLanes,
   type CalendarEvent,
 } from "../../utils";
+import PaidIconButton from "@/src/components/PaidIconButton";
+import type { PaymentMethod } from "@/src/components/PaidPopover";
 
 const DAY_PX_PER_MIN = 1;
 
@@ -89,6 +91,15 @@ export type DayTimelineProps = {
   onToggleDone: (eventId: string, currentStatus: CalendarEvent["status"]) => void;
   /** Toggle pagato */
   onTogglePaid: (eventId: string, currentlyPaid: boolean) => void;
+  /** Nuovo handler completo (metodo + data). Se presente, sostituisce onTogglePaid. */
+  onUpdatePayment?: (
+    eventId: string,
+    next: {
+      is_paid: boolean;
+      paid_at: string | null;
+      payment_method: PaymentMethod | null;
+    }
+  ) => Promise<void> | void;
   /** Invia promemoria WA */
   onSendReminder: (eventId: string, phone?: string, firstName?: string) => void;
 };
@@ -102,7 +113,7 @@ export default function DayTimeline({
   draggingEventId,
   getDayEventPosition, getFreeWindows, getEventColor,
   onSelectEvent, onToggleBulkSelect,
-  onToggleDone, onTogglePaid, onSendReminder,
+  onToggleDone, onTogglePaid, onUpdatePayment, onSendReminder,
 }: DayTimelineProps) {
 
   const today = new Date();
@@ -373,19 +384,33 @@ export default function DayTimeline({
                     width: 14, flexShrink: 0, borderRight: "1px solid rgba(255,255,255,0.18)",
                   }}>
                     {/* Pagato */}
-                    <button
-                      title={isPaid ? "Pagato" : "Segna pagato"}
-                      onClick={e => { e.preventDefault(); e.stopPropagation(); onTogglePaid(event.id, isPaid); }}
-                      style={{
-                        width: 12, height: 12, borderRadius: 3,
-                        border: `1px solid ${isPaid ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.35)"}`,
-                        background: isPaid ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.1)",
-                        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 8, padding: 0, flexShrink: 0,
-                      }}
-                    >
-                      🪙
-                    </button>
+                    {onUpdatePayment ? (
+                      <PaidIconButton
+                        data={{
+                          is_paid: isPaid,
+                          paid_at: event.paid_at,
+                          payment_method: event.payment_method,
+                          price_type: event.price_type,
+                        }}
+                        onUpdate={async (next) => onUpdatePayment(event.id, next)}
+                        tone="light"
+                        size={12}
+                      />
+                    ) : (
+                      <button
+                        title={isPaid ? "Pagato" : "Segna pagato"}
+                        onClick={e => { e.preventDefault(); e.stopPropagation(); onTogglePaid(event.id, isPaid); }}
+                        style={{
+                          width: 12, height: 12, borderRadius: 3,
+                          border: `1px solid ${isPaid ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.35)"}`,
+                          background: isPaid ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.1)",
+                          cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: 8, padding: 0, flexShrink: 0,
+                        }}
+                      >
+                        🪙
+                      </button>
+                    )}
                     {/* WA */}
                     <button
                       title={waSent ? "Reinvia WA" : "Invia WA"}

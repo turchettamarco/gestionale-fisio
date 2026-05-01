@@ -52,6 +52,7 @@ export type DayViewProps = {
   onToggleBulkSelect: DayTimelineProps["onToggleBulkSelect"];
   onToggleDone: (eventId: string, currentStatus: CalendarEvent["status"]) => void;
   onTogglePaid: (eventId: string, currentlyPaid: boolean) => void;
+  onUpdatePayment?: DayTimelineProps["onUpdatePayment"];
   onSendReminder: (eventId: string, phone?: string, firstName?: string) => void;
 
   // Solo sidebar
@@ -67,7 +68,7 @@ export default function DayView({
   draggingEventId,
   getDayEventPosition, getFreeWindows, getEventColor,
   onSelectEvent, onToggleBulkSelect,
-  onToggleDone, onTogglePaid, onSendReminder,
+  onToggleDone, onTogglePaid, onUpdatePayment, onSendReminder,
   onCreateNew,
 }: DayViewProps) {
   return (
@@ -108,6 +109,7 @@ export default function DayView({
         onToggleBulkSelect={onToggleBulkSelect}
         onToggleDone={onToggleDone}
         onTogglePaid={onTogglePaid}
+        onUpdatePayment={onUpdatePayment}
         onSendReminder={onSendReminder}
       />
       <DaySidebar
