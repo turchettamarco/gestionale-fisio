@@ -33,6 +33,8 @@ import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { buildReminderMessage } from "@/app/(protected)/calendar/utils/reminderMessage";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
+import PaidPill from "@/src/components/PaidPill";
+import type { PaymentMethod } from "@/src/components/PaidPopover";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -46,6 +48,9 @@ type Appointment = {
   status: Status;
   amount: number | null;
   is_paid: boolean;
+  paid_at: string | null;
+  payment_method: "cash" | "pos" | "bank_transfer" | null;
+  price_type: string | null;
   treatment_type: string | null;
   location: LocationType | null;
   clinic_site: string | null;
@@ -374,7 +379,7 @@ export default function MobileHomePage() {
   async function loadAll() {
     setLoading(true); setError("");
     try {
-      const SEL = `id,patient_id,start_at,status,amount,is_paid,
+      const SEL = `id,patient_id,start_at,status,amount,is_paid,paid_at,payment_method,price_type,
                    treatment_type,location,clinic_site,domicile_address,
                    whatsapp_sent_at,
                    patients:patient_id(first_name,last_name,phone)`;
@@ -398,6 +403,9 @@ export default function MobileHomePage() {
         return {
           id: a.id, patient_id: a.patient_id ?? null, start_at: a.start_at,
           status: a.status as Status, amount: a.amount ?? null, is_paid: a.is_paid ?? false,
+          paid_at: a.paid_at ?? null,
+          payment_method: a.payment_method ?? null,
+          price_type: a.price_type ?? null,
           treatment_type: a.treatment_type ?? null, location: a.location ?? null,
           clinic_site: a.clinic_site ?? null, domicile_address: a.domicile_address ?? null,
           whatsapp_sent_at: a.whatsapp_sent_at ?? null, patients: p ?? null,
@@ -509,6 +517,45 @@ export default function MobileHomePage() {
     }
     setNotPaying(null);
   }
+
+  // Handler completo per il PaidPill mobile: scrive is_paid + paid_at +
+  // payment_method coerentemente, aggiorna lo stato locale ottimisticamente.
+  const handleUpdatePayment = useCallback(
+    async (
+      apptId: string,
+      next: {
+        is_paid: boolean;
+        paid_at: string | null;
+        payment_method: PaymentMethod | null;
+      }
+    ) => {
+      const payload: Record<string, unknown> = {
+        is_paid: next.is_paid,
+        paid_at: next.paid_at,
+      };
+      if (!next.is_paid) {
+        payload.payment_method = null;
+      } else if (next.payment_method) {
+        payload.payment_method = next.payment_method;
+      }
+      const { error } = await supabase.from("appointments").update(payload).eq("id", apptId);
+      if (!error) {
+        const updater = (prev: Appointment[]) => prev.map(a =>
+          a.id === apptId
+            ? {
+                ...a,
+                is_paid: next.is_paid,
+                paid_at: next.paid_at,
+                payment_method: next.payment_method,
+              }
+            : a
+        );
+        setDayAppts(updater);
+        setWeekAppts(updater);
+      }
+    },
+    []
+  );
 
   // SENDREMINDER — versione sincrona con token conferma client-side.
   // Se il link conferma non è in cache, generiamo un UUID in locale e costruiamo
@@ -1449,20 +1496,18 @@ export default function MobileHomePage() {
                         </div>
 
                         {!isCancelled && (
-                          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                            {/* Incassa */}
-                            <button
-                              onClick={() => !a.is_paid && handleIncassa(a)}
-                              disabled={a.is_paid || incassando === a.id}
-                              style={{
-                                display: "inline-flex", alignItems: "center", gap: 3,
-                                padding: "5px 9px", borderRadius: 6, border: "none",
-                                background: a.is_paid ? "rgba(22,163,74,0.12)" : "rgba(22,163,74,0.06)",
-                                color: THEME.green, fontWeight: 700, fontSize: 11,
-                                cursor: a.is_paid ? "default" : "pointer",
-                                opacity: incassando === a.id ? 0.5 : 1,
+                          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
+                            {/* Pillola pagamento (sostituisce Incassa) */}
+                            <PaidPill
+                              data={{
+                                is_paid: a.is_paid,
+                                paid_at: a.paid_at,
+                                payment_method: a.payment_method,
+                                price_type: a.price_type,
                               }}
-                            >{a.is_paid ? "✓ Pagato" : incassando === a.id ? "…" : "€ Incassa"}</button>
+                              onUpdate={async (next) => handleUpdatePayment(a.id, next)}
+                              compact
+                            />
 
                             {a.patient_id && (
                               <button

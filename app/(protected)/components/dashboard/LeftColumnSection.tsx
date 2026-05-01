@@ -15,6 +15,8 @@ import { THEME, inpStyle } from "./shared/theme";
 import { fmtTime, pad2, patientName, pickPatient } from "./shared/utils";
 import { StatusPill } from "./shared/StatusPill";
 import type { AppointmentRow, Status } from "./shared/types";
+import PaidPill from "@/src/components/PaidPill";
+import type { PaymentMethod } from "@/src/components/PaidPopover";
 
 export type LeftColumnSectionProps = {
   // Prossimo
@@ -33,6 +35,15 @@ export type LeftColumnSectionProps = {
   // Azioni su appuntamenti
   onSetStatus: (id: string, next: Status) => void;
   onTogglePaid: (id: string, isPaid: boolean) => void;
+  /** Nuovo handler completo: scrive is_paid + paid_at + payment_method coerentemente. */
+  onUpdatePayment?: (
+    id: string,
+    next: {
+      is_paid: boolean;
+      paid_at: string | null;
+      payment_method: PaymentMethod | null;
+    }
+  ) => Promise<void> | void;
   onSendWA: (a: AppointmentRow) => void;
 
   // Resto di oggi
@@ -82,13 +93,29 @@ export default function LeftColumnSection(p: LeftColumnSectionProps) {
             {!p.editNextTime ? (
               <>
                 {/* Stato pagamento */}
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, padding: "8px 12px", borderRadius: 8, background: THEME.panelSoft, border: `1px solid ${THEME.border}` }}>
-                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: p.focusNext.is_paid ? THEME.green : p.focusNext.status === "done" ? THEME.red : THEME.gray, flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, color: THEME.muted, flex: 1 }}>
-                    {p.focusNext.is_paid ? "Pagato" : p.focusNext.status === "done" ? "Non pagato" : "In attesa"}
-                  </span>
-                  <StatusPill status={p.focusNext.status} />
-                </div>
+                {p.onUpdatePayment ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 12px", borderRadius: 8, background: THEME.panelSoft, border: `1px solid ${THEME.border}` }}>
+                    <PaidPill
+                      data={{
+                        is_paid: !!p.focusNext.is_paid,
+                        paid_at: p.focusNext.paid_at ?? null,
+                        payment_method: p.focusNext.payment_method ?? null,
+                        price_type: p.focusNext.price_type ?? null,
+                      }}
+                      onUpdate={async (next) => p.onUpdatePayment!(p.focusNext!.id, next)}
+                    />
+                    <span style={{ flex: 1 }} />
+                    <StatusPill status={p.focusNext.status} />
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, padding: "8px 12px", borderRadius: 8, background: THEME.panelSoft, border: `1px solid ${THEME.border}` }}>
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: p.focusNext.is_paid ? THEME.green : p.focusNext.status === "done" ? THEME.red : THEME.gray, flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, color: THEME.muted, flex: 1 }}>
+                      {p.focusNext.is_paid ? "Pagato" : p.focusNext.status === "done" ? "Non pagato" : "In attesa"}
+                    </span>
+                    <StatusPill status={p.focusNext.status} />
+                  </div>
+                )}
 
                 <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
                   <button
@@ -97,7 +124,7 @@ export default function LeftColumnSection(p: LeftColumnSectionProps) {
                   >
                     {p.focusNext.status === "done" ? "Annulla" : "Segna eseguito"}
                   </button>
-                  {p.focusNext.status === "done" && !p.focusNext.is_paid && (
+                  {!p.onUpdatePayment && p.focusNext.status === "done" && !p.focusNext.is_paid && (
                     <button
                       onClick={() => p.onTogglePaid(p.focusNext!.id, true)}
                       style={{ padding: "9px 12px", borderRadius: 8, border: `1.5px solid ${THEME.green}`, background: "rgba(22,163,74,0.06)", color: THEME.green, fontWeight: 700, fontSize: 12, cursor: "pointer" }}

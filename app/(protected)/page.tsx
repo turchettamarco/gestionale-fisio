@@ -107,7 +107,7 @@ export default function HomePage() {
       const end = maxDate(thisWeekEnd, addDays(startOfDay(new Date()), 8));
       const { data, error } = await supabase
         .from("appointments")
-        .select("id,patient_id,start_at,end_at,status,location,clinic_site,domicile_address,amount,price_type,treatment_type,is_paid,calendar_note,whatsapp_sent_at,whatsapp_sent,patients:patient_id(first_name,last_name,phone,status)")
+        .select("id,patient_id,start_at,end_at,status,location,clinic_site,domicile_address,amount,price_type,payment_method,treatment_type,is_paid,paid_at,calendar_note,whatsapp_sent_at,whatsapp_sent,patients:patient_id(first_name,last_name,phone,status)")
         .gte("start_at", lastWeekStart.toISOString())
         .lt("start_at", end.toISOString())
         .order("start_at", { ascending: true });
@@ -577,6 +577,35 @@ export default function HomePage() {
     else { fetchAppts(); fetchOpenBalances(); }
   }, [fetchAppts, fetchOpenBalances]);
 
+  // Handler completo per il PaidPill dei dashboard widgets
+  // (sezione "Prossimo", "Oggi prossimi", "Saldi aperti").
+  const handleUpdatePayment = useCallback(
+    async (
+      id: string,
+      next: {
+        is_paid: boolean;
+        paid_at: string | null;
+        payment_method: "cash" | "pos" | "bank_transfer" | null;
+      }
+    ) => {
+      setBusyRow(m => ({ ...m, [id]: true }));
+      const payload: Record<string, unknown> = {
+        is_paid: next.is_paid,
+        paid_at: next.paid_at,
+      };
+      if (!next.is_paid) {
+        payload.payment_method = null;
+      } else if (next.payment_method) {
+        payload.payment_method = next.payment_method;
+      }
+      const { error } = await supabase.from("appointments").update(payload).eq("id", id);
+      setBusyRow(m => ({ ...m, [id]: false }));
+      if (error) alert("Errore: " + error.message);
+      else { fetchAppts(); fetchOpenBalances(); }
+    },
+    [fetchAppts, fetchOpenBalances]
+  );
+
   const saveNote = useCallback(async (id: string) => {
     setSavingNote(id);
     const note = (rowNotes[id] || "").trim();
@@ -736,6 +765,7 @@ export default function HomePage() {
             onSaveNextTime={() => void saveNextTime()}
             onSetStatus={(id, s) => void setStatus(id, s)}
             onTogglePaid={(id, p) => void togglePaid(id, p)}
+            onUpdatePayment={(id, next) => void handleUpdatePayment(id, next)}
             onSendWA={(a) => void sendWA(a)}
             remainingToday={remainingToday}
             domicilesToday={domicilesToday}
@@ -758,6 +788,7 @@ export default function HomePage() {
             savingNote={savingNote}
             onSetStatus={(id, s) => void setStatus(id, s)}
             onTogglePaid={(id, p) => void togglePaid(id, p)}
+            onUpdatePayment={(id, next) => void handleUpdatePayment(id, next)}
             onSendWA={(a) => void sendWA(a)}
             onSaveNote={(id) => void saveNote(id)}
           />

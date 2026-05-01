@@ -119,6 +119,7 @@ export default function DayView({
         onCreateNew={onCreateNew}
         onToggleDone={onToggleDone}
         onTogglePaid={onTogglePaid}
+        onUpdatePayment={onUpdatePayment}
         onSendReminder={onSendReminder}
       />
     </div>

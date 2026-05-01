@@ -14,6 +14,8 @@ import {
 } from "./shared/utils";
 import { StatusPill } from "./shared/StatusPill";
 import type { AppointmentRow, Bucket, Status } from "./shared/types";
+import PaidPill from "@/src/components/PaidPill";
+import type { PaymentMethod } from "@/src/components/PaidPopover";
 
 export type AgendaSectionProps = {
   loading: boolean;
@@ -32,6 +34,14 @@ export type AgendaSectionProps = {
 
   onSetStatus: (id: string, next: Status) => void;
   onTogglePaid: (id: string, isPaid: boolean) => void;
+  onUpdatePayment?: (
+    id: string,
+    next: {
+      is_paid: boolean;
+      paid_at: string | null;
+      payment_method: PaymentMethod | null;
+    }
+  ) => Promise<void> | void;
   onSendWA: (a: AppointmentRow) => void;
   onSaveNote: (id: string) => void;
 };
@@ -190,12 +200,23 @@ export default function AgendaSection(p: AgendaSectionProps) {
                                   Eseguito
                                 </button>
                               )}
-                              {isDone && !isPaid && (
+                              {isDone && p.onUpdatePayment && (
+                                <PaidPill
+                                  data={{
+                                    is_paid: !!a.is_paid,
+                                    paid_at: a.paid_at ?? null,
+                                    payment_method: a.payment_method ?? null,
+                                    price_type: a.price_type ?? null,
+                                  }}
+                                  onUpdate={async (next) => p.onUpdatePayment!(a.id, next)}
+                                />
+                              )}
+                              {isDone && !p.onUpdatePayment && !isPaid && (
                                 <button onClick={e => { e.stopPropagation(); p.onTogglePaid(a.id, true); }} style={{ padding: "6px 12px", borderRadius: 6, border: `1.5px solid ${THEME.green}`, background: "rgba(22,163,74,0.06)", color: THEME.green, fontWeight: 700, fontSize: 11, cursor: "pointer" }}>
                                   Incassa
                                 </button>
                               )}
-                              {isDone && isPaid && (
+                              {isDone && !p.onUpdatePayment && isPaid && (
                                 <button onClick={e => { e.stopPropagation(); p.onTogglePaid(a.id, false); }} style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${THEME.border}`, background: "#fff", color: THEME.muted, fontWeight: 700, fontSize: 11, cursor: "pointer" }}>
                                   Annulla pagamento
                                 </button>

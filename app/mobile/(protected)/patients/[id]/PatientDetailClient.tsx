@@ -34,6 +34,8 @@ import { SOAPNotesEditor } from "@/app/(protected)/calendar/components/SOAPNotes
 import { PhotoGallerySection } from "@/app/(protected)/patients/[id]/PhotoGallery";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
+import PaidPill from "@/src/components/PaidPill";
+import type { PaymentMethod } from "@/src/components/PaidPopover";
 
 /* ─── Types ───────────────────────────────────────────────────────────── */
 type Plan   = "invoice" | "no_invoice";
@@ -64,6 +66,9 @@ type AppointmentRow = {
   start_at: string;
   status: Status;
   is_paid: boolean;
+  paid_at: string | null;
+  payment_method: "cash" | "pos" | "bank_transfer" | null;
+  price_type: string | null;
   amount: number | null;
 };
 
@@ -461,7 +466,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   }
   async function loadAppointments() {
     const res = await supabase.from("appointments")
-      .select("id,start_at,status,is_paid,amount")
+      .select("id,start_at,status,is_paid,paid_at,payment_method,price_type,amount")
       .eq("patient_id", patientId).order("start_at", { ascending: false });
     if (res.error) setError(res.error.message);
     else setAppointments((res.data ?? []) as AppointmentRow[]);
@@ -571,6 +576,27 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
     const payload = isPaid
       ? { is_paid: true,  paid_at: new Date().toISOString() }
       : { is_paid: false, paid_at: null };
+    await supabase.from("appointments").update(payload).eq("id", id);
+    await loadAppointments();
+  }
+
+  async function handleUpdatePayment(
+    id: string,
+    next: {
+      is_paid: boolean;
+      paid_at: string | null;
+      payment_method: PaymentMethod | null;
+    }
+  ) {
+    const payload: Record<string, unknown> = {
+      is_paid: next.is_paid,
+      paid_at: next.paid_at,
+    };
+    if (!next.is_paid) {
+      payload.payment_method = null;
+    } else if (next.payment_method) {
+      payload.payment_method = next.payment_method;
+    }
     await supabase.from("appointments").update(payload).eq("id", id);
     await loadAppointments();
   }
@@ -1313,15 +1339,16 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
                             <option value="not_paid">Non pagata</option>
                           </select>
                           {appt.status === "done" && (
-                            <button onClick={() => togglePaid(appt.id, !appt.is_paid)} style={{
-                              padding: "7px 12px", borderRadius: 10, fontSize: 12, fontWeight: 700,
-                              cursor: "pointer", flexShrink: 0, border: "none",
-                              background: appt.is_paid ? "rgba(22,163,74,0.10)" : T.panelSoft,
-                              color: appt.is_paid ? T.green : T.muted,
-                              outline: `1.5px solid ${appt.is_paid ? "rgba(22,163,74,0.4)" : T.border}`,
-                            }}>
-                              {appt.is_paid ? "💰 Pagata" : "○ Non pagata"}
-                            </button>
+                            <PaidPill
+                              data={{
+                                is_paid: appt.is_paid,
+                                paid_at: appt.paid_at,
+                                payment_method: appt.payment_method,
+                                price_type: appt.price_type,
+                              }}
+                              onUpdate={async (next) => handleUpdatePayment(appt.id, next)}
+                              compact
+                            />
                           )}
                         </div>
                       </div>

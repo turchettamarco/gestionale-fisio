@@ -9,6 +9,8 @@ import { buildReminderMessage } from "@/app/(protected)/calendar/utils/reminderM
 import { assignLanes } from "@/app/(protected)/calendar/utils/laneAssignment";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
+import PaidIconButton from "@/src/components/PaidIconButton";
+import type { PaymentMethod } from "@/src/components/PaidPopover";
 
 /**
  * Apre WhatsApp con un numero pre-popolato e un messaggio.
@@ -696,6 +698,47 @@ function CalendarPageInner() {
     }
   }, []);
 
+  // Handler completo per il PaidIconButton mobile calendar
+  const handleUpdatePayment = useCallback(
+    async (
+      id: string,
+      next: {
+        is_paid: boolean;
+        paid_at: string | null;
+        payment_method: PaymentMethod | null;
+      }
+    ) => {
+      const payload: Record<string, unknown> = {
+        is_paid: next.is_paid,
+        paid_at: next.paid_at,
+      };
+      // Quando segniamo pagato, alziamo anche lo status a "done" (pattern coerente
+      // col togglePaid storico mobile).
+      if (next.is_paid) {
+        payload.status = "done";
+      }
+      if (!next.is_paid) {
+        payload.payment_method = null;
+      } else if (next.payment_method) {
+        payload.payment_method = next.payment_method;
+      }
+      // Optimistic update
+      setEvents(prev => prev.map(e =>
+        e.id === id
+          ? {
+              ...e,
+              is_paid: next.is_paid,
+              paid_at: next.paid_at ? new Date(next.paid_at) : null,
+              payment_method: next.payment_method,
+              status: next.is_paid ? ("done" as Status) : e.status,
+            }
+          : e
+      ));
+      await supabase.from("appointments").update(payload).eq("id", id);
+    },
+    []
+  );
+
   /* ─── NEW: swipe card actions ────────────── */
   const handleCardSwipeStart = useCallback((e:React.TouchEvent, ev:CalendarEvent) => {
     cardSwipeStartRef.current={id:ev.id,startX:e.touches[0].clientX,startY:e.touches[0].clientY};
@@ -1249,18 +1292,20 @@ function CalendarPageInner() {
               </div>
               {/* Azioni rapide */}
               <div style={{display:"flex",gap:5,alignItems:"center",flexShrink:0}}>
-                {/* Segna pagato */}
-                <button className="ev-act"
-                  title={ev.is_paid?"Pagato — clicca per rimuovere":"Segna come pagato"}
-                  onClick={e=>{e.stopPropagation();togglePaid(ev.id,ev.is_paid);}}
-                  style={{
-                    width:26,height:26,borderRadius:99,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
-                    border:ev.is_paid?`1px solid rgba(22,163,74,0.4)`:`1px solid ${THEME.border}`,
-                    background:ev.is_paid?"rgba(22,163,74,0.10)":THEME.panelBg,
-                    cursor:"pointer",fontSize:13,
-                  }}>
-                  {ev.is_paid?"💰":"○"}
-                </button>
+                {/* Pagamento — micro icon button con popover */}
+                <div onClick={e => e.stopPropagation()}>
+                  <PaidIconButton
+                    data={{
+                      is_paid: ev.is_paid,
+                      paid_at: ev.paid_at,
+                      payment_method: ev.payment_method as PaymentMethod | null,
+                      price_type: ev.price_type,
+                    }}
+                    onUpdate={async (next) => handleUpdatePayment(ev.id, next)}
+                    tone="dark"
+                    size={26}
+                  />
+                </div>
                 {/* Nota rapida */}
                 <button className="ev-act"
                   title="Nota rapida"

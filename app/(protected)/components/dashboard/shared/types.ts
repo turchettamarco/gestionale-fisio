@@ -19,6 +19,8 @@ export type AppointmentRow = {
   whatsapp_sent_at?: string | null;
   whatsapp_sent?: boolean | null;
   is_paid?: boolean | null;
+  paid_at?: string | null;
+  payment_method?: "cash" | "pos" | "bank_transfer" | null;
   price_type?: string | null;
   treatment_type?: string | null;
   calendar_note?: string | null;

@@ -11,6 +11,8 @@ import { studioPdfHeader, studioHeaderCss, studioPdfFooter } from "@/src/lib/pdf
 import { ClinicalScalesSection } from "./ClinicalScales";
 import { PhotoGallerySection } from "./PhotoGallery";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
+import PaidPill from "@/src/components/PaidPill";
+import type { PaymentMethod } from "@/src/components/PaidPopover";
 
 function cleanPhoneWA(phone: string): string {
   // Delegato alla utility centrale in src/lib/whatsapp.ts per consistenza
@@ -565,6 +567,9 @@ type AppointmentRow = {
   end_at: string;
   status: Status;
   is_paid: boolean;
+  paid_at: string | null;
+  payment_method: "cash" | "pos" | "bank_transfer" | null;
+  price_type: string | null;
   amount: number | null;
   calendar_note: string | null;
 };
@@ -994,7 +999,7 @@ export default function PatientDetailPage({
     setError("");
     const res = await supabase
       .from("appointments")
-      .select("id, start_at, end_at, status, is_paid, amount, calendar_note")
+      .select("id, start_at, end_at, status, is_paid, paid_at, payment_method, price_type, amount, calendar_note")
       .eq("patient_id", patientId)
       .order("start_at", { ascending: false });
     if (res.error) { setError(translateError(res.error)); setAppointments([]); setLoadingAppts(false); return; }
@@ -1216,6 +1221,31 @@ A presto,
     const payload = newValue
       ? { is_paid: true,  paid_at: new Date().toISOString() }
       : { is_paid: false, paid_at: null };
+    const res = await supabase.from("appointments").update(payload).eq("id", apptId);
+    setRowBusy(m => ({ ...m, [apptId]: false }));
+    if (res.error) { setError(translateError(res.error)); return; }
+    await loadAppointments();
+  }
+
+  async function handleUpdatePayment(
+    apptId: string,
+    next: {
+      is_paid: boolean;
+      paid_at: string | null;
+      payment_method: PaymentMethod | null;
+    }
+  ) {
+    setError("");
+    setRowBusy(m => ({ ...m, [apptId]: true }));
+    const payload: Record<string, unknown> = {
+      is_paid: next.is_paid,
+      paid_at: next.paid_at,
+    };
+    if (!next.is_paid) {
+      payload.payment_method = null;
+    } else if (next.payment_method) {
+      payload.payment_method = next.payment_method;
+    }
     const res = await supabase.from("appointments").update(payload).eq("id", apptId);
     setRowBusy(m => ({ ...m, [apptId]: false }));
     if (res.error) { setError(translateError(res.error)); return; }
@@ -2854,18 +2884,22 @@ ${rows}
                           </div>
                         </td>
                         <td style={{ padding: "12px 14px" }}>
-                          <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 600, fontSize: 13 }}>
-                            <input
-                              type="checkbox"
-                              checked={a.is_paid}
-                              disabled={busy || a.status !== "done"}
-                              onChange={e => togglePaid(a.id, e.target.checked)}
-                              style={{ width: 16, height: 16 }}
+                          {a.status === "done" ? (
+                            <PaidPill
+                              data={{
+                                is_paid: a.is_paid,
+                                paid_at: a.paid_at,
+                                payment_method: a.payment_method,
+                                price_type: a.price_type,
+                              }}
+                              onUpdate={async (next) => handleUpdatePayment(a.id, next)}
+                              disabled={busy}
                             />
-                            <span style={{ color: a.status === "done" ? THEME.textSoft : THEME.muted }}>
-                              {a.status === "done" ? (a.is_paid ? "Pagata" : "Non pagata") : "—"}
+                          ) : (
+                            <span style={{ fontSize: 12, color: THEME.muted, fontWeight: 600 }}>
+                              —
                             </span>
-                          </label>
+                          )}
                           {a.status !== "done" && (
                             <div style={{ marginTop: 4, fontSize: 11, color: THEME.muted, fontWeight: 600 }}>
                               Pagamento attivo solo se eseguita.
