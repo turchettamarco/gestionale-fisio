@@ -750,13 +750,16 @@ const { data, error } = await supabase
   // Dichiarazioni delle costanti useMemo devono essere PRIMA delle funzioni che le usano
   const timeSelectSlots = useMemo(() => {
     const slots = [];
-    for (let hour = 7; hour < 22; hour++) {
+    for (let hour = gridHourRange.start; hour < gridHourRange.end; hour++) {
       for (let minute of [0, 30]) {
         slots.push(`${pad2(hour)}:${pad2(minute)}`);
       }
     }
+    // Aggiungi anche l'ora finale esatta (es. "22:00") per permettere di
+    // selezionare l'ultimo slot del giorno
+    slots.push(`${pad2(gridHourRange.end)}:00`);
     return slots;
-  }, []);
+  }, [gridHourRange]);
 
   // Funzioni di navigazione spostate PRIMA degli useEffect che le usano
   const goToPreviousWeek = useCallback(() => {
@@ -804,9 +807,22 @@ const { data, error } = await supabase
     return { totalEvents: dayEvts.length, occupancyRate };
   }, [events]);
 
-  // Ritorna le finestre libere di un giorno (usato con showAvailableOnly)
+  // Ritorna le finestre libere di un giorno (usato con showAvailableOnly).
+  // Usa gli orari di lavoro configurati in working_hours per quel giorno_della_settimana.
   const getFreeWindows = useCallback((day: Date) => {
-    const WORK_START = 8, WORK_END = 20;
+    const dayOfWeek = day.getDay();
+    const wh = workingHours.find(w => w.day_of_week === dayOfWeek);
+    // Se il giorno è chiuso o non configurato, fallback 8-20 (mantiene comportamento storico)
+    let workStartH = 8, workStartM = 0, workEndH = 20, workEndM = 0;
+    if (wh && wh.is_open) {
+      const [oh, om] = wh.open_time.split(":").map(Number);
+      const [ch, cm] = wh.close_time.split(":").map(Number);
+      workStartH = oh; workStartM = om || 0;
+      workEndH = ch;   workEndM = cm || 0;
+    } else if (wh && !wh.is_open) {
+      return []; // giorno chiuso → nessuna finestra
+    }
+
     const d0 = new Date(day); d0.setHours(0,0,0,0);
     const d1 = new Date(day); d1.setHours(23,59,59,999);
     const dayEvts = events
@@ -814,8 +830,8 @@ const { data, error } = await supabase
       .sort((a, b) => a.start.getTime() - b.start.getTime());
 
     const windows: { start: Date; end: Date; minutes: number }[] = [];
-    let cursor = new Date(day); cursor.setHours(WORK_START, 0, 0, 0);
-    const workEnd = new Date(day); workEnd.setHours(WORK_END, 0, 0, 0);
+    let cursor = new Date(day); cursor.setHours(workStartH, workStartM, 0, 0);
+    const workEnd = new Date(day); workEnd.setHours(workEndH, workEndM, 0, 0);
 
     for (const ev of dayEvts) {
       if (ev.start > cursor) {
@@ -829,7 +845,7 @@ const { data, error } = await supabase
       if (mins >= 30) windows.push({ start: new Date(cursor), end: new Date(workEnd), minutes: mins });
     }
     return windows;
-  }, [events]);
+  }, [events, workingHours]);
 
   const openCreateModal = useCallback((date: Date, hour: number = 9, minute: number = 0, duplicateEvent?: CalendarEvent) => {
     const timeStr = `${pad2(hour)}:${pad2(minute)}`;
@@ -1024,13 +1040,21 @@ const { data, error } = await supabase
     setHoverTooltip(null);
   }, []);
 
-  // Restituisce slot liberi per un giorno (usato nel modal creazione per suggerire orario)
+  // Restituisce slot liberi per un giorno (usato nel modal creazione per suggerire orario).
+  // Usa gli orari di lavoro del giorno_della_settimana corrispondente; fallback 8-20 se chiuso/non configurato.
   const getAvailableSlots = useCallback((day: Date) => {
     const d0 = new Date(day); d0.setHours(0,0,0,0);
     const d1 = new Date(day); d1.setHours(23,59,59,999);
     const dayEvts = events.filter(ev => ev.start >= d0 && ev.start <= d1);
-    return getAvailableSlotsInDay(day, dayEvts);
-  }, [events]);
+    const wh = workingHours.find(w => w.day_of_week === day.getDay());
+    const startH = (wh && wh.is_open) ? Number(wh.open_time.split(":")[0]) : 8;
+    let endH = 20;
+    if (wh && wh.is_open) {
+      const [ch, cm] = wh.close_time.split(":").map(Number);
+      endH = (cm && cm > 0) ? ch + 1 : ch;
+    }
+    return getAvailableSlotsInDay(day, dayEvts, startH, endH);
+  }, [events, workingHours]);
 
   const loadRequestId = useRef(0);
 

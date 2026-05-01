@@ -56,7 +56,7 @@ export default function BottomRowSection(p: BottomRowSectionProps) {
         <div style={{ padding: "11px 16px", borderBottom: `1px solid ${THEME.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <span style={{ fontWeight: 700, fontSize: 12, color: THEME.text }}>Slot liberi</span>
-            <div style={{ fontSize: 10, color: THEME.muted, marginTop: 1 }}>oggi e domani · ore 8–20 · escluse domeniche</div>
+            <div style={{ fontSize: 10, color: THEME.muted, marginTop: 1 }}>oggi e domani · in base ai tuoi orari di apertura</div>
           </div>
           {p.freeSlots.length > 0 && (
             <span style={{ fontSize: 11, fontWeight: 700, color: THEME.blue, background: "rgba(37,99,235,0.08)", padding: "2px 8px", borderRadius: 4 }}>

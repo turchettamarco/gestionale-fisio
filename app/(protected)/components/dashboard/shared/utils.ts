@@ -116,15 +116,40 @@ export const todayNoteKey = () =>
 
 /* ─── Slot liberi ─────────────────────────────────────────────────── */
 
+export type WorkingHourRow = {
+  day_of_week: number;  // 0=Dom..6=Sab
+  open_time: string;    // "HH:MM:SS" o "HH:MM"
+  close_time: string;
+  is_open: boolean;
+};
+
 export function computeFreeSlots(
   dayAppts: AppointmentRow[],
   dateYMD: string,
-  label: "oggi" | "domani"
+  label: "oggi" | "domani",
+  workingHours?: WorkingHourRow[]
 ): FreeSlot[] {
-  // Domenica = 0 → nessuno slot
-  if (new Date(`${dateYMD}T00:00:00`).getDay() === 0) return [];
+  const dayOfWeek = new Date(`${dateYMD}T00:00:00`).getDay(); // 0=Dom..6=Sab
+
+  // Se ho working_hours, uso quelli (per studio); altrimenti fallback statico 8-20
+  // mantenendo retrocompatibilità con chi non li passa.
+  let startH = WORK_START;
+  let endH   = WORK_END;
+  if (workingHours && workingHours.length > 0) {
+    const wh = workingHours.find(w => w.day_of_week === dayOfWeek);
+    if (!wh || !wh.is_open) return [];
+    const [oh] = wh.open_time.split(":").map(Number);
+    const [ch, cm] = wh.close_time.split(":").map(Number);
+    startH = oh;
+    // Se chiude alle 22:30, vogliamo includere anche lo slot 22:00 → arrotonda per eccesso
+    endH = (cm && cm > 0) ? ch + 1 : ch;
+  } else {
+    // Fallback storico: domenica chiusa
+    if (dayOfWeek === 0) return [];
+  }
+
   const slots: FreeSlot[] = [];
-  for (let h = WORK_START; h < WORK_END; h++) {
+  for (let h = startH; h < endH; h++) {
     const slotStart = `${dateYMD}T${pad2(h)}:00:00`;
     const slotEnd   = `${dateYMD}T${pad2(h + 1)}:00:00`;
     // Overlap reale: considera la durata effettiva dell'appuntamento (end_at)

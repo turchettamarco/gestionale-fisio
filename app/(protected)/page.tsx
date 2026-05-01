@@ -45,11 +45,29 @@ import AgendaSection from "./components/dashboard/AgendaSection";
 import RightInsightSection from "./components/dashboard/RightInsightSection";
 import ForecastAndRentalSection from "./components/dashboard/ForecastAndRentalSection";
 import BottomRowSection from "./components/dashboard/BottomRowSection";
+import type { WorkingHourRow } from "./components/dashboard/shared/utils";
 
 
 export default function HomePage() {
   const router = useRouter();
   const { studio: currentStudio } = useCurrentStudio();
+  const currentStudioId = currentStudio?.id ?? null;
+
+  // ── Orari di lavoro dello studio (per slot liberi della home) ───────
+  const [workingHours, setWorkingHours] = useState<WorkingHourRow[]>([]);
+  useEffect(() => {
+    if (!currentStudioId) { setWorkingHours([]); return; }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("working_hours")
+        .select("day_of_week, open_time, close_time, is_open")
+        .eq("studio_id", currentStudioId)
+        .order("day_of_week");
+      if (!cancelled) setWorkingHours((data ?? []) as WorkingHourRow[]);
+    })();
+    return () => { cancelled = true; };
+  }, [currentStudioId]);
 
   // ── Auth ────────────────────────────────────────────────────────────
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -503,9 +521,9 @@ export default function HomePage() {
 
   // Slot liberi oggi e domani
   const freeSlots = useMemo(() => [
-    ...computeFreeSlots(todayAppts,    toYMD(today),    "oggi"),
-    ...computeFreeSlots(tomorrowAppts, toYMD(tomorrow), "domani"),
-  ], [todayAppts, tomorrowAppts, today, tomorrow]);
+    ...computeFreeSlots(todayAppts,    toYMD(today),    "oggi",   workingHours),
+    ...computeFreeSlots(tomorrowAppts, toYMD(tomorrow), "domani", workingHours),
+  ], [todayAppts, tomorrowAppts, today, tomorrow, workingHours]);
 
   // Buckets per tab agenda
   const activeBuckets = useMemo(
