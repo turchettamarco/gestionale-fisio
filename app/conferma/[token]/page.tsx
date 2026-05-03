@@ -67,6 +67,11 @@ export default function ConfirmPage() {
   const [error, setError] = useState("");
   // ID degli appuntamenti su cui c'è un'azione in corso (per disabilitare i bottoni)
   const [actingIds, setActingIds] = useState<Set<string>>(new Set());
+  // Modal "Avvisa lo studio su WhatsApp" dopo cancellazione (se attivo studio-side)
+  const [waRedirectInfo, setWaRedirectInfo] = useState<{
+    url: string;
+    appointmentDate: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -110,6 +115,18 @@ export default function ConfirmPage() {
       if (d.error) {
         alert(d.error);
         setData(previousData);
+      } else if (action === "cancel" && d.wa_redirect_url) {
+        // Cancellazione riuscita + studio ha abilitato WA redirect
+        // → mostra modal con bottone "Avvisa lo studio".
+        // Ricavo la data formattata dell'appuntamento appena annullato.
+        const cancelledAppt = previousData?.appointments_list.find(a => a.id === appointmentId)
+          ?? (previousData?.id === appointmentId ? previousData : null);
+        const dateStr = cancelledAppt
+          ? new Date(cancelledAppt.start_at).toLocaleString("it-IT", {
+              weekday: "long", day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit",
+            })
+          : "il tuo appuntamento";
+        setWaRedirectInfo({ url: d.wa_redirect_url, appointmentDate: dateStr });
       }
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Errore");
@@ -169,6 +186,61 @@ export default function ConfirmPage() {
 
   return (
     <Wrapper studioHeader={studioHeader} logoBase64={data?.studio?.logo_base64}>
+      {/* Modal "Avvisa lo studio su WhatsApp" mostrato dopo cancellazione */}
+      {waRedirectInfo && (
+        <div
+          style={{
+            position: "fixed", inset: 0, background: "rgba(15,23,42,0.6)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 1000, padding: 20,
+          }}
+          onClick={() => setWaRedirectInfo(null)}
+        >
+          <div
+            style={{
+              background: "#fff", borderRadius: 14, padding: 24, maxWidth: 420,
+              width: "100%", boxShadow: "0 20px 50px rgba(0,0,0,0.3)",
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ fontSize: 44, textAlign: "center", marginBottom: 8 }}>✓</div>
+            <h2 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 800, color: "#0f172a", textAlign: "center" }}>
+              Annullamento registrato
+            </h2>
+            <p style={{ margin: "0 0 18px", fontSize: 13, color: "#475569", textAlign: "center", lineHeight: 1.5 }}>
+              Vuoi avvisare lo studio su WhatsApp?<br/>
+              Ti aiuta a comunicare meglio con il tuo terapista.
+            </p>
+
+            <a
+              href={waRedirectInfo.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setWaRedirectInfo(null)}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                width: "100%", padding: "14px", borderRadius: 10,
+                background: "#25D366", color: "#fff", fontWeight: 700, fontSize: 15,
+                textDecoration: "none", marginBottom: 10,
+              }}
+            >
+              💬 Avvisa lo studio su WhatsApp
+            </a>
+
+            <button
+              onClick={() => setWaRedirectInfo(null)}
+              style={{
+                width: "100%", padding: "12px", borderRadius: 10,
+                background: "transparent", border: "1px solid #cbd5e1",
+                color: "#64748b", fontWeight: 600, fontSize: 13, cursor: "pointer",
+              }}
+            >
+              No grazie, chiudi
+            </button>
+          </div>
+        </div>
+      )}
+
       <div style={{ padding: "28px 20px" }}>
         <h1 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 800, color: "#0f172a", textAlign: "center" }}>
           {isMulti ? "I tuoi prossimi appuntamenti" : "Conferma il tuo appuntamento"}

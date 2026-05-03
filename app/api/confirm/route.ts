@@ -229,7 +229,82 @@ export async function POST(req: NextRequest) {
           .eq("token", token);
       }
 
-      return NextResponse.json({ ok: true, status: newStatus, appointment_id: actOnApptId });
+      // ─── Notifica studio (bell + email + WA redirect) ────────────────
+      // Recupera dati appuntamento + paziente + studio per costruire
+      // payload notifica e link WA redirect.
+      let waRedirectUrl: string | null = null;
+      try {
+        const { data: apptFull } = await db
+          .from("appointments")
+          .select("id, start_at, studio_id, patient_id, patients(first_name,last_name,phone)")
+          .eq("id", actOnApptId)
+          .maybeSingle();
+
+        if (apptFull && (apptFull as any).studio_id) {
+          const studioId = (apptFull as any).studio_id;
+          const patient = Array.isArray((apptFull as any).patients)
+            ? (apptFull as any).patients[0]
+            : (apptFull as any).patients;
+          const patientName = [patient?.first_name, patient?.last_name].filter(Boolean).join(" ") || "Paziente";
+          const apptStart = (apptFull as any).start_at as string;
+
+          // Recupera toggles + dati studio per il WA redirect
+          const { data: studio } = await db
+            .from("studios")
+            .select("name, phone, signature_name, notify_bell_enabled, notify_wa_redirect_enabled")
+            .eq("id", studioId)
+            .maybeSingle();
+
+          const bellEnabled = (studio as any)?.notify_bell_enabled ?? true;
+          const waRedirectEnabled = (studio as any)?.notify_wa_redirect_enabled ?? true;
+
+          // 1. Inserisci notifica nel DB se il bell è abilitato
+          if (bellEnabled) {
+            await db.from("notifications").insert({
+              studio_id: studioId,
+              type: action,            // 'confirm' | 'cancel'
+              appointment_id: actOnApptId,
+              patient_id: (apptFull as any).patient_id,
+              payload: {
+                patient_name: patientName,
+                appointment_start: apptStart,
+              },
+            });
+          }
+
+          // 2. Costruisci link WA redirect (solo per cancel + se abilitato)
+          if (action === "cancel" && waRedirectEnabled && (studio as any)?.phone) {
+            // Pulisce il numero studio: rimuove tutto tranne le cifre, poi
+            // garantisce che inizi con il prefisso paese (39 per IT se manca).
+            const rawPhone = String((studio as any).phone).replace(/\D/g, "");
+            const studioPhone = rawPhone.startsWith("39") || rawPhone.length > 10
+              ? rawPhone
+              : `39${rawPhone}`;
+
+            const dateStr = new Date(apptStart).toLocaleDateString("it-IT", {
+              weekday: "long", day: "2-digit", month: "long",
+            });
+            const timeStr = new Date(apptStart).toLocaleTimeString("it-IT", {
+              hour: "2-digit", minute: "2-digit",
+            });
+
+            const studioRef = (studio as any)?.signature_name || (studio as any)?.name || "lo studio";
+            const msg = `Buongiorno ${studioRef}, ho appena annullato dal link l'appuntamento di ${dateStr} alle ${timeStr}. Grazie.`;
+            waRedirectUrl = `https://wa.me/${studioPhone}?text=${encodeURIComponent(msg)}`;
+          }
+        }
+      } catch (notifErr: any) {
+        // Errore notifica non blocca la risposta principale: l'appuntamento
+        // è già stato annullato/confermato.
+        console.warn("[confirm POST] notification error:", notifErr?.message);
+      }
+
+      return NextResponse.json({
+        ok: true,
+        status: newStatus,
+        appointment_id: actOnApptId,
+        wa_redirect_url: waRedirectUrl,  // null se non abilitato o non applicabile
+      });
     }
 
     return NextResponse.json({ error: "Richiesta non valida" }, { status: 400 });
