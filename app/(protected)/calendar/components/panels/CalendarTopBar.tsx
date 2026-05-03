@@ -54,6 +54,8 @@ export type CalendarTopBarProps = {
   bookingPanelOpen: boolean;
   pendingBookingsCount: number;
   onToggleBookingPanel: () => void;
+  // Se false, nasconde completamente la campanella prenotazioni online (default)
+  showBookingBell?: boolean;
 
   // ─── Notifiche conferme/annullamenti pazienti (Fase N2) ───────
   notificationsBellEnabled: boolean;
@@ -106,6 +108,7 @@ export default function CalendarTopBar({
   printMenuOpen, setPrintMenuOpen, printMenuRef,
   onPrintCalendar, onExportToPDF, onExportToGoogleCalendar,
   bookingPanelOpen, pendingBookingsCount, onToggleBookingPanel,
+  showBookingBell = false,
   notificationsBellEnabled, onNotificationAppointmentClick,
   userMenuOpen, setUserMenuOpen, userMenuRef,
   userInitials, onLogout,
@@ -328,31 +331,33 @@ export default function CalendarTopBar({
           🔍 <kbd style={{ fontSize: 10, background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, padding: "0 4px" }}>⌘K</kbd>
         </button>
 
-        {/* Bell notifiche prenotazioni */}
-        <button
-          onClick={onToggleBookingPanel}
-          style={{
-            position: "relative", width: 32, height: 32, borderRadius: 8,
-            border: "1.5px solid rgba(255,255,255,0.3)",
-            background: bookingPanelOpen ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.12)",
-            color: "#fff", cursor: "pointer", fontSize: 16,
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}
-        >
-          🔔
-          {pendingBookingsCount > 0 && (
-            <span style={{
-              position: "absolute", top: -4, right: -4,
-              width: 16, height: 16, borderRadius: "50%",
-              background: "#f97316", color: "#fff",
-              fontSize: 9, fontWeight: 800,
+        {/* Bell notifiche prenotazioni — visibile solo se attivata in impostazioni */}
+        {showBookingBell && (
+          <button
+            onClick={onToggleBookingPanel}
+            style={{
+              position: "relative", width: 32, height: 32, borderRadius: 8,
+              border: "1.5px solid rgba(255,255,255,0.3)",
+              background: bookingPanelOpen ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.12)",
+              color: "#fff", cursor: "pointer", fontSize: 16,
               display: "flex", alignItems: "center", justifyContent: "center",
-              border: "2px solid #fff",
-            }}>
-              {pendingBookingsCount}
-            </span>
-          )}
-        </button>
+            }}
+          >
+            🔔
+            {pendingBookingsCount > 0 && (
+              <span style={{
+                position: "absolute", top: -4, right: -4,
+                width: 16, height: 16, borderRadius: "50%",
+                background: "#f97316", color: "#fff",
+                fontSize: 9, fontWeight: 800,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                border: "2px solid #fff",
+              }}>
+                {pendingBookingsCount}
+              </span>
+            )}
+          </button>
+        )}
 
         {/* Bell notifiche conferme/annullamenti pazienti (Fase N2) */}
         <NotificationsBell

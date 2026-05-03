@@ -25,6 +25,9 @@ export type StudioBrandingSectionProps = {
   notifyEmailEnabled: boolean; setNotifyEmailEnabled: (v: boolean) => void;
   notifyBellEnabled: boolean; setNotifyBellEnabled: (v: boolean) => void;
   notifyWaRedirectEnabled: boolean; setNotifyWaRedirectEnabled: (v: boolean) => void;
+  // Toggle UI legacy "Prenotazioni dal sito" (Fase N2.1)
+  showBookingCardHome: boolean; setShowBookingCardHome: (v: boolean) => void;
+  showBookingBellCalendar: boolean; setShowBookingBellCalendar: (v: boolean) => void;
   savingStudio: boolean;
   onSave: () => void;
 };
@@ -250,6 +253,33 @@ export default function StudioBrandingSection(p: StudioBrandingSectionProps) {
                 description="Quando il paziente annulla, gli proponi di avvisarti su WhatsApp"
                 checked={p.notifyWaRedirectEnabled}
                 onChange={p.setNotifyWaRedirectEnabled}
+              />
+            </div>
+          </div>
+
+          {/* ─── Sezione Prenotazioni dal sito (legacy, opzionale) ─── */}
+          <div style={{
+            marginTop: 24, paddingTop: 20, borderTop: `1px solid ${THEME.border}`,
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: THEME.text, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
+              🌐 Prenotazioni dal sito
+            </div>
+            <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 14, lineHeight: 1.5 }}>
+              Funzionalità per studi con sito pubblico che riceve prenotazioni online.
+              Disattiva queste opzioni per nascondere la UI dal gestionale (la feature continua a funzionare sul backend).
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <ToggleRow
+                label="Card in home"
+                description="Mostra la card 'Prenotazioni dal sito' nella home (sostituisce la card notifiche)"
+                checked={p.showBookingCardHome}
+                onChange={p.setShowBookingCardHome}
+              />
+              <ToggleRow
+                label="Campanella nel calendario"
+                description="Mostra la campanella arancione delle prenotazioni nel topbar del calendario"
+                checked={p.showBookingBellCalendar}
+                onChange={p.setShowBookingBellCalendar}
               />
             </div>
           </div>

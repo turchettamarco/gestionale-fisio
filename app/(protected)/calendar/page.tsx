@@ -2496,6 +2496,7 @@ return (
         bookingPanelOpen={bookingPanel}
         pendingBookingsCount={bookingRequests.filter(r => r.status === "pending").length}
         onToggleBookingPanel={() => setBookingPanel(v => !v)}
+        showBookingBell={currentStudio?.show_booking_bell_calendar === true}
         notificationsBellEnabled={currentStudio?.notify_bell_enabled !== false}
         onNotificationAppointmentClick={(apptId) => {
           // Naviga il calendario alla data dell'appuntamento.

@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { BuildInfo } from "@/src/components/BuildInfo";
+import NotificationsBell from "@/src/components/NotificationsBell";
 import { THEME } from "./shared/theme";
 
 export type DashboardNavBarProps = {
@@ -18,6 +19,9 @@ export type DashboardNavBarProps = {
   pushLoading: boolean;
   onRequestPushPermission: () => void;
   onLogout: () => void;
+  // Bell notifiche pazienti (Fase N2)
+  notificationsBellEnabled: boolean;
+  onNotificationAppointmentClick?: (appointmentId: string) => void;
 };
 
 export default function DashboardNavBar(p: DashboardNavBarProps) {
@@ -82,6 +86,12 @@ export default function DashboardNavBar(p: DashboardNavBarProps) {
         >
           {p.pushLoading ? "…" : p.pushEnabled ? "🔔" : "🔕"}
         </button>
+
+        {/* Bell notifiche pazienti (Fase N2) */}
+        <NotificationsBell
+          enabled={p.notificationsBellEnabled}
+          onAppointmentClick={p.onNotificationAppointmentClick}
+        />
 
         <div ref={userMenuRef} style={{ position: "relative" }}>
           <button onClick={() => setUserMenuOpen(v => !v)} style={{ width: 30, height: 30, borderRadius: 7, border: "1px solid rgba(255,255,255,0.32)", background: "rgba(255,255,255,0.18)", color: "#fff", fontWeight: 800, fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>

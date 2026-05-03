@@ -35,6 +35,7 @@ import { buildReminderMessage } from "@/app/(protected)/calendar/utils/reminderM
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import PaidPill from "@/src/components/PaidPill";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
+import NotificationsBell from "@/src/components/NotificationsBell";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1072,6 +1073,12 @@ export default function MobileHomePage() {
               color: "#fff", cursor: "pointer", fontSize: 14,
               display: "flex", alignItems: "center", justifyContent: "center",
             }}>↺</button>
+
+            {/* Bell notifiche pazienti (Fase N2) */}
+            <NotificationsBell
+              enabled={currentStudio?.notify_bell_enabled !== false}
+              onAppointmentClick={() => router.push("/mobile/calendar")}
+            />
 
             {/* User menu */}
             <div ref={userMenuRef} style={{ position: "relative" }}>

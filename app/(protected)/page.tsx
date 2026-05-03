@@ -674,6 +674,13 @@ export default function HomePage() {
         pushLoading={pushLoading}
         onRequestPushPermission={() => void requestPushPermission()}
         onLogout={handleLogout}
+        notificationsBellEnabled={currentStudio?.notify_bell_enabled !== false}
+        onNotificationAppointmentClick={(_apptId) => {
+          // Naviga al calendario (se vogliamo aprire un giorno specifico,
+          // dovremo recuperare la data dall'appuntamento. Per ora portiamo
+          // l'utente al calendario, che mostrerà la propria notifica).
+          router.push("/calendar");
+        }}
       />
 
       <HeroSection
@@ -716,8 +723,8 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ━━━ ALERT PRENOTAZIONI WEB ━━━ */}
-      {webBookings.filter(b => b.status === "pending").length > 0 && (
+      {/* ━━━ ALERT PRENOTAZIONI WEB (legacy, attivabile in impostazioni) ━━━ */}
+      {currentStudio?.show_booking_card_home === true && webBookings.filter(b => b.status === "pending").length > 0 && (
         <div style={{ background: "linear-gradient(135deg,#7c3aed,#2563eb)", padding: "10px 28px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <span style={{ fontSize: 16 }}>🌐</span>
           <span style={{ fontWeight: 700, fontSize: 13, color: "#fff", flex: 1 }}>
@@ -807,6 +814,7 @@ export default function HomePage() {
             contactedPatients={contactedPatients}
             setContactedPatients={setContactedPatients}
             recentPatients={recentPatients}
+            showBookingCard={currentStudio?.show_booking_card_home === true}
           />
 
         </div>

@@ -130,6 +130,9 @@ export default function SettingsPage() {
   const [notifyEmailEnabled, setNotifyEmailEnabled]     = useState(true);
   const [notifyBellEnabled, setNotifyBellEnabled]       = useState(true);
   const [notifyWaRedirectEnabled, setNotifyWaRedirectEnabled] = useState(true);
+  // Toggle UI legacy Prenotazioni dal sito (Fase N2.1)
+  const [showBookingCardHome, setShowBookingCardHome]   = useState(false);
+  const [showBookingBellCalendar, setShowBookingBellCalendar] = useState(false);
 
   // Popola i campi studio quando arriva il contesto
   useEffect(() => {
@@ -148,6 +151,9 @@ export default function SettingsPage() {
     setNotifyEmailEnabled(studio.notify_email_enabled ?? true);
     setNotifyBellEnabled(studio.notify_bell_enabled ?? true);
     setNotifyWaRedirectEnabled(studio.notify_wa_redirect_enabled ?? true);
+    // UI legacy Prenotazioni dal sito (Fase N2.1)
+    setShowBookingCardHome(studio.show_booking_card_home ?? false);
+    setShowBookingBellCalendar(studio.show_booking_bell_calendar ?? false);
   }, [studio]);
 
   const saveStudio = useCallback(async () => {
@@ -169,6 +175,9 @@ export default function SettingsPage() {
         notify_email_enabled:        notifyEmailEnabled,
         notify_bell_enabled:         notifyBellEnabled,
         notify_wa_redirect_enabled:  notifyWaRedirectEnabled,
+        // UI legacy Prenotazioni dal sito (Fase N2.1)
+        show_booking_card_home:      showBookingCardHome,
+        show_booking_bell_calendar:  showBookingBellCalendar,
       }).eq("id", studio.id);
       if (error) { alert("Errore: " + error.message); return; }
       await refreshStudio();
@@ -180,6 +189,7 @@ export default function SettingsPage() {
       studioGoogleReview, studioSignatureName, studioSignatureTitle, studioWebsite,
       logoBase64,
       notifyEmailEnabled, notifyBellEnabled, notifyWaRedirectEnabled,
+      showBookingCardHome, showBookingBellCalendar,
       refreshStudio]);
 
   // ── Calendar feed token ──────────────────────────────────────────────────
@@ -1039,6 +1049,8 @@ export default function SettingsPage() {
               notifyEmailEnabled={notifyEmailEnabled} setNotifyEmailEnabled={setNotifyEmailEnabled}
               notifyBellEnabled={notifyBellEnabled} setNotifyBellEnabled={setNotifyBellEnabled}
               notifyWaRedirectEnabled={notifyWaRedirectEnabled} setNotifyWaRedirectEnabled={setNotifyWaRedirectEnabled}
+              showBookingCardHome={showBookingCardHome} setShowBookingCardHome={setShowBookingCardHome}
+              showBookingBellCalendar={showBookingBellCalendar} setShowBookingBellCalendar={setShowBookingBellCalendar}
               savingStudio={savingStudio}
               onSave={() => void saveStudio()}
             />

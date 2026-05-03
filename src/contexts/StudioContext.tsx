@@ -30,6 +30,9 @@ export type Studio = {
   notify_email_enabled?: boolean;
   notify_bell_enabled?: boolean;
   notify_wa_redirect_enabled?: boolean;
+  // Toggle UI feature legacy "Prenotazioni dal sito" (Fase N2.1)
+  show_booking_card_home?: boolean;
+  show_booking_bell_calendar?: boolean;
 };
 
 export type StudioMember = {
@@ -96,7 +99,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       // 3. Recupera i dati completi dello studio
       const { data: studioData, error: studioErr } = await supabase
         .from("studios")
-        .select("id, name, address, phone, email, google_review_link, logo_url, logo_base64, website, signature_name, signature_title, notify_email_enabled, notify_bell_enabled, notify_wa_redirect_enabled")
+        .select("id, name, address, phone, email, google_review_link, logo_url, logo_base64, website, signature_name, signature_title, notify_email_enabled, notify_bell_enabled, notify_wa_redirect_enabled, show_booking_card_home, show_booking_bell_calendar")
         .eq("id", memberData.studio_id)
         .maybeSingle();
 

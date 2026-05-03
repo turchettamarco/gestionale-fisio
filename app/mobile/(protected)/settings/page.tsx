@@ -65,6 +65,9 @@ export default function MobileSettingsPage() {
   const [notifyEmailEnabled, setNotifyEmailEnabled] = useState(true);
   const [notifyBellEnabled, setNotifyBellEnabled] = useState(true);
   const [notifyWaRedirectEnabled, setNotifyWaRedirectEnabled] = useState(true);
+  // UI legacy Prenotazioni dal sito (Fase N2.1)
+  const [showBookingCardHome, setShowBookingCardHome] = useState(false);
+  const [showBookingBellCalendar, setShowBookingBellCalendar] = useState(false);
 
   // ── Catalogo Trattamenti (sostituisce le vecchie tariffe + durate) ──
   const [treatments, setTreatments] = useState<TreatmentTypeRow[]>([]);
@@ -115,6 +118,9 @@ export default function MobileSettingsPage() {
       setNotifyEmailEnabled(currentStudio.notify_email_enabled ?? true);
       setNotifyBellEnabled(currentStudio.notify_bell_enabled ?? true);
       setNotifyWaRedirectEnabled(currentStudio.notify_wa_redirect_enabled ?? true);
+      // UI legacy Prenotazioni dal sito (Fase N2.1)
+      setShowBookingCardHome(currentStudio.show_booking_card_home ?? false);
+      setShowBookingBellCalendar(currentStudio.show_booking_bell_calendar ?? false);
     }
   },[currentStudio]);
 
@@ -200,6 +206,9 @@ export default function MobileSettingsPage() {
         notify_email_enabled:        notifyEmailEnabled,
         notify_bell_enabled:         notifyBellEnabled,
         notify_wa_redirect_enabled:  notifyWaRedirectEnabled,
+        // UI legacy Prenotazioni dal sito (Fase N2.1)
+        show_booking_card_home:      showBookingCardHome,
+        show_booking_bell_calendar:  showBookingBellCalendar,
       }).eq("id", currentStudioId);
       if (studioErr) throw new Error("Errore salvataggio studio: " + studioErr.message);
 
@@ -507,6 +516,26 @@ export default function MobileSettingsPage() {
               description="Quando il paziente annulla, gli proponi di avvisarti su WhatsApp"
               checked={notifyWaRedirectEnabled}
               onChange={setNotifyWaRedirectEnabled}
+            />
+          </div>
+        </Section>
+
+        <Section id="booking-legacy" title="🌐 Prenotazioni dal sito" sub="Funzionalità per studi con sito pubblico">
+          <div style={{ display:"flex", flexDirection:"column", gap:10, paddingTop:14 }}>
+            <div style={{ padding:"10px 12px", borderRadius:8, background:"rgba(148,163,184,0.06)", fontSize:11, color:THEME.muted, lineHeight:1.5 }}>
+              Funzionalità per studi con sito pubblico che riceve prenotazioni online. Disattiva per nascondere la UI dal gestionale (la feature continua a funzionare sul backend).
+            </div>
+            <MobileToggle
+              label="Card in home"
+              description="Mostra la card 'Prenotazioni dal sito' nella home"
+              checked={showBookingCardHome}
+              onChange={setShowBookingCardHome}
+            />
+            <MobileToggle
+              label="Campanella nel calendario"
+              description="Mostra la campanella arancione delle prenotazioni nel calendario"
+              checked={showBookingBellCalendar}
+              onChange={setShowBookingBellCalendar}
             />
           </div>
         </Section>
