@@ -37,7 +37,7 @@ const DAY_ORDER = [1,2,3,4,5,6,0];
 
 export default function MobileSettingsPage() {
   const router = useRouter();
-  const { studio: currentStudio } = useCurrentStudio();
+  const { studio: currentStudio, refresh: refreshStudio } = useCurrentStudio();
   const currentStudioId = currentStudio?.id ?? null;
 
   const [saving, setSaving] = useState(false);
@@ -51,6 +51,9 @@ export default function MobileSettingsPage() {
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [googleReviewLink, setGoogleReviewLink] = useState("");
+  // Firma usata nei messaggi WhatsApp/promemoria (multi-tenancy)
+  const [signatureName, setSignatureName] = useState("");
+  const [signatureTitle, setSignatureTitle] = useState("");
 
   // ── Catalogo Trattamenti (sostituisce le vecchie tariffe + durate) ──
   const [treatments, setTreatments] = useState<TreatmentTypeRow[]>([]);
@@ -83,7 +86,22 @@ export default function MobileSettingsPage() {
   const [pwError, setPwError] = useState("");
   const [pwSuccess, setPwSuccess] = useState("");
 
-  // ── Load practice settings ──
+  // ── Load: campi STUDIO da currentStudio (context, multi-tenancy)
+  //         e preferenze utente da practice_settings ──
+  useEffect(()=>{
+    // 1. Campi visibili al paziente (nome, indirizzo, firma...) ← studios
+    if (currentStudio) {
+      setPracticeName(currentStudio.name || "");
+      setPhone(currentStudio.phone || "");
+      setAddress(currentStudio.address || "");
+      setGoogleReviewLink(currentStudio.google_review_link || "");
+      setSignatureName(currentStudio.signature_name || "");
+      setSignatureTitle(currentStudio.signature_title || "");
+    }
+  },[currentStudio]);
+
+  // 2. Preferenze utente (goal, soglia inattivi, modalità overlap, owner_full_name)
+  //    restano in practice_settings (preferenze, non dati studio)
   useEffect(()=>{
     (async()=>{
       try {
@@ -91,11 +109,7 @@ export default function MobileSettingsPage() {
         if (!user) return;
         const { data } = await supabase.from("practice_settings").select("*").eq("owner_id",user.id).maybeSingle();
         if (data) {
-          setPracticeName(data.practice_name||"");
           setOwnerName(data.owner_full_name||"");
-          setPhone(data.phone||"");
-          setAddress(data.address||"");
-          setGoogleReviewLink(data.google_review_link||"");
           setMonthlyGoal(String((data as any).monthly_revenue_goal||2000));
           setInactiveThresh(String((data as any).inactive_threshold_days||45));
           setOverlapMode(((data as any).overlap_mode ?? "warn") as "block"|"warn"|"visual");
@@ -149,20 +163,41 @@ export default function MobileSettingsPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Non autenticato");
-      await supabase.from("practice_settings").upsert({
-        owner_id:user.id, practice_name:practiceName, owner_full_name:ownerName,
-        phone, address, google_review_link:googleReviewLink,
-        monthly_revenue_goal:parseFloat(monthlyGoal)||2000,
-        inactive_threshold_days:parseInt(inactiveThresh)||45,
+      if (!currentStudioId) throw new Error("Studio non disponibile");
+
+      // 1. Dati STUDIO (visibili nei messaggi WA, fatture, sito) → studios
+      const { error: studioErr } = await supabase.from("studios").update({
+        name:               practiceName.trim() || null,
+        phone:              phone.trim() || null,
+        address:            address.trim() || null,
+        google_review_link: googleReviewLink.trim() || null,
+        signature_name:     signatureName.trim() || null,
+        signature_title:    signatureTitle.trim() || null,
+      }).eq("id", currentStudioId);
+      if (studioErr) throw new Error("Errore salvataggio studio: " + studioErr.message);
+
+      // 2. Preferenze utente (calendar, goal, soglie) → practice_settings
+      const { error: psErr } = await supabase.from("practice_settings").upsert({
+        owner_id: user.id,
+        owner_full_name: ownerName,
+        monthly_revenue_goal: parseFloat(monthlyGoal)||2000,
+        inactive_threshold_days: parseInt(inactiveThresh)||45,
         overlap_mode: overlapMode,
       },{ onConflict:"owner_id" });
-      // Save working hours
+      if (psErr) throw new Error("Errore salvataggio preferenze: " + psErr.message);
+
+      // 3. Working hours (per studio)
       if (hours.length) {
         await supabase.from("working_hours").upsert(
           hours.map(h=>({day_of_week:h.day_of_week,open_time:h.open_time,close_time:h.close_time,is_open:h.is_open,studio_id:currentStudioId})),
           { onConflict:"studio_id,day_of_week" }
         );
       }
+
+      // 4. Refresh del context studio così tutta l'app vede i nuovi valori
+      //    (incluso indirizzo nei messaggi WhatsApp)
+      await refreshStudio();
+
       setSuccess("Impostazioni salvate.");
       setTimeout(()=>setSuccess(""),3000);
     } catch(e:any){ setError(e?.message||"Errore salvataggio"); }
@@ -351,6 +386,18 @@ export default function MobileSettingsPage() {
               <div key={f.l}><label style={lbl}>{f.l}</label><input value={f.v} onChange={e=>f.s(e.target.value)} style={inp}/></div>
             ))}
             <div><label style={lbl}>Link Google Review</label><input value={googleReviewLink} onChange={e=>setGoogleReviewLink(e.target.value)} placeholder="https://g.page/r/..." style={inp}/></div>
+
+            {/* ─── Firma per messaggi WhatsApp / promemoria ─── */}
+            <div style={{ marginTop:8, padding:"12px 14px", borderRadius:10, background:THEME.panelSoft, border:`1px solid ${THEME.border}` }}>
+              <div style={{ fontSize:12, fontWeight:700, color:THEME.muted, marginBottom:8, letterSpacing:0.3 }}>FIRMA NEI MESSAGGI</div>
+              <div style={{ fontSize:11, color:THEME.muted, lineHeight:1.5, marginBottom:10 }}>
+                Apparirà in fondo ai messaggi WhatsApp di promemoria/conferma inviati ai pazienti.
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                <div><label style={lbl}>Nome firma</label><input value={signatureName} onChange={e=>setSignatureName(e.target.value)} placeholder="Es. Dr. Mario Rossi" style={inp}/></div>
+                <div><label style={lbl}>Titolo</label><input value={signatureTitle} onChange={e=>setSignatureTitle(e.target.value)} placeholder="Es. Fisioterapista" style={inp}/></div>
+              </div>
+            </div>
           </div>
         </Section>
 
