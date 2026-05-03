@@ -904,7 +904,7 @@ export default function MobileHomePage() {
   function sendQuickAddWhatsApp() {
     if (!waConfirmData) return;
     const { patientPhone, patientFirstName, startDate, time } = waConfirmData;
-    const luogo = CLINIC_ADDRESSES["Studio Pontecorvo"] || currentStudio?.address || "Studio";
+    const luogo = currentStudio?.address || CLINIC_ADDRESSES["Studio Pontecorvo"] || "Studio";
     const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
     const firmaLine = firma ? `Cordiali saluti,\n${firma}` : "Cordiali saluti";
     const confMsg =

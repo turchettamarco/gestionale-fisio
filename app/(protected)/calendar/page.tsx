@@ -2014,9 +2014,9 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
             
             let luogo = "";
             if (createLocation === 'studio') {
-              luogo = CLINIC_ADDRESSES[createClinicSite] || 
+              luogo = currentStudio?.address ||
+                      CLINIC_ADDRESSES[createClinicSite] || 
                       createClinicSite || 
-                      currentStudio?.address ||
                       "";
             } else {
               luogo = `Presso il suo domicilio (${createDomicileAddress})`;

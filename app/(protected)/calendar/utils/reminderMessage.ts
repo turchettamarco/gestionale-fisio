@@ -62,10 +62,14 @@ export function buildReminderMessage(params: {
 
   let luogo = "";
   if (appointment.location === "studio") {
+    // Multi-tenancy: l'indirizzo dello studio attivo (currentStudio.address)
+    // ha la priorità assoluta. La mappa CLINIC_ADDRESSES è un fallback solo
+    // per studi storici senza address salvato sul record `studios`.
+    // In ultima istanza usiamo il nome stesso del clinic_site come label.
     luogo =
+      studioAddress ||
       CLINIC_ADDRESSES[appointment.clinic_site || ""] ||
       appointment.clinic_site ||
-      studioAddress ||
       "";
   } else {
     luogo = `Presso il suo domicilio (${appointment.domicile_address})`;
