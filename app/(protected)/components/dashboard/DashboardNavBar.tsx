@@ -78,14 +78,18 @@ export default function DashboardNavBar(p: DashboardNavBarProps) {
         </button>
         <button onClick={p.onRefresh} style={{ width: 30, height: 30, borderRadius: 7, border: "1px solid rgba(255,255,255,0.28)", background: "rgba(255,255,255,0.14)", color: "#fff", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>↺</button>
 
-        <button
+        {/* Bottone "Push notifications del browser" — NASCOSTO.
+            La feature è incompleta (richiede service worker registrato + VAPID
+            keys). L'icona 🔔/🔕 confondeva con la nuova campanella in-app.
+            Se in futuro la feature verrà completata, decommentare. */}
+        {/* <button
           onClick={p.onRequestPushPermission}
           disabled={p.pushLoading || p.pushEnabled}
           title={p.pushEnabled ? "Notifiche attive" : "Attiva notifiche push"}
           style={{ width: 30, height: 30, borderRadius: 7, border: "1px solid rgba(255,255,255,0.28)", background: p.pushEnabled ? "rgba(134,239,172,0.25)" : "rgba(255,255,255,0.14)", color: "#fff", cursor: p.pushEnabled ? "default" : "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", opacity: p.pushLoading ? 0.6 : 1 }}
         >
           {p.pushLoading ? "…" : p.pushEnabled ? "🔔" : "🔕"}
-        </button>
+        </button> */}
 
         {/* Bell notifiche pazienti (Fase N2) */}
         <NotificationsBell
