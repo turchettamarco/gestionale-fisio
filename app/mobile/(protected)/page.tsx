@@ -95,9 +95,9 @@ const STATUS_MAP: Record<Status, { color: string; bg: string; label: string }> =
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const CLINIC_ADDRESSES: Record<string, string> = {
-  "Studio Pontecorvo": "Pontecorvo, Via Galileo Galilei 5, dietro il Bar Principe",
-};
+// Mappa indirizzi clinici legacy. Mantenuta vuota: l'indirizzo viene
+// letto da currentStudio.address (multi-tenancy).
+const CLINIC_ADDRESSES: Record<string, string> = {};
 
 function pad2(n: number) { return String(n).padStart(2, "0"); }
 function toYMD(d: Date) { return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
@@ -869,7 +869,7 @@ export default function MobileHomePage() {
         end_at: endISO,
         status: "confirmed",
         location: "studio",
-        clinic_site: "Studio Pontecorvo",
+        clinic_site: currentStudio?.name || "Studio",
         owner_id: userId,        // per coerenza multi-tenancy
         studio_id: studioId,     // richiesto dalle RLS
       });
@@ -904,7 +904,7 @@ export default function MobileHomePage() {
   function sendQuickAddWhatsApp() {
     if (!waConfirmData) return;
     const { patientPhone, patientFirstName, startDate, time } = waConfirmData;
-    const luogo = currentStudio?.address || CLINIC_ADDRESSES["Studio Pontecorvo"] || "Studio";
+    const luogo = currentStudio?.address || "Studio";
     const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
     const firmaLine = firma ? `Cordiali saluti,\n${firma}` : "Cordiali saluti";
     const confMsg =

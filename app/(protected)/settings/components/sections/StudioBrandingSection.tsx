@@ -19,6 +19,8 @@ export type StudioBrandingSectionProps = {
   studioGoogleReview: string; setStudioGoogleReview: (v: string) => void;
   studioSignatureName: string; setStudioSignatureName: (v: string) => void;
   studioSignatureTitle: string; setStudioSignatureTitle: (v: string) => void;
+  // Logo (multi-tenancy: salvato su studios.logo_base64)
+  logoBase64: string; setLogoBase64: (v: string) => void;
   savingStudio: boolean;
   onSave: () => void;
 };
@@ -158,6 +160,44 @@ export default function StudioBrandingSection(p: StudioBrandingSectionProps) {
                   Copialo dalla tua pagina Google Business. Serve per chiedere recensioni ai pazienti via WhatsApp.
                 </div>
               )}
+            </div>
+
+            {/* ─── Logo studio (multi-tenancy: salvato su studios.logo_base64) ─── */}
+            <div style={{ gridColumn: "1 / -1", marginTop: 8, paddingTop: 16, borderTop: `1px solid ${THEME.border}` }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: THEME.text, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                Logo studio
+              </div>
+              <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 10 }}>
+                Appare nei PDF, ricevute, schede esercizi, link pubblici (portale, conferma, recensioni).
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                {p.logoBase64 && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={p.logoBase64} alt="Logo" style={{ height: 56, objectFit: "contain", borderRadius: 6, border: `1px solid ${THEME.border}`, padding: 4, background: "#fff" }} />
+                )}
+                <label style={{ padding: "8px 16px", borderRadius: 7, border: `1.5px solid ${THEME.teal}`, background: "rgba(13,148,136,0.06)", color: THEME.teal, fontWeight: 700, fontSize: 12, cursor: "pointer", display: "inline-block" }}>
+                  {p.logoBase64 ? "📷 Cambia logo" : "📷 Carica logo"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: "none" }}
+                    onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > 200000) { alert("Logo max 200KB"); return; }
+                      const r = new FileReader();
+                      r.onload = ev => p.setLogoBase64(ev.target!.result as string);
+                      r.readAsDataURL(file);
+                    }}
+                  />
+                </label>
+                {p.logoBase64 && (
+                  <button onClick={() => p.setLogoBase64("")} style={{ padding: "8px 12px", borderRadius: 7, border: `1px solid ${THEME.border}`, background: "transparent", color: THEME.muted, fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
+                    ✕ Rimuovi
+                  </button>
+                )}
+                <span style={{ fontSize: 11, color: THEME.muted }}>Max 200KB · PNG/JPG</span>
+              </div>
             </div>
           </div>
 

@@ -21,10 +21,26 @@ export function validatePrice(value: string): string {
   return normalized || "0.00";
 }
 
-export function formatPreview(template: string): string {
+export function formatPreview(
+  template: string,
+  opts: {
+    studioAddress?: string | null;
+    signatureName?: string | null;
+    signatureTitle?: string | null;
+  } = {}
+): string {
+  const luogo = opts.studioAddress || "Indirizzo dello studio";
+  const firma = [opts.signatureName, opts.signatureTitle]
+    .filter(Boolean)
+    .join("\n");
   return template
     .replace(/{nome}/g, "Marco")
+    .replace(/{saluto}/g, "Buongiorno")
     .replace(/{data_relativa}/g, "Oggi")
+    .replace(/{data}/g, "Oggi")
     .replace(/{ora}/g, "10:30")
-    .replace(/{luogo}/g, "Studio Pontecorvo, Via Galileo Galilei 5");
+    .replace(/{luogo}/g, luogo)
+    .replace(/{firma}/g, firma)
+    .replace(/{link_conferma}/g, "")
+    .replace(/{link}/g, "");
 }

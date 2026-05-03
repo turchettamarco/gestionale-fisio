@@ -180,12 +180,16 @@ export async function POST(req: NextRequest) {
     const userId = userData.user.id;
 
     // ─── 5. Crea lo studio ─────────────────────────────────────────────────
+    // Nota: signature_name e signature_title sono i campi usati dai messaggi
+    // WhatsApp/promemoria via placeholder {firma}. Lasciamo signature_title
+    // vuoto perché ogni studio ha la propria specializzazione (fisioterapia,
+    // osteopatia, posturologia, ecc.) e va personalizzata in onboarding/settings.
     const { data: studioData, error: studioErr } = await db
       .from("studios")
       .insert({
         name: studioName,
         signature_name: operatorName,
-        signature_title: "Fisioterapia e Osteopatia",
+        signature_title: null,
         email: emailNorm,
       })
       .select("id")
@@ -243,22 +247,22 @@ export async function POST(req: NextRequest) {
     }
 
     // ─── 7. Copia template di default ──────────────────────────────────────
+    // I template usano placeholder {firma} che viene sostituito runtime con
+    // signature_name + signature_title dello studio (multi-tenancy).
+    // In questo modo, se lo studio cambia firma in Impostazioni, anche i
+    // messaggi WhatsApp futuri mostrano la firma aggiornata.
     await db.from("message_templates").insert([
       {
         studio_id: studioId,
         name: "Appuntamento",
         template:
-          "Grazie per averci scelto.\nRicordiamo il prossimo appuntamento fissato per {data_relativa} alle {ora}.\n\nA presto,\n" +
-          operatorName +
-          "\nFisioterapia e Osteopatia",
+          "Grazie per averci scelto.\nRicordiamo il prossimo appuntamento fissato per {data_relativa} alle {ora}.\n\nA presto,\n{firma}",
       },
       {
         studio_id: studioId,
         name: "Promemoria",
         template:
-          "{saluto} {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore {ora}.\n\n📍 {luogo}\n\nCordiali saluti,\n" +
-          operatorName +
-          "\nFisioterapia e Osteopatia",
+          "{saluto} {nome},\n\nLe ricordiamo il suo appuntamento di {data_relativa} alle ore {ora}.\n\n📍 {luogo}\n\nCordiali saluti,\n{firma}",
       },
     ]);
 

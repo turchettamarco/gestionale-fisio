@@ -50,10 +50,17 @@ export default function MobileSettingsPage() {
   const [ownerName, setOwnerName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
+  const [email, setEmail] = useState("");
+  const [website, setWebsite] = useState("");
   const [googleReviewLink, setGoogleReviewLink] = useState("");
   // Firma usata nei messaggi WhatsApp/promemoria (multi-tenancy)
   const [signatureName, setSignatureName] = useState("");
   const [signatureTitle, setSignatureTitle] = useState("");
+  // Logo studio (multi-tenancy: salvato su studios.logo_base64)
+  const [logoBase64, setLogoBase64] = useState("");
+  // Dati fiscali (interni, su practice_settings)
+  const [vatNumber, setVatNumber] = useState("");
+  const [pecEmail, setPecEmail] = useState("");
 
   // ── Catalogo Trattamenti (sostituisce le vecchie tariffe + durate) ──
   const [treatments, setTreatments] = useState<TreatmentTypeRow[]>([]);
@@ -87,21 +94,24 @@ export default function MobileSettingsPage() {
   const [pwSuccess, setPwSuccess] = useState("");
 
   // ── Load: campi STUDIO da currentStudio (context, multi-tenancy)
-  //         e preferenze utente da practice_settings ──
+  //         e dati fiscali/preferenze utente da practice_settings ──
   useEffect(()=>{
-    // 1. Campi visibili al paziente (nome, indirizzo, firma...) ← studios
+    // 1. Campi visibili al paziente (nome, indirizzo, firma, logo...) ← studios
     if (currentStudio) {
       setPracticeName(currentStudio.name || "");
       setPhone(currentStudio.phone || "");
       setAddress(currentStudio.address || "");
+      setEmail(currentStudio.email || "");
+      setWebsite(currentStudio.website || "");
       setGoogleReviewLink(currentStudio.google_review_link || "");
       setSignatureName(currentStudio.signature_name || "");
       setSignatureTitle(currentStudio.signature_title || "");
+      setLogoBase64(currentStudio.logo_base64 || "");
     }
   },[currentStudio]);
 
-  // 2. Preferenze utente (goal, soglia inattivi, modalità overlap, owner_full_name)
-  //    restano in practice_settings (preferenze, non dati studio)
+  // 2. Dati fiscali (P.IVA, PEC) e preferenze utente (goal, soglia, overlap)
+  //    restano in practice_settings (interni / preferenze)
   useEffect(()=>{
     (async()=>{
       try {
@@ -110,6 +120,8 @@ export default function MobileSettingsPage() {
         const { data } = await supabase.from("practice_settings").select("*").eq("owner_id",user.id).maybeSingle();
         if (data) {
           setOwnerName(data.owner_full_name||"");
+          setVatNumber((data as any).vat_number||"");
+          setPecEmail((data as any).pec_email||"");
           setMonthlyGoal(String((data as any).monthly_revenue_goal||2000));
           setInactiveThresh(String((data as any).inactive_threshold_days||45));
           setOverlapMode(((data as any).overlap_mode ?? "warn") as "block"|"warn"|"visual");
@@ -170,16 +182,23 @@ export default function MobileSettingsPage() {
         name:               practiceName.trim() || null,
         phone:              phone.trim() || null,
         address:            address.trim() || null,
+        email:              email.trim() || null,
+        website:            website.trim() || null,
         google_review_link: googleReviewLink.trim() || null,
         signature_name:     signatureName.trim() || null,
         signature_title:    signatureTitle.trim() || null,
+        logo_base64:        logoBase64 || null,
       }).eq("id", currentStudioId);
       if (studioErr) throw new Error("Errore salvataggio studio: " + studioErr.message);
 
-      // 2. Preferenze utente (calendar, goal, soglie) → practice_settings
+      // 2. Dati fiscali + preferenze utente → practice_settings
+      //    (NOT NULL su practice_name → riempito col nome studio per backward compat)
       const { error: psErr } = await supabase.from("practice_settings").upsert({
         owner_id: user.id,
+        practice_name: practiceName.trim() || "Studio",
         owner_full_name: ownerName,
+        vat_number: vatNumber.trim() || "",
+        pec_email: pecEmail.trim() || "",
         monthly_revenue_goal: parseFloat(monthlyGoal)||2000,
         inactive_threshold_days: parseInt(inactiveThresh)||45,
         overlap_mode: overlapMode,
@@ -195,7 +214,7 @@ export default function MobileSettingsPage() {
       }
 
       // 4. Refresh del context studio così tutta l'app vede i nuovi valori
-      //    (incluso indirizzo nei messaggi WhatsApp)
+      //    (incluso indirizzo nei messaggi WhatsApp, logo nei PDF/portale)
       await refreshStudio();
 
       setSuccess("Impostazioni salvate.");
@@ -382,8 +401,15 @@ export default function MobileSettingsPage() {
 
         <Section id="studio" title="Dati Studio" sub={practiceName||"Nome studio, contatti"}>
           <div style={{ display:"flex", flexDirection:"column", gap:12, paddingTop:14 }}>
-            {[{l:"Nome studio",v:practiceName,s:setPracticeName},{l:"Titolare",v:ownerName,s:setOwnerName},{l:"Telefono",v:phone,s:setPhone},{l:"Indirizzo",v:address,s:setAddress}].map(f=>(
-              <div key={f.l}><label style={lbl}>{f.l}</label><input value={f.v} onChange={e=>f.s(e.target.value)} style={inp}/></div>
+            {[
+              {l:"Nome studio",v:practiceName,s:setPracticeName,t:"text"},
+              {l:"Titolare",v:ownerName,s:setOwnerName,t:"text"},
+              {l:"Telefono",v:phone,s:setPhone,t:"tel"},
+              {l:"Email",v:email,s:setEmail,t:"email"},
+              {l:"Indirizzo",v:address,s:setAddress,t:"text"},
+              {l:"Sito web",v:website,s:setWebsite,t:"url"},
+            ].map(f=>(
+              <div key={f.l}><label style={lbl}>{f.l}</label><input type={f.t} value={f.v} onChange={e=>f.s(e.target.value)} style={inp}/></div>
             ))}
             <div><label style={lbl}>Link Google Review</label><input value={googleReviewLink} onChange={e=>setGoogleReviewLink(e.target.value)} placeholder="https://g.page/r/..." style={inp}/></div>
 
@@ -395,9 +421,55 @@ export default function MobileSettingsPage() {
               </div>
               <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
                 <div><label style={lbl}>Nome firma</label><input value={signatureName} onChange={e=>setSignatureName(e.target.value)} placeholder="Es. Dr. Mario Rossi" style={inp}/></div>
-                <div><label style={lbl}>Titolo</label><input value={signatureTitle} onChange={e=>setSignatureTitle(e.target.value)} placeholder="Es. Fisioterapista" style={inp}/></div>
+                <div><label style={lbl}>Titolo</label><input value={signatureTitle} onChange={e=>setSignatureTitle(e.target.value)} placeholder="Es. Fisioterapia e Osteopatia" style={inp}/></div>
               </div>
             </div>
+
+            {/* ─── Logo studio (multi-tenancy) ─── */}
+            <div style={{ marginTop:8, padding:"12px 14px", borderRadius:10, background:THEME.panelSoft, border:`1px solid ${THEME.border}` }}>
+              <div style={{ fontSize:12, fontWeight:700, color:THEME.muted, marginBottom:8, letterSpacing:0.3 }}>LOGO STUDIO</div>
+              <div style={{ fontSize:11, color:THEME.muted, lineHeight:1.5, marginBottom:10 }}>
+                Appare nei PDF, ricevute, schede esercizi, link pubblici (portale, conferma, recensioni).
+              </div>
+              <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
+                {logoBase64 && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={logoBase64} alt="Logo" style={{ height:56, objectFit:"contain", borderRadius:6, border:`1px solid ${THEME.border}`, padding:4, background:"#fff" }} />
+                )}
+                <label style={{ padding:"10px 14px", borderRadius:8, border:`1.5px solid ${THEME.teal}`, background:"rgba(13,148,136,0.06)", color:THEME.teal, fontWeight:700, fontSize:13, cursor:"pointer", display:"inline-block" }}>
+                  {logoBase64 ? "📷 Cambia" : "📷 Carica logo"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display:"none" }}
+                    onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > 200000) { alert("Logo max 200KB"); return; }
+                      const r = new FileReader();
+                      r.onload = ev => setLogoBase64(ev.target!.result as string);
+                      r.readAsDataURL(file);
+                    }}
+                  />
+                </label>
+                {logoBase64 && (
+                  <button onClick={() => setLogoBase64("")} style={{ padding:"10px 12px", borderRadius:8, border:`1px solid ${THEME.border}`, background:"transparent", color:THEME.muted, fontWeight:600, fontSize:12, cursor:"pointer" }}>
+                    ✕ Rimuovi
+                  </button>
+                )}
+              </div>
+              <div style={{ fontSize:10, color:THEME.muted, marginTop:6 }}>Max 200KB · PNG/JPG</div>
+            </div>
+          </div>
+        </Section>
+
+        <Section id="fiscale" title="Dati fiscali" sub="Partita IVA, PEC (per fatturazione)">
+          <div style={{ display:"flex", flexDirection:"column", gap:12, paddingTop:14 }}>
+            <div style={{ padding:"10px 12px", borderRadius:8, background:"rgba(148,163,184,0.06)", fontSize:11, color:THEME.muted, lineHeight:1.5 }}>
+              ℹ️ Questi dati sono <strong>interni</strong> e usati per la fatturazione elettronica. Non vengono mostrati ai pazienti.
+            </div>
+            <div><label style={lbl}>Partita IVA</label><input value={vatNumber} onChange={e=>setVatNumber(e.target.value)} placeholder="Es. 03195120609" style={inp}/></div>
+            <div><label style={lbl}>PEC</label><input type="email" value={pecEmail} onChange={e=>setPecEmail(e.target.value)} placeholder="Es. mariorossi@pec.it" style={inp}/></div>
           </div>
         </Section>
 

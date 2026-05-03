@@ -98,6 +98,8 @@ type CreateModalProps = {
   createRecurring: boolean; setCreateRecurring: (v: boolean) => void;
   createRecurringCount: number; setCreateRecurringCount: (v: number) => void;
   createRecurringInterval: number; setCreateRecurringInterval: (v: number) => void;
+  // Placeholder per il campo "Sede" — nome dello studio corrente (multi-tenancy)
+  studioNamePlaceholder: string;
 };
 
 type TouchDragState = {
@@ -127,11 +129,13 @@ const PX_PER_HOUR    = 80;
 const BOTTOM_TAB_H   = 62;
 const DEFAULT_START  = 7;
 const DEFAULT_END    = 22;
-const DEFAULT_CLINIC = "Studio Pontecorvo";
+// Default neutro per il campo "Sede" nel form di creazione.
+// Il valore reale al salvataggio è currentStudio?.name (multi-tenancy).
+const DEFAULT_CLINIC = "Studio";
 
-const CLINIC_ADDRESSES: Record<string, string> = {
-  "Studio Pontecorvo": "Pontecorvo, Via Galileo Galilei 5, dietro il Bar Principe",
-};
+// Mappa indirizzi clinici legacy. Mantenuta vuota: ogni studio ha il
+// proprio currentStudio.address che ha priorità nei messaggi WhatsApp.
+const CLINIC_ADDRESSES: Record<string, string> = {};
 
 /* ─── Status helpers ──────────────────────────────────────────────────── */
 function statusLabel(s: Status) {
@@ -338,10 +342,19 @@ function CalendarPageInner() {
   const [defaultStatus,         setDefaultStatus]         = useState<"confirmed"|"booked">("confirmed");
   const [overlapMode,            setOverlapMode]            = useState<"block"|"warn"|"visual">("warn");
   const [createLocation,        setCreateLocation]        = useState<LocationType>("studio");
-  const [createClinicSite,      setCreateClinicSite]      = useState(DEFAULT_CLINIC);
+  const [createClinicSite,      setCreateClinicSite]      = useState("");
   const [createDomicileAddress, setCreateDomicileAddress] = useState("");
   const [createAmount,          setCreateAmount]          = useState("");
   const [createNote,            setCreateNote]            = useState("");
+
+  // Sincronizza il default di "Sede" con il nome dello studio corrente
+  // (multi-tenancy). L'utente può sovrascrivere manualmente.
+  useEffect(() => {
+    if (currentStudio?.name && !createClinicSite) {
+      setCreateClinicSite(currentStudio.name);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStudio?.name]);
   // Fatturazione + metodo pagamento allineati al desktop
   const [createPriceType,       setCreatePriceType]       = useState<"invoiced" | "cash">("invoiced");
   const [createPaymentMethod,   setCreatePaymentMethod]   = useState<"cash" | "pos" | "bank_transfer" | null>(null);
@@ -980,7 +993,7 @@ function CalendarPageInner() {
     setCreateDate(dateISO);
     setCreateTime(prefillTime&&isValidHHMM(prefillTime)?prefillTime:"09:00");
     setCreateDuration(60); setCreateStatus(defaultStatus); setCreateLocation("studio");
-    setCreateClinicSite(DEFAULT_CLINIC); setCreateDomicileAddress(""); setCreateAmount(""); setCreateNote("");
+    setCreateClinicSite(currentStudio?.name || ""); setCreateDomicileAddress(""); setCreateAmount(""); setCreateNote("");
     setCreateTreatmentType(treatmentCatalog[0]?.key ?? "seduta");
   }, [currentDate, defaultStatus, treatmentCatalog]);
 
@@ -1066,7 +1079,7 @@ function CalendarPageInner() {
         status:createStatus,
         calendar_note:createNote.trim()||null,
         location:createLocation,
-        clinic_site:createLocation==="studio"?(createClinicSite.trim()||DEFAULT_CLINIC):null,
+        clinic_site:createLocation==="studio"?(createClinicSite.trim()||currentStudio?.name||"Studio"):null,
         domicile_address:createLocation==="domicile"?(createDomicileAddress.trim()||null):null,
         amount,
         price_type: createPriceType,
@@ -2262,6 +2275,7 @@ function CalendarPageInner() {
           createRecurring={createRecurring} setCreateRecurring={setCreateRecurring}
           createRecurringCount={createRecurringCount} setCreateRecurringCount={setCreateRecurringCount}
           createRecurringInterval={createRecurringInterval} setCreateRecurringInterval={setCreateRecurringInterval}
+          studioNamePlaceholder={currentStudio?.name || "Studio"}
         />
       )}
 
@@ -2600,7 +2614,7 @@ function CreateModal(props:CreateModalProps) {
           </select>
         </FG>
         {createLocation==="studio"
-          ?<FG label="Sede"><input value={createClinicSite} onChange={e=>setCreateClinicSite(e.target.value)} style={inputS()} placeholder={DEFAULT_CLINIC} /></FG>
+          ?<FG label="Sede"><input value={createClinicSite} onChange={e=>setCreateClinicSite(e.target.value)} style={inputS()} placeholder={props.studioNamePlaceholder || "Studio"} /></FG>
           :<FG label="Indirizzo"><input value={createDomicileAddress} onChange={e=>setCreateDomicileAddress(e.target.value)} style={inputS()} placeholder="Indirizzo…" /></FG>
         }
         <FG label="Importo">

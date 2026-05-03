@@ -123,6 +123,9 @@ export default function SettingsPage() {
   const [studioSignatureTitle, setStudioSignatureTitle] = useState("");
   const [studioWebsite, setStudioWebsite]               = useState("");
   const [savingStudio, setSavingStudio]                 = useState(false);
+  // Logo studio (multi-tenancy: salvato su studios.logo_base64)
+  // Dichiarato qui perché usato dal callback saveStudio sotto.
+  const [logoBase64, setLogoBase64]                     = useState("");
 
   // Popola i campi studio quando arriva il contesto
   useEffect(() => {
@@ -135,6 +138,8 @@ export default function SettingsPage() {
     setStudioSignatureName(studio.signature_name || "");
     setStudioSignatureTitle(studio.signature_title || "");
     setStudioWebsite(studio.website || "");
+    // Logo: ora gestito sulla tabella studios (multi-tenancy)
+    setLogoBase64(studio.logo_base64 || "");
   }, [studio]);
 
   const saveStudio = useCallback(async () => {
@@ -151,6 +156,7 @@ export default function SettingsPage() {
         signature_name:     studioSignatureName.trim() || null,
         signature_title:    studioSignatureTitle.trim() || null,
         website:            studioWebsite.trim() || null,
+        logo_base64:        logoBase64 || null,
       }).eq("id", studio.id);
       if (error) { alert("Errore: " + error.message); return; }
       await refreshStudio();
@@ -160,7 +166,7 @@ export default function SettingsPage() {
     }
   }, [studio, studioName, studioAddress, studioPhone, studioEmail,
       studioGoogleReview, studioSignatureName, studioSignatureTitle, studioWebsite,
-      refreshStudio]);
+      logoBase64, refreshStudio]);
 
   // ── Calendar feed token ──────────────────────────────────────────────────
   const [calendarToken, setCalendarToken]                 = useState<string | null>(null);
@@ -240,17 +246,16 @@ export default function SettingsPage() {
 
   // ═══════════════════════════════════════════════════════════════════════
   // Practice settings (anagrafica, tariffe, durate, msg automatici, gestione)
+  // I campi paziente-visibili (practice_name, address, phone, googleReviewLink,
+  // logo_base64) sono gestiti dalla tabella `studios` via context. Qui restano
+  // solo i campi fiscali interni (titolare, P.IVA, PEC) e le preferenze utente.
+  // (logoBase64 è dichiarato sopra perché usato dal callback saveStudio.)
   // ═══════════════════════════════════════════════════════════════════════
-  const [practiceName, setPracticeName]       = useState("");
-  const [logoBase64, setLogoBase64]           = useState("");
   const [defaultApptStatus, setDefaultApptStatus] = useState<"confirmed" | "booked">("confirmed");
   const [overlapMode, setOverlapMode]         = useState<"block" | "warn" | "visual">("warn");
   const [ownerFullName, setOwnerFullName]     = useState("");
   const [vatNumber, setVatNumber]             = useState("");
-  const [address, setAddress]                 = useState("");
   const [pecEmail, setPecEmail]               = useState("");
-  const [phone, setPhone]                     = useState("");
-  const [googleReviewLink, setGoogleReviewLink] = useState("");
 
   // Tariffe
   const [standardInvoice, setStandardInvoice] = useState("40.00");
@@ -347,15 +352,13 @@ export default function SettingsPage() {
         return await loadPracticeSettings();
       }
 
-      // Popolamento campi
-      setPracticeName(data.practice_name ?? "");
-      setLogoBase64((data as PracticeSettingsRow).logo_base64 ?? "");
+      // Popolamento campi.
+      // I campi paziente-visibili (practice_name, address, phone,
+      // google_review_link, logo_base64) NON vengono più letti da qui:
+      // arrivano da currentStudio (tabella studios) via context.
       setOwnerFullName(data.owner_full_name ?? "");
       setVatNumber(data.vat_number ?? "");
-      setAddress(data.address ?? "");
       setPecEmail(data.pec_email ?? "");
-      setPhone(data.phone ?? "");
-      setGoogleReviewLink(data.google_review_link ?? "");
       setStandardInvoice(toMoneyString(data.standard_invoice, "40.00"));
       setStandardCash(toMoneyString(data.standard_cash, "35.00"));
       setMachineInvoice(toMoneyString(data.machine_invoice, "25.00"));
@@ -400,17 +403,24 @@ export default function SettingsPage() {
     setError("");
     try {
       const uid = await requireUserId();
+      // Payload contiene SOLO dati interni (fiscali) e preferenze utente.
+      // I dati paziente-visibili (practice_name, address, phone, logo,
+      // google_review_link) sono gestiti dalla saveStudio() su `studios`.
       const payload: PracticeSettingsRow = {
         owner_id:        uid,
         studio_id:       studio?.id ?? null,
-        practice_name:   practiceName.trim() || "FisioHub",
-        logo_base64:     logoBase64 || null,
+        // I 5 campi sotto restano in PS solo come fallback storico (vincolo NOT NULL su practice_name)
+        // ma non vengono più letti dal codice runtime — la verità è su studios.
+        practice_name:   studio?.name || "Studio",
+        logo_base64:     null,
+        address:         "",
+        phone:           "",
+        google_review_link: "",
+        // Dati fiscali (rimangono qui, non duplicati su studios)
         owner_full_name: ownerFullName.trim() || "Titolare",
         vat_number:      vatNumber.trim() || "",
-        address:         address.trim() || "",
         pec_email:       pecEmail.trim() || "",
-        phone:           phone.trim() || "",
-        google_review_link: googleReviewLink.trim() || "",
+        // Tariffe trattamenti (preferenze utente)
         standard_invoice:  toNumberSafe(standardInvoice, 40),
         standard_cash:     toNumberSafe(standardCash, 35),
         machine_invoice:   toNumberSafe(machineInvoice, 25),
@@ -446,17 +456,7 @@ export default function SettingsPage() {
       const { error } = await supabase.from("practice_settings").upsert(payload, { onConflict: "owner_id" });
       if (error) throw new Error(error.message);
 
-      // Sincronizza il logo anche sulla tabella studios.
-      // Le pagine pubbliche (portale, conferma, esercizi, survey) leggono
-      // da studios — quindi senza questa replica il logo non sarebbe visibile
-      // ai pazienti. La fonte di verità per il logo resta practice_settings.
-      if (studio?.id) {
-        await supabase.from("studios")
-          .update({ logo_base64: logoBase64 || null })
-          .eq("id", studio.id);
-      }
-
-      flashSuccess("Impostazioni salvate.");
+      flashSuccess("Dati fiscali salvati.");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Errore nel salvataggio.";
       setError(msg);
@@ -1021,6 +1021,7 @@ export default function SettingsPage() {
               studioGoogleReview={studioGoogleReview} setStudioGoogleReview={setStudioGoogleReview}
               studioSignatureName={studioSignatureName} setStudioSignatureName={setStudioSignatureName}
               studioSignatureTitle={studioSignatureTitle} setStudioSignatureTitle={setStudioSignatureTitle}
+              logoBase64={logoBase64} setLogoBase64={setLogoBase64}
               savingStudio={savingStudio}
               onSave={() => void saveStudio()}
             />
@@ -1028,14 +1029,9 @@ export default function SettingsPage() {
             <PracticeSection
               show={showPractice} onToggle={() => setShowPractice(!showPractice)}
               loadingPractice={loadingPractice} savingPractice={savingPractice}
-              practiceName={practiceName} setPracticeName={setPracticeName}
               ownerFullName={ownerFullName} setOwnerFullName={setOwnerFullName}
               vatNumber={vatNumber} setVatNumber={setVatNumber}
-              phone={phone} setPhone={setPhone}
               pecEmail={pecEmail} setPecEmail={setPecEmail}
-              address={address} setAddress={setAddress}
-              logoBase64={logoBase64} setLogoBase64={setLogoBase64}
-              googleReviewLink={googleReviewLink} setGoogleReviewLink={setGoogleReviewLink}
               onReload={() => void loadPracticeSettings()}
               onSave={() => void savePracticeSettings()}
             />

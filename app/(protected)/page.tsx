@@ -261,7 +261,7 @@ export default function HomePage() {
       status:    "booked",
       is_paid:   false,
       location:  isHome ? "domicile" : "studio",
-      clinic_site: isHome ? null : "Studio Pontecorvo",
+      clinic_site: isHome ? null : (currentStudio?.name || "Studio"),
       domicile_address: isHome ? (req.notes ?? "da definire") : null,
       calendar_note: note,
       studio_id: currentStudio?.id,       // FIX multi-tenancy

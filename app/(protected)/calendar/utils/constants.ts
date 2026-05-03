@@ -29,15 +29,18 @@ export const THEME = {
   gray: "#94a3b8",
 };
 
-export const DEFAULT_CLINIC_SITE = "Studio Pontecorvo";
+export const DEFAULT_CLINIC_SITE = "Studio";
 
 // Link Google Reviews fallback — sostituibile nelle impostazioni studio
 export const GOOGLE_REVIEW_LINK_FALLBACK =
   "https://www.google.com/maps/place//data=!4m3!3m2!1s0x133ab7000a9c53d3:0xf706ba51f69901bf!12e1?source=g.page.m.ia._&laa=nmx-review-solicitation-ia2";
 
-export const CLINIC_ADDRESSES: Record<string, string> = {
-  "Studio Pontecorvo": "Pontecorvo, Via Galileo Galilei 5, dietro il Bar Principe",
-};
+// Mappa indirizzi clinici legacy (single-tenant). Mantenuta vuota come
+// fallback architetturale: ogni studio ha il proprio `studios.address`
+// nel DB, che ha sempre la priorità nei messaggi WhatsApp/promemoria.
+// Se in futuro serve gestire studi multi-sede, va creata la tabella
+// `clinic_sites` collegata a `studios.id`, non si torna a hardcodare qui.
+export const CLINIC_ADDRESSES: Record<string, string> = {};
 
 /**
  * Catalogo trattamenti.

@@ -286,7 +286,8 @@ export function buildWeeklyReminderMessage(opts: {
   const signaturePieces = [opts.signatureName, opts.signatureTitle]
     .map(s => (s ?? "").trim())
     .filter(s => s.length > 0);
-  const signature = signaturePieces.join(", ");
+  // Uniformato al singolo: firma su 2 righe, no virgola.
+  const signature = signaturePieces.join("\n");
 
   return template
     .replaceAll("{nome}", patientFirstName || "")

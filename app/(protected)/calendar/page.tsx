@@ -368,8 +368,18 @@ const userInitials = useMemo(() => {
   const searchTimer = useRef<any>(null);
 
   const [createLocation, setCreateLocation] = useState<LocationType>("studio");
-  const [createClinicSite, setCreateClinicSite] = useState(DEFAULT_CLINIC_SITE);
+  // Default = nome dello studio corrente (multi-tenancy). Aggiornato dall'effect sotto.
+  const [createClinicSite, setCreateClinicSite] = useState("");
   const [createDomicileAddress, setCreateDomicileAddress] = useState("");
+
+  // Sincronizza il default del campo "sede" con il nome dello studio corrente
+  // (l'utente può comunque sovrascriverlo manualmente nel form di creazione).
+  useEffect(() => {
+    if (currentStudio?.name && !createClinicSite) {
+      setCreateClinicSite(currentStudio.name);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStudio?.name]);
 
   const [treatmentType, setTreatmentType] = useState<TreatmentType>("seduta");
   const [priceType, setPriceType] = useState<"invoiced" | "cash">("cash"); // default: non fatturato
@@ -878,7 +888,7 @@ const { data, error } = await supabase
       setDuplicateMode(true);
       setEventToDuplicate(duplicateEvent);
       setCreateLocation(duplicateEvent.location ?? "studio");
-      setCreateClinicSite(duplicateEvent.clinic_site || DEFAULT_CLINIC_SITE);
+      setCreateClinicSite(duplicateEvent.clinic_site || currentStudio?.name || "Studio");
       setCreateDomicileAddress(duplicateEvent.domicile_address || "");
       setTreatmentType((duplicateEvent.treatment_type as "seduta" | "macchinario") || "seduta");
       setPriceType((duplicateEvent.price_type as "invoiced" | "cash") || "invoiced");
@@ -917,7 +927,7 @@ const { data, error } = await supabase
       setEventToDuplicate(null);
       setSelectedPatient(null);
       setCreateLocation("studio");
-      setCreateClinicSite(DEFAULT_CLINIC_SITE);
+      setCreateClinicSite(currentStudio?.name || "Studio");
       setCreateDomicileAddress("");
       setTreatmentType(treatmentCatalog[0]?.key ?? "seduta");
       setPriceType("invoiced");
@@ -1375,7 +1385,7 @@ A presto,
         status:           "booked",
         is_paid:          false,
         location:         locationVal,
-        clinic_site:      isHome ? null : DEFAULT_CLINIC_SITE,
+        clinic_site:      isHome ? null : (currentStudio?.name || "Studio"),
         domicile_address: isHome ? (req.notes ?? "da definire") : null,
         calendar_note:    note,
         studio_id:        currentStudioId,  // multi-tenancy
