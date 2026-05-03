@@ -1,0 +1,368 @@
+// src/components/NotificationsBell.tsx
+// ═══════════════════════════════════════════════════════════════════════
+// Campanella notifiche per il calendario (desktop + mobile).
+// 
+// - Polling ogni 30s su /api/notifications
+// - Badge rosso con count notifiche non lette
+// - Click → dropdown con lista
+// - Click su notifica → POST /api/notifications {id} (mark read)
+//   + chiama onAppointmentClick per aprire l'appuntamento nel calendario
+// - "Segna tutte come lette" → POST {mark_all: true}
+// - Auto-hidden se notify_bell_enabled = false a livello studio
+// ═══════════════════════════════════════════════════════════════════════
+"use client";
+
+import { useEffect, useRef, useState, useCallback } from "react";
+
+export type NotificationItem = {
+  id: string;
+  type: "confirm" | "cancel" | "booking";
+  appointment_id: string | null;
+  patient_id: string | null;
+  payload: {
+    patient_name?: string;
+    appointment_start?: string;
+  };
+  created_at: string;
+  read_at: string | null;
+};
+
+type Props = {
+  // Se false → bell nascosto
+  enabled: boolean;
+  // Click su una notifica → callback per aprire l'appuntamento
+  onAppointmentClick?: (appointmentId: string) => void;
+  // Posizione del dropdown ("right" = aperto verso sinistra, default)
+  dropdownAlign?: "left" | "right";
+  // Tema colori
+  primaryColor?: string;   // default teal
+  dangerColor?: string;    // default red
+};
+
+const POLL_MS = 30000;
+
+export default function NotificationsBell({
+  enabled,
+  onAppointmentClick,
+  dropdownAlign = "right",
+  primaryColor = "#0d9488",
+  dangerColor = "#dc2626",
+}: Props) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<NotificationItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const loadNotifications = useCallback(async () => {
+    if (!enabled) return;
+    try {
+      const res = await fetch("/api/notifications");
+      if (!res.ok) return;
+      const data = await res.json();
+      setItems(data.notifications ?? []);
+      setUnreadCount(data.unread_count ?? 0);
+    } catch (e) {
+      // silenzioso: errore di rete non blocca l'app
+    }
+  }, [enabled]);
+
+  // Polling ogni 30s
+  useEffect(() => {
+    if (!enabled) return;
+    loadNotifications();
+    const interval = setInterval(loadNotifications, POLL_MS);
+    return () => clearInterval(interval);
+  }, [enabled, loadNotifications]);
+
+  // Chiusura cliccando fuori
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        dropdownRef.current && !dropdownRef.current.contains(target) &&
+        buttonRef.current && !buttonRef.current.contains(target)
+      ) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  async function markAsRead(notificationId: string) {
+    try {
+      await fetch("/api/notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: notificationId }),
+      });
+      // Rimozione ottimistica dalla lista (Opzione A: la notifica scompare)
+      setItems(prev => prev.filter(n => n.id !== notificationId));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    } catch (e) {
+      // silenzioso
+    }
+  }
+
+  async function markAllAsRead() {
+    setLoading(true);
+    try {
+      await fetch("/api/notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mark_all: true }),
+      });
+      setItems([]);
+      setUnreadCount(0);
+    } catch (e) {
+      // silenzioso
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function onClickItem(item: NotificationItem) {
+    void markAsRead(item.id);
+    if (item.appointment_id && onAppointmentClick) {
+      onAppointmentClick(item.appointment_id);
+    }
+    setOpen(false);
+  }
+
+  if (!enabled) return null;
+
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}>
+      {/* Bottone campanella */}
+      <button
+        ref={buttonRef}
+        onClick={() => setOpen(!open)}
+        aria-label="Notifiche"
+        style={{
+          position: "relative",
+          background: "rgba(255,255,255,0.18)",
+          border: "1.5px solid rgba(255,255,255,0.35)",
+          borderRadius: 10,
+          width: 38,
+          height: 38,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+          color: "#fff",
+          fontSize: 18,
+          padding: 0,
+          transition: "background 0.15s",
+        }}
+        onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.28)")}
+        onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.18)")}
+      >
+        🔔
+        {unreadCount > 0 && (
+          <span
+            style={{
+              position: "absolute",
+              top: -4,
+              right: -4,
+              minWidth: 18,
+              height: 18,
+              padding: "0 4px",
+              borderRadius: 9,
+              background: dangerColor,
+              color: "#fff",
+              fontSize: 10,
+              fontWeight: 800,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: "1.5px solid #fff",
+              boxSizing: "border-box",
+            }}
+          >
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        )}
+      </button>
+
+      {/* Dropdown */}
+      {open && (
+        <div
+          ref={dropdownRef}
+          style={{
+            position: "absolute",
+            top: "calc(100% + 8px)",
+            [dropdownAlign === "right" ? "right" : "left"]: 0,
+            width: 360,
+            maxWidth: "calc(100vw - 24px)",
+            maxHeight: 480,
+            background: "#fff",
+            borderRadius: 12,
+            boxShadow: "0 12px 40px rgba(15,23,42,0.18)",
+            border: "1px solid #e2e8f0",
+            zIndex: 1000,
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+            color: "#0f172a",
+          }}
+        >
+          {/* Header */}
+          <div
+            style={{
+              padding: "12px 16px",
+              borderBottom: "1px solid #e2e8f0",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              background: "#f8fafc",
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 14 }}>Notifiche</div>
+            {unreadCount > 0 && (
+              <button
+                onClick={markAllAsRead}
+                disabled={loading}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: primaryColor,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: loading ? "wait" : "pointer",
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                }}
+              >
+                Segna tutte come lette
+              </button>
+            )}
+          </div>
+
+          {/* Lista */}
+          <div style={{ overflowY: "auto", flex: 1 }}>
+            {items.length === 0 ? (
+              <div style={{ padding: 30, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
+                <div style={{ fontSize: 28, marginBottom: 6 }}>📭</div>
+                Nessuna notifica
+              </div>
+            ) : (
+              items.map(n => <NotificationRow key={n.id} item={n} onClick={() => onClickItem(n)} />)
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Singola riga della lista ──────────────────────────────────────────
+function NotificationRow({ item, onClick }: { item: NotificationItem; onClick: () => void }) {
+  const isUnread = !item.read_at;
+  const patientName = item.payload?.patient_name || "Paziente";
+  const apptStart = item.payload?.appointment_start
+    ? new Date(item.payload.appointment_start)
+    : null;
+
+  const apptStr = apptStart
+    ? apptStart.toLocaleString("it-IT", {
+        weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+      })
+    : "";
+
+  // Icona + colore in base al tipo
+  let icon = "🔔";
+  let color = "#64748b";
+  let label = "Notifica";
+  if (item.type === "cancel") {
+    icon = "✗";
+    color = "#dc2626";
+    label = "Annullato";
+  } else if (item.type === "confirm") {
+    icon = "✓";
+    color = "#16a34a";
+    label = "Confermato";
+  } else if (item.type === "booking") {
+    icon = "📅";
+    color = "#2563eb";
+    label = "Prenotato online";
+  }
+
+  // "5 min fa" / "ieri" / "lun 3 Mag"
+  const ago = item.created_at ? timeAgo(new Date(item.created_at)) : "";
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        padding: "12px 16px",
+        borderBottom: "1px solid #f1f5f9",
+        cursor: "pointer",
+        background: isUnread ? "#f0f9ff" : "#fff",
+        display: "flex",
+        gap: 10,
+        transition: "background 0.1s",
+      }}
+      onMouseEnter={e => (e.currentTarget.style.background = isUnread ? "#e0f2fe" : "#f8fafc")}
+      onMouseLeave={e => (e.currentTarget.style.background = isUnread ? "#f0f9ff" : "#fff")}
+    >
+      {/* Icona */}
+      <div
+        style={{
+          width: 36,
+          height: 36,
+          minWidth: 36,
+          borderRadius: 10,
+          background: `${color}1a`,
+          color,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontWeight: 800,
+          fontSize: 16,
+        }}
+      >
+        {icon}
+      </div>
+
+      {/* Testo */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", marginBottom: 2 }}>
+          <span style={{ color }}>{label}</span>
+          {" — "}
+          <span>{patientName}</span>
+        </div>
+        <div style={{ fontSize: 11, color: "#64748b" }}>
+          {apptStr && <span>{apptStr}</span>}
+          {apptStr && ago && <span style={{ margin: "0 6px" }}>·</span>}
+          {ago && <span>{ago}</span>}
+        </div>
+      </div>
+
+      {/* Pallino non letto */}
+      {isUnread && (
+        <div
+          style={{
+            width: 8, height: 8, borderRadius: "50%",
+            background: "#2563eb", alignSelf: "center", flexShrink: 0,
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function timeAgo(date: Date): string {
+  const diffSec = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (diffSec < 60) return "ora";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} min fa`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour}h fa`;
+  const diffDay = Math.floor(diffHour / 24);
+  if (diffDay === 1) return "ieri";
+  if (diffDay < 7) return `${diffDay} g fa`;
+  return date.toLocaleDateString("it-IT", { day: "2-digit", month: "short" });
+}

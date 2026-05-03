@@ -2496,6 +2496,17 @@ return (
         bookingPanelOpen={bookingPanel}
         pendingBookingsCount={bookingRequests.filter(r => r.status === "pending").length}
         onToggleBookingPanel={() => setBookingPanel(v => !v)}
+        notificationsBellEnabled={currentStudio?.notify_bell_enabled !== false}
+        onNotificationAppointmentClick={(apptId) => {
+          // Naviga il calendario alla data dell'appuntamento.
+          // Se l'appuntamento è visibile l'utente lo trova subito.
+          const ev = events.find(e => e.id === apptId);
+          if (ev?.start) {
+            setCurrentDate(new Date(ev.start));
+            // Switch a vista giorno per focus immediato
+            setViewType("day");
+          }
+        }}
         userMenuOpen={userMenuOpen}
         setUserMenuOpen={setUserMenuOpen}
         userMenuRef={userMenuRef}

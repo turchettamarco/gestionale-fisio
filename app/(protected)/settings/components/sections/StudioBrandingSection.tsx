@@ -21,6 +21,10 @@ export type StudioBrandingSectionProps = {
   studioSignatureTitle: string; setStudioSignatureTitle: (v: string) => void;
   // Logo (multi-tenancy: salvato su studios.logo_base64)
   logoBase64: string; setLogoBase64: (v: string) => void;
+  // Notifiche (Fase N2)
+  notifyEmailEnabled: boolean; setNotifyEmailEnabled: (v: boolean) => void;
+  notifyBellEnabled: boolean; setNotifyBellEnabled: (v: boolean) => void;
+  notifyWaRedirectEnabled: boolean; setNotifyWaRedirectEnabled: (v: boolean) => void;
   savingStudio: boolean;
   onSave: () => void;
 };
@@ -218,6 +222,38 @@ export default function StudioBrandingSection(p: StudioBrandingSectionProps) {
             </div>
           )}
 
+          {/* ─── Sezione Notifiche (Fase N2) ─── */}
+          <div style={{
+            marginTop: 24, paddingTop: 20, borderTop: `1px solid ${THEME.border}`,
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: THEME.text, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
+              🔔 Notifiche pazienti
+            </div>
+            <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 14, lineHeight: 1.5 }}>
+              Quando un paziente conferma o annulla un appuntamento dal link WhatsApp, scegli come venire avvisato.
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <ToggleRow
+                label="Campanella nel calendario"
+                description="Mostra le notifiche nel calendario con un badge"
+                checked={p.notifyBellEnabled}
+                onChange={p.setNotifyBellEnabled}
+              />
+              <ToggleRow
+                label="Email allo studio"
+                description="Invia email all'indirizzo dello studio"
+                checked={p.notifyEmailEnabled}
+                onChange={p.setNotifyEmailEnabled}
+              />
+              <ToggleRow
+                label="WhatsApp di ritorno"
+                description="Quando il paziente annulla, gli proponi di avvisarti su WhatsApp"
+                checked={p.notifyWaRedirectEnabled}
+                onChange={p.setNotifyWaRedirectEnabled}
+              />
+            </div>
+          </div>
+
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
             <BtnPrimary
               label={p.savingStudio ? "Salvataggio…" : "Salva dati studio"}
@@ -227,6 +263,70 @@ export default function StudioBrandingSection(p: StudioBrandingSectionProps) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── ToggleRow: switch on/off con label e descrizione ──────────────────
+function ToggleRow({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 14,
+        padding: "12px 14px",
+        borderRadius: 8,
+        border: `1px solid ${THEME.border}`,
+        background: checked ? "rgba(13,148,136,0.04)" : "#fff",
+        transition: "background 0.15s",
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: THEME.text, marginBottom: 2 }}>{label}</div>
+        <div style={{ fontSize: 11, color: THEME.muted, lineHeight: 1.4 }}>{description}</div>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        style={{
+          width: 44, height: 24,
+          borderRadius: 12,
+          border: "none",
+          background: checked ? THEME.teal : "#cbd5e1",
+          position: "relative",
+          cursor: "pointer",
+          transition: "background 0.2s",
+          flexShrink: 0,
+          padding: 0,
+        }}
+      >
+        <span
+          style={{
+            position: "absolute",
+            top: 2,
+            left: checked ? 22 : 2,
+            width: 20, height: 20,
+            borderRadius: "50%",
+            background: "#fff",
+            transition: "left 0.2s",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+          }}
+        />
+      </button>
     </div>
   );
 }

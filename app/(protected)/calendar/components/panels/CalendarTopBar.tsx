@@ -20,6 +20,7 @@
 import { type RefObject } from "react";
 import Link from "next/link";
 import { BuildInfo } from "@/src/components/BuildInfo";
+import NotificationsBell from "@/src/components/NotificationsBell";
 import {
   THEME, formatDMY, startOfISOWeekMonday,
 } from "../../utils";
@@ -53,6 +54,10 @@ export type CalendarTopBarProps = {
   bookingPanelOpen: boolean;
   pendingBookingsCount: number;
   onToggleBookingPanel: () => void;
+
+  // ─── Notifiche conferme/annullamenti pazienti (Fase N2) ───────
+  notificationsBellEnabled: boolean;
+  onNotificationAppointmentClick?: (appointmentId: string) => void;
 
   // ─── Menu utente ──────────────────────────────────────────────
   userMenuOpen: boolean;
@@ -101,6 +106,7 @@ export default function CalendarTopBar({
   printMenuOpen, setPrintMenuOpen, printMenuRef,
   onPrintCalendar, onExportToPDF, onExportToGoogleCalendar,
   bookingPanelOpen, pendingBookingsCount, onToggleBookingPanel,
+  notificationsBellEnabled, onNotificationAppointmentClick,
   userMenuOpen, setUserMenuOpen, userMenuRef,
   userInitials, onLogout,
 }: CalendarTopBarProps) {
@@ -347,6 +353,12 @@ export default function CalendarTopBar({
             </span>
           )}
         </button>
+
+        {/* Bell notifiche conferme/annullamenti pazienti (Fase N2) */}
+        <NotificationsBell
+          enabled={notificationsBellEnabled}
+          onAppointmentClick={onNotificationAppointmentClick}
+        />
 
         {/* Menu utente */}
         <div ref={userMenuRef} style={{ position: "relative" }}>

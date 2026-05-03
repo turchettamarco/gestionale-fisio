@@ -61,6 +61,10 @@ export default function MobileSettingsPage() {
   // Dati fiscali (interni, su practice_settings)
   const [vatNumber, setVatNumber] = useState("");
   const [pecEmail, setPecEmail] = useState("");
+  // Notifiche (Fase N2)
+  const [notifyEmailEnabled, setNotifyEmailEnabled] = useState(true);
+  const [notifyBellEnabled, setNotifyBellEnabled] = useState(true);
+  const [notifyWaRedirectEnabled, setNotifyWaRedirectEnabled] = useState(true);
 
   // ── Catalogo Trattamenti (sostituisce le vecchie tariffe + durate) ──
   const [treatments, setTreatments] = useState<TreatmentTypeRow[]>([]);
@@ -107,6 +111,10 @@ export default function MobileSettingsPage() {
       setSignatureName(currentStudio.signature_name || "");
       setSignatureTitle(currentStudio.signature_title || "");
       setLogoBase64(currentStudio.logo_base64 || "");
+      // Notifiche (Fase N2)
+      setNotifyEmailEnabled(currentStudio.notify_email_enabled ?? true);
+      setNotifyBellEnabled(currentStudio.notify_bell_enabled ?? true);
+      setNotifyWaRedirectEnabled(currentStudio.notify_wa_redirect_enabled ?? true);
     }
   },[currentStudio]);
 
@@ -188,6 +196,10 @@ export default function MobileSettingsPage() {
         signature_name:     signatureName.trim() || null,
         signature_title:    signatureTitle.trim() || null,
         logo_base64:        logoBase64 || null,
+        // Notifiche (Fase N2)
+        notify_email_enabled:        notifyEmailEnabled,
+        notify_bell_enabled:         notifyBellEnabled,
+        notify_wa_redirect_enabled:  notifyWaRedirectEnabled,
       }).eq("id", currentStudioId);
       if (studioErr) throw new Error("Errore salvataggio studio: " + studioErr.message);
 
@@ -470,6 +482,32 @@ export default function MobileSettingsPage() {
             </div>
             <div><label style={lbl}>Partita IVA</label><input value={vatNumber} onChange={e=>setVatNumber(e.target.value)} placeholder="Es. 03195120609" style={inp}/></div>
             <div><label style={lbl}>PEC</label><input type="email" value={pecEmail} onChange={e=>setPecEmail(e.target.value)} placeholder="Es. mariorossi@pec.it" style={inp}/></div>
+          </div>
+        </Section>
+
+        <Section id="notifiche" title="🔔 Notifiche pazienti" sub="Conferme e annullamenti dal link WhatsApp">
+          <div style={{ display:"flex", flexDirection:"column", gap:10, paddingTop:14 }}>
+            <div style={{ padding:"10px 12px", borderRadius:8, background:"rgba(148,163,184,0.06)", fontSize:11, color:THEME.muted, lineHeight:1.5 }}>
+              Quando un paziente conferma o annulla un appuntamento dal link che gli invii, scegli come venire avvisato.
+            </div>
+            <MobileToggle
+              label="Campanella nel calendario"
+              description="Mostra le notifiche con un badge nel calendario"
+              checked={notifyBellEnabled}
+              onChange={setNotifyBellEnabled}
+            />
+            <MobileToggle
+              label="Email allo studio"
+              description="Invia email all'indirizzo email dello studio"
+              checked={notifyEmailEnabled}
+              onChange={setNotifyEmailEnabled}
+            />
+            <MobileToggle
+              label="WhatsApp di ritorno"
+              description="Quando il paziente annulla, gli proponi di avvisarti su WhatsApp"
+              checked={notifyWaRedirectEnabled}
+              onChange={setNotifyWaRedirectEnabled}
+            />
           </div>
         </Section>
 
@@ -821,6 +859,65 @@ export default function MobileSettingsPage() {
           </Link>
         ))}
       </nav>
+    </div>
+  );
+}
+
+// ─── MobileToggle: switch on/off mobile-friendly ───────────────────────
+function MobileToggle({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  const THEME_LOCAL = {
+    text: "#0f172a", muted: "#334155", border: "#cbd5e1", teal: "#0d9488",
+  };
+  return (
+    <div
+      onClick={() => onChange(!checked)}
+      style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14,
+        padding: "12px 14px", borderRadius: 10,
+        border: `1px solid ${THEME_LOCAL.border}`,
+        background: checked ? "rgba(13,148,136,0.04)" : "#fff",
+        cursor: "pointer",
+        transition: "background 0.15s",
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: THEME_LOCAL.text, marginBottom: 3 }}>{label}</div>
+        <div style={{ fontSize: 12, color: THEME_LOCAL.muted, lineHeight: 1.4 }}>{description}</div>
+      </div>
+      <div
+        role="switch"
+        aria-checked={checked}
+        style={{
+          width: 48, height: 26, minWidth: 48, borderRadius: 13,
+          background: checked ? THEME_LOCAL.teal : "#cbd5e1",
+          position: "relative",
+          transition: "background 0.2s",
+          flexShrink: 0,
+        }}
+      >
+        <span
+          style={{
+            position: "absolute",
+            top: 2,
+            left: checked ? 24 : 2,
+            width: 22, height: 22,
+            borderRadius: "50%",
+            background: "#fff",
+            transition: "left 0.2s",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+          }}
+        />
+      </div>
     </div>
   );
 }

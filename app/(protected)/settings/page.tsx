@@ -126,6 +126,10 @@ export default function SettingsPage() {
   // Logo studio (multi-tenancy: salvato su studios.logo_base64)
   // Dichiarato qui perché usato dal callback saveStudio sotto.
   const [logoBase64, setLogoBase64]                     = useState("");
+  // Notifiche (Fase N2): toggle su tabella studios
+  const [notifyEmailEnabled, setNotifyEmailEnabled]     = useState(true);
+  const [notifyBellEnabled, setNotifyBellEnabled]       = useState(true);
+  const [notifyWaRedirectEnabled, setNotifyWaRedirectEnabled] = useState(true);
 
   // Popola i campi studio quando arriva il contesto
   useEffect(() => {
@@ -140,6 +144,10 @@ export default function SettingsPage() {
     setStudioWebsite(studio.website || "");
     // Logo: ora gestito sulla tabella studios (multi-tenancy)
     setLogoBase64(studio.logo_base64 || "");
+    // Notifiche (Fase N2)
+    setNotifyEmailEnabled(studio.notify_email_enabled ?? true);
+    setNotifyBellEnabled(studio.notify_bell_enabled ?? true);
+    setNotifyWaRedirectEnabled(studio.notify_wa_redirect_enabled ?? true);
   }, [studio]);
 
   const saveStudio = useCallback(async () => {
@@ -157,6 +165,10 @@ export default function SettingsPage() {
         signature_title:    studioSignatureTitle.trim() || null,
         website:            studioWebsite.trim() || null,
         logo_base64:        logoBase64 || null,
+        // Notifiche (Fase N2)
+        notify_email_enabled:        notifyEmailEnabled,
+        notify_bell_enabled:         notifyBellEnabled,
+        notify_wa_redirect_enabled:  notifyWaRedirectEnabled,
       }).eq("id", studio.id);
       if (error) { alert("Errore: " + error.message); return; }
       await refreshStudio();
@@ -166,7 +178,9 @@ export default function SettingsPage() {
     }
   }, [studio, studioName, studioAddress, studioPhone, studioEmail,
       studioGoogleReview, studioSignatureName, studioSignatureTitle, studioWebsite,
-      logoBase64, refreshStudio]);
+      logoBase64,
+      notifyEmailEnabled, notifyBellEnabled, notifyWaRedirectEnabled,
+      refreshStudio]);
 
   // ── Calendar feed token ──────────────────────────────────────────────────
   const [calendarToken, setCalendarToken]                 = useState<string | null>(null);
@@ -1022,6 +1036,9 @@ export default function SettingsPage() {
               studioSignatureName={studioSignatureName} setStudioSignatureName={setStudioSignatureName}
               studioSignatureTitle={studioSignatureTitle} setStudioSignatureTitle={setStudioSignatureTitle}
               logoBase64={logoBase64} setLogoBase64={setLogoBase64}
+              notifyEmailEnabled={notifyEmailEnabled} setNotifyEmailEnabled={setNotifyEmailEnabled}
+              notifyBellEnabled={notifyBellEnabled} setNotifyBellEnabled={setNotifyBellEnabled}
+              notifyWaRedirectEnabled={notifyWaRedirectEnabled} setNotifyWaRedirectEnabled={setNotifyWaRedirectEnabled}
               savingStudio={savingStudio}
               onSave={() => void saveStudio()}
             />

@@ -26,6 +26,10 @@ export type Studio = {
   website: string | null;
   signature_name: string | null;
   signature_title: string | null;
+  // Toggle notifiche (Fase N2)
+  notify_email_enabled?: boolean;
+  notify_bell_enabled?: boolean;
+  notify_wa_redirect_enabled?: boolean;
 };
 
 export type StudioMember = {
@@ -92,7 +96,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       // 3. Recupera i dati completi dello studio
       const { data: studioData, error: studioErr } = await supabase
         .from("studios")
-        .select("id, name, address, phone, email, google_review_link, logo_url, logo_base64, website, signature_name, signature_title")
+        .select("id, name, address, phone, email, google_review_link, logo_url, logo_base64, website, signature_name, signature_title, notify_email_enabled, notify_bell_enabled, notify_wa_redirect_enabled")
         .eq("id", memberData.studio_id)
         .maybeSingle();
 

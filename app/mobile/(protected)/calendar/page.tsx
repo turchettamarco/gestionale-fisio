@@ -10,6 +10,7 @@ import { assignLanes } from "@/app/(protected)/calendar/utils/laneAssignment";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 import PaidIconButton from "@/src/components/PaidIconButton";
+import NotificationsBell from "@/src/components/NotificationsBell";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
 
 /**
@@ -1464,6 +1465,21 @@ function CalendarPageInner() {
             background:"rgba(255,255,255,0.15)",color:"#fff",cursor:"pointer",fontSize:15,
             display:"flex",alignItems:"center",justifyContent:"center",
           }}>↺</button>
+
+          {/* Bell notifiche conferme/annullamenti pazienti (Fase N2) */}
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <NotificationsBell
+              enabled={currentStudio?.notify_bell_enabled !== false}
+              dropdownAlign="right"
+              onAppointmentClick={(apptId) => {
+                const ev = events.find(e => e.id === apptId);
+                if (ev?.start) {
+                  setCurrentDate(new Date(ev.start));
+                }
+              }}
+            />
+          </div>
+
           <div ref={userMenuRef} style={{position:"relative"}}>
             <button onClick={()=>setUserMenuOpen(v=>!v)} style={{
               width:30,height:30,borderRadius:7,border:"1.5px solid rgba(255,255,255,0.35)",
