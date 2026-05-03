@@ -19,6 +19,7 @@ import type {
   PatientLite,
   PracticeSettings,
   CalendarEvent,
+  AppointmentParticipant,
 } from "./utils";
 
 import {
@@ -180,7 +181,7 @@ const handleLogout = useCallback(async () => {
       setPracticeSettingsLoaded(false);
       const { data, error } = await supabase
         .from("practice_settings")
-        .select("standard_invoice, standard_cash, machine_invoice, machine_cash, auto_apply_prices, google_review_link, default_appointment_status, overlap_mode, weekly_reminder_message")
+        .select("standard_invoice, standard_cash, machine_invoice, machine_cash, auto_apply_prices, google_review_link, default_appointment_status, overlap_mode, weekly_reminder_message, default_group_price, default_group_max_participants")
         .eq("owner_id", userId)
         .maybeSingle();
 
@@ -196,6 +197,8 @@ const handleLogout = useCallback(async () => {
         default_appointment_status: (data?.default_appointment_status ?? "confirmed") as "confirmed"|"booked",
         overlap_mode: ((data as any)?.overlap_mode ?? "warn") as "block"|"warn"|"visual",
         weekly_reminder_message: (data as any)?.weekly_reminder_message ?? null,
+        default_group_price: (data as any)?.default_group_price ?? null,
+        default_group_max_participants: (data as any)?.default_group_max_participants ?? null,
       });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -400,6 +403,14 @@ const userInitials = useMemo(() => {
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurringDays, setRecurringDays] = useState<number[]>([1, 2, 3, 4, 5, 6]);
   const [recurringUntil, setRecurringUntil] = useState<string>("");
+
+  // ─── Appuntamento di gruppo (mig. 014) ────────────────────────────────────
+  const [isGroupAppointment, setIsGroupAppointment]               = useState(false);
+  const [groupTitle, setGroupTitle]                               = useState("");
+  const [groupMaxParticipants, setGroupMaxParticipants]           = useState<string>("6");
+  const [groupPricePerPerson, setGroupPricePerPerson]             = useState<string>("15.00");
+  /** Modalità gruppo ricorrente: closed=replica i pazienti su tutte le occorrenze, open=lascia vuoto */
+  const [groupRecurringMode, setGroupRecurringMode]               = useState<"closed" | "open">("closed");
 
   const [quickPatientOpen, setQuickPatientOpen] = useState(false);
   const [quickPatientFirstName, setQuickPatientFirstName] = useState("");
@@ -942,6 +953,17 @@ const { data, error } = await supabase
     setRecurringDays(defaultDays);
     setRecurringUntil(toDateInputValue(addWeeks(date, 4)));
 
+    // Reset stato gruppo (mig. 014)
+    setIsGroupAppointment(false);
+    setGroupTitle("");
+    setGroupMaxParticipants(String(practiceSettings?.default_group_max_participants ?? 6));
+    setGroupPricePerPerson(
+      practiceSettings?.default_group_price != null
+        ? practiceSettings.default_group_price.toFixed(2)
+        : "15.00"
+    );
+    setGroupRecurringMode("closed");
+
     setQuickPatientFirstName("");
     setQuickPatientLastName("");
     setQuickPatientPhone("");
@@ -951,7 +973,7 @@ const { data, error } = await supabase
 
     setError("");
     setCreateOpen(true);
-  }, [selectedStartTime, selectedDuration, timeSelectSlots, patientResults]);
+  }, [selectedStartTime, selectedDuration, timeSelectSlots, patientResults, practiceSettings, currentStudio?.name, treatmentCatalog]);
 
   // Shortcut da tastiera - ORA le funzioni sono disponibili
   useEffect(() => {
@@ -1084,7 +1106,13 @@ const { data, error } = await supabase
           expected_price, is_paid, paid_at,
           reminder_sent_at, reminder_status,
           whatsapp_sent_at,
-          patients:patient_id ( first_name, last_name, treatment, diagnosis, phone )
+          is_group, group_title, group_max_participants, group_price_per_person,
+          patients:patient_id ( first_name, last_name, treatment, diagnosis, phone ),
+          appointment_participants (
+            id, appointment_id, patient_id, price, payment_status, payment_method, paid_at,
+            attendance_status, checked_in_at, participant_notes, created_at,
+            patients:patient_id ( first_name, last_name, phone )
+          )
         `)
         .gte("start_at", startISO)
         .lt("start_at", endISO)
@@ -1126,6 +1154,11 @@ const mapped = (data ?? []).map(
       reminder_sent_at?: string | null;
       reminder_status?: string | null;
       whatsapp_sent_at?: string | null;
+      // Campi gruppo (mig. 014)
+      is_group?: boolean | null;
+      group_title?: string | null;
+      group_max_participants?: number | null;
+      group_price_per_person?: number | null;
       patients?: Array<{
         first_name?: string;
         last_name?: string;
@@ -1133,19 +1166,67 @@ const mapped = (data ?? []).map(
         diagnosis?: string;
         phone?: string;
       }>;
+      appointment_participants?: Array<{
+        id: string;
+        appointment_id: string;
+        patient_id: string;
+        price: number | null;
+        payment_status?: string | null;
+        payment_method?: string | null;
+        paid_at?: string | null;
+        attendance_status?: string | null;
+        checked_in_at?: string | null;
+        participant_notes?: string | null;
+        created_at?: string;
+        patients?: Array<{
+          first_name?: string;
+          last_name?: string;
+          phone?: string;
+        }> | { first_name?: string; last_name?: string; phone?: string } | null;
+      }>;
     }
   ) => {
     const patient = Array.isArray(a.patients) ? a.patients[0] : a.patients;
+    const isGroup = a.is_group === true;
+
+    // Mapping partecipanti (gruppo)
+    const participants: AppointmentParticipant[] = (a.appointment_participants ?? []).map((p) => {
+      const pp = Array.isArray(p.patients) ? p.patients[0] : p.patients;
+      return {
+        id: p.id,
+        appointment_id: p.appointment_id,
+        patient_id: p.patient_id,
+        price: Number(p.price ?? 0),
+        payment_status: (p.payment_status === "paid" ? "paid" : "unpaid") as "paid" | "unpaid",
+        payment_method: (p.payment_method ?? null) as "cash" | "pos" | "bank_transfer" | null,
+        paid_at: p.paid_at ?? null,
+        attendance_status: (p.attendance_status === "present" || p.attendance_status === "absent"
+          ? p.attendance_status
+          : "pending") as "pending" | "present" | "absent",
+        checked_in_at: p.checked_in_at ?? null,
+        participant_notes: p.participant_notes ?? null,
+        created_at: p.created_at ?? new Date().toISOString(),
+        patient_first_name: pp?.first_name ?? null,
+        patient_last_name: pp?.last_name ?? null,
+        patient_phone: pp?.phone ?? null,
+      };
+    });
 
     // Se non c'è paziente (prenotazione web), estrai nome dal calendar_note
     // Formato: "[WEB|Nome Cognome|Telefono] Servizio..."
-    let name = patient
-      ? `${patient.last_name ?? ""} ${patient.first_name ?? ""}`.trim()
-      : "Paziente";
+    // Per i gruppi, il "nome" è il titolo del gruppo
+    let name: string;
+    if (isGroup) {
+      name = a.group_title || "Gruppo";
+    } else {
+      name = patient
+        ? `${patient.last_name ?? ""} ${patient.first_name ?? ""}`.trim()
+        : "Paziente";
 
-    if (!patient && a.calendar_note) {
-      const match = (a.calendar_note as string).match(/^\[WEB\|([^|]+)\|/);
-      if (match && match[1]) name = match[1].trim();
+      if (!patient && a.calendar_note) {
+        const match = (a.calendar_note as string).match(/^\[WEB\|([^|]+)\|/);
+        if (match && match[1]) name = match[1].trim();
+      }
     }
 
 
@@ -1179,6 +1260,12 @@ const mapped = (data ?? []).map(
 treatment: patient?.treatment ?? null,
 diagnosis: patient?.diagnosis ?? null,
 
+      // Gruppo (mig. 014)
+      is_group: isGroup,
+      group_title: a.group_title ?? null,
+      group_max_participants: a.group_max_participants ?? null,
+      group_price_per_person: a.group_price_per_person ?? null,
+      participants,
     };
   }
 );
@@ -1911,7 +1998,25 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
   const createAppointment = useCallback(async (sendWhatsApp: boolean = false) => {
   setError("");
 
-  if (!selectedPatient) {
+  // Per gli appuntamenti di gruppo, NON serve un paziente selezionato
+  // (i partecipanti verranno aggiunti dopo dal SelectedEventModal).
+  // Servono però titolo, max partecipanti e prezzo per persona.
+  if (isGroupAppointment) {
+    if (!groupTitle.trim()) {
+      setError("Inserisci un titolo per il gruppo (es. \"Posturale di gruppo\").");
+      return;
+    }
+    const maxN = parseInt(groupMaxParticipants, 10);
+    if (isNaN(maxN) || maxN < 2) {
+      setError("Numero massimo partecipanti non valido (minimo 2).");
+      return;
+    }
+    const pricePP = parseFloat(groupPricePerPerson.replace(",", "."));
+    if (isNaN(pricePP) || pricePP < 0) {
+      setError("Prezzo per persona non valido.");
+      return;
+    }
+  } else if (!selectedPatient) {
     setError("Seleziona un paziente prima di creare l'appuntamento.");
     return;
   }
@@ -1962,7 +2067,11 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
   }
 
   let amount: number | null = null;
-  if (useCustomPrice && customAmount !== "") {
+  if (isGroupAppointment) {
+    // Per i gruppi, "amount" sull'appointment padre resta NULL.
+    // Il totale si calcola come somma dei prezzi dei partecipanti.
+    amount = null;
+  } else if (useCustomPrice && customAmount !== "") {
     const parsed = parseFloat(customAmount.replace(',', '.'));
     if (!isNaN(parsed) && parsed >= 0) {
       amount = parsed;
@@ -1978,26 +2087,49 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
   }
 
   // Validazione: se fatturato, payment_method è obbligatorio
-  if (priceType === "invoiced" && !paymentMethod) {
+  // (skip per i gruppi: i pagamenti sono per singolo partecipante)
+  if (!isGroupAppointment && priceType === "invoiced" && !paymentMethod) {
     alert("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");
     return;
   }
 
   setCreating(true);
 
-  const basePayload = {
-    patient_id: selectedPatient.id,
-    status: (practiceSettings?.default_appointment_status ?? "confirmed") as Status,
-    calendar_note: null as string | null,
-    location: createLocation,
-    clinic_site: createLocation === "studio" ? createClinicSite.trim() : null,
-    domicile_address: createLocation === "domicile" ? createDomicileAddress.trim() : null,
-    treatment_type: treatmentType,
-    price_type: priceType,
-    payment_method: priceType === "invoiced" ? paymentMethod : null,
-    amount: amount,
-    studio_id: currentStudioId,  // multi-tenancy
-  };
+  // Per i gruppi, patient_id=null e is_group=true.
+  // Il vincolo CHECK del DB richiede patient_id NULL quando is_group=TRUE.
+  const basePayload = isGroupAppointment
+    ? {
+        patient_id: null,
+        status: (practiceSettings?.default_appointment_status ?? "confirmed") as Status,
+        calendar_note: null as string | null,
+        location: createLocation,
+        clinic_site: createLocation === "studio" ? createClinicSite.trim() : null,
+        domicile_address: createLocation === "domicile" ? createDomicileAddress.trim() : null,
+        treatment_type: null,
+        price_type: null,
+        payment_method: null,
+        amount: null,
+        studio_id: currentStudioId,
+        // Campi gruppo (mig. 014)
+        is_group: true,
+        group_title: groupTitle.trim(),
+        group_max_participants: parseInt(groupMaxParticipants, 10),
+        group_price_per_person: parseFloat(groupPricePerPerson.replace(",", ".")),
+      }
+    : {
+        patient_id: selectedPatient!.id,
+        status: (practiceSettings?.default_appointment_status ?? "confirmed") as Status,
+        calendar_note: null as string | null,
+        location: createLocation,
+        clinic_site: createLocation === "studio" ? createClinicSite.trim() : null,
+        domicile_address: createLocation === "domicile" ? createDomicileAddress.trim() : null,
+        treatment_type: treatmentType,
+        price_type: priceType,
+        payment_method: priceType === "invoiced" ? paymentMethod : null,
+        amount: amount,
+        studio_id: currentStudioId,  // multi-tenancy
+        is_group: false,
+      };
 
   try {
     let createdAppointmentId: string | null = null;
@@ -2015,7 +2147,9 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
       if (data) {
         createdAppointmentId = data.id;
         
-        if (sendWhatsApp) {
+        // Per i gruppi non c'è un singolo paziente a cui inviare il WA.
+        // I promemoria a tutti i partecipanti verranno inviati dopo, dal SelectedEventModal.
+        if (sendWhatsApp && !isGroupAppointment && selectedPatient) {
           if (!(selectedPatient.phone || "").trim()) {
             alert("Nessun telefono registrato per questo paziente");
           } else {
@@ -2107,6 +2241,7 @@ A presto${firma ? `,\n${firma}` : ""}`;
   recurringFrequency,
   treatmentType,
   priceType,
+  paymentMethod,
   useCustomPrice,
   customAmount,
   practiceSettings,
@@ -2114,6 +2249,13 @@ A presto${firma ? `,\n${firma}` : ""}`;
   currentDate,
   loadAppointments,
   checkOverlap,
+  // Gruppo (mig. 014)
+  isGroupAppointment,
+  groupTitle,
+  groupMaxParticipants,
+  groupPricePerPerson,
+  currentStudio,
+  currentStudioId,
 ]);
 
   const saveAppointment = useCallback(async () => {
@@ -2872,6 +3014,16 @@ return (
           setQuickPatientPhone={setQuickPatientPhone}
           creatingQuickPatient={creatingQuickPatient}
           createQuickPatient={createQuickPatient}
+          isGroupAppointment={isGroupAppointment}
+          setIsGroupAppointment={setIsGroupAppointment}
+          groupTitle={groupTitle}
+          setGroupTitle={setGroupTitle}
+          groupMaxParticipants={groupMaxParticipants}
+          setGroupMaxParticipants={setGroupMaxParticipants}
+          groupPricePerPerson={groupPricePerPerson}
+          setGroupPricePerPerson={setGroupPricePerPerson}
+          groupRecurringMode={groupRecurringMode}
+          setGroupRecurringMode={setGroupRecurringMode}
           creating={creating}
         />
       )}

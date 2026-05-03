@@ -121,6 +121,18 @@ export type CreateAppointmentModalProps = {
   creatingQuickPatient: boolean;
   createQuickPatient: () => void;
 
+  // ─── Gruppo (mig. 014) ────────────────────────────────────
+  isGroupAppointment: boolean;
+  setIsGroupAppointment: (v: boolean) => void;
+  groupTitle: string;
+  setGroupTitle: (s: string) => void;
+  groupMaxParticipants: string;
+  setGroupMaxParticipants: (s: string) => void;
+  groupPricePerPerson: string;
+  setGroupPricePerPerson: (s: string) => void;
+  groupRecurringMode: "closed" | "open";
+  setGroupRecurringMode: (m: "closed" | "open") => void;
+
   // ─── Submit ───────────────────────────────────────────────
   creating: boolean;
 };
@@ -153,6 +165,11 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
     quickPatientLastName, setQuickPatientLastName,
     quickPatientPhone, setQuickPatientPhone,
     creatingQuickPatient, createQuickPatient,
+    isGroupAppointment, setIsGroupAppointment,
+    groupTitle, setGroupTitle,
+    groupMaxParticipants, setGroupMaxParticipants,
+    groupPricePerPerson, setGroupPricePerPerson,
+    groupRecurringMode, setGroupRecurringMode,
     creating,
   } = props;
 
@@ -160,7 +177,14 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
   const overlapMode = practiceSettings?.overlap_mode ?? "warn";
   const isBlock = overlapMode === "block";
   const isVisualOverlap = overlapMode === "visual";
-  const submitDisabled = creating || !selectedPatient || (isBlock && !!overlapWarning);
+  // Per i gruppi non serve un paziente selezionato; serve invece il titolo.
+  const groupValid = isGroupAppointment
+    ? !!groupTitle.trim() && parseInt(groupMaxParticipants, 10) >= 2
+    : true;
+  const submitDisabled = creating
+    || (!isGroupAppointment && !selectedPatient)
+    || (isGroupAppointment && !groupValid)
+    || (isBlock && !!overlapWarning);
 
   // Cambio data manuale (no duplicate)
   const handleManualDateChange = (newDateStr: string) => {
@@ -386,7 +410,234 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
           <div></div>
         </div>
 
-        {/* ─── Tipologia e Prezzo ──────────────────────── */}
+        {/* ─── Toggle: Appuntamento di gruppo (mig. 014) ──────────── */}
+        {!duplicateMode && (
+          <div
+            onClick={() => setIsGroupAppointment(!isGroupAppointment)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "12px 16px",
+              marginBottom: 16,
+              borderRadius: 8,
+              border: `1.5px solid ${isGroupAppointment ? THEME.teal : THEME.border}`,
+              background: isGroupAppointment ? `${THEME.teal}10` : THEME.panelSoft,
+              cursor: "pointer",
+              transition: "all 0.15s",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 18 }}>👥</span>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: isGroupAppointment ? THEME.teal : THEME.textSoft }}>
+                  Appuntamento di gruppo
+                </div>
+                <div style={{ fontSize: 11, color: THEME.muted, marginTop: 1 }}>
+                  Più pazienti, prezzo per persona (Posturale, Pilates, ecc.)
+                </div>
+              </div>
+            </div>
+            {/* Toggle switch */}
+            <div
+              style={{
+                width: 40,
+                height: 22,
+                borderRadius: 11,
+                background: isGroupAppointment ? THEME.teal : THEME.border,
+                position: "relative",
+                transition: "background 0.2s",
+                flexShrink: 0,
+              }}
+            >
+              <div
+                style={{
+                  width: 18,
+                  height: 18,
+                  borderRadius: "50%",
+                  background: "#fff",
+                  position: "absolute",
+                  top: 2,
+                  left: isGroupAppointment ? 20 : 2,
+                  transition: "left 0.2s",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* ─── Form GRUPPO (visibile solo se isGroupAppointment) ─── */}
+        {isGroupAppointment && (
+          <div style={{ marginBottom: 20, border: `1.5px solid ${THEME.teal}33`, padding: 16, borderRadius: 8, background: `${THEME.teal}08` }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: THEME.teal, marginBottom: 4 }}>
+              Dati gruppo
+            </div>
+            <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 14, lineHeight: 1.5 }}>
+              ⚡ Aggiungerai i pazienti dopo aver creato l&apos;appuntamento, dalla scheda del gruppo.
+            </div>
+
+            {/* Titolo */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 6 }}>
+                Titolo del gruppo
+              </div>
+              <input
+                type="text"
+                value={groupTitle}
+                onChange={(e) => setGroupTitle(e.target.value)}
+                placeholder="Es. Posturale di gruppo, Pilates, Ginnastica…"
+                style={{
+                  width: "100%",
+                  padding: "9px 12px",
+                  borderRadius: 7,
+                  border: `1.5px solid ${THEME.border}`,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  outline: "none",
+                  background: "#fff",
+                  color: THEME.text,
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+
+            {/* Max + Prezzo per persona */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 6 }}>
+                  Max partecipanti
+                </div>
+                <input
+                  type="number"
+                  min={2}
+                  max={50}
+                  value={groupMaxParticipants}
+                  onChange={(e) => setGroupMaxParticipants(e.target.value.replace(/[^0-9]/g, ""))}
+                  style={{
+                    width: "100%",
+                    padding: "9px 12px",
+                    borderRadius: 7,
+                    border: `1.5px solid ${THEME.border}`,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    outline: "none",
+                    background: "#fff",
+                    color: THEME.text,
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 6 }}>
+                  Prezzo per persona
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: THEME.muted }}>€</span>
+                  <input
+                    type="text"
+                    value={groupPricePerPerson}
+                    onChange={(e) => {
+                      // Accetta solo numeri e punto/virgola
+                      const v = e.target.value.replace(/[^0-9.,]/g, "");
+                      setGroupPricePerPerson(v);
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "9px 12px",
+                      borderRadius: 7,
+                      border: `1.5px solid ${THEME.border}`,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      outline: "none",
+                      background: "#fff",
+                      color: THEME.text,
+                      textAlign: "right",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Anteprima totale potenziale */}
+            <div style={{ padding: "8px 12px", background: "#fff", border: `1px solid ${THEME.teal}22`, borderRadius: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 12, color: THEME.muted }}>
+                Totale potenziale ({groupMaxParticipants || 0} × {groupPricePerPerson || "0"}€)
+              </span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: THEME.teal }}>
+                {(() => {
+                  const n = parseInt(groupMaxParticipants, 10) || 0;
+                  const p = parseFloat((groupPricePerPerson || "0").replace(",", ".")) || 0;
+                  return (n * p).toFixed(2);
+                })()}€
+              </span>
+            </div>
+
+            {/* Modalità ricorrente (solo se isRecurring && isGroup) */}
+            {isRecurring && (
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px dashed ${THEME.teal}33` }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted, marginBottom: 8 }}>
+                  Modalità ricorrenza
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <label
+                    style={{
+                      display: "flex", alignItems: "flex-start", gap: 8,
+                      padding: 10, borderRadius: 6,
+                      border: `1.5px solid ${groupRecurringMode === "closed" ? THEME.teal : THEME.border}`,
+                      background: groupRecurringMode === "closed" ? `${THEME.teal}10` : "#fff",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="group-rec-mode"
+                      checked={groupRecurringMode === "closed"}
+                      onChange={() => setGroupRecurringMode("closed")}
+                      style={{ marginTop: 2 }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>🔒 Chiuso</div>
+                      <div style={{ fontSize: 10, color: THEME.muted, lineHeight: 1.4 }}>
+                        Stessi pazienti ogni settimana
+                      </div>
+                    </div>
+                  </label>
+                  <label
+                    style={{
+                      display: "flex", alignItems: "flex-start", gap: 8,
+                      padding: 10, borderRadius: 6,
+                      border: `1.5px solid ${groupRecurringMode === "open" ? THEME.teal : THEME.border}`,
+                      background: groupRecurringMode === "open" ? `${THEME.teal}10` : "#fff",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="group-rec-mode"
+                      checked={groupRecurringMode === "open"}
+                      onChange={() => setGroupRecurringMode("open")}
+                      style={{ marginTop: 2 }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>🚪 Aperto</div>
+                      <div style={{ fontSize: 10, color: THEME.muted, lineHeight: 1.4 }}>
+                        Slot vuoti, aggiungi volta per volta
+                      </div>
+                    </div>
+                  </label>
+                </div>
+                <div style={{ fontSize: 10, color: THEME.muted, marginTop: 6, fontStyle: "italic" }}>
+                  Nota: la replica automatica dei pazienti su tutte le occorrenze (modalità chiuso) sarà attiva nel prossimo aggiornamento.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── Tipologia e Prezzo (NASCOSTO se gruppo) ──────────────────────── */}
+        {!isGroupAppointment && (
         <div style={{ marginBottom: 20, border: `1.5px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft, marginBottom: 12 }}>
             Tipologia e Prezzo
@@ -540,6 +791,7 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
             </strong>
           </div>
         </div>
+        )}
 
         {/* ─── Ricorrente ──────────────────────────────── */}
         <div style={{ marginBottom: 20, border: `1.5px solid ${THEME.border}`, background: THEME.panelSoft, padding: 16, borderRadius: 8 }}>
@@ -649,7 +901,9 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
           )}
         </div>
 
-        {/* ─── Sezione paziente ───────────────────────── */}
+        {/* ─── Sezione paziente (NASCOSTA se gruppo) ─────────────── */}
+        {!isGroupAppointment && (
+        <>
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft }}>
@@ -868,6 +1122,8 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
             </span>
           )}
         </div>
+        </>
+        )}
 
         {/* ─── Bottoni azione ───────────────────────────── */}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginTop: 28 }}>
@@ -898,7 +1154,7 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
               boxShadow: submitDisabled ? "none" : "0 4px 16px rgba(37,99,235,0.3)",
             }}
           >
-            {creating ? "Creazione..." : isRecurring ? "Crea ricorrenza" : "Crea appuntamento"}
+            {creating ? "Creazione..." : isGroupAppointment ? (isRecurring ? "Crea ricorrenza gruppo" : "Crea gruppo") : isRecurring ? "Crea ricorrenza" : "Crea appuntamento"}
           </button>
         </div>
       </div>

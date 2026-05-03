@@ -60,6 +60,32 @@ export type PracticeSettings = {
   overlap_mode: "block" | "warn" | "visual" | null;
   /** Template del promemoria settimanale aggregato (può essere null = usa default) */
   weekly_reminder_message: string | null;
+  /** Default prezzo per persona nei gruppi (mig. 014) */
+  default_group_price: number | null;
+  /** Default max partecipanti nei gruppi (mig. 014) */
+  default_group_max_participants: number | null;
+};
+
+/**
+ * Partecipante di un appuntamento di gruppo (mig. 014).
+ * 1 riga = 1 paziente in 1 gruppo.
+ */
+export type AppointmentParticipant = {
+  id: string;
+  appointment_id: string;
+  patient_id: string;
+  price: number;
+  payment_status: "paid" | "unpaid";
+  payment_method: "cash" | "pos" | "bank_transfer" | null;
+  paid_at: string | null;
+  attendance_status: "pending" | "present" | "absent";
+  checked_in_at: string | null;
+  participant_notes: string | null;
+  created_at: string;
+  /** Dati paziente (join lookup) */
+  patient_first_name?: string | null;
+  patient_last_name?: string | null;
+  patient_phone?: string | null;
 };
 
 export type CalendarEvent = {
@@ -91,4 +117,14 @@ export type CalendarEvent = {
   patient_phone: string | null;
   treatment: string | null;
   diagnosis: string | null;
+  /** Appuntamento di gruppo (mig. 014). Quando true, patient_id è vuoto/dummy. */
+  is_group: boolean;
+  /** Titolo del gruppo (es. "Posturale di gruppo") */
+  group_title: string | null;
+  /** Max partecipanti consentiti */
+  group_max_participants: number | null;
+  /** Prezzo di default per persona (sovrascrivibile per partecipante) */
+  group_price_per_person: number | null;
+  /** Partecipanti caricati (lazy: vuoto se non ancora caricati). */
+  participants?: AppointmentParticipant[];
 };

@@ -24,6 +24,7 @@ export type {
   PatientLite,
   PracticeSettings,
   CalendarEvent,
+  AppointmentParticipant,
 } from "./types";
 
 // Costanti, tema, helper status/treatment
