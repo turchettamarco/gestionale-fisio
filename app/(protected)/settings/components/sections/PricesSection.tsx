@@ -1,6 +1,7 @@
 // app/(protected)/settings/components/sections/PricesSection.tsx
 // ═══════════════════════════════════════════════════════════════════════
 // Sezione "Tariffe Trattamenti".
+// Include: prezzi standard per trattamento + prezzi di gruppo (mig. 014)
 // ═══════════════════════════════════════════════════════════════════════
 
 "use client";
@@ -29,6 +30,15 @@ export type PricesSectionProps = {
   tensCash: string; setTensCash: (v: string) => void;
 
   autoApplyPrices: boolean; setAutoApplyPrices: (v: boolean) => void;
+
+  // ─── Appuntamenti di gruppo (mig. 014) ─────────────────────────────────
+  defaultGroupPrice: string; setDefaultGroupPrice: (v: string) => void;
+  defaultGroupMaxParticipants: string; setDefaultGroupMaxParticipants: (v: string) => void;
+  groupStatsCountAsSeparate: boolean; setGroupStatsCountAsSeparate: (v: boolean) => void;
+  /** Salva il toggle statistiche (su studios). Diverso da onSave (che salva su practice_settings). */
+  onSaveGroupStats: () => void;
+  savingStudio: boolean;
+
   onReload: () => void;
   onSave: () => void;
 };
@@ -57,6 +67,7 @@ export default function PricesSection(p: PricesSectionProps) {
 
       {p.show && (
         <div style={{ padding: "20px", opacity: p.loadingPractice ? 0.7 : 1 }}>
+          {/* ─── Prezzi standard per trattamento ──────────────────────── */}
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
             {priceCards.map(pc => (
               <div key={pc.title} style={{ padding: 14, borderRadius: 10, border: `2px solid ${pc.color}22`, background: `${pc.color}08`, display: "flex", alignItems: "center", gap: 16 }}>
@@ -87,6 +98,7 @@ export default function PricesSection(p: PricesSectionProps) {
             ))}
           </div>
 
+          {/* ─── Auto-applica ──────────────────────────────────────────── */}
           <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "14px 16px", borderRadius: 8, border: `1px solid ${THEME.border}`, background: "#fff", marginBottom: 20 }}>
             <input type="checkbox" id="auto-apply" checked={p.autoApplyPrices} onChange={e => p.setAutoApplyPrices(e.target.checked)} style={{ width: 16, height: 16, marginTop: 2, cursor: "pointer", color: "#2563eb" }} />
             <label htmlFor="auto-apply" style={{ cursor: "pointer" }}>
@@ -95,9 +107,112 @@ export default function PricesSection(p: PricesSectionProps) {
             </label>
           </div>
 
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          {/* ─── Salva tariffe standard ────────────────────────────────── */}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 28 }}>
             <BtnOutline label="Ricarica" onClick={p.onReload} disabled={p.loadingPractice || p.savingPractice} />
             <BtnPrimary label={p.savingPractice ? "Salvataggio…" : "Salva tariffe"} onClick={p.onSave} disabled={p.loadingPractice || p.savingPractice} />
+          </div>
+
+          {/* ═══════════════════════════════════════════════════════════════
+              SOTTO-SEZIONE: Prezzi di gruppo (mig. 014)
+              ═══════════════════════════════════════════════════════════════ */}
+          <div style={{
+            position: "relative",
+            padding: 16,
+            borderRadius: 10,
+            border: `2px solid ${THEME.teal}33`,
+            background: `${THEME.teal}08`,
+          }}>
+            {/* Badge "NUOVO" */}
+            <div style={{
+              position: "absolute",
+              top: -10,
+              left: 14,
+              background: THEME.teal,
+              color: "#fff",
+              padding: "2px 10px",
+              borderRadius: 10,
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: 0.5,
+            }}>
+              NUOVO
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, marginTop: 4 }}>
+              <span style={{ fontSize: 18 }}>👥</span>
+              <div style={{ fontWeight: 700, fontSize: 14, color: THEME.teal }}>Prezzi di gruppo</div>
+            </div>
+            <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 14 }}>
+              Default per appuntamenti di gruppo (Posturale, Pilates, ecc.). Modificabili per singolo appuntamento e per singolo paziente.
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+              <div>
+                <label style={labelStyle}>Prezzo per persona</label>
+                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: THEME.muted }}>€</span>
+                  <input
+                    value={p.defaultGroupPrice}
+                    onChange={e => p.setDefaultGroupPrice(validatePrice(e.target.value))}
+                    style={{ ...inputStyle, textAlign: "right", fontWeight: 700, fontSize: 14, padding: "7px 10px" }}
+                  />
+                </div>
+              </div>
+              <div>
+                <label style={labelStyle}>Max partecipanti</label>
+                <input
+                  type="number"
+                  min={2}
+                  max={50}
+                  value={p.defaultGroupMaxParticipants}
+                  onChange={e => p.setDefaultGroupMaxParticipants(e.target.value.replace(/[^0-9]/g, ""))}
+                  style={{ ...inputStyle, fontWeight: 700, fontSize: 14, padding: "7px 10px" }}
+                />
+              </div>
+            </div>
+
+            {/* Toggle: conta come separati nelle statistiche */}
+            <div style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 10,
+              padding: "12px 14px",
+              borderRadius: 8,
+              border: `1px solid ${THEME.teal}33`,
+              background: "#fff",
+              marginBottom: 14,
+            }}>
+              <input
+                type="checkbox"
+                id="group-stats-separate"
+                checked={p.groupStatsCountAsSeparate}
+                onChange={e => p.setGroupStatsCountAsSeparate(e.target.checked)}
+                style={{ width: 16, height: 16, marginTop: 2, cursor: "pointer" }}
+              />
+              <label htmlFor="group-stats-separate" style={{ cursor: "pointer", flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: THEME.text }}>
+                  Conta come appuntamenti separati nelle statistiche
+                </div>
+                <div style={{ fontSize: 12, color: THEME.muted, marginTop: 3, lineHeight: 1.5 }}>
+                  <strong>OFF:</strong> 1 gruppo da 75€ = 1 appuntamento nei report.<br />
+                  <strong>ON:</strong> 5 partecipanti × 15€ = 5 appuntamenti separati nei report.
+                </div>
+              </label>
+            </div>
+
+            {/* Salva impostazioni gruppo */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <BtnPrimary
+                label={(p.savingPractice || p.savingStudio) ? "Salvataggio…" : "Salva impostazioni gruppo"}
+                onClick={() => {
+                  // Salva sia practice_settings (prezzo/max) sia studios (toggle)
+                  p.onSave();
+                  p.onSaveGroupStats();
+                }}
+                disabled={p.loadingPractice || p.savingPractice || p.savingStudio}
+              />
+            </div>
           </div>
         </div>
       )}

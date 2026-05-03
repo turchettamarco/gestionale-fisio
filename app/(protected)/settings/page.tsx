@@ -38,6 +38,7 @@ import {
 import SettingsNavBar from "./components/SettingsNavBar";
 import StudioBrandingSection from "./components/sections/StudioBrandingSection";
 import PracticeSection from "./components/sections/PracticeSection";
+import PricesSection from "./components/sections/PricesSection";
 import TreatmentsSection from "./components/sections/TreatmentsSection";
 import WorkingHoursSection from "./components/sections/WorkingHoursSection";
 import TemplatesSection from "./components/sections/TemplatesSection";
@@ -83,6 +84,7 @@ export default function SettingsPage() {
   // ── Stato sezioni accordion (apri/chiudi) ────────────────────────────────
   const [showStudio,    setShowStudio]    = useState(true);
   const [showPractice,  setShowPractice]  = useState(true);
+  const [showPrices,    setShowPrices]    = useState(true);
   const [showTreatments, setShowTreatments] = useState(true);
   const [showHours,     setShowHours]     = useState(true);
   const [showTemplates, setShowTemplates] = useState(true);
@@ -134,6 +136,13 @@ export default function SettingsPage() {
   const [showBookingCardHome, setShowBookingCardHome]   = useState(false);
   const [showBookingBellCalendar, setShowBookingBellCalendar] = useState(false);
 
+  // ── Prezzi di gruppo (mig. 014) ──────────────────────────────────────────
+  // Dichiarati qui in alto perché usati da saveGroupStats (sotto saveStudio).
+  const [defaultGroupPrice, setDefaultGroupPrice]                     = useState("15.00");
+  const [defaultGroupMaxParticipants, setDefaultGroupMaxParticipants] = useState("6");
+  const [groupStatsCountAsSeparate, setGroupStatsCountAsSeparate]     = useState(false);
+  const [savingGroupStats, setSavingGroupStats]                       = useState(false);
+
   // Popola i campi studio quando arriva il contesto
   useEffect(() => {
     if (!studio) return;
@@ -154,6 +163,12 @@ export default function SettingsPage() {
     // UI legacy Prenotazioni dal sito (Fase N2.1)
     setShowBookingCardHome(studio.show_booking_card_home ?? false);
     setShowBookingBellCalendar(studio.show_booking_bell_calendar ?? false);
+    // Appuntamenti di gruppo (mig. 014) — cast perché StudioContext potrebbe
+    // non avere ancora il campo nel tipo TypeScript
+    setGroupStatsCountAsSeparate(
+      ((studio as unknown as { group_stats_count_as_separate?: boolean | null })
+        .group_stats_count_as_separate) ?? false
+    );
   }, [studio]);
 
   const saveStudio = useCallback(async () => {
@@ -191,6 +206,27 @@ export default function SettingsPage() {
       notifyEmailEnabled, notifyBellEnabled, notifyWaRedirectEnabled,
       showBookingCardHome, showBookingBellCalendar,
       refreshStudio]);
+
+  // ── Salvataggio toggle statistiche gruppo (su tabella studios, mig. 014) ─
+  // Funzione separata da saveStudio() perché viene chiamata dal pulsante
+  // "Salva impostazioni gruppo" in PricesSection (insieme a savePracticeSettings).
+  const saveGroupStats = useCallback(async () => {
+    if (!studio?.id) return;
+    setSavingGroupStats(true);
+    try {
+      const { error } = await supabase
+        .from("studios")
+        .update({ group_stats_count_as_separate: groupStatsCountAsSeparate })
+        .eq("id", studio.id);
+      if (error) {
+        alert("Errore salvataggio impostazione statistiche gruppo: " + error.message);
+        return;
+      }
+      await refreshStudio();
+    } finally {
+      setSavingGroupStats(false);
+    }
+  }, [studio?.id, groupStatsCountAsSeparate, refreshStudio]);
 
   // ── Calendar feed token ──────────────────────────────────────────────────
   const [calendarToken, setCalendarToken]                 = useState<string | null>(null);
@@ -333,7 +369,7 @@ export default function SettingsPage() {
       const uid = await requireUserId();
       const { data, error } = await supabase
         .from("practice_settings")
-        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, logo_base64, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices, reminder_message, weekly_reminder_message, payment_message, birthday_message, satisfaction_message, default_appointment_status, overlap_mode, monthly_revenue_goal, inactive_threshold_days, reminder_hours_before, welcome_message, booking_confirm_message, duration_seduta, duration_macchinario, duration_laser, duration_tecar, duration_onde_urto, duration_tens")
+        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, logo_base64, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices, reminder_message, weekly_reminder_message, payment_message, birthday_message, satisfaction_message, default_appointment_status, overlap_mode, monthly_revenue_goal, inactive_threshold_days, reminder_hours_before, welcome_message, booking_confirm_message, duration_seduta, duration_macchinario, duration_laser, duration_tecar, duration_onde_urto, duration_tens, default_group_price, default_group_max_participants")
         .eq("owner_id", uid)
         .maybeSingle();
       if (error) throw new Error(error.message);
@@ -396,6 +432,9 @@ export default function SettingsPage() {
       setTensInvoice(toMoneyString(data.tens_invoice, "20.00"));
       setTensCash(toMoneyString(data.tens_cash, "15.00"));
       setAutoApplyPrices(data.auto_apply_prices ?? true);
+      // Prezzi di gruppo (mig. 014)
+      setDefaultGroupPrice(toMoneyString(data.default_group_price, "15.00"));
+      setDefaultGroupMaxParticipants(String(data.default_group_max_participants ?? 6));
       setDurSeduta(String(data.duration_seduta ?? 60));
       setDurMacchina(String(data.duration_macchinario ?? 30));
       setDurLaser(String(data.duration_laser ?? 20));
@@ -458,6 +497,9 @@ export default function SettingsPage() {
         tens_invoice:      toNumberSafe(tensInvoice, 20),
         tens_cash:         toNumberSafe(tensCash, 15),
         auto_apply_prices: autoApplyPrices,
+        // Prezzi di gruppo (mig. 014)
+        default_group_price:            toNumberSafe(defaultGroupPrice, 15),
+        default_group_max_participants: parseInt(defaultGroupMaxParticipants) || 6,
         duration_seduta:       parseInt(durSeduta) || 60,
         duration_macchinario:  parseInt(durMacchina) || 30,
         duration_laser:        parseInt(durLaser) || 20,
@@ -1061,6 +1103,31 @@ export default function SettingsPage() {
               ownerFullName={ownerFullName} setOwnerFullName={setOwnerFullName}
               vatNumber={vatNumber} setVatNumber={setVatNumber}
               pecEmail={pecEmail} setPecEmail={setPecEmail}
+              onReload={() => void loadPracticeSettings()}
+              onSave={() => void savePracticeSettings()}
+            />
+
+            <PricesSection
+              show={showPrices} onToggle={() => setShowPrices(!showPrices)}
+              loadingPractice={loadingPractice} savingPractice={savingPractice}
+              standardInvoice={standardInvoice} setStandardInvoice={setStandardInvoice}
+              standardCash={standardCash} setStandardCash={setStandardCash}
+              machineInvoice={machineInvoice} setMachineInvoice={setMachineInvoice}
+              machineCash={machineCash} setMachineCash={setMachineCash}
+              laserInvoice={laserInvoice} setLaserInvoice={setLaserInvoice}
+              laserCash={laserCash} setLaserCash={setLaserCash}
+              tecarInvoice={tecarInvoice} setTecarInvoice={setTecarInvoice}
+              tecarCash={tecarCash} setTecarCash={setTecarCash}
+              ondeUrtoInvoice={ondeUrtoInvoice} setOndeUrtoInvoice={setOndeUrtoInvoice}
+              ondeUrtoCash={ondeUrtoCash} setOndeUrtoCash={setOndeUrtoCash}
+              tensInvoice={tensInvoice} setTensInvoice={setTensInvoice}
+              tensCash={tensCash} setTensCash={setTensCash}
+              autoApplyPrices={autoApplyPrices} setAutoApplyPrices={setAutoApplyPrices}
+              defaultGroupPrice={defaultGroupPrice} setDefaultGroupPrice={setDefaultGroupPrice}
+              defaultGroupMaxParticipants={defaultGroupMaxParticipants} setDefaultGroupMaxParticipants={setDefaultGroupMaxParticipants}
+              groupStatsCountAsSeparate={groupStatsCountAsSeparate} setGroupStatsCountAsSeparate={setGroupStatsCountAsSeparate}
+              onSaveGroupStats={() => void saveGroupStats()}
+              savingStudio={savingGroupStats}
               onReload={() => void loadPracticeSettings()}
               onSave={() => void savePracticeSettings()}
             />

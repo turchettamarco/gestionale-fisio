@@ -58,6 +58,9 @@ export type PracticeSettingsRow = {
   monthly_revenue_goal: number | null;
   inactive_threshold_days: number | null;
   reminder_hours_before: number | null;
+  // Appuntamenti di gruppo (default per nuovi gruppi)
+  default_group_price?: number | null;
+  default_group_max_participants?: number | null;
   created_at?: string;
   updated_at?: string;
 };
