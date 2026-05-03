@@ -173,7 +173,9 @@ export default function MonthView({
                     <div
                       key={i}
                       className={isMatch ? "search-highlight" : isDimmed ? "search-dimmed" : ""}
-                      title={`${ev.patient_name} · ${fmtTime(ev.start.toISOString())} – ${fmtTime(ev.end.toISOString())} · ${statusLabel(ev.status)}`}
+                      title={ev.is_group
+                        ? `👥 ${ev.group_title || "Gruppo"} · ${(ev.participants?.length ?? 0)}/${ev.group_max_participants ?? 0} · ${fmtTime(ev.start.toISOString())}`
+                        : `${ev.patient_name} · ${fmtTime(ev.start.toISOString())} – ${fmtTime(ev.end.toISOString())} · ${statusLabel(ev.status)}`}
                       onClick={e => {
                         e.stopPropagation();
                         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -193,7 +195,7 @@ export default function MonthView({
                         textOverflow: "ellipsis",
                         padding: "2px 4px",
                         borderRadius: 3,
-                        background: isMatch ? "rgba(245,158,11,0.35)" : statusColor(ev.status),
+                        background: isMatch ? "rgba(245,158,11,0.35)" : ev.is_group ? "linear-gradient(135deg, #0d9488 0%, #06b6d4 100%)" : statusColor(ev.status),
                         lineHeight: 1.3,
                         position: "relative",
                         zIndex: isMatch ? 5 : 0,
@@ -201,7 +203,15 @@ export default function MonthView({
                       }}
                     >
                       {ev.location === "domicile" && "🏠 "}
-                      {fmtTime(ev.start.toISOString())} {ev.patient_name}
+                      {ev.is_group ? (
+                        <>
+                          👥 {fmtTime(ev.start.toISOString())} {ev.group_title || "Gruppo"} ({(ev.participants?.length ?? 0)}/{ev.group_max_participants ?? 0})
+                        </>
+                      ) : (
+                        <>
+                          {fmtTime(ev.start.toISOString())} {ev.patient_name}
+                        </>
+                      )}
                     </div>
                   );
                 })}

@@ -26,6 +26,7 @@ import {
 } from "../../utils";
 import PaidIconButton from "@/src/components/PaidIconButton";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
+import GroupEventCard from "./GroupEventCard";
 
 const DAY_PX_PER_MIN = 1;
 
@@ -343,7 +344,7 @@ export default function DayTimeline({
                 top: `${top + 1}px`,
                 width: `calc((100% - 88px) / ${totalLanes} - ${totalLanes > 1 ? 2 : 0}px)`,
                 height: `${Math.max(height - 2, 28)}px`,
-                background: statusBg(event.status),
+                background: event.is_group ? "linear-gradient(135deg, #0d9488 0%, #06b6d4 100%)" : statusBg(event.status),
                 color: "#fff",
                 borderRadius: 6,
                 padding: "6px 10px",
@@ -364,7 +365,9 @@ export default function DayTimeline({
               }}
             >
               {/* Sotto i 22px: layout inline */}
-              {h < 22 ? (
+              {event.is_group ? (
+                <GroupEventCard event={event} cardH={Math.max(height - 2, 28)} />
+              ) : h < 22 ? (
                 <div style={{ display: "flex", alignItems: "center", gap: 4, overflow: "hidden", whiteSpace: "nowrap", width: "100%" }}>
                   <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.9)", flexShrink: 0 }}>
                     {fmtTime(event.start.toISOString())}

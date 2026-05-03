@@ -33,6 +33,7 @@ import {
 import type { DraggingOverState, FreeWindow } from "./DayTimeline";
 import PaidIconButton from "@/src/components/PaidIconButton";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
+import GroupEventCard from "./GroupEventCard";
 
 const WEEK_PX_PER_MIN = 1;
 
@@ -475,7 +476,7 @@ export default function WeekView({
                   top: `${top + 1}px`,
                   width: `calc(((100% - ${TIME_COL}px) / 6 - 8px) / ${totalLanes} - ${totalLanes > 1 ? 2 : 0}px)`,
                   height: `${cardH}px`,
-                  background: isMatch ? "#f59e0b" : statusBg(event.status),
+                  background: isMatch ? "#f59e0b" : event.is_group ? "linear-gradient(135deg, #0d9488 0%, #06b6d4 100%)" : statusBg(event.status),
                   color: "#fff",
                   borderRadius: 6,
                   padding: "4px 6px",
@@ -498,7 +499,9 @@ export default function WeekView({
                   transform: isMatch ? "scale(1.02)" : "scale(1)",
                 }}
               >
-                {isShort ? (
+                {event.is_group ? (
+                  <GroupEventCard event={event} cardH={cardH} />
+                ) : isShort ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 5, overflow: "hidden", height: "100%" }}>
                     <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.85)", flexShrink: 0, lineHeight: 1 }}>
                       {fmtTime(event.start.toISOString())}{isDomicile && " 🏠"}
