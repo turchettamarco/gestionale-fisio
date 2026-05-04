@@ -46,6 +46,18 @@ export type GroupEvent = {
   group_max_participants: number | null;
   group_price_per_person: number | null;
   participants: Participant[];
+
+  // ─── Step 6.2: campi per la duplicazione ────────────────────────
+  /** ISO string del start_at originale (per calcolare durata) */
+  start_at: string;
+  /** ISO string del end_at originale */
+  end_at: string;
+  /** Sede dell'appuntamento (per replicarla nel gruppo duplicato) */
+  location?: string | null;
+  clinic_site?: string | null;
+  domicile_address?: string | null;
+  /** Studio multi-tenancy */
+  studio_id: string;
 };
 
 export type PatientSearchResult = {
@@ -73,6 +85,15 @@ export type GroupEventModalMobileProps = {
   onUpdateGroup: (
     appointmentId: string,
     patch: { group_title?: string; group_max_participants?: number; group_price_per_person?: number },
+  ) => Promise<void>;
+  /**
+   * Step 6.2: duplica il gruppo alla nuova data.
+   * Se withParticipants=true, replica anche i partecipanti (azzerati per pagamenti/presenze).
+   */
+  onDuplicateGroup: (
+    sourceAppointmentId: string,
+    newStart: Date,
+    withParticipants: boolean,
   ) => Promise<void>;
 };
 
@@ -122,6 +143,7 @@ export default function GroupEventModalMobile({
   onSendReminderToAll,
   onDeleteGroup,
   onUpdateGroup,
+  onDuplicateGroup,
 }: GroupEventModalMobileProps) {
   const participants = event.participants ?? [];
   const max = event.group_max_participants ?? 0;
@@ -145,6 +167,25 @@ export default function GroupEventModalMobile({
   const [editTitle, setEditTitle] = useState(event.group_title || "");
   const [editMax, setEditMax] = useState(String(max));
   const [editPrice, setEditPrice] = useState(pricePP.toFixed(2));
+
+  // ─── Step 6.2: duplicazione ─────────────────────────────────────────
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
+  const defaultDupDate = useMemo(() => {
+    const d = new Date(event.start);
+    d.setDate(d.getDate() + 7);
+    return d;
+  }, [event.start]);
+  const toLocalDateStrM = (d: Date): string => {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  };
+  const toLocalTimeStrM = (d: Date): string =>
+    `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const [dupDate, setDupDate] = useState<string>(toLocalDateStrM(defaultDupDate));
+  const [dupTime, setDupTime] = useState<string>(toLocalTimeStrM(defaultDupDate));
+  const [dupWithParts, setDupWithParts] = useState<boolean>(true);
 
   // Pannello dettaglio partecipante (espanso al tap sull'avatar)
   const [expandedParticipantId, setExpandedParticipantId] = useState<string | null>(null);
@@ -268,6 +309,25 @@ export default function GroupEventModalMobile({
     setBusy(true);
     try { await onDeleteGroup(event.id); }
     finally { setBusy(false); }
+  };
+
+  const handleDuplicate = async () => {
+    if (!dupDate || !dupTime) {
+      alert("Inserisci data e ora valide.");
+      return;
+    }
+    const newStart = new Date(`${dupDate}T${dupTime}:00`);
+    if (isNaN(newStart.getTime())) {
+      alert("Data o ora non valide.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await onDuplicateGroup(event.id, newStart, dupWithParts);
+      setDuplicateOpen(false);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleSaveGroupEdit = async () => {
@@ -821,6 +881,19 @@ export default function GroupEventModalMobile({
           >🗑</button>
 
           <button
+            onClick={() => setDuplicateOpen(true)}
+            disabled={busy}
+            style={{
+              padding: "10px 12px", borderRadius: 8,
+              background: "transparent", color: "#0d9488",
+              border: "1.5px solid rgba(13,148,136,0.4)",
+              fontSize: 12, fontWeight: 700, cursor: "pointer",
+              minHeight: 44, flexShrink: 0,
+            }}
+            aria-label="Duplica gruppo"
+          >📋</button>
+
+          <button
             onClick={handleSendAll}
             disabled={busy || count === 0}
             style={{
@@ -849,6 +922,145 @@ export default function GroupEventModalMobile({
           >✓ Tutti pagati</button>
         </div>
       </div>
+
+      {/* ─── Mini-modal conferma duplicazione (step 6.2) ─────────── */}
+      {duplicateOpen && (
+        <div
+          onClick={() => !busy && setDuplicateOpen(false)}
+          style={{
+            position: "fixed", inset: 0,
+            background: "rgba(0,0,0,0.6)",
+            display: "flex", alignItems: "flex-end", justifyContent: "center",
+            zIndex: 10000,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff",
+              borderRadius: "16px 16px 0 0",
+              width: "100%",
+              maxWidth: 500,
+              padding: 20,
+              paddingBottom: "max(20px, env(safe-area-inset-bottom))",
+              boxShadow: "0 -10px 30px rgba(0,0,0,0.3)",
+              animation: "slideUp 0.2s ease-out",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+              <span style={{ fontSize: 22 }}>📋</span>
+              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#0f172a" }}>
+                Duplica gruppo
+              </h3>
+            </div>
+            <p style={{ fontSize: 12, color: "#64748b", marginBottom: 16, lineHeight: 1.4 }}>
+              Crea una copia di <b style={{ color: "#0f172a" }}>{event.group_title || "questo gruppo"}</b>.
+              Pagamenti e presenze ricominceranno da zero.
+            </p>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 10, fontWeight: 700, color: "#64748b", marginBottom: 4, letterSpacing: 0.3 }}>
+                  NUOVA DATA
+                </label>
+                <input
+                  type="date"
+                  value={dupDate}
+                  onChange={(e) => setDupDate(e.target.value)}
+                  style={{
+                    width: "100%", padding: "10px 12px", borderRadius: 8,
+                    border: "1.5px solid #cbd5e1",
+                    fontSize: 14, color: "#0f172a",
+                    fontFamily: "inherit", outline: "none",
+                    boxSizing: "border-box",
+                    minHeight: 44,
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 10, fontWeight: 700, color: "#64748b", marginBottom: 4, letterSpacing: 0.3 }}>
+                  NUOVA ORA
+                </label>
+                <input
+                  type="time"
+                  value={dupTime}
+                  onChange={(e) => setDupTime(e.target.value)}
+                  style={{
+                    width: "100%", padding: "10px 12px", borderRadius: 8,
+                    border: "1.5px solid #cbd5e1",
+                    fontSize: 14, color: "#0f172a",
+                    fontFamily: "inherit", outline: "none",
+                    boxSizing: "border-box",
+                    minHeight: 44,
+                  }}
+                />
+              </div>
+            </div>
+
+            <label style={{
+              display: "flex", alignItems: "center", gap: 10,
+              padding: "10px 12px",
+              background: dupWithParts && count > 0 ? "rgba(13,148,136,0.1)" : "#f1f5f9",
+              border: `1.5px solid ${dupWithParts && count > 0 ? "#0d9488" : "#cbd5e1"}`,
+              borderRadius: 8,
+              cursor: count > 0 ? "pointer" : "not-allowed",
+              marginBottom: 16,
+              opacity: count > 0 ? 1 : 0.6,
+              minHeight: 44,
+            }}>
+              <input
+                type="checkbox"
+                checked={dupWithParts && count > 0}
+                onChange={(e) => setDupWithParts(e.target.checked)}
+                disabled={count === 0}
+                style={{ width: 20, height: 20, accentColor: "#0d9488", flexShrink: 0 }}
+              />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>
+                  Duplica anche i partecipanti
+                </div>
+                <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>
+                  {count > 0 ? `${count} ${count === 1 ? "paziente" : "pazienti"} verranno copiati` : "Nessun partecipante"}
+                </div>
+              </div>
+            </label>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => setDuplicateOpen(false)}
+                disabled={busy}
+                style={{
+                  flex: 1, padding: "12px", borderRadius: 8,
+                  background: "transparent",
+                  border: "1.5px solid #cbd5e1",
+                  color: "#0f172a",
+                  fontSize: 14, fontWeight: 700,
+                  cursor: busy ? "wait" : "pointer",
+                  minHeight: 48,
+                }}
+              >
+                Annulla
+              </button>
+              <button
+                onClick={handleDuplicate}
+                disabled={busy || !dupDate || !dupTime}
+                style={{
+                  flex: 1.4, padding: "12px", borderRadius: 8,
+                  background: "#0d9488",
+                  border: "none",
+                  color: "#fff",
+                  fontSize: 14, fontWeight: 700,
+                  cursor: busy ? "wait" : "pointer",
+                  opacity: busy ? 0.7 : 1,
+                  minHeight: 48,
+                }}
+              >
+                {busy ? "Duplico…" : "📋 Duplica"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CSS animation */}
       <style jsx>{`

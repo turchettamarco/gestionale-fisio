@@ -102,6 +102,17 @@ export type GroupEventModalProps = {
       "group_title" | "group_max_participants" | "group_price_per_person"
     >>,
   ) => Promise<void>;
+
+  /**
+   * Duplica il gruppo (step 6.2).
+   * Crea un nuovo appuntamento gruppo identico (titolo, max, prezzo) alla nuova data,
+   * e se `withParticipants=true` replica anche i partecipanti (con pagamenti/presenze azzerati).
+   */
+  onDuplicateGroup: (
+    sourceAppointmentId: string,
+    newStart: Date,
+    withParticipants: boolean,
+  ) => Promise<void>;
 };
 
 export default function GroupEventModal({
@@ -115,6 +126,7 @@ export default function GroupEventModal({
   onSendReminderToAll,
   onDeleteGroup,
   onUpdateGroup,
+  onDuplicateGroup,
 }: GroupEventModalProps) {
   const participants = event.participants ?? [];
   const max = event.group_max_participants ?? 0;
@@ -140,6 +152,26 @@ export default function GroupEventModal({
   const [editTitle, setEditTitle] = useState(event.group_title || "");
   const [editMax, setEditMax] = useState(String(max));
   const [editPrice, setEditPrice] = useState(pricePP.toFixed(2));
+
+  // ─── Duplicazione gruppo (step 6.2) ────────────────────────────────
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
+  // Data di default: stessa ora, 7 giorni dopo (di solito un altro lunedì)
+  const defaultDupDate = useMemo(() => {
+    const d = new Date(event.start);
+    d.setDate(d.getDate() + 7);
+    return d;
+  }, [event.start]);
+  const toLocalDateStr = (d: Date): string => {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  };
+  const toLocalTimeStr = (d: Date): string =>
+    `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const [dupDate, setDupDate] = useState<string>(toLocalDateStr(defaultDupDate));
+  const [dupTime, setDupTime] = useState<string>(toLocalTimeStr(defaultDupDate));
+  const [dupWithParts, setDupWithParts] = useState<boolean>(true);
 
   // ─── Ricerca pazienti (debounced, esclude già aggiunti) ────────────
   const alreadyInGroup = useMemo(
@@ -275,6 +307,25 @@ export default function GroupEventModal({
     setBusy(true);
     try {
       await onDeleteGroup(event.id);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDuplicate = async () => {
+    if (!dupDate || !dupTime) {
+      alert("Inserisci data e ora valide per il nuovo gruppo.");
+      return;
+    }
+    const newStart = new Date(`${dupDate}T${dupTime}:00`);
+    if (isNaN(newStart.getTime())) {
+      alert("Data o ora non valide.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await onDuplicateGroup(event.id, newStart, dupWithParts);
+      setDuplicateOpen(false);
     } finally {
       setBusy(false);
     }
@@ -819,6 +870,19 @@ export default function GroupEventModal({
             🗑 Elimina gruppo
           </button>
 
+          <button
+            onClick={() => setDuplicateOpen(true)}
+            disabled={busy}
+            style={{
+              padding: "9px 14px", borderRadius: 8,
+              background: "transparent", color: THEME.teal,
+              border: `1.5px solid ${THEME.teal}55`,
+              fontSize: 12, fontWeight: 700, cursor: "pointer",
+            }}
+          >
+            📋 Duplica
+          </button>
+
           <div style={{ flex: 1 }} />
 
           <button
@@ -852,6 +916,143 @@ export default function GroupEventModal({
           </button>
         </div>
       </div>
+
+      {/* ─── Mini-modal di conferma duplicazione (step 6.2) ───────────── */}
+      {duplicateOpen && (
+        <div
+          onClick={() => !busy && setDuplicateOpen(false)}
+          style={{
+            position: "fixed", inset: 0,
+            background: "rgba(0,0,0,0.55)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 10000,
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff",
+              borderRadius: 12,
+              maxWidth: 460, width: "100%",
+              padding: 24,
+              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 24 }}>📋</span>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: THEME.text }}>
+                Duplica gruppo
+              </h3>
+            </div>
+            <p style={{ fontSize: 13, color: THEME.muted, marginBottom: 18, lineHeight: 1.5 }}>
+              Crea una copia di <b style={{ color: THEME.text }}>{event.group_title || "questo gruppo"}</b> alla data e ora che scegli.
+              Pagamenti e presenze ricominceranno da zero.
+            </p>
+
+            {/* Data + Ora */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: THEME.muted, marginBottom: 4, letterSpacing: 0.3 }}>
+                  NUOVA DATA
+                </label>
+                <input
+                  type="date"
+                  value={dupDate}
+                  onChange={(e) => setDupDate(e.target.value)}
+                  style={{
+                    width: "100%", padding: "9px 12px", borderRadius: 8,
+                    border: `1.5px solid ${THEME.border}`,
+                    fontSize: 14, color: THEME.text,
+                    fontFamily: "inherit", outline: "none",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: THEME.muted, marginBottom: 4, letterSpacing: 0.3 }}>
+                  NUOVA ORA
+                </label>
+                <input
+                  type="time"
+                  value={dupTime}
+                  onChange={(e) => setDupTime(e.target.value)}
+                  style={{
+                    width: "100%", padding: "9px 12px", borderRadius: 8,
+                    border: `1.5px solid ${THEME.border}`,
+                    fontSize: 14, color: THEME.text,
+                    fontFamily: "inherit", outline: "none",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Toggle partecipanti */}
+            <label style={{
+              display: "flex", alignItems: "center", gap: 10,
+              padding: "10px 12px",
+              background: dupWithParts ? `${THEME.teal}10` : THEME.panelSoft,
+              border: `1.5px solid ${dupWithParts ? THEME.teal : THEME.border}`,
+              borderRadius: 8,
+              cursor: count > 0 ? "pointer" : "not-allowed",
+              marginBottom: 18,
+              opacity: count > 0 ? 1 : 0.6,
+            }}>
+              <input
+                type="checkbox"
+                checked={dupWithParts && count > 0}
+                onChange={(e) => setDupWithParts(e.target.checked)}
+                disabled={count === 0}
+                style={{ width: 18, height: 18, accentColor: THEME.teal, cursor: count > 0 ? "pointer" : "not-allowed" }}
+              />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: THEME.text }}>
+                  Duplica anche i partecipanti
+                </div>
+                <div style={{ fontSize: 11, color: THEME.muted, marginTop: 2 }}>
+                  {count > 0
+                    ? `${count} ${count === 1 ? "paziente" : "pazienti"} verranno copiati nel nuovo gruppo`
+                    : "Nessun partecipante da copiare"}
+                </div>
+              </div>
+            </label>
+
+            {/* Actions */}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setDuplicateOpen(false)}
+                disabled={busy}
+                style={{
+                  padding: "10px 18px", borderRadius: 8,
+                  background: "transparent",
+                  border: `1.5px solid ${THEME.border}`,
+                  color: THEME.text,
+                  fontSize: 13, fontWeight: 700,
+                  cursor: busy ? "wait" : "pointer",
+                }}
+              >
+                Annulla
+              </button>
+              <button
+                onClick={handleDuplicate}
+                disabled={busy || !dupDate || !dupTime}
+                style={{
+                  padding: "10px 18px", borderRadius: 8,
+                  background: THEME.teal,
+                  border: "none",
+                  color: "#fff",
+                  fontSize: 13, fontWeight: 700,
+                  cursor: busy ? "wait" : "pointer",
+                  opacity: busy ? 0.7 : 1,
+                }}
+              >
+                {busy ? "Duplico…" : "📋 Duplica gruppo"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

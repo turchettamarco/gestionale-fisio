@@ -46,6 +46,7 @@ import {
   markAllPaidApi,
   updateGroupApi,
   deleteGroupApi,
+  duplicateGroupApi,
   sendReminderToAllApi,
 } from "./components/groupHandlers";
 
@@ -58,6 +59,7 @@ type Appointment = {
   id: string;
   patient_id: string | null;
   start_at: string;
+  end_at?: string | null;
   status: Status;
   amount: number | null;
   is_paid: boolean;
@@ -68,6 +70,7 @@ type Appointment = {
   location: LocationType | null;
   clinic_site: string | null;
   domicile_address: string | null;
+  studio_id?: string | null;
   whatsapp_sent_at: string | null;
   patients: {
     first_name: string | null;
@@ -235,14 +238,24 @@ export default function MobileHomePage() {
   const openGroupModal = useCallback(async (a: Appointment) => {
     if (!a.is_group) return;
     const participants = await fetchGroupParticipants(a.id);
+    const startISO = a.start_at;
+    // Se end_at non c'è, fallback a 60 minuti dopo
+    const endISO = a.end_at ?? new Date(new Date(startISO).getTime() + 60 * 60 * 1000).toISOString();
     setOpenGroup({
       id: a.id,
-      start: new Date(a.start_at),
-      end: new Date(new Date(a.start_at).getTime() + 60 * 60 * 1000), // fallback 60min
+      start: new Date(startISO),
+      end: new Date(endISO),
       group_title: a.group_title ?? null,
       group_max_participants: a.group_max_participants ?? null,
       group_price_per_person: a.group_price_per_person ?? null,
       participants,
+      // Step 6.2: campi per duplicazione
+      start_at: startISO,
+      end_at: endISO,
+      location: a.location ?? null,
+      clinic_site: a.clinic_site ?? null,
+      domicile_address: a.domicile_address ?? null,
+      studio_id: a.studio_id ?? "",
     });
   }, []);
 
@@ -506,8 +519,8 @@ export default function MobileHomePage() {
   async function loadAll() {
     setLoading(true); setError("");
     try {
-      const SEL = `id,patient_id,start_at,status,amount,is_paid,paid_at,payment_method,price_type,
-                   treatment_type,location,clinic_site,domicile_address,
+      const SEL = `id,patient_id,start_at,end_at,status,amount,is_paid,paid_at,payment_method,price_type,
+                   treatment_type,location,clinic_site,domicile_address,studio_id,
                    whatsapp_sent_at,
                    is_group,group_title,group_max_participants,group_price_per_person,
                    patients:patient_id(first_name,last_name,phone),
@@ -541,12 +554,14 @@ export default function MobileHomePage() {
           .reduce((s, pp) => s + (Number(pp.price) || 0), 0);
         return {
           id: a.id, patient_id: a.patient_id ?? null, start_at: a.start_at,
+          end_at: a.end_at ?? null,
           status: a.status as Status, amount: a.amount ?? null, is_paid: a.is_paid ?? false,
           paid_at: a.paid_at ?? null,
           payment_method: a.payment_method ?? null,
           price_type: a.price_type ?? null,
           treatment_type: a.treatment_type ?? null, location: a.location ?? null,
           clinic_site: a.clinic_site ?? null, domicile_address: a.domicile_address ?? null,
+          studio_id: a.studio_id ?? null,
           whatsapp_sent_at: a.whatsapp_sent_at ?? null, patients: p ?? null,
           is_group: isGroup,
           group_title: a.group_title ?? null,
@@ -2919,6 +2934,18 @@ export default function MobileHomePage() {
               };
               setDayAppts(prev => prev.map(updateAppt));
               setWeekAppts(prev => prev.map(updateAppt));
+            }
+          }}
+          onDuplicateGroup={async (sourceId, newStart, withParts) => {
+            // openGroup è il GroupEvent corrente (sourceId === openGroup.id)
+            if (!openGroup) return;
+            const newId = await duplicateGroupApi(openGroup, newStart, withParts);
+            if (newId) {
+              setOpenGroup(null);
+              await loadAll();
+              const niceDate = newStart.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
+              const niceTime = newStart.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+              alert(`✓ Gruppo duplicato per ${niceDate} alle ${niceTime}.`);
             }
           }}
         />

@@ -191,6 +191,86 @@ export async function deleteGroupApi(appointmentId: string): Promise<boolean> {
 }
 
 /**
+ * Step 6.2: duplica un gruppo esistente alla nuova data.
+ * @param sourceEvent il GroupEvent di partenza (deve avere is_group=true)
+ * @param newStart data e ora del nuovo gruppo
+ * @param withParticipants se true, copia anche i partecipanti
+ *
+ * Comportamento partecipanti duplicati:
+ * - patient_id e price preservati
+ * - payment_status='unpaid', attendance_status='pending', participant_notes=null
+ * @returns id del nuovo gruppo creato, o null in caso di errore
+ */
+export async function duplicateGroupApi(
+  sourceEvent: GroupEvent,
+  newStart: Date,
+  withParticipants: boolean,
+): Promise<string | null> {
+  // Recupero userId per owner_id
+  const { data: userData } = await supabase.auth.getUser();
+  const userId = userData.user?.id;
+  if (!userId) {
+    alert("Sessione scaduta. Effettua di nuovo il login.");
+    return null;
+  }
+
+  // Calcolo end_at usando la stessa durata
+  const srcStart = new Date(sourceEvent.start_at);
+  const srcEnd = new Date(sourceEvent.end_at);
+  const durationMs = srcEnd.getTime() - srcStart.getTime();
+  const newEnd = new Date(newStart.getTime() + durationMs);
+
+  // INSERT del nuovo gruppo
+  const { data: created, error: createErr } = await supabase
+    .from("appointments")
+    .insert({
+      patient_id: null,
+      start_at: newStart.toISOString(),
+      end_at: newEnd.toISOString(),
+      status: "confirmed",
+      location: sourceEvent.location ?? "studio",
+      clinic_site: sourceEvent.clinic_site ?? "Studio",
+      domicile_address: sourceEvent.domicile_address ?? null,
+      owner_id: userId,
+      studio_id: sourceEvent.studio_id,
+      is_group: true,
+      group_title: sourceEvent.group_title,
+      group_max_participants: sourceEvent.group_max_participants,
+      group_price_per_person: sourceEvent.group_price_per_person,
+    })
+    .select("id")
+    .single();
+  if (createErr || !created) {
+    alert("Errore duplicazione gruppo: " + (createErr?.message || "errore sconosciuto"));
+    return null;
+  }
+
+  // INSERT batch dei partecipanti (solo se richiesto e ce ne sono)
+  if (withParticipants && sourceEvent.participants && sourceEvent.participants.length > 0) {
+    const partRows = sourceEvent.participants.map(p => ({
+      appointment_id: created.id,
+      patient_id: p.patient_id,
+      price: p.price,
+      payment_status: "unpaid",
+      attendance_status: "pending",
+      participant_notes: null,
+    }));
+    const { error: partErr } = await supabase
+      .from("appointment_participants")
+      .insert(partRows);
+    if (partErr) {
+      console.error("[duplicate-group-mobile] errore partecipanti:", partErr);
+      alert(
+        `Gruppo duplicato, ma errore nell'aggiungere i partecipanti: ${partErr.message}\n` +
+        `Puoi aggiungerli dalla scheda del nuovo gruppo.`,
+      );
+    }
+  }
+
+  return created.id;
+}
+
+/**
  * Invia promemoria WhatsApp a TUTTI i partecipanti di un gruppo.
  * Apre 1 finestra WA per ogni paziente con telefono (con delay tra l'una e l'altra).
  *

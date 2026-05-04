@@ -1847,6 +1847,111 @@ A presto,
     setSelectedEvent(null);
   }, []);
 
+  /**
+   * Step 6.2: duplica un gruppo esistente alla nuova data, opzionalmente
+   * con i partecipanti. I partecipanti duplicati hanno:
+   * - stesso patient_id e stesso price (sono dati "stampino")
+   * - payment_status='unpaid', attendance_status='pending', participant_notes=null
+   *   (sono stato della seduta, ricominciano da zero)
+   */
+  const onDuplicateGroup = useCallback(async (
+    sourceAppointmentId: string,
+    newStart: Date,
+    withParticipants: boolean,
+  ) => {
+    // 1) Trova il gruppo sorgente nello state events
+    const source = events.find(e => e.id === sourceAppointmentId);
+    if (!source) {
+      alert("Gruppo sorgente non trovato. Ricarica la pagina e riprova.");
+      return;
+    }
+    if (!source.is_group) {
+      alert("L'appuntamento sorgente non è un gruppo.");
+      return;
+    }
+
+    // 2) Calcola end_at usando la stessa durata dell'originale
+    const srcStart = new Date(source.start);
+    const srcEnd = new Date(source.end);
+    const durationMs = srcEnd.getTime() - srcStart.getTime();
+    const newEnd = new Date(newStart.getTime() + durationMs);
+
+    // 3) Recupera userId per owner_id (se non già nel session)
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id;
+    if (!userId) {
+      alert("Sessione scaduta. Effettua di nuovo il login.");
+      return;
+    }
+    const studioId = currentStudioId;
+    if (!studioId) {
+      alert("Studio non disponibile. Ricarica la pagina.");
+      return;
+    }
+
+    // 4) INSERT del nuovo gruppo (mantiene titolo/max/prezzo dell'originale)
+    const { data: created, error: createErr } = await supabase
+      .from("appointments")
+      .insert({
+        patient_id: null,
+        start_at: newStart.toISOString(),
+        end_at: newEnd.toISOString(),
+        status: (practiceSettings?.default_appointment_status ?? "confirmed"),
+        location: source.location ?? "studio",
+        clinic_site: source.clinic_site ?? (currentStudio?.name || "Studio"),
+        domicile_address: source.domicile_address ?? null,
+        treatment_type: null,
+        price_type: null,
+        payment_method: null,
+        amount: null,
+        owner_id: userId,
+        studio_id: studioId,
+        is_group: true,
+        group_title: source.group_title,
+        group_max_participants: source.group_max_participants,
+        group_price_per_person: source.group_price_per_person,
+      })
+      .select()
+      .single();
+    if (createErr || !created) {
+      alert("Errore duplicazione gruppo: " + (createErr?.message || "errore sconosciuto"));
+      return;
+    }
+
+    // 5) Se richiesto, INSERT batch dei partecipanti (azzerati per stato seduta)
+    if (withParticipants && source.participants && source.participants.length > 0) {
+      const partRows = source.participants.map(p => ({
+        appointment_id: created.id,
+        patient_id: p.patient_id,
+        price: p.price,
+        payment_status: "unpaid",
+        attendance_status: "pending",
+        participant_notes: null,
+      }));
+      const { error: partErr } = await supabase
+        .from("appointment_participants")
+        .insert(partRows);
+      if (partErr) {
+        console.error("[duplicate-group] errore partecipanti:", partErr);
+        alert(
+          `Gruppo duplicato, ma errore nell'aggiungere i partecipanti: ${partErr.message}\n` +
+          `Puoi aggiungerli manualmente dalla scheda del nuovo gruppo.`,
+        );
+      }
+    }
+
+    // 6) Ricarica appuntamenti per vedere il nuovo gruppo nel calendar
+    const startOfWeek = startOfISOWeekMonday(currentDate);
+    const endOfWeek = addDays(startOfWeek, 7);
+    await loadAppointments(startOfWeek, endOfWeek);
+
+    // 7) Chiudi il modal corrente (sorgente) e mostra messaggio
+    setSelectedEvent(null);
+    const niceDate = newStart.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
+    const niceTime = newStart.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+    alert(`✓ Gruppo duplicato per ${niceDate} alle ${niceTime}.`);
+  }, [events, currentStudioId, currentStudio, practiceSettings, currentDate, loadAppointments]);
+
   /** Invia promemoria WhatsApp a tutti i partecipanti (1 messaggio per paziente) */
   const onSendReminderToAll = useCallback(async (event: CalendarEvent) => {
     const participants = event.participants ?? [];
@@ -3392,6 +3497,7 @@ return (
               onSendReminderToAll={onSendReminderToAll}
               onDeleteGroup={onDeleteGroup}
               onUpdateGroup={onUpdateGroup}
+              onDuplicateGroup={onDuplicateGroup}
             />
           );
         }

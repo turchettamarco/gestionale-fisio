@@ -22,6 +22,7 @@ import {
   markAllPaidApi,
   updateGroupApi,
   deleteGroupApi,
+  duplicateGroupApi,
   sendReminderToAllApi,
 } from "../components/groupHandlers";
 
@@ -80,6 +81,7 @@ type CalendarEvent = {
   start: Date; end: Date; status: Status;
   calendar_note: string | null; location: LocationType | null;
   clinic_site: string | null; domicile_address: string | null;
+  studio_id?: string | null;
   amount: number | null; is_paid: boolean; paid_at: Date | null;
   treatment_type: string | null; price_type: string | null; payment_method: string | null;
   whatsapp_sent_at: string | null;
@@ -342,6 +344,13 @@ function CalendarPageInner() {
       group_max_participants: ev.group_max_participants ?? null,
       group_price_per_person: ev.group_price_per_person ?? null,
       participants,
+      // Step 6.2: campi per duplicazione
+      start_at: ev.start.toISOString(),
+      end_at: ev.end.toISOString(),
+      location: ev.location ?? null,
+      clinic_site: ev.clinic_site ?? null,
+      domicile_address: ev.domicile_address ?? null,
+      studio_id: ev.studio_id ?? "",
     });
   }, []);
 
@@ -489,7 +498,7 @@ function CalendarPageInner() {
     const e0=new Date(date); e0.setHours(23,59,59,999);
     const {data,error:err} = await supabase.from("appointments").select(`
       id,patient_id,start_at,end_at,status,calendar_note,is_paid,paid_at,
-      location,clinic_site,domicile_address,
+      location,clinic_site,domicile_address,studio_id,
       amount,treatment_type,price_type,payment_method,whatsapp_sent_at,
       is_group,group_title,group_max_participants,group_price_per_person,
       patients:patient_id(first_name,last_name,phone),
@@ -515,7 +524,9 @@ function CalendarPageInner() {
         is_paid:a.is_paid??false,
         paid_at:a.paid_at?new Date(a.paid_at):null,
         location:(a.location??null) as LocationType|null, clinic_site:a.clinic_site??null,
-        domicile_address:a.domicile_address??null, amount:a.amount??null,
+        domicile_address:a.domicile_address??null,
+        studio_id: a.studio_id ?? null,
+        amount:a.amount??null,
         treatment_type:a.treatment_type??null, price_type:a.price_type??null, payment_method:a.payment_method??null,
         whatsapp_sent_at:a.whatsapp_sent_at??null,
         // Gruppo (mig. 014)
@@ -602,9 +613,11 @@ function CalendarPageInner() {
     const lastDay  = new Date(date.getFullYear(), date.getMonth()+1, 0, 23, 59, 59, 999);
     const {data, error:err} = await supabase.from("appointments").select(`
       id,patient_id,start_at,end_at,status,calendar_note,is_paid,paid_at,
-      location,clinic_site,domicile_address,
+      location,clinic_site,domicile_address,studio_id,
       amount,treatment_type,price_type,payment_method,whatsapp_sent_at,
-      patients:patient_id(first_name,last_name,phone)
+      is_group,group_title,group_max_participants,group_price_per_person,
+      patients:patient_id(first_name,last_name,phone),
+      appointment_participants(id,price,payment_status)
     `).gte("start_at", firstDay.toISOString()).lte("start_at", lastDay.toISOString())
       .order("start_at", {ascending:true});
     if (!err && data) {
@@ -626,7 +639,9 @@ function CalendarPageInner() {
           is_paid:a.is_paid??false,
           paid_at:a.paid_at?new Date(a.paid_at):null,
           location:(a.location??null) as LocationType|null, clinic_site:a.clinic_site??null,
-          domicile_address:a.domicile_address??null, amount:a.amount??null,
+          domicile_address:a.domicile_address??null,
+          studio_id: a.studio_id ?? null,
+          amount:a.amount??null,
           treatment_type:a.treatment_type??null, price_type:a.price_type??null, payment_method:a.payment_method??null,
           whatsapp_sent_at:a.whatsapp_sent_at??null,
           // Gruppo (mig. 014)
@@ -2750,6 +2765,17 @@ function CalendarPageInner() {
               };
               setEvents((prev: CalendarEvent[]) => prev.map(updateEv));
               setMonthEvents((prev: CalendarEvent[]) => prev.map(updateEv));
+            }
+          }}
+          onDuplicateGroup={async (sourceId, newStart, withParts) => {
+            if (!openGroup) return;
+            const newId = await duplicateGroupApi(openGroup, newStart, withParts);
+            if (newId) {
+              setOpenGroup(null);
+              await loadAppointments(currentDate);
+              const niceDate = newStart.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
+              const niceTime = newStart.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+              alert(`✓ Gruppo duplicato per ${niceDate} alle ${niceTime}.`);
             }
           }}
         />
