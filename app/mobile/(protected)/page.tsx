@@ -302,6 +302,37 @@ export default function MobileHomePage() {
   const [defaultGroupPrice, setDefaultGroupPrice] = useState<number>(15);
   const [defaultGroupMax,   setDefaultGroupMax]   = useState<number>(6);
 
+  // ─── Partecipanti iniziali per nuovo gruppo (mig. 014, step 6.1) ───
+  const [qaInitialParticipants, setQaInitialParticipants] = useState<
+    Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>
+  >([]);
+  const [qaPartSearchQ, setQaPartSearchQ] = useState("");
+  const [qaPartSearchResults, setQaPartSearchResults] = useState<
+    Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>
+  >([]);
+
+  // Debounced search per partecipanti iniziali
+  useEffect(() => {
+    if (!qaIsGroup || !quickAddOpen) {
+      setQaPartSearchResults([]);
+      return;
+    }
+    const q = qaPartSearchQ.trim();
+    if (!q) {
+      setQaPartSearchResults([]);
+      return;
+    }
+    const alreadyIds = new Set(qaInitialParticipants.map(p => p.id));
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const res = await groupSearchPatientsApi(q);
+      if (!cancelled) {
+        setQaPartSearchResults(res.filter(p => !alreadyIds.has(p.id)).slice(0, 6));
+      }
+    }, 200);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [qaPartSearchQ, qaIsGroup, quickAddOpen, qaInitialParticipants]);
+
   // Dialog WA confirm dopo creazione appuntamento.
   // Mostrato dopo saveQuickAdd() quando il paziente ha un telefono.
   // L'utente può scegliere se inviare il messaggio o saltare.
@@ -878,6 +909,10 @@ export default function MobileHomePage() {
     setQaGroupTitle("");
     setQaGroupMax(String(defaultGroupMax));
     setQaGroupPrice(defaultGroupPrice.toFixed(2));
+    // Reset partecipanti iniziali (step 6.1)
+    setQaInitialParticipants([]);
+    setQaPartSearchQ("");
+    setQaPartSearchResults([]);
     setQuickAddOpen(true);
   }
 
@@ -954,6 +989,11 @@ export default function MobileHomePage() {
         alert("Prezzo per persona non valido.");
         return;
       }
+      // Step 6.1: validazione partecipanti iniziali
+      if (qaInitialParticipants.length > maxN) {
+        alert(`Hai selezionato ${qaInitialParticipants.length} partecipanti, ma il massimo è ${maxN}.`);
+        return;
+      }
     }
 
     setQaSaving(true);
@@ -974,7 +1014,7 @@ export default function MobileHomePage() {
       // Per i gruppi non c'è paziente singolo: si crea l'appointment "contenitore"
       // e l'utente aggiungerà i partecipanti dopo dal modal di gestione.
       if (qaIsGroup) {
-        const { error } = await supabase.from("appointments").insert({
+        const { data: createdGroup, error } = await supabase.from("appointments").insert({
           patient_id: null,
           start_at: startISO,
           end_at: endISO,
@@ -988,8 +1028,31 @@ export default function MobileHomePage() {
           group_title: qaGroupTitle.trim(),
           group_max_participants: parseInt(qaGroupMax, 10),
           group_price_per_person: parseFloat(qaGroupPrice.replace(",", ".")),
-        });
+        }).select("id").single();
         if (error) throw new Error(`Creazione gruppo: ${error.message}`);
+
+        // ─── Step 6.1: insert partecipanti iniziali ──────────────────
+        if (qaInitialParticipants.length > 0 && createdGroup?.id) {
+          const pricePP = parseFloat(qaGroupPrice.replace(",", "."));
+          const partRows = qaInitialParticipants.map(p => ({
+            appointment_id: createdGroup.id,
+            patient_id: p.id,
+            price: isFinite(pricePP) ? pricePP : 0,
+            payment_status: "unpaid",
+            attendance_status: "pending",
+          }));
+          const { error: partErr } = await supabase
+            .from("appointment_participants")
+            .insert(partRows);
+          if (partErr) {
+            console.error("[mobile-create-group] errore partecipanti:", partErr);
+            alert(
+              `Gruppo creato, ma errore nell'aggiungere i partecipanti: ${partErr.message}\n` +
+              `Puoi aggiungerli dalla scheda del gruppo.`
+            );
+          }
+        }
+
         setQuickAddOpen(false);
         await loadAll();
         return; // Niente WhatsApp confirm per i gruppi
@@ -2406,6 +2469,159 @@ export default function MobileHomePage() {
                     })()}
                   </span>
                 </div>
+
+                {/* ─── Partecipanti iniziali (step 6.1) ───────── */}
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed rgba(13,148,136,0.25)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, letterSpacing: 0.3 }}>
+                      PARTECIPANTI (opzionale)
+                    </div>
+                    <div style={{
+                      fontSize: 10, fontWeight: 700,
+                      color: qaInitialParticipants.length > (parseInt(qaGroupMax, 10) || 0)
+                        ? "#dc2626"
+                        : "#0d9488",
+                    }}>
+                      {qaInitialParticipants.length}/{parseInt(qaGroupMax, 10) || 0}
+                    </div>
+                  </div>
+
+                  {/* Search */}
+                  <div style={{ position: "relative", marginBottom: 6 }}>
+                    <input
+                      type="text"
+                      value={qaPartSearchQ}
+                      onChange={(e) => setQaPartSearchQ(e.target.value)}
+                      placeholder="🔍 Cerca paziente…"
+                      style={{
+                        width: "100%", padding: "9px 12px", borderRadius: 8,
+                        border: `1.5px solid ${THEME.border}`,
+                        background: "#fff",
+                        fontSize: 13, color: THEME.text,
+                        outline: "none", boxSizing: "border-box",
+                        fontFamily: "inherit",
+                        minHeight: 40,
+                      }}
+                    />
+                    {qaPartSearchResults.length > 0 && (
+                      <div style={{
+                        position: "absolute", top: "100%", left: 0, right: 0,
+                        marginTop: 2, zIndex: 100,
+                        background: "#fff",
+                        border: `1.5px solid ${THEME.border}`,
+                        borderRadius: 8,
+                        maxHeight: 200, overflowY: "auto",
+                        boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                      }}>
+                        {qaPartSearchResults.map((p) => (
+                          <div
+                            key={p.id}
+                            onClick={() => {
+                              setQaInitialParticipants(prev =>
+                                prev.find(x => x.id === p.id) ? prev : [...prev, p]
+                              );
+                              setQaPartSearchQ("");
+                              setQaPartSearchResults([]);
+                            }}
+                            style={{
+                              padding: "10px 12px",
+                              cursor: "pointer",
+                              borderBottom: `1px solid ${THEME.border}`,
+                              fontSize: 13,
+                              color: THEME.text,
+                              minHeight: 44,
+                              display: "flex", alignItems: "center",
+                            }}
+                          >
+                            <span style={{ fontWeight: 600, flex: 1 }}>
+                              {(p.last_name || "").trim()} {(p.first_name || "").trim()}
+                            </span>
+                            {p.phone && (
+                              <span style={{ fontSize: 10, color: THEME.muted, marginLeft: 8 }}>{p.phone}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {qaPartSearchQ.trim() && qaPartSearchResults.length === 0 && (
+                      <div style={{
+                        position: "absolute", top: "100%", left: 0, right: 0,
+                        marginTop: 2, zIndex: 100,
+                        background: "#fff",
+                        border: `1.5px solid ${THEME.border}`,
+                        borderRadius: 8,
+                        padding: "10px 12px",
+                        fontSize: 12, color: THEME.muted, fontStyle: "italic",
+                      }}>
+                        Nessun paziente trovato
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Chip selezionati */}
+                  {qaInitialParticipants.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {qaInitialParticipants.map((p) => {
+                        const initials =
+                          ((p.last_name || "").trim()[0] || "") +
+                          ((p.first_name || "").trim()[0] || "");
+                        return (
+                          <div
+                            key={p.id}
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: 4,
+                              padding: "5px 5px 5px 8px",
+                              background: "#fff",
+                              border: "1.5px solid rgba(13,148,136,0.4)",
+                              borderRadius: 99,
+                              fontSize: 11,
+                            }}
+                          >
+                            <span style={{
+                              width: 18, height: 18, borderRadius: "50%",
+                              background: "#0d9488", color: "#fff",
+                              fontSize: 9, fontWeight: 700,
+                              display: "inline-flex", alignItems: "center", justifyContent: "center",
+                              flexShrink: 0,
+                            }}>
+                              {initials.toUpperCase() || "?"}
+                            </span>
+                            <span style={{ color: THEME.text, fontWeight: 600 }}>
+                              {(p.last_name || "").trim()}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setQaInitialParticipants(prev => prev.filter(x => x.id !== p.id))}
+                              style={{
+                                width: 22, height: 22, borderRadius: "50%",
+                                background: "transparent",
+                                border: "none",
+                                cursor: "pointer",
+                                color: THEME.muted,
+                                fontSize: 14, fontWeight: 700,
+                                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                padding: 0, lineHeight: 1,
+                              }}
+                              aria-label="Rimuovi"
+                            >×</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {qaInitialParticipants.length > (parseInt(qaGroupMax, 10) || 0) && (
+                    <div style={{
+                      marginTop: 6, padding: "5px 10px",
+                      background: "rgba(220,38,38,0.08)",
+                      border: "1px solid rgba(220,38,38,0.25)",
+                      borderRadius: 6,
+                      fontSize: 10, color: "#7f1d1d",
+                    }}>
+                      ⚠️ Troppi pazienti. Aumenta il max o rimuovi qualcuno.
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -2413,7 +2629,9 @@ export default function MobileHomePage() {
             {(() => {
               const canSave = qaTime && (
                 qaIsGroup
-                  ? (qaGroupTitle.trim() && parseInt(qaGroupMax, 10) >= 2)
+                  ? (qaGroupTitle.trim()
+                      && parseInt(qaGroupMax, 10) >= 2
+                      && qaInitialParticipants.length <= (parseInt(qaGroupMax, 10) || 0))
                   : (qaPatientId || (qaNewMode && qaNewFirst.trim() && qaNewLast.trim()))
               );
               return (

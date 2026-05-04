@@ -126,6 +126,11 @@ type CreateModalProps = {
   createGroupTitle: string; setCreateGroupTitle: (v: string) => void;
   createGroupMax: string; setCreateGroupMax: (v: string) => void;
   createGroupPrice: string; setCreateGroupPrice: (v: string) => void;
+  // ─── Step 6.1: partecipanti iniziali ──────────────────────────────────
+  createInitialParticipants: Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>;
+  addInitialParticipantCal: (p: { id: string; first_name: string | null; last_name: string | null; phone: string | null }) => void;
+  removeInitialParticipantCal: (patientId: string) => void;
+  searchPatientsForGroupCal: (q: string) => Promise<Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>>;
 };
 
 type TouchDragState = {
@@ -1150,6 +1155,11 @@ function CalendarPageInner() {
   const [createGroupMax, setCreateGroupMax] = useState("6");
   const [createGroupPrice, setCreateGroupPrice] = useState("15.00");
 
+  // ─── Step 6.1: partecipanti iniziali ──────────────────────────────────────
+  const [createInitialParticipants, setCreateInitialParticipants] = useState<
+    Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>
+  >([]);
+
   // Carica i default da practice_settings (per pre-popolare prezzo/max gruppo)
   useEffect(() => {
     let cancelled = false;
@@ -1188,6 +1198,11 @@ function CalendarPageInner() {
       const pricePP = parseFloat(createGroupPrice.replace(",", "."));
       if (isNaN(pricePP) || pricePP < 0) {
         setError("Prezzo per persona non valido.");
+        return;
+      }
+      // Step 6.1: validazione partecipanti iniziali
+      if (createInitialParticipants.length > maxN) {
+        setError(`Hai selezionato ${createInitialParticipants.length} partecipanti, ma il massimo è ${maxN}.`);
         return;
       }
     } else {
@@ -1288,9 +1303,40 @@ function CalendarPageInner() {
       .insert(toInsert)
       .select("id, start_at");
     if (e){setError(e.message);setBusy(false);return;}
+
+    // ─── Step 6.1: insert partecipanti iniziali per i gruppi ──
+    // Per i ricorrenti, replica i partecipanti su tutte le occorrenze
+    // (modalità "closed" implicita su mobile, niente toggle qui).
+    if (createIsGroup && createInitialParticipants.length > 0 && inserted && inserted.length > 0) {
+      const pricePP = parseFloat(createGroupPrice.replace(",", "."));
+      const allPartRows: Array<Record<string, unknown>> = [];
+      for (const a of inserted) {
+        for (const p of createInitialParticipants) {
+          allPartRows.push({
+            appointment_id: a.id,
+            patient_id: p.id,
+            price: isFinite(pricePP) ? pricePP : 0,
+            payment_status: "unpaid",
+            attendance_status: "pending",
+          });
+        }
+      }
+      const { error: partErr } = await supabase
+        .from("appointment_participants")
+        .insert(allPartRows);
+      if (partErr) {
+        console.error("[calendar-mobile-create-group] errore partecipanti:", partErr);
+        alert(
+          `Gruppo creato, ma errore nell'aggiungere i partecipanti: ${partErr.message}\n` +
+          `Puoi aggiungerli dalla scheda del gruppo.`
+        );
+      }
+    }
+
     setBusy(false);
     setCreateOpen(false);
     setCreateRecurring(false); // reset for next
+    setCreateInitialParticipants([]); // step 6.1: reset participants
     await loadAppointments(currentDate);
 
     // ── Modal conferma WhatsApp (solo se: 1 solo appuntamento + paziente ha telefono) ──
@@ -2470,7 +2516,7 @@ function CalendarPageInner() {
       {/* ━━━ MODAL CREAZIONE ━━━ */}
       {createOpen&&(
         <CreateModal
-          busy={busy} error={error} onClose={()=>setCreateOpen(false)}
+          busy={busy} error={error} onClose={()=>{setCreateOpen(false); setCreateInitialParticipants([]);}}
           patientQuery={patientQuery} setPatientQuery={setPatientQuery}
           patientResults={patientResults} patientLoading={patientLoading}
           selectedPatient={selectedPatient} setSelectedPatient={setSelectedPatient}
@@ -2500,6 +2546,14 @@ function CalendarPageInner() {
           createGroupTitle={createGroupTitle} setCreateGroupTitle={setCreateGroupTitle}
           createGroupMax={createGroupMax} setCreateGroupMax={setCreateGroupMax}
           createGroupPrice={createGroupPrice} setCreateGroupPrice={setCreateGroupPrice}
+          createInitialParticipants={createInitialParticipants}
+          addInitialParticipantCal={(p) => setCreateInitialParticipants(prev =>
+            prev.find(x => x.id === p.id) ? prev : [...prev, p]
+          )}
+          removeInitialParticipantCal={(patientId) => setCreateInitialParticipants(prev =>
+            prev.filter(x => x.id !== patientId)
+          )}
+          searchPatientsForGroupCal={groupSearchPatientsApi}
         />
       )}
 
@@ -2807,7 +2861,32 @@ function CreateModal(props:CreateModalProps) {
     createGroupTitle,setCreateGroupTitle,
     createGroupMax,setCreateGroupMax,
     createGroupPrice,setCreateGroupPrice,
+    createInitialParticipants,
+    addInitialParticipantCal,
+    removeInitialParticipantCal,
+    searchPatientsForGroupCal,
   }=props;
+
+  // Step 6.1: search partecipanti iniziali (locale al modal)
+  const [partSearchQ, setPartSearchQ] = useState("");
+  const [partSearchResults, setPartSearchResults] = useState<
+    Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>
+  >([]);
+  useEffect(() => {
+    if (!createIsGroup) { setPartSearchResults([]); return; }
+    const q = partSearchQ.trim();
+    if (!q) { setPartSearchResults([]); return; }
+    const alreadyIds = new Set(createInitialParticipants.map(p => p.id));
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const res = await searchPatientsForGroupCal(q);
+      if (!cancelled) {
+        setPartSearchResults(res.filter(p => !alreadyIds.has(p.id)).slice(0, 6));
+      }
+    }, 200);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [partSearchQ, createIsGroup, createInitialParticipants, searchPatientsForGroupCal]);
+
   return (
     <LightModal onClose={onClose}>
       <ModalHeader
@@ -2949,6 +3028,149 @@ function CreateModal(props:CreateModalProps) {
                   return (n * p).toFixed(2);
                 })()}
               </span>
+            </div>
+
+            {/* ─── Step 6.1: partecipanti iniziali ───────────── */}
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed rgba(13,148,136,0.25)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, letterSpacing: 0.3 }}>
+                  PARTECIPANTI (opzionale)
+                </div>
+                <div style={{
+                  fontSize: 10, fontWeight: 700,
+                  color: createInitialParticipants.length > (parseInt(createGroupMax, 10) || 0)
+                    ? "#dc2626"
+                    : "#0d9488",
+                }}>
+                  {createInitialParticipants.length}/{parseInt(createGroupMax, 10) || 0}
+                </div>
+              </div>
+
+              <div style={{ position: "relative", marginBottom: 6 }}>
+                <input
+                  type="text"
+                  value={partSearchQ}
+                  onChange={(e) => setPartSearchQ(e.target.value)}
+                  placeholder="🔍 Cerca paziente…"
+                  style={{
+                    ...inputS(),
+                    minHeight: 40,
+                    fontSize: 13,
+                  }}
+                />
+                {partSearchResults.length > 0 && (
+                  <div style={{
+                    position: "absolute", top: "100%", left: 0, right: 0,
+                    marginTop: 2, zIndex: 100,
+                    background: "#fff",
+                    border: `1.5px solid ${THEME.border}`,
+                    borderRadius: 8,
+                    maxHeight: 200, overflowY: "auto",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                  }}>
+                    {partSearchResults.map((p) => (
+                      <div
+                        key={p.id}
+                        onClick={() => {
+                          addInitialParticipantCal(p);
+                          setPartSearchQ("");
+                          setPartSearchResults([]);
+                        }}
+                        style={{
+                          padding: "10px 12px",
+                          cursor: "pointer",
+                          borderBottom: `1px solid ${THEME.border}`,
+                          fontSize: 13,
+                          color: THEME.text,
+                          minHeight: 44,
+                          display: "flex", alignItems: "center",
+                        }}
+                      >
+                        <span style={{ fontWeight: 600, flex: 1 }}>
+                          {(p.last_name || "").trim()} {(p.first_name || "").trim()}
+                        </span>
+                        {p.phone && (
+                          <span style={{ fontSize: 10, color: THEME.muted, marginLeft: 8 }}>{p.phone}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {partSearchQ.trim() && partSearchResults.length === 0 && (
+                  <div style={{
+                    position: "absolute", top: "100%", left: 0, right: 0,
+                    marginTop: 2, zIndex: 100,
+                    background: "#fff",
+                    border: `1.5px solid ${THEME.border}`,
+                    borderRadius: 8,
+                    padding: "10px 12px",
+                    fontSize: 12, color: THEME.muted, fontStyle: "italic",
+                  }}>
+                    Nessun paziente trovato
+                  </div>
+                )}
+              </div>
+
+              {createInitialParticipants.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {createInitialParticipants.map((p) => {
+                    const initials =
+                      ((p.last_name || "").trim()[0] || "") +
+                      ((p.first_name || "").trim()[0] || "");
+                    return (
+                      <div
+                        key={p.id}
+                        style={{
+                          display: "inline-flex", alignItems: "center", gap: 4,
+                          padding: "5px 5px 5px 8px",
+                          background: "#fff",
+                          border: "1.5px solid rgba(13,148,136,0.4)",
+                          borderRadius: 99,
+                          fontSize: 11,
+                        }}
+                      >
+                        <span style={{
+                          width: 18, height: 18, borderRadius: "50%",
+                          background: "#0d9488", color: "#fff",
+                          fontSize: 9, fontWeight: 700,
+                          display: "inline-flex", alignItems: "center", justifyContent: "center",
+                          flexShrink: 0,
+                        }}>
+                          {initials.toUpperCase() || "?"}
+                        </span>
+                        <span style={{ color: THEME.text, fontWeight: 600 }}>
+                          {(p.last_name || "").trim()}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => removeInitialParticipantCal(p.id)}
+                          style={{
+                            width: 22, height: 22, borderRadius: "50%",
+                            background: "transparent", border: "none",
+                            cursor: "pointer", color: THEME.muted,
+                            fontSize: 14, fontWeight: 700,
+                            display: "inline-flex", alignItems: "center", justifyContent: "center",
+                            padding: 0, lineHeight: 1,
+                          }}
+                          aria-label="Rimuovi"
+                        >×</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {createInitialParticipants.length > (parseInt(createGroupMax, 10) || 0) && (
+                <div style={{
+                  marginTop: 6, padding: "5px 10px",
+                  background: "rgba(220,38,38,0.08)",
+                  border: "1px solid rgba(220,38,38,0.25)",
+                  borderRadius: 6,
+                  fontSize: 10, color: "#7f1d1d",
+                }}>
+                  ⚠️ Troppi pazienti. Aumenta il max o rimuovi qualcuno.
+                </div>
+              )}
             </div>
           </div>
         )}

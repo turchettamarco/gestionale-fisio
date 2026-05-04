@@ -413,6 +413,22 @@ const userInitials = useMemo(() => {
   /** Modalità gruppo ricorrente: closed=replica i pazienti su tutte le occorrenze, open=lascia vuoto */
   const [groupRecurringMode, setGroupRecurringMode]               = useState<"closed" | "open">("closed");
 
+  // ─── Partecipanti iniziali per nuovo gruppo (mig. 014, step 6.1) ───
+  // Lista dei pazienti selezionati DURANTE la creazione del gruppo.
+  // Vengono inseriti tutti insieme dopo l'INSERT del padre.
+  const [initialParticipants, setInitialParticipants] = useState<
+    Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>
+  >([]);
+  const addInitialParticipant = useCallback(
+    (p: { id: string; first_name: string | null; last_name: string | null; phone: string | null }) => {
+      setInitialParticipants(prev => prev.find(x => x.id === p.id) ? prev : [...prev, p]);
+    },
+    []
+  );
+  const removeInitialParticipant = useCallback((patientId: string) => {
+    setInitialParticipants(prev => prev.filter(p => p.id !== patientId));
+  }, []);
+
   const [quickPatientOpen, setQuickPatientOpen] = useState(false);
   const [quickPatientFirstName, setQuickPatientFirstName] = useState("");
   const [quickPatientLastName, setQuickPatientLastName] = useState("");
@@ -2392,6 +2408,29 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
 
       if (data) {
         createdAppointmentId = data.id;
+
+        // ─── Step 6.1: inserisci i partecipanti iniziali (se ci sono) ──
+        if (isGroupAppointment && initialParticipants.length > 0 && createdAppointmentId) {
+          const pricePP = parseFloat(groupPricePerPerson.replace(",", "."));
+          const partRows = initialParticipants.map(p => ({
+            appointment_id: createdAppointmentId,
+            patient_id: p.id,
+            price: isFinite(pricePP) ? pricePP : 0,
+            payment_status: "unpaid",
+            attendance_status: "pending",
+          }));
+          const { error: partErr } = await supabase
+            .from("appointment_participants")
+            .insert(partRows);
+          if (partErr) {
+            // Non blocchiamo: il gruppo è creato. Mostriamo un warning.
+            console.error("[create-group] errore inserimento partecipanti:", partErr);
+            alert(
+              `Gruppo creato, ma c'è stato un errore nell'aggiungere i partecipanti: ${partErr.message}\n` +
+              `Puoi aggiungerli manualmente dalla scheda del gruppo.`
+            );
+          }
+        }
         
         // Per i gruppi non c'è un singolo paziente a cui inviare il WA.
         // I promemoria a tutti i partecipanti verranno inviati dopo, dal SelectedEventModal.
@@ -2456,8 +2495,47 @@ A presto${firma ? `,\n${firma}` : ""}`;
         end_at: new Date(s.getTime() + durationMs).toISOString(),
       }));
 
-      const { error: insErr } = await supabase.from("appointments").insert(rows);
+      const { data: insertedRows, error: insErr } = await supabase
+        .from("appointments")
+        .insert(rows)
+        .select("id, start_at");
       if (insErr) throw new Error(insErr.message);
+
+      // ─── Step 6.1: partecipanti iniziali per gruppi ricorrenti ─────
+      // Modalità "closed": replica i pazienti su TUTTE le occorrenze
+      // Modalità "open": solo la prima occorrenza riceve i partecipanti
+      if (isGroupAppointment && initialParticipants.length > 0 && insertedRows && insertedRows.length > 0) {
+        const pricePP = parseFloat(groupPricePerPerson.replace(",", "."));
+        // Ordina cronologicamente per identificare la "prima" occorrenza
+        const sortedAppts = [...insertedRows].sort((a, b) =>
+          new Date(a.start_at).getTime() - new Date(b.start_at).getTime()
+        );
+        const targetAppts = groupRecurringMode === "closed"
+          ? sortedAppts                          // tutti
+          : sortedAppts.slice(0, 1);             // solo il primo
+        const allPartRows: Array<Record<string, unknown>> = [];
+        for (const a of targetAppts) {
+          for (const p of initialParticipants) {
+            allPartRows.push({
+              appointment_id: a.id,
+              patient_id: p.id,
+              price: isFinite(pricePP) ? pricePP : 0,
+              payment_status: "unpaid",
+              attendance_status: "pending",
+            });
+          }
+        }
+        const { error: partErr } = await supabase
+          .from("appointment_participants")
+          .insert(allPartRows);
+        if (partErr) {
+          console.error("[create-group-recurring] errore inserimento partecipanti:", partErr);
+          alert(
+            `Gruppi creati, ma c'è stato un errore nell'aggiungere i partecipanti: ${partErr.message}\n` +
+            `Puoi aggiungerli manualmente dalle schede dei gruppi.`
+          );
+        }
+      }
       
       if (sendWhatsApp) {
         alert("Per appuntamenti ricorrenti, WhatsApp non viene inviato automaticamente per evitare troppi messaggi.");
@@ -2465,6 +2543,8 @@ A presto${firma ? `,\n${firma}` : ""}`;
     }
 
     setCreateOpen(false);
+    // Reset partecipanti iniziali per il prossimo gruppo (step 6.1)
+    setInitialParticipants([]);
     const startOfWeek = startOfISOWeekMonday(currentDate);
     const endOfWeek = addDays(startOfWeek, 7);
     await loadAppointments(startOfWeek, endOfWeek);
@@ -2500,6 +2580,8 @@ A presto${firma ? `,\n${firma}` : ""}`;
   groupTitle,
   groupMaxParticipants,
   groupPricePerPerson,
+  groupRecurringMode,
+  initialParticipants,
   currentStudio,
   currentStudioId,
 ]);
@@ -3197,7 +3279,7 @@ return (
       {createOpen && (
         <CreateAppointmentModal
           duplicateMode={duplicateMode}
-          onClose={() => setCreateOpen(false)}
+          onClose={() => { setCreateOpen(false); setInitialParticipants([]); }}
           showAllUpcoming={showAllUpcoming}
           onRequestCreate={() => setShowWhatsAppConfirm(true)}
           createStartISO={createStartISO}
@@ -3270,6 +3352,10 @@ return (
           setGroupPricePerPerson={setGroupPricePerPerson}
           groupRecurringMode={groupRecurringMode}
           setGroupRecurringMode={setGroupRecurringMode}
+          initialParticipants={initialParticipants}
+          addInitialParticipant={addInitialParticipant}
+          removeInitialParticipant={removeInitialParticipant}
+          searchPatientsForGroup={groupSearchPatients}
           creating={creating}
         />
       )}

@@ -25,6 +25,7 @@
 
 "use client";
 
+import { useState, useEffect, useMemo } from "react";
 import {
   THEME, ALL_TREATMENTS, DEFAULT_CLINIC_SITE,
   fmtTime, parseDateInput, toDateInputValue, generateRecurringStarts,
@@ -133,6 +134,16 @@ export type CreateAppointmentModalProps = {
   groupRecurringMode: "closed" | "open";
   setGroupRecurringMode: (m: "closed" | "open") => void;
 
+  // ─── Partecipanti iniziali (mig. 014, step 6.1) ───────────
+  /** Lista dei pazienti già selezionati come partecipanti iniziali */
+  initialParticipants: Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>;
+  /** Aggiungi un paziente alla lista iniziale */
+  addInitialParticipant: (patient: { id: string; first_name: string | null; last_name: string | null; phone: string | null }) => void;
+  /** Rimuovi un paziente dalla lista iniziale */
+  removeInitialParticipant: (patientId: string) => void;
+  /** Funzione di ricerca pazienti per il campo search */
+  searchPatientsForGroup: (query: string) => Promise<Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>>;
+
   // ─── Submit ───────────────────────────────────────────────
   creating: boolean;
 };
@@ -170,6 +181,8 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
     groupMaxParticipants, setGroupMaxParticipants,
     groupPricePerPerson, setGroupPricePerPerson,
     groupRecurringMode, setGroupRecurringMode,
+    initialParticipants, addInitialParticipant, removeInitialParticipant,
+    searchPatientsForGroup,
     creating,
   } = props;
 
@@ -177,9 +190,49 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
   const overlapMode = practiceSettings?.overlap_mode ?? "warn";
   const isBlock = overlapMode === "block";
   const isVisualOverlap = overlapMode === "visual";
+
+  // ─── Search partecipanti iniziali (mig. 014, step 6.1) ────────
+  const [participantsSearchQ, setParticipantsSearchQ] = useState("");
+  const [participantsSearchResults, setParticipantsSearchResults] = useState<
+    Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>
+  >([]);
+
+  const alreadyAddedIds = useMemo(
+    () => new Set(initialParticipants.map(p => p.id)),
+    [initialParticipants]
+  );
+
+  // Debounced search (200ms)
+  useEffect(() => {
+    if (!isGroupAppointment) {
+      setParticipantsSearchResults([]);
+      return;
+    }
+    const q = participantsSearchQ.trim();
+    if (!q) {
+      setParticipantsSearchResults([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await searchPatientsForGroup(q);
+        if (!cancelled) {
+          setParticipantsSearchResults(res.filter(p => !alreadyAddedIds.has(p.id)).slice(0, 8));
+        }
+      } catch {
+        if (!cancelled) setParticipantsSearchResults([]);
+      }
+    }, 200);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [participantsSearchQ, alreadyAddedIds, isGroupAppointment, searchPatientsForGroup]);
+
   // Per i gruppi non serve un paziente selezionato; serve invece il titolo.
+  // Inoltre se ci sono partecipanti iniziali, non devono superare il max.
   const groupValid = isGroupAppointment
-    ? !!groupTitle.trim() && parseInt(groupMaxParticipants, 10) >= 2
+    ? !!groupTitle.trim()
+      && parseInt(groupMaxParticipants, 10) >= 2
+      && initialParticipants.length <= parseInt(groupMaxParticipants, 10)
     : true;
   const submitDisabled = creating
     || (!isGroupAppointment && !selectedPatient)
@@ -474,7 +527,7 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
               Dati gruppo
             </div>
             <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 14, lineHeight: 1.5 }}>
-              ⚡ Aggiungerai i pazienti dopo aver creato l&apos;appuntamento, dalla scheda del gruppo.
+              💡 Puoi aggiungere i pazienti già qui sotto, oppure dopo dalla scheda del gruppo.
             </div>
 
             {/* Titolo */}
@@ -572,6 +625,166 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
                   return (n * p).toFixed(2);
                 })()}€
               </span>
+            </div>
+
+            {/* ─── Partecipanti iniziali (step 6.1) ─────────────── */}
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px dashed ${THEME.teal}33` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: THEME.muted }}>
+                  Partecipanti iniziali (opzionale)
+                </div>
+                <div style={{
+                  fontSize: 11, fontWeight: 700,
+                  color: initialParticipants.length > (parseInt(groupMaxParticipants, 10) || 0)
+                    ? "#dc2626"
+                    : THEME.teal,
+                }}>
+                  {initialParticipants.length}/{parseInt(groupMaxParticipants, 10) || 0} selezionati
+                </div>
+              </div>
+
+              {/* Search */}
+              <div style={{ position: "relative", marginBottom: 8 }}>
+                <input
+                  type="text"
+                  value={participantsSearchQ}
+                  onChange={(e) => setParticipantsSearchQ(e.target.value)}
+                  placeholder="🔍 Cerca paziente per cognome o nome…"
+                  style={{
+                    width: "100%", padding: "8px 12px", borderRadius: 6,
+                    border: `1.5px solid ${THEME.border}`,
+                    background: "#fff",
+                    fontSize: 13, color: THEME.text,
+                    outline: "none", boxSizing: "border-box",
+                    fontFamily: "inherit",
+                  }}
+                />
+
+                {/* Dropdown risultati */}
+                {participantsSearchResults.length > 0 && (
+                  <div style={{
+                    position: "absolute", top: "100%", left: 0, right: 0,
+                    marginTop: 2, zIndex: 10,
+                    background: "#fff",
+                    border: `1.5px solid ${THEME.border}`,
+                    borderRadius: 6,
+                    maxHeight: 220,
+                    overflowY: "auto",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+                  }}>
+                    {participantsSearchResults.map((p) => (
+                      <div
+                        key={p.id}
+                        onClick={() => {
+                          addInitialParticipant(p);
+                          setParticipantsSearchQ("");
+                          setParticipantsSearchResults([]);
+                        }}
+                        style={{
+                          padding: "8px 12px",
+                          cursor: "pointer",
+                          borderBottom: `1px solid ${THEME.border}`,
+                          fontSize: 12,
+                          color: THEME.text,
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = `${THEME.teal}08`; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = "#fff"; }}
+                      >
+                        <span style={{ fontWeight: 600 }}>
+                          {(p.last_name || "").trim()} {(p.first_name || "").trim()}
+                        </span>
+                        {p.phone && (
+                          <span style={{ fontSize: 10, color: THEME.muted }}>{p.phone}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {participantsSearchQ.trim() && participantsSearchResults.length === 0 && (
+                  <div style={{
+                    position: "absolute", top: "100%", left: 0, right: 0,
+                    marginTop: 2, zIndex: 10,
+                    background: "#fff",
+                    border: `1.5px solid ${THEME.border}`,
+                    borderRadius: 6,
+                    padding: "10px 12px",
+                    fontSize: 12, color: THEME.muted, fontStyle: "italic",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+                  }}>
+                    Nessun paziente trovato
+                  </div>
+                )}
+              </div>
+
+              {/* Chip dei pazienti selezionati */}
+              {initialParticipants.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+                  {initialParticipants.map((p) => {
+                    const initials =
+                      ((p.last_name || "").trim()[0] || "") +
+                      ((p.first_name || "").trim()[0] || "");
+                    return (
+                      <div
+                        key={p.id}
+                        style={{
+                          display: "inline-flex", alignItems: "center", gap: 5,
+                          padding: "4px 4px 4px 8px",
+                          background: "#fff",
+                          border: `1.5px solid ${THEME.teal}66`,
+                          borderRadius: 99,
+                          fontSize: 11,
+                        }}
+                      >
+                        <span style={{
+                          width: 18, height: 18, borderRadius: "50%",
+                          background: THEME.teal, color: "#fff",
+                          fontSize: 9, fontWeight: 700,
+                          display: "inline-flex", alignItems: "center", justifyContent: "center",
+                          flexShrink: 0,
+                        }}>
+                          {initials.toUpperCase() || "?"}
+                        </span>
+                        <span style={{ color: THEME.text, fontWeight: 600 }}>
+                          {(p.last_name || "").trim()} {(p.first_name || "").trim()}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => removeInitialParticipant(p.id)}
+                          style={{
+                            width: 18, height: 18, borderRadius: "50%",
+                            background: "transparent",
+                            border: "none",
+                            cursor: "pointer",
+                            color: THEME.muted,
+                            fontSize: 13, fontWeight: 700,
+                            display: "inline-flex", alignItems: "center", justifyContent: "center",
+                            padding: 0, lineHeight: 1,
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.color = "#dc2626"; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = THEME.muted; }}
+                          aria-label="Rimuovi paziente"
+                        >×</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Errore se troppi partecipanti */}
+              {initialParticipants.length > (parseInt(groupMaxParticipants, 10) || 0) && (
+                <div style={{
+                  marginTop: 6, padding: "6px 10px",
+                  background: "rgba(220,38,38,0.08)",
+                  border: "1px solid rgba(220,38,38,0.25)",
+                  borderRadius: 6,
+                  fontSize: 11, color: "#7f1d1d",
+                }}>
+                  ⚠️ Hai selezionato più pazienti del massimo. Aumenta il numero massimo o rimuovine qualcuno.
+                </div>
+              )}
             </div>
 
             {/* Modalità ricorrente (solo se isRecurring && isGroup) */}
