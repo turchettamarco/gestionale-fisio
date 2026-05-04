@@ -3044,12 +3044,16 @@ return (
           .cal-center-row { gap: 4px !important; }
           .nav-tab-compact { gap: 0 !important; }
           .nav-tab-compact a { padding: 5px 8px !important; font-size: 11px !important; }
+          .cal-print-btn { padding: 6px 8px !important; gap: 3px !important; }
           /* Card appuntamento: su iPad riduci padding/font per far stare tutto */
           .cal-event-card { padding: 6px 7px !important; }
           .cal-event-card .ev-header { font-size: 10px !important; margin-bottom: 2px !important; }
           .cal-event-card .ev-name { font-size: 12px !important; margin-bottom: 2px !important; }
           .cal-event-card .ev-meta { font-size: 10px !important; margin-bottom: 4px !important; }
           .cal-event-card .ev-actions button { font-size: 10px !important; padding: 3px 0 !important; }
+          /* Vista settimana iPad: nascondi i micro-bottoni azione (resta orario+nome+status).
+             I bottoni si possono usare aprendo la card o passando in vista Giorno. */
+          .cal-evt-actions { display: none !important; }
         }
         @media print { .no-print { display: none !important; } .print-wrap { margin: 0 !important; padding: 4px !important; } }
       `}</style>

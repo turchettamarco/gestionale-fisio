@@ -450,7 +450,7 @@ export default function WeekView({
               <div
                 key={event.id}
                 draggable
-                className={isMatch ? "search-highlight" : isDimmed ? "search-dimmed" : ""}
+                className={`cal-event-card ${isMatch ? "search-highlight" : isDimmed ? "search-dimmed" : ""}`}
                 onDragStart={e => onDragStart(e, event.id, event.start, event.end)}
                 onDragEnd={onDragEnd}
                 onContextMenu={e => onContextMenu(e, event)}
@@ -622,7 +622,7 @@ export default function WeekView({
                         {fmtTime(event.start.toISOString())}
                         {isDomicile && " 🏠"}
                       </span>
-                      <div style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0 }}>
+                      <div className="cal-evt-actions" style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0 }}>
                         {/* Pagato — micro icon button con popover */}
                         {onUpdatePayment ? (
                           <PaidIconButton

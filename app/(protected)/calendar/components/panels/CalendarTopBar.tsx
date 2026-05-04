@@ -261,6 +261,7 @@ export default function CalendarTopBar({
         <div ref={printMenuRef} style={{ position: "relative", flexShrink: 0, zIndex: 40 }}>
           <button
             onClick={() => setPrintMenuOpen(!printMenuOpen)}
+            className="cal-print-btn"
             style={{
               padding: "6px 14px", borderRadius: 8,
               border: "1.5px solid rgba(255,255,255,0.35)",
