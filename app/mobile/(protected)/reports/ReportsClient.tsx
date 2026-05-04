@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import Link from "next/link";
 
 /* ─── Theme ───────────────────────────────────────────────────────────── */
@@ -277,10 +278,14 @@ function MobileBarChart({labels,values,unpaidValues,period,onBarClick,selectedDa
 /* ─── Main ────────────────────────────────────────────────────────────── */
 export default function ReportsMobile() {
   const params = useSearchParams();
+  const { studio: currentStudio } = useCurrentStudio();
   const [period,  setPeriod]  = useState<Period>((params.get("period") as Period)||"month");
   const [dateStr, setDateStr] = useState(params.get("date")||toISODate(new Date()));
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string|null>(null);
+
+  // ─── Gruppi (mig. 014): toggle se ogni partecipante conta come riga ──
+  const [groupStatsSeparate, setGroupStatsSeparate] = useState(false);
 
   const [statistics,       setStatistics]       = useState<Statistic>({total:0,invoiceCount:0,appointmentCount:0,averageAmount:0,maxAmount:0,minAmount:0,unpaidTotal:0,unpaidCount:0,unpaidAppointmentCount:0,unpaidInvoiceCount:0});
   const [series,           setSeries]           = useState<number[]>([]);
@@ -366,6 +371,7 @@ export default function ReportsMobile() {
         {data:arrearsAppt},
         {data:unpaidInvAll},
         {data:unpaidApptAll},
+        {data:groups},
       ] = await Promise.all([
         supabase.from("invoices").select("id,amount,paid_at,status,patient_id").eq("status","paid").gte("paid_at",fromStr).lte("paid_at",toStr).order("paid_at",{ascending:true}),
         supabase.from("invoices").select("id,amount,paid_at,created_at,status,patient_id").eq("status","not_paid").gte("created_at",fromStr).lte("created_at",toStr).order("created_at",{ascending:true}),
@@ -374,7 +380,23 @@ export default function ReportsMobile() {
         supabase.from("appointments").select("id,amount,start_at,status").eq("status","not_paid").lt("start_at",fromStr).order("start_at",{ascending:false}).limit(1000),
         supabase.from("invoices").select("id,amount,paid_at,created_at,status,patient_id").eq("status","not_paid").order("created_at",{ascending:true}).limit(1000),
         supabase.from("appointments").select("id,amount,start_at,status,treatment_type,price_type,patient_id").eq("status","not_paid").order("start_at",{ascending:true}).limit(1000),
+        // ─── Gruppi (mig. 014): include partecipanti present + paid ──────
+        supabase.from("appointments").select(`
+          id,start_at,group_title,
+          appointment_participants(id,patient_id,price,payment_status,attendance_status)
+        `).eq("is_group",true).eq("status","done").gte("start_at",fromStr).lte("start_at",toStr).order("start_at",{ascending:true}),
       ]);
+
+      const groupsData = (groups || []) as Array<{
+        id: string; start_at: string; group_title: string | null;
+        appointment_participants?: Array<{
+          id: string; patient_id: string; price: number | null;
+          payment_status?: string | null; attendance_status?: string | null;
+        }>;
+      }>;
+      const groupParticipantIds = groupsData.flatMap(g =>
+        (g.appointment_participants ?? []).map(p => p.patient_id)
+      );
 
       // Collect all patient IDs
       const allIds = Array.from(new Set([
@@ -384,6 +406,7 @@ export default function ReportsMobile() {
         ...(unpaidApptRaw||[]).map((x:any)=>x.patient_id),
         ...(unpaidInvAll||[]).map((x:any)=>x.patient_id),
         ...(unpaidApptAll||[]).map((x:any)=>x.patient_id),
+        ...groupParticipantIds,
       ].filter(Boolean)));
 
       let patients: Record<string,{first_name:string;last_name:string}> = {};
@@ -406,7 +429,45 @@ export default function ReportsMobile() {
         description:`${a.treatment_type||"Seduta"}`, patient_name:pName(a.patient_id), patient_id:a.patient_id, status:"paid",
       })).filter(x=>x.amount>0);
 
-      const allData=[...invoicesItems,...apptItems];
+      // ─── Gruppi (mig. 014): aggiungi righe a seconda del toggle ────────
+      const groupItems: FinancialItem[] = [];
+      groupsData.forEach(g => {
+        const presentParticipants = (g.appointment_participants ?? [])
+          .filter(p => p.attendance_status === "present");
+        if (presentParticipants.length === 0) return;
+
+        if (groupStatsSeparate) {
+          // ON: ogni partecipante = 1 riga
+          presentParticipants.forEach(p => {
+            const amt = Number(p.price) || 0;
+            if (amt <= 0) return;
+            groupItems.push({
+              amount: amt,
+              date: g.start_at,
+              source: "appointment",
+              description: g.group_title ? `Gruppo: ${g.group_title}` : "Gruppo",
+              patient_name: pName(p.patient_id),
+              patient_id: p.patient_id,
+              status: "paid",
+            });
+          });
+        } else {
+          // OFF: 1 riga aggregata per gruppo
+          const total = presentParticipants.reduce((s, p) => s + (Number(p.price) || 0), 0);
+          if (total <= 0) return;
+          groupItems.push({
+            amount: total,
+            date: g.start_at,
+            source: "appointment",
+            description: g.group_title ? `Gruppo: ${g.group_title}` : "Gruppo",
+            patient_name: g.group_title ? `Gruppo: ${g.group_title}` : "Gruppo",
+            patient_id: undefined,
+            status: "paid",
+          });
+        }
+      });
+
+      const allData=[...invoicesItems,...apptItems,...groupItems];
       setRawData(allData);
 
       // Unpaid therapies (period)
@@ -519,7 +580,25 @@ export default function ReportsMobile() {
     }
   }
 
-  useEffect(()=>{ loadData(); },[period,dateStr]);
+  // Carica toggle group_stats_count_as_separate dallo studio (mig. 014)
+  useEffect(() => {
+    if (!currentStudio?.id) return;
+    (async () => {
+      const { data } = await supabase
+        .from("studios")
+        .select("group_stats_count_as_separate")
+        .eq("id", currentStudio.id)
+        .maybeSingle();
+      if (data) {
+        setGroupStatsSeparate(
+          ((data as unknown as { group_stats_count_as_separate?: boolean | null })
+            .group_stats_count_as_separate) ?? false
+        );
+      }
+    })();
+  }, [currentStudio?.id]);
+
+  useEffect(()=>{ loadData(); },[period,dateStr,groupStatsSeparate]); // eslint-disable-line
 
   function handleBarClick(idx: number) {
     setSelectedDay(idx);

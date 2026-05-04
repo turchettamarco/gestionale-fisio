@@ -128,6 +128,10 @@ export default function ReportsPage(){
   const[prevRev,    setPrevRev]    =useState<number|null>(null);
   const[monthBars,  setMonthBars]  =useState<MonthBar[]>([]);
   const[goal,       setGoal]       =useState(2000);
+  // ─── Gruppi (mig. 014) ──────────────────────────────────────────────
+  // OFF (default): 1 gruppo = 1 riga aggregata (somma partecipanti present)
+  // ON: ogni partecipante present = 1 riga separata
+  const[groupStatsSeparate, setGroupStatsSeparate] = useState(false);
   const[compBars,   setCompBars]   =useState<{label:string;period:string;revenue:number;sessions:number;isActive:boolean}[]>([]);
   const[editGoal,   setEditGoal]   =useState(false);
   const[goalInput,  setGoalInput]  =useState("2000");
@@ -186,6 +190,24 @@ export default function ReportsPage(){
     })();
   },[]);
 
+  // Carica toggle group_stats_count_as_separate dallo studio (mig. 014)
+  useEffect(() => {
+    if (!currentStudio?.id) return;
+    (async () => {
+      const { data } = await supabase
+        .from("studios")
+        .select("group_stats_count_as_separate")
+        .eq("id", currentStudio.id)
+        .maybeSingle();
+      if (data) {
+        setGroupStatsSeparate(
+          ((data as unknown as { group_stats_count_as_separate?: boolean | null })
+            .group_stats_count_as_separate) ?? false
+        );
+      }
+    })();
+  }, [currentStudio?.id]);
+
   // ─── Load ──────────────────────────────────────────────────────────────────
   async function loadData(){
     const currentId = ++loadIdRef.current;
@@ -203,15 +225,39 @@ export default function ReportsPage(){
       }
 
       // ── Appuntamenti periodo ──
-      const[{data:done},{data:unp},{data:allA},{data:cancelled}]=await Promise.all([
+      const[{data:done},{data:unp},{data:allA},{data:cancelled},{data:groups}]=await Promise.all([
         supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id,price_type,payment_method").eq("status","done").gte("amount",0.01).gte("start_at",fs).lte("start_at",ts).order("start_at",{ascending:false}),
         supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id").eq("status","not_paid").gte("start_at",fs).lte("start_at",ts).order("start_at",{ascending:false}),
         supabase.from("appointments").select("status,start_at,patient_id").gte("start_at",fs).lte("start_at",ts),
         supabase.from("appointments").select("status,start_at").eq("status","cancelled").gte("start_at",fs).lte("start_at",ts),
+        // ─── Gruppi (mig. 014): include partecipanti present + paid ───────
+        // Il padre del gruppo deve essere "done" perché i partecipanti
+        // contino come sedute eseguite (presenza viene da attendance_status).
+        supabase.from("appointments").select(`
+          id,start_at,group_title,
+          appointment_participants(id,patient_id,price,payment_status,payment_method,attendance_status)
+        `).eq("is_group",true).eq("status","done").gte("start_at",fs).lte("start_at",ts).order("start_at",{ascending:false}),
       ]);
 
       const doneData=done||[],unpData=unp||[],allData=allA||[];
-      const allIds=Array.from(new Set([...doneData,...unpData].map((r:any)=>r.patient_id).filter(Boolean)));
+      const groupsData = (groups || []) as Array<{
+        id: string; start_at: string; group_title: string | null;
+        appointment_participants?: Array<{
+          id: string; patient_id: string; price: number | null;
+          payment_status?: string | null; payment_method?: string | null;
+          attendance_status?: string | null;
+        }>;
+      }>;
+
+      // ─── Estrai patient_id dei partecipanti (per popolare patMap) ───────
+      const groupParticipantIds = groupsData.flatMap(g =>
+        (g.appointment_participants ?? []).map(p => p.patient_id)
+      );
+      const allIds: string[] = Array.from(new Set([
+        ...doneData.map((r:any)=>r.patient_id).filter(Boolean),
+        ...unpData.map((r:any)=>r.patient_id).filter(Boolean),
+        ...groupParticipantIds,
+      ])) as string[];
       const patMap=await pats(allIds);
 
       const paidList:PaidRow[]=doneData.map((r:any)=>({
@@ -220,10 +266,53 @@ export default function ReportsPage(){
         amount:parseFloat(String(r.amount))||0,
         date:r.start_at,type:r.treatment_type||"Seduta",
       })).filter(r=>r.amount>0);
-      setPaidRows(paidList);
 
-      const rev=paidList.reduce((s,r)=>s+r.amount,0);
-      const sess=paidList.length;
+      // ─── GRUPPI (mig. 014): aggiungi righe in base al toggle ──────────
+      // Stesso comportamento dei singoli per "incasso": amount = price del partecipante.
+      // Sedute eseguite: solo partecipanti con attendance_status='present'.
+      const groupRows: PaidRow[] = [];
+      groupsData.forEach(g => {
+        const presentParticipants = (g.appointment_participants ?? [])
+          .filter(p => p.attendance_status === "present");
+        if (presentParticipants.length === 0) return;
+
+        if (groupStatsSeparate) {
+          // ON: ogni partecipante present = 1 riga
+          presentParticipants.forEach(p => {
+            const amt = Number(p.price) || 0;
+            if (amt <= 0) return;
+            groupRows.push({
+              id: `${g.id}::${p.id}`,
+              patient_id: p.patient_id,
+              name: patMap.get(p.patient_id)?.name || "Sconosciuto",
+              amount: amt,
+              date: g.start_at,
+              type: g.group_title ? `Gruppo: ${g.group_title}` : "Gruppo",
+            });
+          });
+        } else {
+          // OFF: 1 riga aggregata per gruppo (somma prezzi present)
+          const total = presentParticipants.reduce((s, p) => s + (Number(p.price) || 0), 0);
+          if (total <= 0) return;
+          groupRows.push({
+            id: g.id,
+            patient_id: "", // gruppo: niente patient_id specifico
+            name: g.group_title ? `Gruppo: ${g.group_title}` : "Gruppo",
+            amount: total,
+            date: g.start_at,
+            type: "Gruppo",
+          });
+        }
+      });
+
+      // Merge: paidList originali + groupRows (ordinati per data desc)
+      const mergedPaid = [...paidList, ...groupRows].sort((a, b) =>
+        b.date.localeCompare(a.date)
+      );
+      setPaidRows(mergedPaid);
+
+      const rev=mergedPaid.reduce((s,r)=>s+r.amount,0);
+      const sess=mergedPaid.length;
       setRevenue(rev);setSessions(sess);
       setRevPerVisit(sess>0?rev/sess:null);
 
@@ -250,6 +339,30 @@ export default function ReportsPage(){
           }
         }
       });
+
+      // ─── Gruppi (mig. 014): aggrega anche i pagamenti dei partecipanti ────
+      // Per coerenza: i partecipanti con payment_status='paid' hanno un
+      // payment_method (cash/pos/bank_transfer). Trattati come "regime contanti"
+      // se mancano informazioni (gruppi non hanno price_type).
+      groupsData.forEach(g => {
+        (g.appointment_participants ?? []).forEach(p => {
+          if (p.payment_status !== "paid") return;
+          // Conta solo i partecipanti present (coerenza con conteggio sedute)
+          if (p.attendance_status !== "present") return;
+          const amt = Number(p.price) || 0;
+          if (amt <= 0) return;
+          // Se non specificato, assume "cash" (default del modal mobile/desktop)
+          const m = (p.payment_method as keyof typeof byMethod) || "cash";
+          if (m in byMethod) {
+            byMethod[m] += amt;
+            byMethodCount[m]++;
+          } else {
+            byMethod.cash += amt;
+            byMethodCount.cash++;
+          }
+        });
+      });
+
       setPaymentBreakdown({
         cash: byMethod.cash, pos: byMethod.pos, bank_transfer: byMethod.bank_transfer, none: byMethod.none,
         cashCount: byMethodCount.cash, posCount: byMethodCount.pos, bankCount: byMethodCount.bank_transfer, noneCount: byMethodCount.none,
@@ -464,7 +577,7 @@ export default function ReportsPage(){
     finally{if(loadIdRef.current === currentId) setLoading(false);}
   }
 
-  useEffect(()=>{loadData();},[period,dateStr]); // eslint-disable-line
+  useEffect(()=>{loadData();},[period,dateStr,groupStatsSeparate]); // eslint-disable-line
 
   // ─── Export completo per commercialista (apre in Excel con BOM UTF-8) ─────
   const [exporting, setExporting] = useState(false);
