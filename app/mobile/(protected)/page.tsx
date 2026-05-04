@@ -291,6 +291,15 @@ export default function MobileHomePage() {
   const [qaNewLast,   setQaNewLast]   = useState("");
   const [qaNewPhone,  setQaNewPhone]  = useState("");
 
+  // ─── Creazione gruppo (mig. 014) ──────────────────────────────────────────
+  const [qaIsGroup,        setQaIsGroup]        = useState(false);
+  const [qaGroupTitle,     setQaGroupTitle]     = useState("");
+  const [qaGroupMax,       setQaGroupMax]       = useState("6");
+  const [qaGroupPrice,     setQaGroupPrice]     = useState("15.00");
+  /** Default da practice_settings (caricato dopo). Usato per pre-popolare il form. */
+  const [defaultGroupPrice, setDefaultGroupPrice] = useState<number>(15);
+  const [defaultGroupMax,   setDefaultGroupMax]   = useState<number>(6);
+
   // Dialog WA confirm dopo creazione appuntamento.
   // Mostrato dopo saveQuickAdd() quando il paziente ha un telefono.
   // L'utente può scegliere se inviare il messaggio o saltare.
@@ -346,6 +355,29 @@ export default function MobileHomePage() {
   }, [userMenuOpen]);
 
   useEffect(() => { void loadAll(); }, [dateYMD]); // eslint-disable-line
+
+  // ─── Carica default prezzi gruppo (mig. 014) da practice_settings ──────────
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData.user?.id;
+      if (!uid) return;
+      const { data } = await supabase
+        .from("practice_settings")
+        .select("default_group_price, default_group_max_participants")
+        .eq("owner_id", uid)
+        .maybeSingle();
+      if (cancelled) return;
+      if (data?.default_group_price != null) {
+        setDefaultGroupPrice(Number(data.default_group_price));
+      }
+      if (data?.default_group_max_participants != null) {
+        setDefaultGroupMax(Number(data.default_group_max_participants));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Carica orari di lavoro dello studio (per generare slot dinamici nel quick-add).
   // Si ricarica se cambia studio (multi-tenancy).
@@ -834,6 +866,11 @@ export default function MobileHomePage() {
     setQaNewFirst("");
     setQaNewLast("");
     setQaNewPhone("");
+    // Reset gruppo (mig. 014)
+    setQaIsGroup(false);
+    setQaGroupTitle("");
+    setQaGroupMax(String(defaultGroupMax));
+    setQaGroupPrice(defaultGroupPrice.toFixed(2));
     setQuickAddOpen(true);
   }
 
@@ -893,6 +930,25 @@ export default function MobileHomePage() {
       alert("L'orario selezionato è già occupato. Scegline un altro.");
       return;
     }
+
+    // ─── Validazione gruppo (mig. 014) ──────────────────────────────────────
+    if (qaIsGroup) {
+      if (!qaGroupTitle.trim()) {
+        alert("Inserisci un titolo per il gruppo (es. \"Posturale\").");
+        return;
+      }
+      const maxN = parseInt(qaGroupMax, 10);
+      if (isNaN(maxN) || maxN < 2) {
+        alert("Numero massimo partecipanti non valido (minimo 2).");
+        return;
+      }
+      const pricePP = parseFloat(qaGroupPrice.replace(",", "."));
+      if (isNaN(pricePP) || pricePP < 0) {
+        alert("Prezzo per persona non valido.");
+        return;
+      }
+    }
+
     setQaSaving(true);
     try {
       // Recupero utente e studio (necessari per owner_id / studio_id su INSERT)
@@ -903,6 +959,36 @@ export default function MobileHomePage() {
       const studioId = currentStudio?.id ?? null;
       if (!studioId) throw new Error("Studio non disponibile. Ricarica la pagina.");
 
+      const startDate = new Date(`${qaDate}T${qaTime}:00`);
+      const startISO = startDate.toISOString();
+      const endISO   = new Date(startDate.getTime() + 3600000).toISOString();
+
+      // ─── PERCORSO GRUPPO (mig. 014) ──────────────────────────────────────
+      // Per i gruppi non c'è paziente singolo: si crea l'appointment "contenitore"
+      // e l'utente aggiungerà i partecipanti dopo dal modal di gestione.
+      if (qaIsGroup) {
+        const { error } = await supabase.from("appointments").insert({
+          patient_id: null,
+          start_at: startISO,
+          end_at: endISO,
+          status: "confirmed",
+          location: "studio",
+          clinic_site: currentStudio?.name || "Studio",
+          owner_id: userId,
+          studio_id: studioId,
+          // Campi gruppo
+          is_group: true,
+          group_title: qaGroupTitle.trim(),
+          group_max_participants: parseInt(qaGroupMax, 10),
+          group_price_per_person: parseFloat(qaGroupPrice.replace(",", ".")),
+        });
+        if (error) throw new Error(`Creazione gruppo: ${error.message}`);
+        setQuickAddOpen(false);
+        await loadAll();
+        return; // Niente WhatsApp confirm per i gruppi
+      }
+
+      // ─── PERCORSO SINGOLO (esistente) ───────────────────────────────────
       let patientId = qaPatientId;
       let patientPhone = qaPatientPhone;
       let patientFirst = qaPatientFirst;
@@ -935,10 +1021,6 @@ export default function MobileHomePage() {
         setQaSaving(false);
         return;
       }
-
-      const startDate = new Date(`${qaDate}T${qaTime}:00`);
-      const startISO = startDate.toISOString();
-      const endISO   = new Date(startDate.getTime() + 3600000).toISOString();
 
       const { error } = await supabase.from("appointments").insert({
         patient_id: patientId,
@@ -1852,10 +1934,58 @@ export default function MobileHomePage() {
             <div style={{ width: 32, height: 3.5, borderRadius: 99, background: THEME.border, margin: "0 auto 14px" }}/>
 
             <div style={{ fontSize: 15, fontWeight: 800, color: THEME.text, marginBottom: 2 }}>
-              Nuovo appuntamento
+              {qaIsGroup ? "Nuovo gruppo" : "Nuovo appuntamento"}
             </div>
-            <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 16 }}>
-              Scegli data, orario e paziente
+            <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 14 }}>
+              {qaIsGroup ? "Scegli data, orario e dati gruppo" : "Scegli data, orario e paziente"}
+            </div>
+
+            {/* ─── Toggle gruppo (mig. 014) ────────────────────────────── */}
+            <div
+              onClick={() => setQaIsGroup(!qaIsGroup)}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "10px 12px", marginBottom: 14,
+                borderRadius: 10,
+                border: `1.5px solid ${qaIsGroup ? "#0d9488" : THEME.border}`,
+                background: qaIsGroup ? "rgba(13,148,136,0.08)" : THEME.panelSoft,
+                cursor: "pointer",
+                transition: "all 0.15s",
+                minHeight: 50,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 9, flex: 1, minWidth: 0 }}>
+                <span style={{ fontSize: 18, flexShrink: 0 }}>👥</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontSize: 13, fontWeight: 700,
+                    color: qaIsGroup ? "#0d9488" : THEME.text,
+                  }}>
+                    Appuntamento di gruppo
+                  </div>
+                  <div style={{ fontSize: 11, color: THEME.muted, marginTop: 1 }}>
+                    Più pazienti, prezzo per persona
+                  </div>
+                </div>
+              </div>
+              {/* Toggle switch */}
+              <div style={{
+                width: 40, height: 22, borderRadius: 11,
+                background: qaIsGroup ? "#0d9488" : THEME.border,
+                position: "relative",
+                transition: "background 0.2s",
+                flexShrink: 0,
+              }}>
+                <div style={{
+                  width: 18, height: 18, borderRadius: "50%",
+                  background: "#fff",
+                  position: "absolute",
+                  top: 2,
+                  left: qaIsGroup ? 20 : 2,
+                  transition: "left 0.2s",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                }} />
+              </div>
             </div>
 
             {/* Date picker — scelta rapida giorno + selettore esteso */}
@@ -1992,7 +2122,8 @@ export default function MobileHomePage() {
               </div>
             </div>
 
-            {/* Patient search / new patient */}
+            {/* Patient search / new patient (NASCOSTA se gruppo) */}
+            {!qaIsGroup && (
             <div style={{ marginBottom: 18 }}>
               <div style={{
                 fontSize: 11, fontWeight: 700, color: THEME.muted,
@@ -2118,10 +2249,134 @@ export default function MobileHomePage() {
                 </div>
               )}
             </div>
+            )}
+
+            {/* ─── Sezione gruppo (visibile solo se qaIsGroup) ───────── */}
+            {qaIsGroup && (
+              <div style={{
+                marginBottom: 18,
+                padding: 14,
+                borderRadius: 10,
+                border: "1.5px solid rgba(13,148,136,0.3)",
+                background: "rgba(13,148,136,0.06)",
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: "#0d9488", marginBottom: 4, letterSpacing: 0.4 }}>
+                  DATI GRUPPO
+                </div>
+                <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 12, lineHeight: 1.4 }}>
+                  ⚡ Aggiungerai i pazienti dopo aver creato il gruppo.
+                </div>
+
+                {/* Titolo */}
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{
+                    fontSize: 11, fontWeight: 700, color: THEME.muted,
+                    textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5,
+                  }}>Titolo</div>
+                  <input
+                    type="text"
+                    value={qaGroupTitle}
+                    onChange={e => setQaGroupTitle(e.target.value)}
+                    placeholder="Es. Posturale, Pilates…"
+                    style={{
+                      width: "100%", padding: "10px 12px", borderRadius: 8,
+                      border: `1.5px solid ${THEME.border}`,
+                      background: "#fff",
+                      fontSize: 14, fontWeight: 600, color: THEME.text,
+                      outline: "none", boxSizing: "border-box",
+                      minHeight: 42,
+                      fontFamily: "inherit",
+                    }}
+                  />
+                </div>
+
+                {/* Max + Prezzo per persona — 2 colonne */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <div style={{
+                      fontSize: 11, fontWeight: 700, color: THEME.muted,
+                      textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5,
+                    }}>Max partecipanti</div>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      min={2}
+                      max={50}
+                      value={qaGroupMax}
+                      onChange={e => setQaGroupMax(e.target.value.replace(/[^0-9]/g, ""))}
+                      style={{
+                        width: "100%", padding: "10px 12px", borderRadius: 8,
+                        border: `1.5px solid ${THEME.border}`,
+                        background: "#fff",
+                        fontSize: 14, fontWeight: 700, color: THEME.text,
+                        outline: "none", boxSizing: "border-box",
+                        minHeight: 42, textAlign: "center",
+                        fontFamily: "inherit",
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <div style={{
+                      fontSize: 11, fontWeight: 700, color: THEME.muted,
+                      textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5,
+                    }}>€/persona</div>
+                    <div style={{ position: "relative" }}>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={qaGroupPrice}
+                        onChange={e => setQaGroupPrice(e.target.value.replace(/[^0-9.,]/g, ""))}
+                        style={{
+                          width: "100%", padding: "10px 28px 10px 12px", borderRadius: 8,
+                          border: `1.5px solid ${THEME.border}`,
+                          background: "#fff",
+                          fontSize: 14, fontWeight: 700, color: THEME.text,
+                          outline: "none", boxSizing: "border-box",
+                          minHeight: 42, textAlign: "right",
+                          fontFamily: "inherit",
+                        }}
+                      />
+                      <span style={{
+                        position: "absolute", right: 12, top: "50%",
+                        transform: "translateY(-50%)",
+                        fontSize: 13, color: THEME.muted, fontWeight: 700,
+                        pointerEvents: "none",
+                      }}>€</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Anteprima totale potenziale */}
+                <div style={{
+                  marginTop: 10,
+                  padding: "8px 12px",
+                  background: "#fff",
+                  border: "1px solid rgba(13,148,136,0.2)",
+                  borderRadius: 6,
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                }}>
+                  <span style={{ fontSize: 11, color: THEME.muted }}>
+                    Totale potenziale
+                  </span>
+                  <span style={{ fontSize: 14, fontWeight: 800, color: "#0d9488" }}>
+                    €{(() => {
+                      const n = parseInt(qaGroupMax, 10) || 0;
+                      const p = parseFloat((qaGroupPrice || "0").replace(",", ".")) || 0;
+                      return (n * p).toFixed(2);
+                    })()}
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Actions */}
             {(() => {
-              const canSave = qaTime && (qaPatientId || (qaNewMode && qaNewFirst.trim() && qaNewLast.trim()));
+              const canSave = qaTime && (
+                qaIsGroup
+                  ? (qaGroupTitle.trim() && parseInt(qaGroupMax, 10) >= 2)
+                  : (qaPatientId || (qaNewMode && qaNewFirst.trim() && qaNewLast.trim()))
+              );
               return (
                 <div style={{ display: "flex", gap: 10 }}>
                   <button onClick={() => setQuickAddOpen(false)} style={{
@@ -2139,7 +2394,7 @@ export default function MobileHomePage() {
                       opacity: qaSaving ? 0.6 : 1,
                     }}
                   >
-                    {qaSaving ? "Salvataggio…" : "Crea appuntamento"}
+                    {qaSaving ? "Salvataggio…" : qaIsGroup ? "Crea gruppo" : "Crea appuntamento"}
                   </button>
                 </div>
               );

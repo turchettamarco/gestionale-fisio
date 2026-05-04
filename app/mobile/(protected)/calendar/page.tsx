@@ -121,6 +121,11 @@ type CreateModalProps = {
   createRecurringInterval: number; setCreateRecurringInterval: (v: number) => void;
   // Placeholder per il campo "Sede" — nome dello studio corrente (multi-tenancy)
   studioNamePlaceholder: string;
+  // ─── Gruppo (mig. 014) ────────────────────────────────────────────────
+  createIsGroup: boolean; setCreateIsGroup: (v: boolean) => void;
+  createGroupTitle: string; setCreateGroupTitle: (v: string) => void;
+  createGroupMax: string; setCreateGroupMax: (v: string) => void;
+  createGroupPrice: string; setCreateGroupPrice: (v: string) => void;
 };
 
 type TouchDragState = {
@@ -1139,12 +1144,59 @@ function CalendarPageInner() {
   const [createRecurringCount, setCreateRecurringCount] = useState(6);
   const [createRecurringInterval, setCreateRecurringInterval] = useState(2); // giorni tra sedute
 
+  // ─── Stato gruppo (mig. 014) ─────────────────────────────────────────────
+  const [createIsGroup, setCreateIsGroup] = useState(false);
+  const [createGroupTitle, setCreateGroupTitle] = useState("");
+  const [createGroupMax, setCreateGroupMax] = useState("6");
+  const [createGroupPrice, setCreateGroupPrice] = useState("15.00");
+
+  // Carica i default da practice_settings (per pre-popolare prezzo/max gruppo)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData.user?.id;
+      if (!uid) return;
+      const { data } = await supabase
+        .from("practice_settings")
+        .select("default_group_price, default_group_max_participants")
+        .eq("owner_id", uid)
+        .maybeSingle();
+      if (cancelled) return;
+      if (data?.default_group_price != null) {
+        setCreateGroupPrice(Number(data.default_group_price).toFixed(2));
+      }
+      if (data?.default_group_max_participants != null) {
+        setCreateGroupMax(String(data.default_group_max_participants));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const createAppointment = useCallback(async () => {
-    if (!selectedPatient){setError("Seleziona un paziente.");return;}
+    // Validazione: caso GRUPPO o caso SINGOLO (mig. 014)
+    if (createIsGroup) {
+      if (!createGroupTitle.trim()) {
+        setError("Inserisci un titolo per il gruppo (es. \"Posturale\").");
+        return;
+      }
+      const maxN = parseInt(createGroupMax, 10);
+      if (isNaN(maxN) || maxN < 2) {
+        setError("Numero massimo partecipanti non valido (minimo 2).");
+        return;
+      }
+      const pricePP = parseFloat(createGroupPrice.replace(",", "."));
+      if (isNaN(pricePP) || pricePP < 0) {
+        setError("Prezzo per persona non valido.");
+        return;
+      }
+    } else {
+      if (!selectedPatient){setError("Seleziona un paziente.");return;}
+    }
     const dur=Number(createDuration);
     if (!isFinite(dur)||dur<=0){setError("Durata non valida.");return;}
-    // Validazione: se fatturato, payment_method è obbligatorio
-    if (createPriceType === "invoiced" && !createPaymentMethod) {
+    // Validazione: se fatturato, payment_method è obbligatorio (skip per gruppi)
+    if (!createIsGroup && createPriceType === "invoiced" && !createPaymentMethod) {
       setError("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");
       return;
     }
@@ -1167,22 +1219,47 @@ function CalendarPageInner() {
       const baseDate = new Date(buildDateTime(createDate,createTime));
       baseDate.setDate(baseDate.getDate() + i*createRecurringInterval);
       const end = new Date(baseDate); end.setMinutes(end.getMinutes()+dur);
-      toInsert.push({
-        patient_id:selectedPatient.id,
-        start_at:baseDate.toISOString(),
-        end_at:end.toISOString(),
-        status:createStatus,
-        calendar_note:createNote.trim()||null,
-        location:createLocation,
-        clinic_site:createLocation==="studio"?(createClinicSite.trim()||currentStudio?.name||"Studio"):null,
-        domicile_address:createLocation==="domicile"?(createDomicileAddress.trim()||null):null,
-        amount,
-        price_type: createPriceType,
-        payment_method: createPriceType === "invoiced" ? createPaymentMethod : null,
-        treatment_type: createTreatmentType || null,
-        owner_id: userId,                // multi-tenancy
-        studio_id: currentStudioId,      // multi-tenancy
-      });
+      if (createIsGroup) {
+        // ─── GRUPPO: patient_id=null + is_group=true (mig. 014) ──────────
+        toInsert.push({
+          patient_id: null,
+          start_at: baseDate.toISOString(),
+          end_at: end.toISOString(),
+          status: createStatus,
+          calendar_note: createNote.trim() || null,
+          location: createLocation,
+          clinic_site: createLocation==="studio"?(createClinicSite.trim()||currentStudio?.name||"Studio"):null,
+          domicile_address: createLocation==="domicile"?(createDomicileAddress.trim()||null):null,
+          amount: null,
+          price_type: null,
+          payment_method: null,
+          treatment_type: null,
+          owner_id: userId,
+          studio_id: currentStudioId,
+          // Campi gruppo
+          is_group: true,
+          group_title: createGroupTitle.trim(),
+          group_max_participants: parseInt(createGroupMax, 10),
+          group_price_per_person: parseFloat(createGroupPrice.replace(",", ".")),
+        });
+      } else {
+        toInsert.push({
+          patient_id:selectedPatient!.id,
+          start_at:baseDate.toISOString(),
+          end_at:end.toISOString(),
+          status:createStatus,
+          calendar_note:createNote.trim()||null,
+          location:createLocation,
+          clinic_site:createLocation==="studio"?(createClinicSite.trim()||currentStudio?.name||"Studio"):null,
+          domicile_address:createLocation==="domicile"?(createDomicileAddress.trim()||null):null,
+          amount,
+          price_type: createPriceType,
+          payment_method: createPriceType === "invoiced" ? createPaymentMethod : null,
+          treatment_type: createTreatmentType || null,
+          owner_id: userId,                // multi-tenancy
+          studio_id: currentStudioId,      // multi-tenancy
+        });
+      }
     }
     // Overlap check
     if (overlapMode !== "visual" && !createRecurring) {
@@ -1219,9 +1296,13 @@ function CalendarPageInner() {
     // ── Modal conferma WhatsApp (solo se: 1 solo appuntamento + paziente ha telefono) ──
     // Stesso comportamento del calendar desktop: appare la modale che chiede
     // se inviare il messaggio di conferma con i link conferma/annulla.
+    // Per i gruppi (mig. 014) NON mostriamo questa modale: i promemoria a tutti
+    // i partecipanti vengono inviati dopo dal GroupEventModalMobile.
     if (
+      !createIsGroup &&
       !createRecurring &&
       inserted && inserted.length === 1 &&
+      selectedPatient &&
       selectedPatient.phone &&
       selectedPatient.phone.trim().length > 0
     ) {
@@ -1237,7 +1318,9 @@ function CalendarPageInner() {
   }, [selectedPatient,createDuration,createDate,createTime,createStatus,createNote,
       createLocation,createClinicSite,createDomicileAddress,createAmount,
       createPriceType,createPaymentMethod,createTreatmentType,currentStudioId,currentDate,loadAppointments,
-      createRecurring,createRecurringCount,createRecurringInterval,overlapMode,events]);
+      createRecurring,createRecurringCount,createRecurringInterval,overlapMode,events,
+      // Gruppo (mig. 014)
+      createIsGroup,createGroupTitle,createGroupMax,createGroupPrice,currentStudio]);
 
   /* ── Move appointment (drag) ─────────────── */
   const moveAppointment = useCallback(async (id:string,newStart:Date) => {
@@ -2413,6 +2496,10 @@ function CalendarPageInner() {
           createRecurringCount={createRecurringCount} setCreateRecurringCount={setCreateRecurringCount}
           createRecurringInterval={createRecurringInterval} setCreateRecurringInterval={setCreateRecurringInterval}
           studioNamePlaceholder={currentStudio?.name || "Studio"}
+          createIsGroup={createIsGroup} setCreateIsGroup={setCreateIsGroup}
+          createGroupTitle={createGroupTitle} setCreateGroupTitle={setCreateGroupTitle}
+          createGroupMax={createGroupMax} setCreateGroupMax={setCreateGroupMax}
+          createGroupPrice={createGroupPrice} setCreateGroupPrice={setCreateGroupPrice}
         />
       )}
 
@@ -2716,15 +2803,162 @@ function CreateModal(props:CreateModalProps) {
     createTreatmentType,setCreateTreatmentType,treatmentCatalog,
     createRecurring,setCreateRecurring,createRecurringCount,setCreateRecurringCount,
     createRecurringInterval,setCreateRecurringInterval,
+    createIsGroup,setCreateIsGroup,
+    createGroupTitle,setCreateGroupTitle,
+    createGroupMax,setCreateGroupMax,
+    createGroupPrice,setCreateGroupPrice,
   }=props;
   return (
     <LightModal onClose={onClose}>
-      <ModalHeader title="Nuovo appuntamento" subtitle={`${createDate} · ${createTime}`} onClose={onClose} />
+      <ModalHeader
+        title={createIsGroup ? "Nuovo gruppo" : "Nuovo appuntamento"}
+        subtitle={`${createDate} · ${createTime}`}
+        onClose={onClose}
+      />
       <div style={{marginTop:18,display:"flex",flexDirection:"column",gap:14}}>
         {error&&<ErrorBox>{error}</ErrorBox>}
+
+        {/* ─── Toggle gruppo (mig. 014) ───────────────────────────────── */}
+        <div
+          onClick={() => setCreateIsGroup(!createIsGroup)}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: `1.5px solid ${createIsGroup ? "#0d9488" : THEME.border}`,
+            background: createIsGroup ? "rgba(13,148,136,0.08)" : THEME.panelSoft,
+            cursor: "pointer", minHeight: 50,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 9, flex: 1, minWidth: 0 }}>
+            <span style={{ fontSize: 18, flexShrink: 0 }}>👥</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{
+                fontSize: 13, fontWeight: 700,
+                color: createIsGroup ? "#0d9488" : THEME.text,
+              }}>
+                Appuntamento di gruppo
+              </div>
+              <div style={{ fontSize: 11, color: THEME.muted, marginTop: 1 }}>
+                Più pazienti, prezzo per persona
+              </div>
+            </div>
+          </div>
+          <div style={{
+            width: 40, height: 22, borderRadius: 11,
+            background: createIsGroup ? "#0d9488" : THEME.border,
+            position: "relative",
+            transition: "background 0.2s",
+            flexShrink: 0,
+          }}>
+            <div style={{
+              width: 18, height: 18, borderRadius: "50%",
+              background: "#fff",
+              position: "absolute",
+              top: 2,
+              left: createIsGroup ? 20 : 2,
+              transition: "left 0.2s",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+            }} />
+          </div>
+        </div>
+
+        {/* ─── Sezione GRUPPO (visibile solo se createIsGroup) ────────── */}
+        {createIsGroup && (
+          <div style={{
+            padding: 14, borderRadius: 10,
+            border: "1.5px solid rgba(13,148,136,0.3)",
+            background: "rgba(13,148,136,0.06)",
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#0d9488", marginBottom: 4, letterSpacing: 0.4 }}>
+              DATI GRUPPO
+            </div>
+            <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 12, lineHeight: 1.4 }}>
+              ⚡ Aggiungerai i pazienti dopo aver creato il gruppo.
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <div style={{
+                fontSize: 11, fontWeight: 700, color: THEME.muted,
+                textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5,
+              }}>Titolo</div>
+              <input
+                type="text"
+                value={createGroupTitle}
+                onChange={(e) => setCreateGroupTitle(e.target.value)}
+                placeholder="Es. Posturale, Pilates…"
+                style={{...inputS(), minHeight: 42, fontSize: 14, fontWeight: 600}}
+              />
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div>
+                <div style={{
+                  fontSize: 11, fontWeight: 700, color: THEME.muted,
+                  textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5,
+                }}>Max partecipanti</div>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  min={2}
+                  max={50}
+                  value={createGroupMax}
+                  onChange={(e) => setCreateGroupMax(e.target.value.replace(/[^0-9]/g, ""))}
+                  style={{...inputS(), minHeight: 42, fontSize: 14, fontWeight: 700, textAlign: "center"}}
+                />
+              </div>
+              <div>
+                <div style={{
+                  fontSize: 11, fontWeight: 700, color: THEME.muted,
+                  textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5,
+                }}>€/persona</div>
+                <div style={{ position: "relative" }}>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={createGroupPrice}
+                    onChange={(e) => setCreateGroupPrice(e.target.value.replace(/[^0-9.,]/g, ""))}
+                    style={{...inputS(), minHeight: 42, fontSize: 14, fontWeight: 700, textAlign: "right", paddingRight: 28}}
+                  />
+                  <span style={{
+                    position: "absolute", right: 12, top: "50%",
+                    transform: "translateY(-50%)",
+                    fontSize: 13, color: THEME.muted, fontWeight: 700,
+                    pointerEvents: "none",
+                  }}>€</span>
+                </div>
+              </div>
+            </div>
+
+            <div style={{
+              marginTop: 10,
+              padding: "8px 12px",
+              background: "#fff",
+              border: "1px solid rgba(13,148,136,0.2)",
+              borderRadius: 6,
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+            }}>
+              <span style={{ fontSize: 11, color: THEME.muted }}>
+                Totale potenziale
+              </span>
+              <span style={{ fontSize: 14, fontWeight: 800, color: "#0d9488" }}>
+                €{(() => {
+                  const n = parseInt(createGroupMax, 10) || 0;
+                  const p = parseFloat((createGroupPrice || "0").replace(",", ".")) || 0;
+                  return (n * p).toFixed(2);
+                })()}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* ─── Sezione Paziente (NASCOSTA se gruppo) ─────────────────── */}
+        {!createIsGroup && (<>
         <FG label="Paziente">
           <input value={patientQuery} onChange={e=>setPatientQuery(e.target.value)}
             style={inputS()} placeholder="Cerca per nome/cognome…" />
+
           {patientLoading&&<div style={{marginTop:6,fontSize:12,color:THEME.muted,fontWeight:600}}>Ricerca…</div>}
           {patientResults.length>0&&(
             <div style={{marginTop:6,border:`1.5px solid ${THEME.border}`,borderRadius:10,overflow:"hidden"}}>
@@ -2764,6 +2998,7 @@ function CreateModal(props:CreateModalProps) {
             <LightBtn v="primary" onClick={createQuickPatient} disabled={busy}>➕ Crea e seleziona</LightBtn>
           </div>
         </div>
+        </>)}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
           <FG label="Data"><input type="date" value={createDate} onChange={e=>setCreateDate(e.target.value)} style={inputS()} /></FG>
           <FG label="Ora"><input type="time" value={createTime} onChange={e=>setCreateTime(e.target.value)} style={inputS()} /></FG>
@@ -2776,6 +3011,7 @@ function CreateModal(props:CreateModalProps) {
             <option value="cancelled">Annullato</option>
           </select>
         </FG>
+        {!createIsGroup && (
         <FG label="Trattamento">
           <div style={{ position: "relative" }}>
             <div style={{
@@ -2799,6 +3035,7 @@ function CreateModal(props:CreateModalProps) {
             </select>
           </div>
         </FG>
+        )}
         <FG label="Luogo">
           <select value={createLocation} onChange={e=>setCreateLocation(e.target.value as LocationType)} style={inputS()}>
             <option value="studio">Studio</option><option value="domicile">Domicilio</option>
@@ -2808,6 +3045,7 @@ function CreateModal(props:CreateModalProps) {
           ?<FG label="Sede"><input value={createClinicSite} onChange={e=>setCreateClinicSite(e.target.value)} style={inputS()} placeholder={props.studioNamePlaceholder || "Studio"} /></FG>
           :<FG label="Indirizzo"><input value={createDomicileAddress} onChange={e=>setCreateDomicileAddress(e.target.value)} style={inputS()} placeholder="Indirizzo…" /></FG>
         }
+        {!createIsGroup && (<>
         <FG label="Importo">
           <input value={createAmount} onChange={e=>setCreateAmount(e.target.value)} style={inputS()} placeholder="Es. 40" inputMode="decimal" />
         </FG>
@@ -2865,6 +3103,7 @@ function CreateModal(props:CreateModalProps) {
             </div>
           </FG>
         )}
+        </>)}
 
         <FG label="Note">
           <textarea value={createNote} onChange={e=>setCreateNote(e.target.value)} style={{...inputS(),minHeight:80,resize:"vertical"}} />
@@ -2900,7 +3139,11 @@ function CreateModal(props:CreateModalProps) {
         </div>
 
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          <LightBtn v="primary" onClick={createAppointment} disabled={busy}>{createRecurring?`✅ Crea ${createRecurringCount} sedute`:"✅ Crea"}</LightBtn>
+          <LightBtn v="primary" onClick={createAppointment} disabled={busy}>{
+            createIsGroup
+              ? (createRecurring ? `✅ Crea ${createRecurringCount} gruppi` : "✅ Crea gruppo")
+              : (createRecurring ? `✅ Crea ${createRecurringCount} sedute` : "✅ Crea")
+          }</LightBtn>
           <LightBtn v="ghost" onClick={onClose}>Annulla</LightBtn>
         </div>
       </div>
