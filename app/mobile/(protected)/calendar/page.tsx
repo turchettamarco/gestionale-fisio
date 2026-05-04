@@ -12,6 +12,18 @@ import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 import PaidIconButton from "@/src/components/PaidIconButton";
 import NotificationsBell from "@/src/components/NotificationsBell";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
+import GroupEventModalMobile, { type GroupEvent } from "../components/GroupEventModalMobile";
+import {
+  groupSearchPatientsApi,
+  fetchGroupParticipants,
+  addParticipantApi,
+  updateParticipantApi,
+  removeParticipantApi,
+  markAllPaidApi,
+  updateGroupApi,
+  deleteGroupApi,
+  sendReminderToAllApi,
+} from "../components/groupHandlers";
 
 /**
  * Apre WhatsApp con un numero pre-popolato e un messaggio.
@@ -71,6 +83,14 @@ type CalendarEvent = {
   amount: number | null; is_paid: boolean; paid_at: Date | null;
   treatment_type: string | null; price_type: string | null; payment_method: string | null;
   whatsapp_sent_at: string | null;
+  // ─── Gruppo (mig. 014) ───────────────────────────────────────────────
+  is_group?: boolean | null;
+  group_title?: string | null;
+  group_max_participants?: number | null;
+  group_price_per_person?: number | null;
+  participant_count?: number;
+  participant_paid_count?: number;
+  group_total?: number;
 };
 
 type CreateModalProps = {
@@ -296,6 +316,43 @@ function CalendarPageInner() {
 
   /* edit modal */
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent|null>(null);
+
+  // ─── Modal gruppo (mig. 014) ──────────────────────────────────────────────
+  const [openGroup, setOpenGroup] = useState<GroupEvent | null>(null);
+
+  /** Apre il modal gruppo per un evento */
+  const openGroupModalCal = useCallback(async (ev: CalendarEvent) => {
+    if (!ev.is_group) return;
+    const participants = await fetchGroupParticipants(ev.id);
+    setOpenGroup({
+      id: ev.id,
+      start: ev.start,
+      end: ev.end,
+      group_title: ev.group_title ?? null,
+      group_max_participants: ev.group_max_participants ?? null,
+      group_price_per_person: ev.group_price_per_person ?? null,
+      participants,
+    });
+  }, []);
+
+  /** Ricarica i partecipanti del gruppo aperto + aggiorna events/monthEvents */
+  const refreshOpenGroupCal = useCallback(async () => {
+    if (!openGroup) return;
+    const newParts = await fetchGroupParticipants(openGroup.id);
+    setOpenGroup(prev => prev ? { ...prev, participants: newParts } : null);
+    const updateEv = (e: CalendarEvent): CalendarEvent => {
+      if (e.id !== openGroup.id) return e;
+      return {
+        ...e,
+        participant_count: newParts.length,
+        participant_paid_count: newParts.filter(p => p.payment_status === "paid").length,
+        group_total: newParts.reduce((s, p) => s + (Number(p.price) || 0), 0),
+      };
+    };
+    setEvents((prev: CalendarEvent[]) => prev.map(updateEv));
+    setMonthEvents((prev: CalendarEvent[]) => prev.map(updateEv));
+  }, [openGroup]);
+
   const [editStatus,    setEditStatus]    = useState<Status>("booked");
   const [editNote,      setEditNote]      = useState("");
   const [editAmount,    setEditAmount]    = useState("");
@@ -424,13 +481,22 @@ function CalendarPageInner() {
       id,patient_id,start_at,end_at,status,calendar_note,is_paid,paid_at,
       location,clinic_site,domicile_address,
       amount,treatment_type,price_type,payment_method,whatsapp_sent_at,
-      patients:patient_id(first_name,last_name,phone)
+      is_group,group_title,group_max_participants,group_price_per_person,
+      patients:patient_id(first_name,last_name,phone),
+      appointment_participants(id,price,payment_status)
     `).gte("start_at",s0.toISOString()).lt("start_at",e0.toISOString())
       .order("start_at",{ascending:true});
     if (err) { setError(`Errore: ${err.message}`); setLoading(false); return; }
     const mapped: CalendarEvent[] = (data??[]).map((a:any) => {
       const p = Array.isArray(a.patients)?a.patients[0]:a.patients;
-      const name = p?`${p.last_name??""} ${p.first_name??""}`.trim():"Paziente";
+      const isGroup = a.is_group === true;
+      const parts = (a.appointment_participants ?? []) as Array<{ id: string; price: number | null; payment_status?: string | null }>;
+      const participantCount = parts.length;
+      const paidCount = parts.filter(pp => pp.payment_status === "paid").length;
+      const groupTotal = parts.reduce((s, pp) => s + (Number(pp.price) || 0), 0);
+      const name = isGroup
+        ? (a.group_title || "Gruppo")
+        : (p?`${p.last_name??""} ${p.first_name??""}`.trim():"Paziente");
       return {
         id:a.id, patient_id:a.patient_id??null,
         patient_name:name||"Paziente", patient_first_name:p?.first_name??null,
@@ -442,6 +508,14 @@ function CalendarPageInner() {
         domicile_address:a.domicile_address??null, amount:a.amount??null,
         treatment_type:a.treatment_type??null, price_type:a.price_type??null, payment_method:a.payment_method??null,
         whatsapp_sent_at:a.whatsapp_sent_at??null,
+        // Gruppo (mig. 014)
+        is_group: isGroup,
+        group_title: a.group_title??null,
+        group_max_participants: a.group_max_participants??null,
+        group_price_per_person: a.group_price_per_person??null,
+        participant_count: participantCount,
+        participant_paid_count: paidCount,
+        group_total: groupTotal,
       };
     });
     setEvents(mapped); setLoading(false);
@@ -526,7 +600,14 @@ function CalendarPageInner() {
     if (!err && data) {
       const mapped: CalendarEvent[] = data.map((a:any) => {
         const p = Array.isArray(a.patients)?a.patients[0]:a.patients;
-        const name = p?`${p.last_name??""} ${p.first_name??""}`.trim():"Paziente";
+        const isGroup = a.is_group === true;
+        const parts = (a.appointment_participants ?? []) as Array<{ id: string; price: number | null; payment_status?: string | null }>;
+        const participantCount = parts.length;
+        const paidCount = parts.filter((pp: { payment_status?: string | null }) => pp.payment_status === "paid").length;
+        const groupTotal = parts.reduce((s: number, pp: { price: number | null }) => s + (Number(pp.price) || 0), 0);
+        const name = isGroup
+          ? (a.group_title || "Gruppo")
+          : (p?`${p.last_name??""} ${p.first_name??""}`.trim():"Paziente");
         return {
           id:a.id, patient_id:a.patient_id??null,
           patient_name:name||"Paziente", patient_first_name:p?.first_name??null,
@@ -538,6 +619,14 @@ function CalendarPageInner() {
           domicile_address:a.domicile_address??null, amount:a.amount??null,
           treatment_type:a.treatment_type??null, price_type:a.price_type??null, payment_method:a.payment_method??null,
           whatsapp_sent_at:a.whatsapp_sent_at??null,
+          // Gruppo (mig. 014)
+          is_group: isGroup,
+          group_title: a.group_title??null,
+          group_max_participants: a.group_max_participants??null,
+          group_price_per_person: a.group_price_per_person??null,
+          participant_count: participantCount,
+          participant_paid_count: paidCount,
+          group_total: groupTotal,
         };
       });
       setMonthEvents(mapped);
@@ -906,6 +995,11 @@ function CalendarPageInner() {
 
   /* ── Open / Save / Delete ────────────────── */
   const openEvent = useCallback((ev:CalendarEvent) => {
+    // Per i gruppi (mig. 014) apriamo il bottom-sheet dedicato
+    if (ev.is_group) {
+      void openGroupModalCal(ev);
+      return;
+    }
     setSelectedEvent(ev); setEditStatus(ev.status);
     setEditNote(ev.calendar_note??""); setEditAmount(ev.amount==null?"":String(ev.amount));
     setEditPriceType((ev.price_type as "invoiced" | "cash") || "invoiced");
@@ -944,7 +1038,7 @@ function CalendarPageInner() {
         if (data?.template) setReminderTplCache(data.template);
       })();
     }
-  }, [confirmLinks, reminderTplCache]);
+  }, [confirmLinks, reminderTplCache, openGroupModalCal]);
 
   const saveEvent = useCallback(async () => {
     if (!selectedEvent) return;
@@ -1221,7 +1315,9 @@ function CalendarPageInner() {
   const renderEventCard = useCallback((ev:CalendarEvent, lanePos?: { lane: number; totalLanes: number; hidden?: number; hiddenIds?: string[] }) => {
     const {top,height}=getEventPosition(ev.start,ev.end);
     const col        = statusColor(ev.status);
-    const bg         = ev.location==="domicile" ? "rgba(13,148,136,0.06)" : statusBg(ev.status);
+    const bg         = ev.is_group
+      ? "linear-gradient(135deg, #0d9488 0%, #06b6d4 100%)"
+      : ev.location==="domicile" ? "rgba(13,148,136,0.06)" : statusBg(ev.status);
     const phoneOk    = !!normalizePhone(ev.patient_phone);
     const isDragging = touchDraggingId===ev.id;
     const displayTop = isDragging&&touchDragY!==null?touchDragY:top;
@@ -1285,11 +1381,25 @@ function CalendarPageInner() {
             transition:isDragging||Math.abs(swipeX)>0?"none":"transform 0.2s,box-shadow 0.15s",
           }}
         >
-          {/* Nome + 🏠 badge */}
+          {/* Nome + 🏠 badge / GRUPPO badge */}
           <div style={{display:"flex",alignItems:"center",gap:5,flex:1,minWidth:0,overflow:"hidden"}}>
-            {ev.location==="domicile"&&<span style={{fontSize:11,flexShrink:0}}>🏠</span>}
-            <span style={{fontWeight:700,fontSize:13,color:THEME.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-              {ev.patient_name}
+            {ev.is_group && (
+              <span style={{
+                fontSize: 9, fontWeight: 800, color: "#fff",
+                background: "rgba(255,255,255,0.25)",
+                padding: "1px 6px", borderRadius: 99,
+                letterSpacing: 0.4, flexShrink: 0,
+              }}>
+                👥 {ev.participant_count ?? 0}/{ev.group_max_participants ?? 0}
+              </span>
+            )}
+            {ev.location==="domicile"&&!ev.is_group&&<span style={{fontSize:11,flexShrink:0}}>🏠</span>}
+            <span style={{
+              fontWeight:700, fontSize:13,
+              color: ev.is_group ? "#fff" : THEME.text,
+              overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+            }}>
+              {ev.is_group ? (ev.group_title || "Gruppo") : ev.patient_name}
             </span>
             {isPast&&<span style={{fontSize:9,color:THEME.muted,flexShrink:0,background:THEME.panelSoft,padding:"1px 5px",borderRadius:99,border:`1px solid ${THEME.border}`}}>scaduto</span>}
           </div>
@@ -1983,7 +2093,8 @@ function CalendarPageInner() {
                   </div>
                 );
                 return dayEvs.map(ev=>{
-                  const col = statusColor(ev.status);
+                  const col = ev.is_group ? "#0d9488" : statusColor(ev.status);
+                  const isGroup = ev.is_group === true;
                   return (
                     <div key={ev.id}
                       onClick={()=>{openEvent(ev);setMonthDrawerDay(null);}}
@@ -1995,8 +2106,18 @@ function CalendarPageInner() {
                       <div style={{width:3,height:40,borderRadius:99,background:col,flexShrink:0}}/>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:13,fontWeight:700,color:THEME.text,
-                          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                          {ev.patient_name}
+                          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
+                          display:"flex",alignItems:"center",gap:6}}>
+                          {isGroup && (
+                            <span style={{
+                              fontSize: 9, fontWeight: 800, color: "#fff",
+                              background: "#0d9488",
+                              padding: "1px 6px", borderRadius: 99, flexShrink: 0,
+                            }}>👥 {ev.participant_count ?? 0}/{ev.group_max_participants ?? 0}</span>
+                          )}
+                          <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                            {isGroup ? (ev.group_title || "Gruppo") : ev.patient_name}
+                          </span>
                         </div>
                         <div style={{fontSize:11,color:THEME.muted,marginTop:2,display:"flex",gap:6}}>
                           <span>{fmtTime(ev.start)}–{fmtTime(ev.end)}</span>
@@ -2438,6 +2559,60 @@ function CalendarPageInner() {
         signatureName={currentStudio?.signature_name}
         signatureTitle={currentStudio?.signature_title}
       />
+
+      {/* ═══════ Modal gestione gruppo (mig. 014) ═══════════════════ */}
+      {openGroup && (
+        <GroupEventModalMobile
+          event={openGroup}
+          searchPatients={groupSearchPatientsApi}
+          onClose={() => setOpenGroup(null)}
+          onAddParticipant={async (apptId, patientId, price) => {
+            const ok = await addParticipantApi(apptId, patientId, price);
+            if (ok) await refreshOpenGroupCal();
+          }}
+          onUpdateParticipant={async (participantId, patch) => {
+            const ok = await updateParticipantApi(participantId, patch);
+            if (ok) await refreshOpenGroupCal();
+          }}
+          onRemoveParticipant={async (participantId) => {
+            const ok = await removeParticipantApi(participantId);
+            if (ok) await refreshOpenGroupCal();
+          }}
+          onMarkAllPaid={async (apptId) => {
+            const ok = await markAllPaidApi(apptId);
+            if (ok) await refreshOpenGroupCal();
+          }}
+          onSendReminderToAll={async (event) => {
+            await sendReminderToAllApi(event);
+          }}
+          onDeleteGroup={async (apptId) => {
+            const ok = await deleteGroupApi(apptId);
+            if (ok) {
+              setOpenGroup(null);
+              setEvents((prev: CalendarEvent[]) => prev.filter(x => x.id !== apptId));
+              setMonthEvents((prev: CalendarEvent[]) => prev.filter(x => x.id !== apptId));
+            }
+          }}
+          onUpdateGroup={async (apptId, patch) => {
+            const ok = await updateGroupApi(apptId, patch);
+            if (ok) {
+              await refreshOpenGroupCal();
+              const updateEv = (e: CalendarEvent): CalendarEvent => {
+                if (e.id !== apptId) return e;
+                return {
+                  ...e,
+                  group_title: patch.group_title ?? e.group_title,
+                  group_max_participants: patch.group_max_participants ?? e.group_max_participants,
+                  group_price_per_person: patch.group_price_per_person ?? e.group_price_per_person,
+                  patient_name: patch.group_title ?? e.patient_name,
+                };
+              };
+              setEvents((prev: CalendarEvent[]) => prev.map(updateEv));
+              setMonthEvents((prev: CalendarEvent[]) => prev.map(updateEv));
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

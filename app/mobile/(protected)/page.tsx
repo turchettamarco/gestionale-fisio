@@ -36,6 +36,18 @@ import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import PaidPill from "@/src/components/PaidPill";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
 import NotificationsBell from "@/src/components/NotificationsBell";
+import GroupEventModalMobile, { type GroupEvent, type Participant } from "./components/GroupEventModalMobile";
+import {
+  groupSearchPatientsApi,
+  fetchGroupParticipants,
+  addParticipantApi,
+  updateParticipantApi,
+  removeParticipantApi,
+  markAllPaidApi,
+  updateGroupApi,
+  deleteGroupApi,
+  sendReminderToAllApi,
+} from "./components/groupHandlers";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -62,6 +74,17 @@ type Appointment = {
     last_name: string | null;
     phone: string | null;
   } | null;
+  // ─── Gruppo (mig. 014) ────────────────────────────────────────────────
+  is_group?: boolean | null;
+  group_title?: string | null;
+  group_max_participants?: number | null;
+  group_price_per_person?: number | null;
+  /** Numero di partecipanti caricati (riempito dal SELECT) */
+  participant_count?: number;
+  /** Numero di partecipanti pagati (riempito dal SELECT) */
+  participant_paid_count?: number;
+  /** Totale calcolato dai prezzi individuali dei partecipanti */
+  group_total?: number;
 };
 
 type PatientOption = { id: string; label: string; phone: string | null; firstName: string };
@@ -202,6 +225,44 @@ export default function MobileHomePage() {
 
   // Expanded appointment card (tap to reveal actions)
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // ─── Modal gestione gruppo (mig. 014) ──────────────────────────────────────
+  const [openGroup, setOpenGroup] = useState<GroupEvent | null>(null);
+
+  /** Apre il modal gruppo per un appuntamento. Carica i partecipanti dal DB. */
+  const openGroupModal = useCallback(async (a: Appointment) => {
+    if (!a.is_group) return;
+    const participants = await fetchGroupParticipants(a.id);
+    setOpenGroup({
+      id: a.id,
+      start: new Date(a.start_at),
+      end: new Date(new Date(a.start_at).getTime() + 60 * 60 * 1000), // fallback 60min
+      group_title: a.group_title ?? null,
+      group_max_participants: a.group_max_participants ?? null,
+      group_price_per_person: a.group_price_per_person ?? null,
+      participants,
+    });
+  }, []);
+
+  /** Ricarica partecipanti del gruppo aperto e aggiorna anche le liste appts */
+  const refreshOpenGroup = useCallback(async () => {
+    if (!openGroup) return;
+    const newParts = await fetchGroupParticipants(openGroup.id);
+    setOpenGroup(prev => prev ? { ...prev, participants: newParts } : null);
+    // Aggiorna anche dayAppts/weekAppts per i counter visibili nelle card
+    const updateAppt = (a: Appointment): Appointment => {
+      if (a.id !== openGroup.id) return a;
+      return {
+        ...a,
+        participant_count: newParts.length,
+        participant_paid_count: newParts.filter(p => p.payment_status === "paid").length,
+        group_total: newParts.reduce((s, p) => s + (Number(p.price) || 0), 0),
+      };
+    };
+    setDayAppts(prev => prev.map(updateAppt));
+    setWeekAppts(prev => prev.map(updateAppt));
+  }, [openGroup]);
+
 
   // Edit modal
   const [editAppt,   setEditAppt]   = useState<Appointment | null>(null);
@@ -383,7 +444,9 @@ export default function MobileHomePage() {
       const SEL = `id,patient_id,start_at,status,amount,is_paid,paid_at,payment_method,price_type,
                    treatment_type,location,clinic_site,domicile_address,
                    whatsapp_sent_at,
-                   patients:patient_id(first_name,last_name,phone)`;
+                   is_group,group_title,group_max_participants,group_price_per_person,
+                   patients:patient_id(first_name,last_name,phone),
+                   appointment_participants(id,price,payment_status)`;
 
       const [dayRes, weekRes] = await Promise.all([
         supabase.from("appointments").select(SEL)
@@ -401,6 +464,12 @@ export default function MobileHomePage() {
 
       const map = (a: any): Appointment => {
         const p = Array.isArray(a.patients) ? a.patients[0] : a.patients;
+        const isGroup = a.is_group === true;
+        // Aggregati partecipanti (per i gruppi)
+        const parts = (a.appointment_participants ?? []) as Array<{ id: string; price: number | null; payment_status?: string | null }>;
+        const participantCount = parts.length;
+        const paidCount = parts.filter(pp => pp.payment_status === "paid").length;
+        const groupTotal = parts.reduce((s, pp) => s + (Number(pp.price) || 0), 0);
         return {
           id: a.id, patient_id: a.patient_id ?? null, start_at: a.start_at,
           status: a.status as Status, amount: a.amount ?? null, is_paid: a.is_paid ?? false,
@@ -410,6 +479,13 @@ export default function MobileHomePage() {
           treatment_type: a.treatment_type ?? null, location: a.location ?? null,
           clinic_site: a.clinic_site ?? null, domicile_address: a.domicile_address ?? null,
           whatsapp_sent_at: a.whatsapp_sent_at ?? null, patients: p ?? null,
+          is_group: isGroup,
+          group_title: a.group_title ?? null,
+          group_max_participants: a.group_max_participants ?? null,
+          group_price_per_person: a.group_price_per_person ?? null,
+          participant_count: participantCount,
+          participant_paid_count: paidCount,
+          group_total: groupTotal,
         };
       };
 
@@ -1349,6 +1425,63 @@ export default function MobileHomePage() {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
               {dayAppts.map((a, idx) => {
+                // ─── Render speciale per appuntamenti di GRUPPO (mig. 014) ───
+                if (a.is_group) {
+                  const count = a.participant_count ?? 0;
+                  const max = a.group_max_participants ?? 0;
+                  const paid = a.participant_paid_count ?? 0;
+                  const total = a.group_total ?? 0;
+                  const groupTitle = a.group_title || "Gruppo";
+                  return (
+                    <div
+                      key={a.id}
+                      onClick={() => openGroupModal(a)}
+                      style={{
+                        borderRadius: 8,
+                        padding: "9px 10px",
+                        background: "linear-gradient(135deg, #0d9488 0%, #06b6d4 100%)",
+                        cursor: "pointer",
+                        animation: `fadeIn 0.15s ease ${idx * 0.02}s both`,
+                        color: "#fff",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{
+                          fontSize: 9, fontWeight: 800, color: "#fff",
+                          background: "rgba(255,255,255,0.25)",
+                          padding: "1px 6px", borderRadius: 99,
+                          letterSpacing: 0.4, flexShrink: 0,
+                        }}>
+                          👥 GRUPPO · {count}/{max}
+                        </span>
+                        <span style={{
+                          fontVariantNumeric: "tabular-nums", fontWeight: 800,
+                          fontSize: 12, color: "rgba(255,255,255,0.95)", flexShrink: 0,
+                        }}>{fmtTime(a.start_at)}</span>
+                        <div style={{ flex: 1 }} />
+                        <span style={{ fontSize: 12, fontWeight: 800, color: "#fff", flexShrink: 0 }}>
+                          €{total.toFixed(0)}
+                        </span>
+                      </div>
+                      <div style={{
+                        fontSize: 13, fontWeight: 700, color: "#fff",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        marginBottom: 3,
+                      }}>
+                        {groupTitle}
+                      </div>
+                      <div style={{
+                        fontSize: 10, color: "rgba(255,255,255,0.85)",
+                        fontWeight: 600,
+                      }}>
+                        {count === 0
+                          ? "Nessun partecipante — tocca per aggiungere"
+                          : `${paid}/${count} pagati · tocca per gestire`}
+                      </div>
+                    </div>
+                  );
+                }
+                // ─── Render appuntamento singolo (originale) ────────────────
                 const phone      = a.patients?.phone;
                 const isPastAppt = isToday && a.start_at < nowISO;
                 const isDone     = a.status === "done";
@@ -2223,6 +2356,60 @@ export default function MobileHomePage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* ═══════ Modal gestione gruppo (mig. 014) ═══════════════════ */}
+      {openGroup && (
+        <GroupEventModalMobile
+          event={openGroup}
+          searchPatients={groupSearchPatientsApi}
+          onClose={() => setOpenGroup(null)}
+          onAddParticipant={async (apptId, patientId, price) => {
+            const ok = await addParticipantApi(apptId, patientId, price);
+            if (ok) await refreshOpenGroup();
+          }}
+          onUpdateParticipant={async (participantId, patch) => {
+            const ok = await updateParticipantApi(participantId, patch);
+            if (ok) await refreshOpenGroup();
+          }}
+          onRemoveParticipant={async (participantId) => {
+            const ok = await removeParticipantApi(participantId);
+            if (ok) await refreshOpenGroup();
+          }}
+          onMarkAllPaid={async (apptId) => {
+            const ok = await markAllPaidApi(apptId);
+            if (ok) await refreshOpenGroup();
+          }}
+          onSendReminderToAll={async (event) => {
+            await sendReminderToAllApi(event);
+          }}
+          onDeleteGroup={async (apptId) => {
+            const ok = await deleteGroupApi(apptId);
+            if (ok) {
+              setOpenGroup(null);
+              setDayAppts(prev => prev.filter(x => x.id !== apptId));
+              setWeekAppts(prev => prev.filter(x => x.id !== apptId));
+            }
+          }}
+          onUpdateGroup={async (apptId, patch) => {
+            const ok = await updateGroupApi(apptId, patch);
+            if (ok) {
+              await refreshOpenGroup();
+              // Aggiorna anche le card della lista
+              const updateAppt = (a: Appointment): Appointment => {
+                if (a.id !== apptId) return a;
+                return {
+                  ...a,
+                  group_title: patch.group_title ?? a.group_title,
+                  group_max_participants: patch.group_max_participants ?? a.group_max_participants,
+                  group_price_per_person: patch.group_price_per_person ?? a.group_price_per_person,
+                };
+              };
+              setDayAppts(prev => prev.map(updateAppt));
+              setWeekAppts(prev => prev.map(updateAppt));
+            }
+          }}
+        />
       )}
     </div>
   );
