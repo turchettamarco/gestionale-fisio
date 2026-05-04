@@ -87,6 +87,7 @@ import WeekView from "./components/views/WeekView";
 import WhatsAppConfirmDialog from "./components/modals/WhatsAppConfirmDialog";
 import CreateAppointmentModal from "./components/modals/CreateAppointmentModal";
 import SelectedEventModal from "./components/modals/SelectedEventModal";
+import GroupEventModal from "./components/modals/GroupEventModal";
 
 export default function CalendarPage() {
   return (
@@ -1617,6 +1618,251 @@ A presto,
     }
   }, [events, currentStudio]);
 
+  // ═══════════════════════════════════════════════════════════════════
+  // ── HANDLERS APPUNTAMENTI DI GRUPPO (mig. 014) ──────────────────────
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** Ricerca pazienti per il GroupEventModal (search inline) */
+  const groupSearchPatients = useCallback(async (query: string): Promise<PatientLite[]> => {
+    const cleaned = query.trim();
+    if (!cleaned) return [];
+    const { data, error } = await supabase
+      .from("patients")
+      .select("id, first_name, last_name, phone, treatment, diagnosis")
+      .or(`first_name.ilike.%${cleaned}%,last_name.ilike.%${cleaned}%`)
+      .order("last_name", { ascending: true })
+      .limit(12);
+    if (error) {
+      console.error("Errore ricerca paziente per gruppo:", error);
+      return [];
+    }
+    return (data ?? []) as PatientLite[];
+  }, []);
+
+  /** Ricarica un singolo evento gruppo (con partecipanti aggiornati) e aggiorna events[] */
+  const reloadGroupEvent = useCallback(async (appointmentId: string) => {
+    const { data, error } = await supabase
+      .from("appointments")
+      .select(`
+        appointment_participants (
+          id, appointment_id, patient_id, price, payment_status, payment_method, paid_at,
+          attendance_status, checked_in_at, participant_notes, created_at,
+          patients:patient_id ( first_name, last_name, phone )
+        ),
+        is_group, group_title, group_max_participants, group_price_per_person
+      `)
+      .eq("id", appointmentId)
+      .single();
+    if (error || !data) return;
+
+    setEvents(prev => prev.map(ev => {
+      if (ev.id !== appointmentId) return ev;
+      const newParticipants: AppointmentParticipant[] = (data.appointment_participants ?? []).map((p: {
+        id: string; appointment_id: string; patient_id: string;
+        price: number | null; payment_status?: string | null;
+        payment_method?: string | null; paid_at?: string | null;
+        attendance_status?: string | null; checked_in_at?: string | null;
+        participant_notes?: string | null; created_at?: string;
+        patients?: Array<{ first_name?: string; last_name?: string; phone?: string }> | { first_name?: string; last_name?: string; phone?: string } | null;
+      }) => {
+        const pp = Array.isArray(p.patients) ? p.patients[0] : p.patients;
+        return {
+          id: p.id,
+          appointment_id: p.appointment_id,
+          patient_id: p.patient_id,
+          price: Number(p.price ?? 0),
+          payment_status: (p.payment_status === "paid" ? "paid" : "unpaid") as "paid" | "unpaid",
+          payment_method: (p.payment_method ?? null) as "cash" | "pos" | "bank_transfer" | null,
+          paid_at: p.paid_at ?? null,
+          attendance_status: (p.attendance_status === "present" || p.attendance_status === "absent"
+            ? p.attendance_status : "pending") as "pending" | "present" | "absent",
+          checked_in_at: p.checked_in_at ?? null,
+          participant_notes: p.participant_notes ?? null,
+          created_at: p.created_at ?? new Date().toISOString(),
+          patient_first_name: pp?.first_name ?? null,
+          patient_last_name: pp?.last_name ?? null,
+          patient_phone: pp?.phone ?? null,
+        };
+      });
+      return {
+        ...ev,
+        is_group: data.is_group ?? ev.is_group,
+        group_title: data.group_title ?? ev.group_title,
+        group_max_participants: data.group_max_participants ?? ev.group_max_participants,
+        group_price_per_person: data.group_price_per_person ?? ev.group_price_per_person,
+        participants: newParticipants,
+      };
+    }));
+  }, []);
+
+  /** Aggiungi un paziente al gruppo (creando una riga in appointment_participants) */
+  const onAddParticipant = useCallback(async (
+    appointmentId: string, patientId: string, price: number,
+  ) => {
+    const { error } = await supabase
+      .from("appointment_participants")
+      .insert({
+        appointment_id: appointmentId,
+        patient_id: patientId,
+        price,
+        payment_status: "unpaid",
+        attendance_status: "pending",
+      });
+    if (error) {
+      alert("Errore aggiunta partecipante: " + error.message);
+      return;
+    }
+    await reloadGroupEvent(appointmentId);
+  }, [reloadGroupEvent]);
+
+  /** Aggiorna campi del partecipante */
+  const onUpdateParticipant = useCallback(async (
+    participantId: string,
+    patch: Partial<Pick<AppointmentParticipant,
+      "payment_status" | "payment_method" | "attendance_status" | "price" | "participant_notes"
+    >>,
+  ) => {
+    // Coerenza paid_at <-> payment_status (vincolo DB)
+    const dbPatch: Record<string, unknown> = { ...patch };
+    if (patch.payment_status === "paid") {
+      dbPatch.paid_at = new Date().toISOString();
+    } else if (patch.payment_status === "unpaid") {
+      dbPatch.paid_at = null;
+      dbPatch.payment_method = null;
+    }
+    if (patch.attendance_status === "present") {
+      dbPatch.checked_in_at = new Date().toISOString();
+    } else if (patch.attendance_status === "pending" || patch.attendance_status === "absent") {
+      dbPatch.checked_in_at = null;
+    }
+
+    // Recupero appointment_id (serve per ricaricare l'evento dopo update)
+    const { data: pRow } = await supabase
+      .from("appointment_participants")
+      .select("appointment_id")
+      .eq("id", participantId)
+      .single();
+    const apptId = pRow?.appointment_id;
+
+    const { error } = await supabase
+      .from("appointment_participants")
+      .update(dbPatch)
+      .eq("id", participantId);
+    if (error) {
+      alert("Errore aggiornamento partecipante: " + error.message);
+      return;
+    }
+    if (apptId) await reloadGroupEvent(apptId);
+  }, [reloadGroupEvent]);
+
+  /** Rimuovi un paziente dal gruppo */
+  const onRemoveParticipant = useCallback(async (participantId: string) => {
+    const { data: pRow } = await supabase
+      .from("appointment_participants")
+      .select("appointment_id")
+      .eq("id", participantId)
+      .single();
+    const apptId = pRow?.appointment_id;
+
+    const { error } = await supabase
+      .from("appointment_participants")
+      .delete()
+      .eq("id", participantId);
+    if (error) {
+      alert("Errore rimozione partecipante: " + error.message);
+      return;
+    }
+    if (apptId) await reloadGroupEvent(apptId);
+  }, [reloadGroupEvent]);
+
+  /** Segna tutti i partecipanti come pagati (bulk) */
+  const onMarkAllPaid = useCallback(async (appointmentId: string) => {
+    const nowISO = new Date().toISOString();
+    const { error } = await supabase
+      .from("appointment_participants")
+      .update({
+        payment_status: "paid",
+        paid_at: nowISO,
+        payment_method: "cash",
+      })
+      .eq("appointment_id", appointmentId)
+      .eq("payment_status", "unpaid");
+    if (error) {
+      alert("Errore aggiornamento pagamenti: " + error.message);
+      return;
+    }
+    await reloadGroupEvent(appointmentId);
+  }, [reloadGroupEvent]);
+
+  /** Modifica titolo/max/prezzo del gruppo */
+  const onUpdateGroup = useCallback(async (
+    appointmentId: string,
+    patch: Partial<Pick<CalendarEvent,
+      "group_title" | "group_max_participants" | "group_price_per_person"
+    >>,
+  ) => {
+    const dbPatch: Record<string, unknown> = {};
+    if (patch.group_title !== undefined) dbPatch.group_title = patch.group_title;
+    if (patch.group_max_participants !== undefined) dbPatch.group_max_participants = patch.group_max_participants;
+    if (patch.group_price_per_person !== undefined) dbPatch.group_price_per_person = patch.group_price_per_person;
+
+    const { error } = await supabase
+      .from("appointments")
+      .update(dbPatch)
+      .eq("id", appointmentId);
+    if (error) {
+      alert("Errore aggiornamento gruppo: " + error.message);
+      return;
+    }
+    await reloadGroupEvent(appointmentId);
+  }, [reloadGroupEvent]);
+
+  /** Elimina un appuntamento di gruppo (CASCADE rimuove anche i partecipanti) */
+  const onDeleteGroup = useCallback(async (appointmentId: string) => {
+    const { error } = await supabase
+      .from("appointments")
+      .delete()
+      .eq("id", appointmentId);
+    if (error) {
+      alert("Errore eliminazione gruppo: " + error.message);
+      return;
+    }
+    setEvents(prev => prev.filter(e => e.id !== appointmentId));
+    setSelectedEvent(null);
+  }, []);
+
+  /** Invia promemoria WhatsApp a tutti i partecipanti (1 messaggio per paziente) */
+  const onSendReminderToAll = useCallback(async (event: CalendarEvent) => {
+    const participants = event.participants ?? [];
+    if (participants.length === 0) {
+      alert("Nessun partecipante a cui inviare il promemoria.");
+      return;
+    }
+    const withPhone = participants.filter(p => (p.patient_phone ?? "").trim());
+    if (withPhone.length === 0) {
+      alert("Nessun partecipante ha un numero di telefono registrato.");
+      return;
+    }
+    const skipped = participants.length - withPhone.length;
+    const confirmMsg = `Invio promemoria WhatsApp a ${withPhone.length} partecipanti?` +
+      (skipped > 0 ? `\n\n(${skipped} senza telefono verranno saltati)` : "");
+    if (!window.confirm(confirmMsg)) return;
+
+    // Apriamo le finestre WhatsApp una alla volta con piccolo delay
+    // (Safari iOS può bloccare popup multipli istantanei)
+    for (const p of withPhone) {
+      // sendReminder vuole l'appointment_id, ma per i gruppi usiamo l'event.id
+      // come riferimento: il messaggio è personalizzato per il singolo paziente.
+      try {
+        await sendReminder(event.id, p.patient_phone ?? undefined, p.patient_first_name ?? undefined);
+        // piccola pausa tra un invio e l'altro
+        await new Promise(resolve => setTimeout(resolve, 350));
+      } catch (e) {
+        console.error("Errore invio promemoria a " + p.patient_first_name, e);
+      }
+    }
+  }, [sendReminder]);
+
   // ── Chiedi Recensione Google via WhatsApp ──────────────────────────
   const sendGoogleReview = useCallback(async (patientPhone?: string, patientFirstName?: string) => {
     if (!patientPhone) { alert("Nessun telefono registrato per questo paziente"); return; }
@@ -3043,7 +3289,27 @@ return (
         />
       )}
 
-      {selectedEvent && (
+      {selectedEvent && (() => {
+        // Per i gruppi, mostriamo il GroupEventModal dedicato (mig. 014).
+        // Cerchiamo l'evento "live" da events[] perché contiene i participants aggiornati.
+        const liveEv = events.find(e => e.id === selectedEvent.id);
+        if (liveEv?.is_group) {
+          return (
+            <GroupEventModal
+              event={liveEv}
+              searchPatients={groupSearchPatients}
+              onClose={() => setSelectedEvent(null)}
+              onAddParticipant={onAddParticipant}
+              onUpdateParticipant={onUpdateParticipant}
+              onRemoveParticipant={onRemoveParticipant}
+              onMarkAllPaid={onMarkAllPaid}
+              onSendReminderToAll={onSendReminderToAll}
+              onDeleteGroup={onDeleteGroup}
+              onUpdateGroup={onUpdateGroup}
+            />
+          );
+        }
+        return (
         <SelectedEventModal
           selectedEvent={selectedEvent}
           events={events}
@@ -3082,7 +3348,8 @@ return (
             openWeeklyReminder(patientId, firstName, phone);
           }}
         />
-      )}
+        );
+      })()}
 
       {quickActionsMenu && (
         <QuickActionsMenu
