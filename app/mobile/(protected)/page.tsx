@@ -83,6 +83,8 @@ type Appointment = {
   participant_count?: number;
   /** Numero di partecipanti pagati (riempito dal SELECT) */
   participant_paid_count?: number;
+  /** Totale dei partecipanti pagati (per KPI incassi del giorno) */
+  group_paid_total?: number;
   /** Totale calcolato dai prezzi individuali dei partecipanti */
   group_total?: number;
 };
@@ -502,6 +504,10 @@ export default function MobileHomePage() {
         const participantCount = parts.length;
         const paidCount = parts.filter(pp => pp.payment_status === "paid").length;
         const groupTotal = parts.reduce((s, pp) => s + (Number(pp.price) || 0), 0);
+        // Totale dei soli pagati (per KPI incassi del giorno)
+        const groupPaidTotal = parts
+          .filter(pp => pp.payment_status === "paid")
+          .reduce((s, pp) => s + (Number(pp.price) || 0), 0);
         return {
           id: a.id, patient_id: a.patient_id ?? null, start_at: a.start_at,
           status: a.status as Status, amount: a.amount ?? null, is_paid: a.is_paid ?? false,
@@ -518,6 +524,7 @@ export default function MobileHomePage() {
           participant_count: participantCount,
           participant_paid_count: paidCount,
           group_total: groupTotal,
+          group_paid_total: groupPaidTotal,
         };
       };
 
@@ -1117,17 +1124,34 @@ export default function MobileHomePage() {
   );
 
   const incasso = useMemo(
-    () => activeAppts.reduce((s, a) => s + (a.is_paid && typeof a.amount === "number" ? a.amount : 0), 0),
+    () => activeAppts.reduce((s, a) => {
+      // Gruppi: somma dei partecipanti pagati
+      if (a.is_group) return s + (a.group_paid_total ?? 0);
+      // Singoli: come prima
+      return s + (a.is_paid && typeof a.amount === "number" ? a.amount : 0);
+    }, 0),
     [activeAppts]
   );
 
   const daIncassare = useMemo(
-    () => activeAppts.filter(a => !a.is_paid).reduce((s, a) => s + (typeof a.amount === "number" ? a.amount : 0), 0),
+    () => activeAppts.reduce((s, a) => {
+      // Gruppi: differenza tra totale potenziale e già pagato
+      if (a.is_group) {
+        return s + Math.max(0, (a.group_total ?? 0) - (a.group_paid_total ?? 0));
+      }
+      // Singoli: come prima
+      return s + (!a.is_paid && typeof a.amount === "number" ? a.amount : 0);
+    }, 0),
     [activeAppts]
   );
 
   const incassoAtteso = useMemo(
-    () => activeAppts.reduce((s, a) => s + (typeof a.amount === "number" ? a.amount : 0), 0),
+    () => activeAppts.reduce((s, a) => {
+      // Gruppi: totale potenziale (somma di tutti i partecipanti)
+      if (a.is_group) return s + (a.group_total ?? 0);
+      // Singoli: come prima
+      return s + (typeof a.amount === "number" ? a.amount : 0);
+    }, 0),
     [activeAppts]
   );
 
@@ -1832,6 +1856,11 @@ export default function MobileHomePage() {
                         {appts.map(a => {
                           const st = STATUS_MAP[a.status];
                           const upPhone = a.patients?.phone;
+                          // Etichetta: per i gruppi mostra il titolo + badge, per i singoli il nome paziente
+                          const isGroup = a.is_group === true;
+                          const displayName = isGroup
+                            ? (a.group_title || "Gruppo")
+                            : fullName(a.patients);
                           return (
                             <div
                               key={a.id}
@@ -1857,17 +1886,27 @@ export default function MobileHomePage() {
                                     fontWeight: 800, color: st.color, fontSize: 12,
                                     fontVariantNumeric: "tabular-nums", flexShrink: 0,
                                   }}>{fmtTime(a.start_at)}</span>
-                                  {upPhone ? (
+                                  {isGroup && (
+                                    <span style={{
+                                      fontSize: 9, fontWeight: 800, color: "#fff",
+                                      background: "#0d9488",
+                                      padding: "1px 6px", borderRadius: 99,
+                                      letterSpacing: 0.4, flexShrink: 0,
+                                    }}>
+                                      👥 {a.participant_count ?? 0}/{a.group_max_participants ?? 0}
+                                    </span>
+                                  )}
+                                  {!isGroup && upPhone ? (
                                     <a href={`tel:${upPhone}`}
                                       onClick={e => e.stopPropagation()}
                                       style={{
                                         whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
                                         textDecoration: "none", color: "inherit",
-                                      }}>{fullName(a.patients)}</a>
+                                      }}>{displayName}</a>
                                   ) : (
                                     <span style={{
                                       whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                                    }}>{fullName(a.patients)}</span>
+                                    }}>{displayName}</span>
                                   )}
                                 </div>
                                 <span style={{
