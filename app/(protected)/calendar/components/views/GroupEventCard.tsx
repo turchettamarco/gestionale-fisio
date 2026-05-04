@@ -54,8 +54,14 @@ function initialsOf(firstName?: string | null, lastName?: string | null): string
 }
 
 export default function GroupEventCard({ event, cardH }: GroupEventCardProps) {
+  // Soglie altezza:
+  //   • short  (< 38px)  → 1 riga compatta
+  //   • medium (38–70px) → 2 righe (titolo + avatar/totale)
+  //   • full   (≥ 70px)  → 3 righe (badge esteso + titolo grande + avatar)
+  // La soglia medium → full è 70px (non 56) perché serve spazio verticale
+  // per non sovrapporre il titolo agli avatar.
   const isShort = cardH < 38;
-  const isMedium = !isShort && cardH < 56;
+  const isMedium = !isShort && cardH < 70;
 
   const participants = event.participants ?? [];
   const count = participants.length;
@@ -98,11 +104,11 @@ export default function GroupEventCard({ event, cardH }: GroupEventCardProps) {
     );
   }
 
-  // ─── LAYOUT MEDIO (45 min) ─────────────────────────────────────────
+  // ─── LAYOUT MEDIO (45–70 min) ─────────────────────────────────────
   if (isMedium) {
     return (
       <>
-        {/* Riga 1: ora + badge gruppo + titolo */}
+        {/* Riga 1: ora + badge gruppo + €totale (compatto) */}
         <div style={{ display: "flex", alignItems: "center", gap: 4, overflow: "hidden", flexShrink: 0 }}>
           <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.85)", lineHeight: 1, flexShrink: 0 }}>
             {fmtTime(event.start.toISOString())}
@@ -114,20 +120,27 @@ export default function GroupEventCard({ event, cardH }: GroupEventCardProps) {
           }}>
             👥 {count}/{max}
           </span>
-          <span style={{
-            fontSize: 11, fontWeight: 700, color: "#fff",
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            flex: 1, minWidth: 0,
-          }}>
-            {title}
+          <div style={{ flex: 1 }} />
+          <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", whiteSpace: "nowrap", flexShrink: 0 }}>
+            €{total.toFixed(0)}
           </span>
         </div>
-        {/* Riga 2: avatar + totale */}
+
+        {/* Riga 2: titolo (su riga propria, no avatar che lo coprono) */}
         <div style={{
-          display: "flex", justifyContent: "space-between", alignItems: "center",
-          marginTop: "auto", gap: 4,
+          fontSize: 12, fontWeight: 700, color: "#fff",
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          marginTop: 2, lineHeight: 1.2,
         }}>
-          <div style={{ display: "flex", alignItems: "center", overflow: "hidden", flex: 1 }}>
+          {title}
+        </div>
+
+        {/* Riga 3: avatar (in fondo, separati dal titolo) */}
+        {count > 0 && (
+          <div style={{
+            display: "flex", alignItems: "center", overflow: "hidden",
+            marginTop: "auto", paddingTop: 2,
+          }}>
             {visibleAvatars.map((p, idx) => {
               const c = colorForPatient(p.patient_id);
               return (
@@ -153,10 +166,7 @@ export default function GroupEventCard({ event, cardH }: GroupEventCardProps) {
               </span>
             )}
           </div>
-          <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", whiteSpace: "nowrap", flexShrink: 0 }}>
-            €{total.toFixed(0)}
-          </span>
-        </div>
+        )}
       </>
     );
   }
