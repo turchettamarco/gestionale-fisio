@@ -3039,6 +3039,11 @@ return (
           .cal-period-btns { flex-wrap: wrap !important; gap: 3px !important; }
           .cal-period-btns button { font-size: 10px !important; padding: 5px 8px !important; min-height: 36px !important; }
           .cal-sidebar { width: 280px !important; min-width: 280px !important; }
+          /* Header iPad: comprimi gap e padding nav per evitare sovrapposizioni */
+          .cal-header { padding: 0 10px !important; gap: 4px !important; }
+          .cal-center-row { gap: 4px !important; }
+          .nav-tab-compact { gap: 0 !important; }
+          .nav-tab-compact a { padding: 5px 8px !important; font-size: 11px !important; }
           /* Card appuntamento: su iPad riduci padding/font per far stare tutto */
           .cal-event-card { padding: 6px 7px !important; }
           .cal-event-card .ev-header { font-size: 10px !important; margin-bottom: 2px !important; }

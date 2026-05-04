@@ -141,7 +141,7 @@ export default function CalendarTopBar({
   };
 
   return (
-    <header className="no-print" style={{
+    <header className="no-print cal-header" style={{
       position: "sticky", top: 0, zIndex: 30,
       background: "linear-gradient(135deg, #0d9488, #2563eb)",
       borderBottom: "none",
@@ -161,11 +161,11 @@ export default function CalendarTopBar({
             color: "#fff", fontWeight: 800, fontSize: 14, letterSpacing: -0.5,
             border: "1.5px solid rgba(255,255,255,0.3)",
           }}>F</div>
-          <span className="mob-hide" style={{ fontWeight: 700, fontSize: 15, color: "#fff", letterSpacing: 0.5, textTransform: "uppercase" }}>
+          <span className="mob-hide tab-hide" style={{ fontWeight: 700, fontSize: 15, color: "#fff", letterSpacing: 0.5, textTransform: "uppercase" }}>
             Fisio<span style={{ color: "#fff", fontWeight: 800 }}>Hub</span>
           </span>
         </div>
-        <nav className="mob-hide" style={{ display: "flex", gap: 2 }}>
+        <nav className="mob-hide nav-tab-compact" style={{ display: "flex", gap: 2 }}>
           {NAV_ITEMS.map(item => {
             const active = "active" in item && item.active;
             return (
@@ -188,7 +188,7 @@ export default function CalendarTopBar({
       </div>
 
       {/* ─── CENTER: Navigazione + selettore vista + stampa ─────── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, justifyContent: "center", minWidth: 0 }}>
+      <div className="cal-center-row" style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, justifyContent: "center", minWidth: 0 }}>
 
         {/* Freccia indietro */}
         <button onClick={handlePrev}
@@ -270,7 +270,7 @@ export default function CalendarTopBar({
               fontSize: 12, whiteSpace: "nowrap",
             }}
           >
-            🖨️ Stampa
+            🖨️ <span className="tab-hide">Stampa</span>
             <span style={{ fontSize: 9 }}>▼</span>
           </button>
 
@@ -328,7 +328,7 @@ export default function CalendarTopBar({
           title="Ricerca globale"
           style={{ padding: "5px 10px", borderRadius: 8, border: "1.5px solid rgba(255,255,255,0.25)", background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.75)", cursor: "pointer", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", gap: 5 }}
         >
-          🔍 <kbd style={{ fontSize: 10, background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, padding: "0 4px" }}>⌘K</kbd>
+          🔍 <kbd className="tab-hide" style={{ fontSize: 10, background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, padding: "0 4px" }}>⌘K</kbd>
         </button>
 
         {/* Bell notifiche prenotazioni — visibile solo se attivata in impostazioni */}
