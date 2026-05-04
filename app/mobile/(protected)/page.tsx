@@ -304,11 +304,11 @@ export default function MobileHomePage() {
 
   // ─── Partecipanti iniziali per nuovo gruppo (mig. 014, step 6.1) ───
   const [qaInitialParticipants, setQaInitialParticipants] = useState<
-    Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>
+    Array<{ id: string; first_name: string | null; last_name: string | null; phone?: string | null }>
   >([]);
   const [qaPartSearchQ, setQaPartSearchQ] = useState("");
   const [qaPartSearchResults, setQaPartSearchResults] = useState<
-    Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>
+    Array<{ id: string; first_name: string | null; last_name: string | null; phone?: string | null }>
   >([]);
 
   // Debounced search per partecipanti iniziali

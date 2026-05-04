@@ -127,10 +127,10 @@ type CreateModalProps = {
   createGroupMax: string; setCreateGroupMax: (v: string) => void;
   createGroupPrice: string; setCreateGroupPrice: (v: string) => void;
   // ─── Step 6.1: partecipanti iniziali ──────────────────────────────────
-  createInitialParticipants: Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>;
-  addInitialParticipantCal: (p: { id: string; first_name: string | null; last_name: string | null; phone: string | null }) => void;
+  createInitialParticipants: Array<{ id: string; first_name: string | null; last_name: string | null; phone?: string | null }>;
+  addInitialParticipantCal: (p: { id: string; first_name: string | null; last_name: string | null; phone?: string | null }) => void;
   removeInitialParticipantCal: (patientId: string) => void;
-  searchPatientsForGroupCal: (q: string) => Promise<Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>>;
+  searchPatientsForGroupCal: (q: string) => Promise<Array<{ id: string; first_name: string | null; last_name: string | null; phone?: string | null }>>;
 };
 
 type TouchDragState = {
@@ -1157,7 +1157,7 @@ function CalendarPageInner() {
 
   // ─── Step 6.1: partecipanti iniziali ──────────────────────────────────────
   const [createInitialParticipants, setCreateInitialParticipants] = useState<
-    Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>
+    Array<{ id: string; first_name: string | null; last_name: string | null; phone?: string | null }>
   >([]);
 
   // Carica i default da practice_settings (per pre-popolare prezzo/max gruppo)
@@ -2870,7 +2870,7 @@ function CreateModal(props:CreateModalProps) {
   // Step 6.1: search partecipanti iniziali (locale al modal)
   const [partSearchQ, setPartSearchQ] = useState("");
   const [partSearchResults, setPartSearchResults] = useState<
-    Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>
+    Array<{ id: string; first_name: string | null; last_name: string | null; phone?: string | null }>
   >([]);
   useEffect(() => {
     if (!createIsGroup) { setPartSearchResults([]); return; }

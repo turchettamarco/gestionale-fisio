@@ -136,13 +136,13 @@ export type CreateAppointmentModalProps = {
 
   // ─── Partecipanti iniziali (mig. 014, step 6.1) ───────────
   /** Lista dei pazienti già selezionati come partecipanti iniziali */
-  initialParticipants: Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>;
+  initialParticipants: Array<{ id: string; first_name: string | null; last_name: string | null; phone?: string | null }>;
   /** Aggiungi un paziente alla lista iniziale */
-  addInitialParticipant: (patient: { id: string; first_name: string | null; last_name: string | null; phone: string | null }) => void;
+  addInitialParticipant: (patient: { id: string; first_name: string | null; last_name: string | null; phone?: string | null }) => void;
   /** Rimuovi un paziente dalla lista iniziale */
   removeInitialParticipant: (patientId: string) => void;
   /** Funzione di ricerca pazienti per il campo search */
-  searchPatientsForGroup: (query: string) => Promise<Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>>;
+  searchPatientsForGroup: (query: string) => Promise<Array<{ id: string; first_name: string | null; last_name: string | null; phone?: string | null }>>;
 
   // ─── Submit ───────────────────────────────────────────────
   creating: boolean;
@@ -194,7 +194,7 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
   // ─── Search partecipanti iniziali (mig. 014, step 6.1) ────────
   const [participantsSearchQ, setParticipantsSearchQ] = useState("");
   const [participantsSearchResults, setParticipantsSearchResults] = useState<
-    Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>
+    Array<{ id: string; first_name: string | null; last_name: string | null; phone?: string | null }>
   >([]);
 
   const alreadyAddedIds = useMemo(

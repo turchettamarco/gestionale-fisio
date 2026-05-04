@@ -417,10 +417,10 @@ const userInitials = useMemo(() => {
   // Lista dei pazienti selezionati DURANTE la creazione del gruppo.
   // Vengono inseriti tutti insieme dopo l'INSERT del padre.
   const [initialParticipants, setInitialParticipants] = useState<
-    Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>
+    Array<{ id: string; first_name: string | null; last_name: string | null; phone?: string | null }>
   >([]);
   const addInitialParticipant = useCallback(
-    (p: { id: string; first_name: string | null; last_name: string | null; phone: string | null }) => {
+    (p: { id: string; first_name: string | null; last_name: string | null; phone?: string | null }) => {
       setInitialParticipants(prev => prev.find(x => x.id === p.id) ? prev : [...prev, p]);
     },
     []
