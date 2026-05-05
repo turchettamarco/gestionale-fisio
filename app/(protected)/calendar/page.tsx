@@ -64,8 +64,12 @@ import {
 // ─── Studio context (multi-tenancy) ──────────────────────────────────────────
 import { useCurrentStudio, useCurrentStudioId } from "@/src/contexts/StudioContext";
 
-// ─── Hook custom della pagina calendar (refactor B3.1) ───────────────────────
-import { useCalendarBootstrap } from "@/src/hooks/calendar";
+// ─── Hook custom della pagina calendar (refactor B3.1, B3.2, B3.3) ───────────
+import {
+  useCalendarBootstrap,
+  useSearchAndFilters,
+  useCalendarEvents,
+} from "@/src/hooks/calendar";
 
 // ─── Popover (B2.1, B2.2) ────────────────────────────────────────────────────
 import EventHoverTooltip from "./components/popovers/EventHoverTooltip";
@@ -155,9 +159,115 @@ function CalendarPageInner() {
   } = bootstrap;
 
   const params = useSearchParams();
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+
+  // ─── Stati di base necessari a useSearchAndFilters ──────────────────────
+  // Questi state sono dichiarati qui (più in alto rispetto al codice
+  // originale) per essere disponibili come dipendenze dell'hook
+  // useSearchAndFilters. Erano sparsi a riga ~200/520.
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createStartISO, setCreateStartISO] = useState<string>("");
+  const [createEndISO, setCreateEndISO] = useState<string>("");
+
+  const [duplicateMode, setDuplicateMode] = useState(false);
+  const [eventToDuplicate, setEventToDuplicate] =
+    useState<CalendarEvent | null>(null);
+  const [duplicateDate, setDuplicateDate] = useState<string>("");
+  const [duplicateTime, setDuplicateTime] = useState<string>("09:00");
+
+  // ─── Calendar events: fetch, navigazione, booking (refactor B3.3) ───────
+  const eventsApi = useCalendarEvents({
+    clientReady,
+    workingHours,
+    currentStudio,
+    currentStudioId,
+  });
+
+  const {
+    events,
+    setEvents,
+    loading,
+    setLoading,
+    error,
+    setError,
+    currentDate,
+    setCurrentDate,
+    viewType,
+    setViewType,
+    loadAppointments,
+    weeklyExpectedRevenue,
+    goToPreviousWeek,
+    goToNextWeek,
+    goToToday,
+    gotoWeekStart,
+    goToPreviousMonth,
+    goToNextMonth,
+    weekOptions,
+    weekDays,
+    monthDays,
+    getAvailabilityForecast,
+    getFreeWindows,
+    dailySummary,
+    bookingRequests,
+    setBookingRequests,
+    bookingPanel,
+    setBookingPanel,
+    bookingLoading,
+    setBookingLoading,
+    bookingActionId,
+    setBookingActionId,
+    loadBookingRequests,
+    confirmBooking,
+    rejectBooking,
+    reopenBooking,
+  } = eventsApi;
+
+  // ─── Search & filters (refactor B3.2) ───────────────────────────────────
+  const searchAndFilters = useSearchAndFilters({
+    events,
+    createOpen,
+    duplicateMode,
+    setError,
+  });
+
+  const {
+    // Ricerca paziente create
+    q,
+    setQ,
+    searching,
+    setSearching,
+    patientResults,
+    setPatientResults,
+    selectedPatient,
+    setSelectedPatient,
+    searchPatients,
+    // Ricerca gruppo
+    groupSearchPatients,
+    // Ricerca calendario
+    calendarSearch,
+    setCalendarSearch,
+    calendarSearchOpen,
+    setCalendarSearchOpen,
+    isSearchActive,
+    searchMatchIds,
+    // Filtri UI
+    filtersExpanded,
+    setFiltersExpanded,
+    filtersPopoverOpen,
+    setFiltersPopoverOpen,
+    // Filtri valori
+    filters,
+    setFilters,
+    statusFilter,
+    setStatusFilter,
+    showAvailableOnly,
+    setShowAvailableOnly,
+    // Bulk
+    bulkMode,
+    setBulkMode,
+    bulkSelected,
+    setBulkSelected,
+    toggleBulkSelect,
+  } = searchAndFilters;
 
   // Chiudi sidebar con ESC (sidebarOpen vive in pagina, non nel bootstrap).
   useEffect(() => {
@@ -197,16 +307,9 @@ function CalendarPageInner() {
   const [editStartTime, setEditStartTime] = useState<string>("09:00");
   const [editDuration, setEditDuration] = useState<"0.5" | "0.75" | "1" | "1.5" | "2">("1");
 
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createStartISO, setCreateStartISO] = useState<string>("");
-  const [createEndISO, setCreateEndISO] = useState<string>("");
-
-  const [q, setQ] = useState("");
-  const [searching, setSearching] = useState(false);
-  const [patientResults, setPatientResults] = useState<PatientLite[]>([]);
-  const [selectedPatient, setSelectedPatient] = useState<PatientLite | null>(null);
+  // createOpen, createStartISO, createEndISO: dichiarati più in alto.
+  // q, searching, patientResults, selectedPatient: ora in useSearchAndFilters.
   const [creating, setCreating] = useState(false);
-  const searchTimer = useRef<any>(null);
 
   const [createLocation, setCreateLocation] = useState<LocationType>("studio");
   // Default = nome dello studio corrente (multi-tenancy). Aggiornato dall'effect sotto.
@@ -290,13 +393,7 @@ function CalendarPageInner() {
   const [quickPatientPhone, setQuickPatientPhone] = useState("");
   const [creatingQuickPatient, setCreatingQuickPatient] = useState(false);
 
-  const [currentDate, setCurrentDate] = useState<Date>(new Date());
-
-  // Hydration-safe: imposta currentDate al mount.
-  // (clientReady è ora gestito da useCalendarBootstrap.)
-  useEffect(() => {
-    setCurrentDate(new Date());
-  }, []);
+  // currentDate, setCurrentDate e l'effect di mount sono ora in useCalendarEvents.
 
   // ── Gestione parametri URL da GlobalSearch (?date=YYYY-MM-DD&view=day) ─────
   useEffect(() => {
@@ -321,65 +418,7 @@ function CalendarPageInner() {
     }
   }, [clientReady]);
 
-  const [weeklyExpectedRevenue, setWeeklyExpectedRevenue] = useState<number>(0);
-
-  const [viewType, setViewType] = useState<"day" | "week" | "month">("week");
-
-  useEffect(() => {
-    if (!clientReady) return;
-    let cancelled = false;
-
-    const loadPeriodStats = async () => {
-      try {
-        let periodStart: Date;
-        let periodEnd: Date;
-
-        if (viewType === "month") {
-          // Intero mese
-          periodStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-          periodStart.setHours(0, 0, 0, 0);
-          periodEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
-          periodEnd.setHours(0, 0, 0, 0);
-        } else {
-          // Settimana corrente
-          const today = new Date(currentDate);
-          const day = today.getDay();
-          const diffToMonday = (day === 0 ? -6 : 1) - day;
-          periodStart = new Date(today);
-          periodStart.setDate(today.getDate() + diffToMonday);
-          periodStart.setHours(0, 0, 0, 0);
-          periodEnd = new Date(periodStart);
-          periodEnd.setDate(periodStart.getDate() + 7);
-          periodEnd.setHours(0, 0, 0, 0);
-        }
-
-const { data, error } = await supabase
-          .from("appointments")
-          .select("amount, expected_price, status, start_at")
-          .gte("start_at", periodStart.toISOString())
-          .lt("start_at", periodEnd.toISOString());
-
-        if (error) throw error;
-
-        const rows = data ?? [];
-        const validRows = rows.filter((r) => r.status !== "cancelled");
-
-        const revenue = validRows.reduce((sum: number, r) => {
-          const v = r.amount ?? r.expected_price ?? 0;
-          return sum + Number(v);
-        }, 0);
-
-        if (!cancelled) setWeeklyExpectedRevenue(revenue);
-      } catch {
-        if (!cancelled) setWeeklyExpectedRevenue(0);
-      }
-    };
-
-    loadPeriodStats();
-    return () => {
-      cancelled = true;
-    };
-  }, [currentDate, viewType, clientReady]);
+  // weeklyExpectedRevenue, viewType e l'effect loadPeriodStats sono ora in useCalendarEvents.
 
   const [draggingEvent, setDraggingEvent] = useState<{
     id: string;
@@ -403,45 +442,11 @@ const { data, error } = await supabase
 
   const [printMenuOpen, setPrintMenuOpen] = useState(false);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
-  const [filtersExpanded, setFiltersExpanded] = useState(false);
-  const [filtersPopoverOpen, setFiltersPopoverOpen] = useState(false);
+  // filtersExpanded, filtersPopoverOpen, calendarSearch, calendarSearchOpen,
+  // isSearchActive, searchMatchIds: ora in useSearchAndFilters.
   const printMenuRef = useRef<HTMLDivElement>(null);
 
-  // Feature: Ricerca rapida nel calendario
-  const [calendarSearch, setCalendarSearch] = useState("");
-  const [calendarSearchOpen, setCalendarSearchOpen] = useState(false);
-
-  // Ricerca attiva quando >= 2 caratteri
-  const isSearchActive = useMemo(() => calendarSearch.trim().length >= 2, [calendarSearch]);
-
-  // IDs degli eventi che matchano la ricerca
-  const searchMatchIds = useMemo(() => {
-    const s = new Set<string>();
-    if (!isSearchActive) return s;
-    const q = calendarSearch.trim().toLowerCase();
-    events.forEach(ev => {
-      if (ev.patient_name.toLowerCase().includes(q)) s.add(ev.id);
-    });
-    return s;
-  }, [isSearchActive, calendarSearch, events]);
-
-  // Riepilogo giornaliero per il modal "Riepilogo di oggi"
-  const dailySummary = useMemo(() => {
-    const today = new Date();
-    const todayEvts = events.filter(ev =>
-      ev.start.getDate() === today.getDate() &&
-      ev.start.getMonth() === today.getMonth() &&
-      ev.start.getFullYear() === today.getFullYear() &&
-      ev.status !== "cancelled"
-    );
-    const done = todayEvts.filter(ev => ev.status === "done").length;
-    const notDone = todayEvts.filter(ev => ev.status !== "done").length;
-    const unpaid = todayEvts.filter(ev => !ev.is_paid).length;
-    const invoicedTotal = todayEvts.filter(ev => ev.price_type === "invoiced" && ev.is_paid).reduce((s, ev) => s + (ev.amount ?? 0), 0);
-    const cashTotal = todayEvts.filter(ev => ev.price_type === "cash" && ev.is_paid).reduce((s, ev) => s + (ev.amount ?? 0), 0);
-    const grandTotal = todayEvts.filter(ev => ev.is_paid).reduce((s, ev) => s + (ev.amount ?? 0), 0);
-    return { total: todayEvts.length, done, notDone, unpaid, invoicedTotal, cashTotal, grandTotal, events: todayEvts };
-  }, [events]);
+  // dailySummary è ora in useCalendarEvents.
 
   // Feature: Hover tooltip per mini-scheda paziente
   const [hoverTooltip, setHoverTooltip] = useState<{
@@ -454,9 +459,7 @@ const { data, error } = await supabase
   // Feature: Riepilogo giornaliero
   const [dailySummaryOpen, setDailySummaryOpen] = useState(false);
 
-  // Feature: Segna pagato in blocco
-  const [bulkMode, setBulkMode] = useState(false);
-  const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set());
+  // bulkMode, bulkSelected: ora in useSearchAndFilters.
 
   // Feature: Popover vista mese
   const [monthPopover, setMonthPopover] = useState<{
@@ -467,8 +470,7 @@ const { data, error } = await supabase
   } | null>(null);
 
   // currentTime è ora gestito da useCalendarBootstrap.
-  const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
-  const [showAvailableOnly, setShowAvailableOnly] = useState(false);
+  // statusFilter, showAvailableOnly: ora in useSearchAndFilters.
 
   const [showWhatsAppConfirm, setShowWhatsAppConfirm] = useState(false);
   const [lastCreatedAppointment, setLastCreatedAppointment] = useState<{
@@ -540,19 +542,11 @@ const { data, error } = await supabase
     }
   }, []);
 
-  const [duplicateMode, setDuplicateMode] = useState(false);
-  const [eventToDuplicate, setEventToDuplicate] = useState<CalendarEvent | null>(null);
-  const [duplicateDate, setDuplicateDate] = useState<string>("");
-  const [duplicateTime, setDuplicateTime] = useState<string>("09:00");
+  // duplicateMode, eventToDuplicate, duplicateDate, duplicateTime:
+  // dichiarati più in alto per essere disponibili a useSearchAndFilters.
 
   // Stati per le nuove funzionalità
-  const [filters, setFilters] = useState({
-    location: "all" as "all" | "studio" | "domicile",
-    treatmentType: "all" as "all" | TreatmentType,
-    priceType: "all" as "all" | "invoiced" | "cash",
-    minAmount: "",
-    maxAmount: "",
-  });
+  // filters: ora in useSearchAndFilters.
 
   const [eventColors, setEventColors] = useState<Record<string, string>>({});
   const [quickActionsMenu, setQuickActionsMenu] = useState<{
@@ -566,10 +560,8 @@ const { data, error } = await supabase
   const sidebarRef = useRef<HTMLDivElement>(null);
   const monthClickTimer = useRef<any>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [bookingRequests, setBookingRequests] = useState<BookingRequest[]>([]);
-  const [bookingPanel, setBookingPanel] = useState(false);
-  const [bookingLoading, setBookingLoading] = useState(false);
-  const [bookingActionId, setBookingActionId] = useState<string | null>(null);
+  // Stati booking (bookingRequests, bookingPanel, bookingLoading, bookingActionId)
+  // sono ora in useCalendarEvents.
 
   
   // Sidebar behavior: overlay on mobile, "push content" on desktop
@@ -614,91 +606,8 @@ const { data, error } = await supabase
     return slots;
   }, [gridHourRange]);
 
-  // Funzioni di navigazione spostate PRIMA degli useEffect che le usano
-  const goToPreviousWeek = useCallback(() => {
-    setCurrentDate(prev => addWeeks(prev, -1));
-  }, []);
-
-  const goToNextWeek = useCallback(() => {
-    setCurrentDate(prev => addWeeks(prev, 1));
-  }, []);
-
-  const goToToday = useCallback(() => {
-    setCurrentDate(new Date());
-  }, []);
-
-  const gotoWeekStart = useCallback((iso: string) => {
-    setCurrentDate(new Date(iso));
-  }, []);
-
-  // Opzioni settimane per il select nella navbar (±8 settimane dalla corrente)
-  const weekOptions = useMemo(() => {
-    const options: { value: string; label: string }[] = [];
-    const now = startOfISOWeekMonday(new Date());
-    for (let i = -8; i <= 8; i++) {
-      const weekStart = addWeeks(now, i);
-      const weekEnd = addDays(weekStart, 6);
-      const mesi = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
-      const label = `${formatDMY(weekStart)} – ${weekEnd.getDate()} ${mesi[weekEnd.getMonth()]}`;
-      options.push({ value: weekStart.toISOString(), label });
-    }
-    return options;
-  }, []);
-
-  // Ritorna statistiche occupazione per un giorno (usato nell'header settimana)
-  const getAvailabilityForecast = useCallback((day: Date) => {
-    const d0 = new Date(day); d0.setHours(0,0,0,0);
-    const d1 = new Date(day); d1.setHours(23,59,59,999);
-    const dayEvts = events.filter(ev =>
-      ev.status !== "cancelled" && ev.start >= d0 && ev.start <= d1
-    );
-    const totalMinutes = 8 * 60; // 8-20 = 12h = 720min, ma usiamo 8h lavorative
-    const usedMinutes = dayEvts.reduce((s, ev) => {
-      return s + Math.max(0, (ev.end.getTime() - ev.start.getTime()) / 60000);
-    }, 0);
-    const occupancyRate = Math.round(Math.min((usedMinutes / totalMinutes) * 100, 100));
-    return { totalEvents: dayEvts.length, occupancyRate };
-  }, [events]);
-
-  // Ritorna le finestre libere di un giorno (usato con showAvailableOnly).
-  // Usa gli orari di lavoro configurati in working_hours per quel giorno_della_settimana.
-  const getFreeWindows = useCallback((day: Date) => {
-    const dayOfWeek = day.getDay();
-    const wh = workingHours.find(w => w.day_of_week === dayOfWeek);
-    // Se il giorno è chiuso o non configurato, fallback 8-20 (mantiene comportamento storico)
-    let workStartH = 8, workStartM = 0, workEndH = 20, workEndM = 0;
-    if (wh && wh.is_open) {
-      const [oh, om] = wh.open_time.split(":").map(Number);
-      const [ch, cm] = wh.close_time.split(":").map(Number);
-      workStartH = oh; workStartM = om || 0;
-      workEndH = ch;   workEndM = cm || 0;
-    } else if (wh && !wh.is_open) {
-      return []; // giorno chiuso → nessuna finestra
-    }
-
-    const d0 = new Date(day); d0.setHours(0,0,0,0);
-    const d1 = new Date(day); d1.setHours(23,59,59,999);
-    const dayEvts = events
-      .filter(ev => ev.status !== "cancelled" && ev.start >= d0 && ev.start <= d1)
-      .sort((a, b) => a.start.getTime() - b.start.getTime());
-
-    const windows: { start: Date; end: Date; minutes: number }[] = [];
-    let cursor = new Date(day); cursor.setHours(workStartH, workStartM, 0, 0);
-    const workEnd = new Date(day); workEnd.setHours(workEndH, workEndM, 0, 0);
-
-    for (const ev of dayEvts) {
-      if (ev.start > cursor) {
-        const mins = Math.round((ev.start.getTime() - cursor.getTime()) / 60000);
-        if (mins >= 30) windows.push({ start: new Date(cursor), end: new Date(ev.start), minutes: mins });
-      }
-      if (ev.end > cursor) cursor = new Date(ev.end);
-    }
-    if (cursor < workEnd) {
-      const mins = Math.round((workEnd.getTime() - cursor.getTime()) / 60000);
-      if (mins >= 30) windows.push({ start: new Date(cursor), end: new Date(workEnd), minutes: mins });
-    }
-    return windows;
-  }, [events, workingHours]);
+  // Funzioni di navigazione, weekOptions, getAvailabilityForecast, getFreeWindows
+  // sono ora in useCalendarEvents.
 
   const openCreateModal = useCallback((date: Date, hour: number = 9, minute: number = 0, duplicateEvent?: CalendarEvent) => {
     const timeStr = `${pad2(hour)}:${pad2(minute)}`;
@@ -860,16 +769,7 @@ const { data, error } = await supabase
     return () => document.removeEventListener('click', handleClick);
   }, []);
 
-  const weekDays = useMemo(() => {
-    const days = [];
-    const startOfWeek = startOfISOWeekMonday(currentDate);
-    
-    for (let i = 0; i < 6; i++) {
-      const day = addDays(startOfWeek, i);
-      days.push(day);
-    }
-    return days;
-  }, [currentDate]);
+  // weekDays è ora in useCalendarEvents.
 
   const timeSlots = useMemo(() => {
     const slots = [];
@@ -929,226 +829,9 @@ const { data, error } = await supabase
     return getAvailableSlotsInDay(day, dayEvts, startH, endH);
   }, [events, workingHours]);
 
-  const loadRequestId = useRef(0);
+  // loadAppointments, loadRequestId e l'effect di refetch su currentDate/viewType
+  // sono ora in useCalendarEvents.
 
-  const loadAppointments = useCallback(async (startDate: Date, endDate: Date, retryCount = 0) => {
-    const thisRequest = ++loadRequestId.current;
-    setLoading(true);
-    setError("");
-
-    const startISO = startDate.toISOString();
-    const endISO = endDate.toISOString();
-
-    try {
-      const { data, error } = await supabase
-        .from("appointments")
-          .select(`
-          id, patient_id, start_at, end_at, status, calendar_note, location, clinic_site, location_id, domicile_address, treatment_type, price_type, payment_method, amount,
-          expected_price, is_paid, paid_at,
-          reminder_sent_at, reminder_status,
-          whatsapp_sent_at,
-          is_group, group_title, group_max_participants, group_price_per_person,
-          patients:patient_id ( first_name, last_name, treatment, diagnosis, phone ),
-          appointment_participants (
-            id, appointment_id, patient_id, price, payment_status, payment_method, paid_at,
-            attendance_status, checked_in_at, participant_notes, created_at,
-            patients:patient_id ( first_name, last_name, phone )
-          )
-        `)
-        .gte("start_at", startISO)
-        .lt("start_at", endISO)
-        .order("start_at", { ascending: true });
-
-      // Ignore stale responses
-      if (thisRequest !== loadRequestId.current) return;
-
-      if (error) {
-        if (retryCount < 2) {
-          // Retry after short delay
-          setTimeout(() => loadAppointments(startDate, endDate, retryCount + 1), 1000);
-          return;
-        }
-        setError(error.message);
-        setLoading(false);
-        return;
-      }
-
-const mapped = (data ?? []).map(
-  (
-    a: {
-      id: string;
-      patient_id: string;
-      start_at: string;
-      end_at: string;
-      status: string;
-      calendar_note?: string | null;
-      location?: string | null;
-      clinic_site?: string | null;
-      location_id?: string | null;
-      domicile_address?: string | null;
-      treatment_type?: string | null;
-      price_type?: string | null;
-      payment_method?: string | null;
-      amount?: number | null;
-      expected_price?: number | null;
-      is_paid?: boolean | null;
-      paid_at?: string | null;
-      reminder_sent_at?: string | null;
-      reminder_status?: string | null;
-      whatsapp_sent_at?: string | null;
-      // Campi gruppo (mig. 014)
-      is_group?: boolean | null;
-      group_title?: string | null;
-      group_max_participants?: number | null;
-      group_price_per_person?: number | null;
-      patients?: Array<{
-        first_name?: string;
-        last_name?: string;
-        treatment?: string;
-        diagnosis?: string;
-        phone?: string;
-      }>;
-      appointment_participants?: Array<{
-        id: string;
-        appointment_id: string;
-        patient_id: string;
-        price: number | null;
-        payment_status?: string | null;
-        payment_method?: string | null;
-        paid_at?: string | null;
-        attendance_status?: string | null;
-        checked_in_at?: string | null;
-        participant_notes?: string | null;
-        created_at?: string;
-        patients?: Array<{
-          first_name?: string;
-          last_name?: string;
-          phone?: string;
-        }> | { first_name?: string; last_name?: string; phone?: string } | null;
-      }>;
-    }
-  ) => {
-    const patient = Array.isArray(a.patients) ? a.patients[0] : a.patients;
-    const isGroup = a.is_group === true;
-
-    // Mapping partecipanti (gruppo)
-    const participants: AppointmentParticipant[] = (a.appointment_participants ?? []).map((p) => {
-      const pp = Array.isArray(p.patients) ? p.patients[0] : p.patients;
-      return {
-        id: p.id,
-        appointment_id: p.appointment_id,
-        patient_id: p.patient_id,
-        price: Number(p.price ?? 0),
-        payment_status: (p.payment_status === "paid" ? "paid" : "unpaid") as "paid" | "unpaid",
-        payment_method: (p.payment_method ?? null) as "cash" | "pos" | "bank_transfer" | null,
-        paid_at: p.paid_at ?? null,
-        attendance_status: (p.attendance_status === "present" || p.attendance_status === "absent"
-          ? p.attendance_status
-          : "pending") as "pending" | "present" | "absent",
-        checked_in_at: p.checked_in_at ?? null,
-        participant_notes: p.participant_notes ?? null,
-        created_at: p.created_at ?? new Date().toISOString(),
-        patient_first_name: pp?.first_name ?? null,
-        patient_last_name: pp?.last_name ?? null,
-        patient_phone: pp?.phone ?? null,
-      };
-    });
-
-    // Se non c'è paziente (prenotazione web), estrai nome dal calendar_note
-    // Formato: "[WEB|Nome Cognome|Telefono] Servizio..."
-    // Per i gruppi, il "nome" è il titolo del gruppo
-    let name: string;
-    if (isGroup) {
-      name = a.group_title || "Gruppo";
-    } else {
-      name = patient
-        ? `${patient.last_name ?? ""} ${patient.first_name ?? ""}`.trim()
-        : "Paziente";
-
-      if (!patient && a.calendar_note) {
-        const match = (a.calendar_note as string).match(/^\[WEB\|([^|]+)\|/);
-        if (match && match[1]) name = match[1].trim();
-      }
-    }
-
-
-    return {
-      id: a.id,
-      patient_id: a.patient_id,
-      title: name,
-      start: new Date(a.start_at),
-      end: new Date(a.end_at),
-      status: a.status as Status,
-      calendar_note: a.calendar_note ?? null,
-      location: (a.location as LocationType) ?? null,
-      clinic_site: a.clinic_site ?? null,
-      location_id: a.location_id ?? null,
-      domicile_address: a.domicile_address ?? null,
-      treatment_type: a.treatment_type ?? null,
-      price_type: a.price_type ?? null,
-      payment_method: (a.payment_method ?? null) as "cash" | "pos" | "bank_transfer" | null,
-      amount: a.amount ?? null,
-      expected_price: a.expected_price ?? null,
-      is_paid: a.is_paid ?? false,
-      paid_at: a.paid_at ? new Date(a.paid_at) : null,
-      reminder_sent_at: a.reminder_sent_at ? new Date(a.reminder_sent_at) : null,
-      reminder_status: a.reminder_status ?? null,
-      whatsapp_sent_at: a.whatsapp_sent_at ? new Date(a.whatsapp_sent_at) : null,
-
-      // dati paziente (prima riga della relazione)
-      patient_name: name,
-      patient_first_name: patient?.first_name ?? null,
-      patient_last_name: patient?.last_name ?? null,
-      patient_phone: patient?.phone ?? null,
-treatment: patient?.treatment ?? null,
-diagnosis: patient?.diagnosis ?? null,
-
-      // Gruppo (mig. 014)
-      is_group: isGroup,
-      group_title: a.group_title ?? null,
-      group_max_participants: a.group_max_participants ?? null,
-      group_price_per_person: a.group_price_per_person ?? null,
-      participants,
-    };
-  }
-);
-
-    setEvents(mapped);
-    setLoading(false);
-    } catch (err) {
-      if (thisRequest !== loadRequestId.current) return;
-      if (retryCount < 2) {
-        setTimeout(() => loadAppointments(startDate, endDate, retryCount + 1), 1000);
-      } else {
-        setError(`Errore caricamento: ${translateError(err)}`);
-        setLoading(false);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!clientReady) return;
-    
-    if (viewType === "week") {
-      const startOfWeek = startOfISOWeekMonday(currentDate);
-      const endOfWeek = addDays(startOfWeek, 7);
-      loadAppointments(startOfWeek, endOfWeek);
-    } else if (viewType === "month") {
-      const year = currentDate.getFullYear();
-      const month = currentDate.getMonth();
-      const firstDay = new Date(year, month, 1);
-      const startOffset = (firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1);
-      const calStart = addDays(firstDay, -startOffset);
-      const calEnd = addDays(calStart, 42);
-      loadAppointments(calStart, calEnd);
-    } else {
-      const startOfDay = new Date(currentDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(currentDate);
-      endOfDay.setHours(23, 59, 59, 999);
-      loadAppointments(startOfDay, endOfDay);
-    }
-  }, [currentDate, viewType, loadAppointments, clientReady]);
 
   // filteredEvents: applica TUTTI i filtri attivi (stato, luogo, trattamento,
   // priceType, range importo) + filtro per data nella vista giorno.
@@ -1260,95 +943,9 @@ A presto,
   }, [events, currentDate]);
 
   // ─── Booking requests ────────────────────────────────────────────────────
-  const loadBookingRequests = useCallback(async () => {
-    setBookingLoading(true);
-    const { data } = await supabase
-      .from("booking_requests")
-      .select("*")
-      .in("status", ["pending", "confirmed", "cancelled"])
-      .order("created_at", { ascending: false })
-      .limit(50);
-    setBookingRequests(data ?? []);
-    setBookingLoading(false);
-  }, []);
+  // loadBookingRequests, confirmBooking, rejectBooking, reopenBooking sono
+  // ora in useCalendarEvents (insieme agli stati booking).
 
-  useEffect(() => { void loadBookingRequests(); }, [loadBookingRequests]);
-
-  async function confirmBooking(req: BookingRequest) {
-    setBookingActionId(req.id);
-    try {
-      // 1. Aggiorna stato in booking_requests
-      const { error: updErr } = await supabase
-        .from("booking_requests")
-        .update({ status: "confirmed" })
-        .eq("id", req.id);
-      if (updErr) { alert(`Errore aggiornamento: ${translateError(updErr)}`); return; }
-
-      // 2. Crea appuntamento — stesso metodo usato dal form del calendario
-      const timeStr = req.requested_time.slice(0, 5); // "HH:MM"
-      const [th, tm] = timeStr.split(":").map(Number);
-      const [dy, dm, dd] = req.requested_date.split("-").map(Number);
-
-      // Costruisce data locale (come fa il form normale del calendario)
-      const startDt = new Date(dy, dm - 1, dd);
-      startDt.setHours(th, tm, 0, 0);
-      if (isNaN(startDt.getTime())) { alert("Data non valida"); return; }
-
-      const durationMin = Number(req.service_duration);
-      const endDt = new Date(startDt.getTime() + durationMin * 60 * 1000);
-
-      // toISOString() converte in UTC — uguale a come funzionano tutti gli altri appuntamenti
-      const startAt = startDt.toISOString();
-      const endAt   = endDt.toISOString();
-
-      console.log("[booking] start:", startAt, "end:", endAt, "durata:", durationMin, "min");
-
-      const note = `[WEB|${req.patient_name}|${req.patient_phone}] ${req.service_name}${req.notes ? ` - ${req.notes}` : ""}`;
-
-      // Determina location in base al servizio
-      const isHome = req.service_name.toLowerCase().includes("domicil");
-      const locationVal = isHome ? "domicile" : "studio";
-
-      const { error: insErr } = await supabase.from("appointments").insert({
-        start_at:         startAt,
-        end_at:           endAt,
-        status:           "booked",
-        is_paid:          false,
-        location:         locationVal,
-        clinic_site:      isHome ? null : (currentStudio?.name || "Studio"),
-        domicile_address: isHome ? (req.notes ?? "da definire") : null,
-        calendar_note:    note,
-        studio_id:        currentStudioId,  // multi-tenancy
-      });
-      if (insErr) { alert(`Errore creazione appuntamento: ${translateError(insErr)}`); return; }
-
-      await loadBookingRequests();
-      // Ricarica il calendario sulla settimana corrente
-      const startOfWeek = new Date(currentDate);
-      startOfWeek.setDate(currentDate.getDate() - ((currentDate.getDay() + 6) % 7));
-      startOfWeek.setHours(0,0,0,0);
-      const endOfWeek = addDays(startOfWeek, 6);
-      endOfWeek.setHours(23,59,59,999);
-      await loadAppointments(startOfWeek, endOfWeek);
-    } finally {
-      setBookingActionId(null);
-    }
-  }
-
-  async function rejectBooking(id: string) {
-    setBookingActionId(id);
-    await supabase.from("booking_requests").update({ status: "cancelled" }).eq("id", id);
-    await loadBookingRequests();
-    setBookingActionId(null);
-  }
-
-  // Rimette in stato "pending" una prenotazione confermata o annullata
-  async function reopenBooking(id: string) {
-    setBookingActionId(id);
-    await supabase.from("booking_requests").update({ status: "pending" }).eq("id", id);
-    await loadBookingRequests();
-    setBookingActionId(null);
-  }
 
   const exportToGoogleCalendar = useCallback(async () => {
     const eventsToExport = events.filter(e => e.status !== "cancelled").map(event => ({
@@ -1468,21 +1065,7 @@ A presto,
   // ═══════════════════════════════════════════════════════════════════
 
   /** Ricerca pazienti per il GroupEventModal (search inline) */
-  const groupSearchPatients = useCallback(async (query: string): Promise<PatientLite[]> => {
-    const cleaned = query.trim();
-    if (!cleaned) return [];
-    const { data, error } = await supabase
-      .from("patients")
-      .select("id, first_name, last_name, phone, treatment, diagnosis")
-      .or(`first_name.ilike.%${cleaned}%,last_name.ilike.%${cleaned}%`)
-      .order("last_name", { ascending: true })
-      .limit(12);
-    if (error) {
-      console.error("Errore ricerca paziente per gruppo:", error);
-      return [];
-    }
-    return (data ?? []) as PatientLite[];
-  }, []);
+  // groupSearchPatients: ora in useSearchAndFilters.
 
   /** Ricarica un singolo evento gruppo (con partecipanti aggiornati) e aggiorna events[] */
   const reloadGroupEvent = useCallback(async (appointmentId: string) => {
@@ -1838,14 +1421,7 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
 
     openWhatsApp(patientPhone, message);
   }, [practiceSettings, currentStudio]);
-  const toggleBulkSelect = useCallback((id: string) => {
-    setBulkSelected(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
+  // toggleBulkSelect: ora in useSearchAndFilters.
 
   const bulkMarkPaid = useCallback(async () => {
     if (bulkSelected.size === 0) return;
@@ -1957,10 +1533,7 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
   }, [createStartISO, createEndISO, createOpen, checkOverlap]);
 
   // Feature: Month view helpers
-  const monthDays = useMemo(() => {
-    if (viewType !== "month") return [];
-    return getMonthGridDays(currentDate);
-  }, [viewType, currentDate]);
+  // monthDays è ora in useCalendarEvents.
 
   const monthEvents = useMemo(() => {
     if (viewType !== "month" || monthDays.length === 0) return new Map<string, CalendarEvent[]>();
@@ -1973,71 +1546,9 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
     return map;
   }, [viewType, filteredEvents, monthDays]);
 
-  const goToPreviousMonth = useCallback(() => {
-    setCurrentDate(prev => {
-      const d = new Date(prev);
-      d.setMonth(d.getMonth() - 1);
-      return d;
-    });
-  }, []);
+  // goToPreviousMonth e goToNextMonth sono ora in useCalendarEvents.
 
-  const goToNextMonth = useCallback(() => {
-    setCurrentDate(prev => {
-      const d = new Date(prev);
-      d.setMonth(d.getMonth() + 1);
-      return d;
-    });
-  }, []);
-
-  const searchPatients = useCallback(async (query: string) => {
-    const cleaned = query.trim();
-    if (cleaned.length < 2) {
-      setPatientResults([]);
-      // In modalità duplica il paziente è precaricato dall'appuntamento originale:
-      // NON resettarlo solo perché la search è vuota.
-      if (!duplicateMode) {
-        setSelectedPatient(null);
-      }
-      return;
-    }
-
-    setSearching(true);
-
-    const { data, error } = await supabase
-      .from("patients")
-      .select("id, first_name, last_name, phone, treatment, diagnosis")
-      .or(`first_name.ilike.%${cleaned}%,last_name.ilike.%${cleaned}%`)
-      .order("last_name", { ascending: true })
-      .limit(12);
-
-    setSearching(false);
-
-    if (error) {
-      setError(`Errore ricerca paziente: ${translateError(error)}`);
-      setPatientResults([]);
-      return;
-    }
-
-    setPatientResults((data ?? []) as PatientLite[]);
-  }, [duplicateMode]);
-
-  useEffect(() => {
-    if (!createOpen) return;
-
-    // In modalità duplica con q vuota: il paziente è già precaricato,
-    // niente search automatica (eviteremmo solo di trovarlo di nuovo,
-    // e l'effect side reset di selectedPatient sarebbe deleterio).
-    if (duplicateMode && q.trim().length < 2) return;
-
-    if (searchTimer.current) clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(() => {
-      searchPatients(q);
-    }, 250);
-
-    return () => {
-      if (searchTimer.current) clearTimeout(searchTimer.current);
-    };
-  }, [q, createOpen, searchPatients, duplicateMode]);
+  // searchPatients e l'effect di debounce: ora in useSearchAndFilters.
 
   useEffect(() => {
     if (!createStartISO || !selectedStartTime || !selectedDuration) return;

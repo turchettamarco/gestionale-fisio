@@ -19,3 +19,16 @@ export {
   type UseCalendarBootstrapOptions,
   type UseCalendarBootstrapReturn,
 } from "./useCalendarBootstrap";
+
+export {
+  useSearchAndFilters,
+  type CalendarFilters,
+  type UseSearchAndFiltersOptions,
+  type UseSearchAndFiltersReturn,
+} from "./useSearchAndFilters";
+
+export {
+  useCalendarEvents,
+  type UseCalendarEventsOptions,
+  type UseCalendarEventsReturn,
+} from "./useCalendarEvents";
