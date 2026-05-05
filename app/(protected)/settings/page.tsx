@@ -428,6 +428,9 @@ export default function SettingsPage() {
   // ═══════════════════════════════════════════════════════════════════════
   const [defaultApptStatus, setDefaultApptStatus] = useState<"confirmed" | "booked">("confirmed");
   const [overlapMode, setOverlapMode]         = useState<"block" | "warn" | "visual">("warn");
+  // Pagamenti (mig. 015)
+  const [paymentMethodRequired, setPaymentMethodRequired] = useState<boolean>(true);
+  const [defaultPaymentMethod,  setDefaultPaymentMethod]  = useState<"cash" | "pos" | "bank_transfer">("pos");
   const [ownerFullName, setOwnerFullName]     = useState("");
   const [vatNumber, setVatNumber]             = useState("");
   const [pecEmail, setPecEmail]               = useState("");
@@ -484,7 +487,7 @@ export default function SettingsPage() {
       const uid = await requireUserId();
       const { data, error } = await supabase
         .from("practice_settings")
-        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, logo_base64, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices, reminder_message, weekly_reminder_message, payment_message, birthday_message, satisfaction_message, default_appointment_status, overlap_mode, monthly_revenue_goal, inactive_threshold_days, reminder_hours_before, welcome_message, booking_confirm_message, duration_seduta, duration_macchinario, duration_laser, duration_tecar, duration_onde_urto, duration_tens, default_group_price, default_group_max_participants")
+        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, logo_base64, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices, reminder_message, weekly_reminder_message, payment_message, birthday_message, satisfaction_message, default_appointment_status, overlap_mode, monthly_revenue_goal, inactive_threshold_days, reminder_hours_before, welcome_message, booking_confirm_message, duration_seduta, duration_macchinario, duration_laser, duration_tecar, duration_onde_urto, duration_tens, default_group_price, default_group_max_participants, payment_method_required, default_payment_method")
         .eq("owner_id", uid)
         .maybeSingle();
       if (error) throw new Error(error.message);
@@ -519,6 +522,7 @@ export default function SettingsPage() {
           reminder_message: null, weekly_reminder_message: null, payment_message: null,
           birthday_message: null, satisfaction_message: null,
           default_appointment_status: "confirmed", overlap_mode: "warn",
+          payment_method_required: true, default_payment_method: "pos",
           monthly_revenue_goal: 2000, inactive_threshold_days: 45,
           reminder_hours_before: 24, auto_apply_prices: true,
         };
@@ -565,6 +569,10 @@ export default function SettingsPage() {
       setSatisfactionMsg(data.satisfaction_message ?? "");
       setDefaultApptStatus((data.default_appointment_status ?? "confirmed") as "confirmed" | "booked");
       setOverlapMode((data.overlap_mode ?? "warn") as "block" | "warn" | "visual");
+      // Pagamenti (mig. 015) — cast perché potrebbero non esistere ancora
+      const dataAny = data as { payment_method_required?: boolean | null; default_payment_method?: string | null };
+      setPaymentMethodRequired(dataAny.payment_method_required ?? true);
+      setDefaultPaymentMethod((dataAny.default_payment_method ?? "pos") as "cash" | "pos" | "bank_transfer");
       setMonthlyGoal(String(data.monthly_revenue_goal ?? 2000));
       setInactiveThresh(String(data.inactive_threshold_days ?? 45));
       setReminderHours(String(data.reminder_hours_before ?? 24));
@@ -630,6 +638,9 @@ export default function SettingsPage() {
         satisfaction_message:     satisfactionMsg.trim() || null,
         default_appointment_status: defaultApptStatus,
         overlap_mode: overlapMode,
+        // Pagamenti (mig. 015)
+        payment_method_required: paymentMethodRequired,
+        default_payment_method: defaultPaymentMethod,
         monthly_revenue_goal:    parseFloat(monthlyGoal) || 2000,
         inactive_threshold_days: parseInt(inactiveThresh) || 45,
         reminder_hours_before:   parseInt(reminderHours) || 24,
@@ -1286,6 +1297,10 @@ export default function SettingsPage() {
               savingPractice={savingPractice}
               defaultApptStatus={defaultApptStatus} setDefaultApptStatus={setDefaultApptStatus}
               overlapMode={overlapMode} setOverlapMode={setOverlapMode}
+              paymentMethodRequired={paymentMethodRequired}
+              setPaymentMethodRequired={setPaymentMethodRequired}
+              defaultPaymentMethod={defaultPaymentMethod}
+              setDefaultPaymentMethod={setDefaultPaymentMethod}
               onSave={() => void savePracticeSettings()}
             />
 

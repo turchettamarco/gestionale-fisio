@@ -424,6 +424,9 @@ function CalendarPageInner() {
   const [createStatus,          setCreateStatus]          = useState<Status>("confirmed");
   const [defaultStatus,         setDefaultStatus]         = useState<"confirmed"|"booked">("confirmed");
   const [overlapMode,            setOverlapMode]            = useState<"block"|"warn"|"visual">("warn");
+  // Pagamenti (mig. 015)
+  const [paymentMethodRequired, setPaymentMethodRequired] = useState<boolean>(true);
+  const [defaultPaymentMethod,  setDefaultPaymentMethod]  = useState<"cash"|"pos"|"bank_transfer">("pos");
   const [createLocation,        setCreateLocation]        = useState<LocationType>("studio");
   const [createClinicSite,      setCreateClinicSite]      = useState("");
   const [createDomicileAddress, setCreateDomicileAddress] = useState("");
@@ -453,8 +456,18 @@ function CalendarPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [studioLocations]);
   // Fatturazione + metodo pagamento allineati al desktop
-  const [createPriceType,       setCreatePriceType]       = useState<"invoiced" | "cash">("invoiced");
+  const [createPriceType,       setCreatePriceType]       = useState<"invoiced" | "cash">("cash");
   const [createPaymentMethod,   setCreatePaymentMethod]   = useState<"cash" | "pos" | "bank_transfer" | null>(null);
+
+  // Pagamenti (mig. 015): se "non bloccante", precarica il default così
+  // l'utente non è costretto a cliccare. Se "bloccante", lascia null per
+  // forzare la scelta consapevole.
+  useEffect(() => {
+    if (!paymentMethodRequired && createPaymentMethod == null) {
+      setCreatePaymentMethod(defaultPaymentMethod);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentMethodRequired, defaultPaymentMethod]);
   const [createTreatmentType,   setCreateTreatmentType]   = useState<string>("seduta");
 
   /* patient search (create) */
@@ -493,13 +506,17 @@ function CalendarPageInner() {
       // Load default appointment status filtrato per owner
       const { data } = await supabase
         .from("practice_settings")
-        .select("default_appointment_status, overlap_mode, weekly_reminder_message")
+        .select("default_appointment_status, overlap_mode, weekly_reminder_message, payment_method_required, default_payment_method")
         .eq("owner_id", ownerId)
         .maybeSingle();
       if (data?.default_appointment_status) setDefaultStatus(data.default_appointment_status as "confirmed"|"booked");
       if (data?.overlap_mode) setOverlapMode(data.overlap_mode as "block"|"warn"|"visual");
       const tpl = ((data as { weekly_reminder_message?: string | null } | null)?.weekly_reminder_message ?? "").trim();
       if (tpl) setWeeklyReminderTemplate(tpl);
+      // Pagamenti (mig. 015)
+      const dataAny = data as { payment_method_required?: boolean | null; default_payment_method?: string | null } | null;
+      if (dataAny?.payment_method_required != null) setPaymentMethodRequired(dataAny.payment_method_required);
+      if (dataAny?.default_payment_method) setDefaultPaymentMethod(dataAny.default_payment_method as "cash"|"pos"|"bank_transfer");
     })().catch(() => {});
   }, []);
   useEffect(() => {
@@ -1088,10 +1105,14 @@ function CalendarPageInner() {
 
   const saveEvent = useCallback(async () => {
     if (!selectedEvent) return;
-    // Validazione: se fatturato, payment_method è obbligatorio
+    // Validazione: se fatturato, payment_method è obbligatorio SOLO se bloccante.
+    let effectiveEditPM = editPaymentMethod;
     if (editPriceType === "invoiced" && !editPaymentMethod) {
-      alert("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");
-      return;
+      if (paymentMethodRequired) {
+        alert("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");
+        return;
+      }
+      effectiveEditPM = defaultPaymentMethod;
     }
     setBusy(true); setError("");
     const amount = editAmount.trim()===""?null
@@ -1101,7 +1122,7 @@ function CalendarPageInner() {
       calendar_note:editNote.trim()||null,
       amount,
       price_type: editPriceType,
-      payment_method: editPriceType === "invoiced" ? editPaymentMethod : null,
+      payment_method: editPriceType === "invoiced" ? effectiveEditPM : null,
       treatment_type: editTreatmentType || null,
     };
     if (isValidISODate(editDate)&&isValidHHMM(editTime)) {
@@ -1116,7 +1137,7 @@ function CalendarPageInner() {
     const {error:e}=await supabase.from("appointments").update(upd).eq("id",selectedEvent.id);
     if (e){setError(`Errore: ${e.message}`);setBusy(false);return;}
     setSelectedEvent(null); setBusy(false); await loadAppointments(currentDate);
-  }, [selectedEvent,editStatus,editNote,editAmount,editPriceType,editPaymentMethod,editDate,editTime,editDuration,editTreatmentType,currentDate,loadAppointments]);
+  }, [selectedEvent,editStatus,editNote,editAmount,editPriceType,editPaymentMethod,editDate,editTime,editDuration,editTreatmentType,currentDate,loadAppointments,paymentMethodRequired,defaultPaymentMethod]);
 
   const deleteEvent = useCallback(async () => {
     if (!selectedEvent||!window.confirm("Eliminare definitivamente questo appuntamento?")) return;
@@ -1246,10 +1267,14 @@ function CalendarPageInner() {
     }
     const dur=Number(createDuration);
     if (!isFinite(dur)||dur<=0){setError("Durata non valida.");return;}
-    // Validazione: se fatturato, payment_method è obbligatorio (skip per gruppi)
+    // Validazione: se fatturato, payment_method è obbligatorio SOLO se bloccante (skip per gruppi)
+    let effectiveCreatePM = createPaymentMethod;
     if (!createIsGroup && createPriceType === "invoiced" && !createPaymentMethod) {
-      setError("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");
-      return;
+      if (paymentMethodRequired) {
+        setError("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");
+        return;
+      }
+      effectiveCreatePM = defaultPaymentMethod;
     }
     setBusy(true);setError("");
     // Recupero userId per owner_id (coerenza multi-tenancy + RLS)
@@ -1307,7 +1332,7 @@ function CalendarPageInner() {
           domicile_address:createLocation==="domicile"?(createDomicileAddress.trim()||null):null,
           amount,
           price_type: createPriceType,
-          payment_method: createPriceType === "invoiced" ? createPaymentMethod : null,
+          payment_method: createPriceType === "invoiced" ? effectiveCreatePM : null,
           treatment_type: createTreatmentType || null,
           owner_id: userId,                // multi-tenancy
           studio_id: currentStudioId,      // multi-tenancy
@@ -1403,6 +1428,8 @@ function CalendarPageInner() {
       createLocation,createClinicSite,createDomicileAddress,createAmount,
       createPriceType,createPaymentMethod,createTreatmentType,currentStudioId,currentDate,loadAppointments,
       createRecurring,createRecurringCount,createRecurringInterval,overlapMode,events,
+      paymentMethodRequired,defaultPaymentMethod,
+      createLocationId,
       // Gruppo (mig. 014)
       createIsGroup,createGroupTitle,createGroupMax,createGroupPrice,currentStudio]);
 

@@ -59,6 +59,11 @@ export type PracticeSettings = {
   google_review_link: string | null;
   default_appointment_status: "confirmed" | "booked" | null;
   overlap_mode: "block" | "warn" | "visual" | null;
+  // Pagamenti (mig. 015)
+  /** Se true, payment_method è obbligatorio quando price_type=invoiced. Default true (retro-compat). */
+  payment_method_required?: boolean | null;
+  /** Default per il payment_method quando required=false. "cash" | "pos" | "bank_transfer". Default "pos". */
+  default_payment_method?: "cash" | "pos" | "bank_transfer" | null;
   /** Template del promemoria settimanale aggregato (può essere null = usa default) */
   weekly_reminder_message: string | null;
   /** Default prezzo per persona nei gruppi (mig. 014) */

@@ -54,6 +54,9 @@ export type PracticeSettingsRow = {
   // Stato default appuntamenti
   default_appointment_status: string | null;
   overlap_mode: string | null;
+  // Pagamenti (mig. 015)
+  payment_method_required?: boolean | null;     // Se true, payment_method è obbligatorio per fatturati
+  default_payment_method?: string | null;       // Default usato quando required=false: "cash" | "pos" | "bank_transfer"
   // Gestione
   monthly_revenue_goal: number | null;
   inactive_threshold_days: number | null;

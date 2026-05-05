@@ -111,6 +111,9 @@ export default function MobileSettingsPage() {
   const [monthlyGoal, setMonthlyGoal] = useState("2000");
   const [inactiveThresh, setInactiveThresh] = useState("45");
   const [overlapMode, setOverlapMode] = useState<"block"|"warn"|"visual">("warn");
+  // Pagamenti (mig. 015)
+  const [paymentMethodRequired, setPaymentMethodRequired] = useState<boolean>(true);
+  const [defaultPaymentMethod,  setDefaultPaymentMethod]  = useState<"cash"|"pos"|"bank_transfer">("pos");
 
   // ── Password ──
   const [pwNew, setPwNew] = useState("");
@@ -160,6 +163,9 @@ export default function MobileSettingsPage() {
           setMonthlyGoal(String((data as any).monthly_revenue_goal||2000));
           setInactiveThresh(String((data as any).inactive_threshold_days||45));
           setOverlapMode(((data as any).overlap_mode ?? "warn") as "block"|"warn"|"visual");
+          // Pagamenti (mig. 015)
+          setPaymentMethodRequired((data as any).payment_method_required ?? true);
+          setDefaultPaymentMethod(((data as any).default_payment_method ?? "pos") as "cash"|"pos"|"bank_transfer");
         }
       } catch(e:any){ setError(e?.message||"Errore caricamento"); }
     })();
@@ -358,6 +364,9 @@ export default function MobileSettingsPage() {
         monthly_revenue_goal: parseFloat(monthlyGoal)||2000,
         inactive_threshold_days: parseInt(inactiveThresh)||45,
         overlap_mode: overlapMode,
+        // Pagamenti (mig. 015)
+        payment_method_required: paymentMethodRequired,
+        default_payment_method: defaultPaymentMethod,
       },{ onConflict:"owner_id" });
       if (psErr) throw new Error("Errore salvataggio preferenze: " + psErr.message);
 
@@ -1012,6 +1021,68 @@ export default function MobileSettingsPage() {
                 ))}
               </div>
             </div>
+          </div>
+        </Section>
+
+        <Section id="pagamenti" title="💳 Metodo Pagamento" sub={paymentMethodRequired ? "Selezione obbligatoria" : `Default: ${defaultPaymentMethod === "cash" ? "Contanti" : defaultPaymentMethod === "pos" ? "POS" : "Bonifico"}`}>
+          <div style={{ display:"flex", flexDirection:"column", gap:14, paddingTop:14 }}>
+
+            {/* Toggle bloccante */}
+            <div style={{
+              display:"flex", alignItems:"center", justifyContent:"space-between",
+              padding:"12px 14px", borderRadius:10,
+              background: paymentMethodRequired ? "rgba(220,38,38,0.05)" : "rgba(13,148,136,0.05)",
+              border: `1px solid ${paymentMethodRequired ? "rgba(220,38,38,0.2)" : "rgba(13,148,136,0.2)"}`,
+            }}>
+              <div style={{ flex:1, paddingRight:12 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:THEME.text }}>Selezione obbligatoria</div>
+                <div style={{ fontSize:11, color:THEME.muted, marginTop:3, lineHeight:1.4 }}>
+                  Se attivo, sui fatturati devi sempre scegliere Contanti/POS/Bonifico. Se disattivato, viene usato il default qui sotto.
+                </div>
+              </div>
+              <label style={{ display:"flex", alignItems:"center", cursor:"pointer", flexShrink:0 }}>
+                <input type="checkbox" checked={paymentMethodRequired} onChange={e=>setPaymentMethodRequired(e.target.checked)} style={{ display:"none" }} />
+                <span style={{
+                  position:"relative", width:44, height:24,
+                  background: paymentMethodRequired ? "#dc2626" : THEME.teal,
+                  borderRadius:99, transition:"background 0.2s",
+                }}>
+                  <span style={{
+                    position:"absolute", top:2,
+                    left: paymentMethodRequired ? 22 : 2,
+                    width:20, height:20, background:"#fff",
+                    borderRadius:99, transition:"left 0.2s",
+                    boxShadow:"0 1px 3px rgba(0,0,0,0.2)",
+                  }} />
+                </span>
+              </label>
+            </div>
+
+            {/* Default */}
+            {!paymentMethodRequired && (
+              <div>
+                <label style={lbl}>Metodo di default per i fatturati</label>
+                <div style={{ display:"flex", gap:6, marginTop:6 }}>
+                  {([
+                    { v:"cash" as const, label:"Contanti" },
+                    { v:"pos" as const, label:"POS" },
+                    { v:"bank_transfer" as const, label:"Bonifico" },
+                  ]).map(opt => {
+                    const active = defaultPaymentMethod === opt.v;
+                    return (
+                      <button key={opt.v} onClick={() => setDefaultPaymentMethod(opt.v)}
+                        style={{
+                          flex:1, padding:"10px 6px", borderRadius:8,
+                          border: `1px solid ${active ? THEME.blue : THEME.border}`,
+                          background: active ? "rgba(37,99,235,0.08)" : "#fff",
+                          color: active ? THEME.blue : THEME.text,
+                          fontWeight:700, fontSize:12, cursor:"pointer",
+                        }}>{opt.label}</button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </Section>
 

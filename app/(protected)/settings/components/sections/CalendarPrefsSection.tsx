@@ -15,6 +15,11 @@ export type CalendarPrefsSectionProps = {
   setDefaultApptStatus: (v: "confirmed" | "booked") => void;
   overlapMode: "block" | "warn" | "visual";
   setOverlapMode: (v: "block" | "warn" | "visual") => void;
+  // Pagamenti (mig. 015)
+  paymentMethodRequired: boolean;
+  setPaymentMethodRequired: (v: boolean) => void;
+  defaultPaymentMethod: "cash" | "pos" | "bank_transfer";
+  setDefaultPaymentMethod: (v: "cash" | "pos" | "bank_transfer") => void;
   onSave: () => void;
 };
 
@@ -79,6 +84,79 @@ export default function CalendarPrefsSection(p: CalendarPrefsSectionProps) {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* ── Metodo pagamento (mig. 015) ── */}
+        <div style={{ marginTop: 20, paddingTop: 18, borderTop: `1px dashed ${THEME.border}` }}>
+          <label style={labelStyle}>Metodo di pagamento sui fatturati</label>
+
+          <div style={{
+            marginTop: 8,
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "12px 14px", borderRadius: 8,
+            background: p.paymentMethodRequired ? "rgba(220,38,38,0.05)" : "rgba(13,148,136,0.05)",
+            border: `1px solid ${p.paymentMethodRequired ? "rgba(220,38,38,0.2)" : "rgba(13,148,136,0.2)"}`,
+          }}>
+            <div style={{ flex: 1, paddingRight: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: THEME.text }}>
+                Selezione metodo obbligatoria
+              </div>
+              <div style={{ fontSize: 11, color: THEME.muted, marginTop: 3, lineHeight: 1.4 }}>
+                Se attivo, sui fatturati devi sempre scegliere Contanti / POS / Bonifico prima di salvare. Se disattivato, viene usato automaticamente il default qui sotto.
+              </div>
+            </div>
+            <label style={{ display: "flex", alignItems: "center", cursor: "pointer", flexShrink: 0 }}>
+              <input
+                type="checkbox"
+                checked={p.paymentMethodRequired}
+                onChange={e => p.setPaymentMethodRequired(e.target.checked)}
+                style={{ display: "none" }}
+              />
+              <span style={{
+                position: "relative", width: 44, height: 24,
+                background: p.paymentMethodRequired ? "#dc2626" : THEME.teal,
+                borderRadius: 99, transition: "background 0.2s",
+              }}>
+                <span style={{
+                  position: "absolute", top: 2,
+                  left: p.paymentMethodRequired ? 22 : 2,
+                  width: 20, height: 20, background: "#fff",
+                  borderRadius: 99, transition: "left 0.2s",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                }} />
+              </span>
+            </label>
+          </div>
+
+          {!p.paymentMethodRequired && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: THEME.muted, marginBottom: 6 }}>
+                Metodo di pagamento da usare di default sui fatturati
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {([
+                  { v: "cash" as const,          label: "Contanti" },
+                  { v: "pos" as const,           label: "POS" },
+                  { v: "bank_transfer" as const, label: "Bonifico" },
+                ]).map(opt => {
+                  const active = p.defaultPaymentMethod === opt.v;
+                  return (
+                    <button
+                      key={opt.v}
+                      onClick={() => p.setDefaultPaymentMethod(opt.v)}
+                      style={{
+                        flex: 1, padding: "9px 6px", borderRadius: 7,
+                        border: `1px solid ${active ? THEME.blue : THEME.border}`,
+                        background: active ? "rgba(37,99,235,0.08)" : "#fff",
+                        color: active ? THEME.blue : THEME.text,
+                        cursor: "pointer", fontWeight: 700, fontSize: 12,
+                      }}
+                    >{opt.label}</button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>

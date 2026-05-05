@@ -182,7 +182,7 @@ const handleLogout = useCallback(async () => {
       setPracticeSettingsLoaded(false);
       const { data, error } = await supabase
         .from("practice_settings")
-        .select("standard_invoice, standard_cash, machine_invoice, machine_cash, auto_apply_prices, google_review_link, default_appointment_status, overlap_mode, weekly_reminder_message, default_group_price, default_group_max_participants")
+        .select("standard_invoice, standard_cash, machine_invoice, machine_cash, auto_apply_prices, google_review_link, default_appointment_status, overlap_mode, weekly_reminder_message, default_group_price, default_group_max_participants, payment_method_required, default_payment_method")
         .eq("owner_id", userId)
         .maybeSingle();
 
@@ -976,8 +976,17 @@ const { data, error } = await supabase
       setCreateClinicSite(currentStudio?.name || "Studio");
       setCreateDomicileAddress("");
       setTreatmentType(treatmentCatalog[0]?.key ?? "seduta");
-      setPriceType("invoiced");
-      setPaymentMethod(null);
+      // Default: Contanti (allineato allo state di partenza). L'utente può
+      // sempre cliccare "Fatturato" se vuole. Evita l'alert spurio del metodo.
+      setPriceType("cash");
+      // Pagamenti (mig. 015): se non bloccante, precarica il default così
+      // l'utente non deve cliccare nulla. Se bloccante, lascia null per
+      // forzare la scelta consapevole.
+      setPaymentMethod(
+        practiceSettings?.payment_method_required === false
+          ? ((practiceSettings?.default_payment_method ?? "pos") as "cash" | "pos" | "bank_transfer")
+          : null
+      );
       setCustomAmount("");
       setUseCustomPrice(false);
     }
@@ -2476,11 +2485,20 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
     }
   }
 
-  // Validazione: se fatturato, payment_method è obbligatorio
+  // Validazione: se fatturato, payment_method è obbligatorio SOLO se l'utente
+  // ha attivato il check bloccante nelle impostazioni (default true per retro-compat).
+  // Se non bloccante e l'utente non ha scelto, applichiamo automaticamente il
+  // default configurato (default "pos") senza interrompere il flusso.
   // (skip per i gruppi: i pagamenti sono per singolo partecipante)
+  let effectivePaymentMethod = paymentMethod;
   if (!isGroupAppointment && priceType === "invoiced" && !paymentMethod) {
-    alert("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");
-    return;
+    const required = practiceSettings?.payment_method_required ?? true;
+    if (required) {
+      alert("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");
+      return;
+    }
+    // Non bloccante → applica il default
+    effectivePaymentMethod = (practiceSettings?.default_payment_method ?? "pos") as "cash" | "pos" | "bank_transfer";
   }
 
   setCreating(true);
@@ -2522,7 +2540,7 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
         domicile_address: createLocation === "domicile" ? createDomicileAddress.trim() : null,
         treatment_type: treatmentType,
         price_type: priceType,
-        payment_method: priceType === "invoiced" ? paymentMethod : null,
+        payment_method: priceType === "invoiced" ? effectivePaymentMethod : null,
         amount: amount,
         studio_id: currentStudioId,  // multi-tenancy
         is_group: false,
@@ -2762,10 +2780,15 @@ A presto${firma ? `,\n${firma}` : ""}`;
     return;
   }
 
-  // Validazione: se fatturato, payment_method è obbligatorio
+  // Validazione: se fatturato, payment_method è obbligatorio SOLO se bloccante.
+  let effectiveEditPaymentMethod = editPaymentMethod;
   if (editPriceType === "invoiced" && !editPaymentMethod) {
-    alert("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");
-    return;
+    const required = practiceSettings?.payment_method_required ?? true;
+    if (required) {
+      alert("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");
+      return;
+    }
+    effectiveEditPaymentMethod = (practiceSettings?.default_payment_method ?? "pos") as "cash" | "pos" | "bank_transfer";
   }
 
   // Creiamo l'oggetto di aggiornamento.
@@ -2780,7 +2803,7 @@ A presto${firma ? `,\n${firma}` : ""}`;
     amount: amount,
     treatment_type: editTreatmentType,
     price_type: editPriceType,
-    payment_method: editPriceType === "invoiced" ? editPaymentMethod : null,
+    payment_method: editPriceType === "invoiced" ? effectiveEditPaymentMethod : null,
     start_at: newStartDate.toISOString(),
     end_at: newEndDate.toISOString(),
   };
