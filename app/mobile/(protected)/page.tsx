@@ -1937,11 +1937,64 @@ export default function MobileHomePage() {
                         {appts.map(a => {
                           const st = STATUS_MAP[a.status];
                           const upPhone = a.patients?.phone;
-                          // Etichetta: per i gruppi mostra il titolo + badge, per i singoli il nome paziente
                           const isGroup = a.is_group === true;
-                          const displayName = isGroup
-                            ? (a.group_title || "Gruppo")
-                            : fullName(a.patients);
+
+                          // ─── Render speciale GRUPPO (mig. 015) ─────────
+                          // Stesso stile gradient della vista giorno, così
+                          // i gruppi sono riconoscibili a colpo d'occhio
+                          // anche in "Prossimi giorni".
+                          if (isGroup) {
+                            const count = a.participant_count ?? 0;
+                            const max = a.group_max_participants ?? 0;
+                            const total = a.group_total ?? 0;
+                            const groupTitle = a.group_title || "Gruppo";
+                            return (
+                              <div
+                                key={a.id}
+                                onClick={() => openGroupModal(a)}
+                                style={{
+                                  width: "100%", textAlign: "left",
+                                  borderRadius: 8,
+                                  padding: "8px 10px",
+                                  background: "linear-gradient(135deg, #0d9488 0%, #06b6d4 100%)",
+                                  color: "#fff",
+                                  cursor: "pointer",
+                                  position: "relative",
+                                }}
+                              >
+                                <div style={{
+                                  display: "flex", alignItems: "center", gap: 6,
+                                  fontWeight: 700, fontSize: 13,
+                                  minWidth: 0,
+                                }}>
+                                  <span style={{
+                                    fontWeight: 800, fontSize: 12,
+                                    fontVariantNumeric: "tabular-nums", flexShrink: 0,
+                                    color: "rgba(255,255,255,0.95)",
+                                  }}>{fmtTime(a.start_at)}</span>
+                                  <span style={{
+                                    fontSize: 9, fontWeight: 800, color: "#fff",
+                                    background: "rgba(255,255,255,0.25)",
+                                    padding: "1px 6px", borderRadius: 99,
+                                    letterSpacing: 0.4, flexShrink: 0,
+                                  }}>
+                                    👥 GRUPPO · {count}/{max}
+                                  </span>
+                                  <span style={{
+                                    flex: 1, minWidth: 0,
+                                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                  }}>{groupTitle}</span>
+                                  <span style={{
+                                    fontSize: 11, fontWeight: 800, color: "#fff", flexShrink: 0,
+                                  }}>€{total.toFixed(0)}</span>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          // ─── Render appuntamento singolo (originale) ────
+                          // Etichetta: nome paziente
+                          const displayName = fullName(a.patients);
                           // Multi-sede (mig. 014, fase 3)
                           const apptLoc = resolveAppointmentLocation(
                             { location_id: (a as any).location_id ?? null, location: a.location },
@@ -1995,17 +2048,7 @@ export default function MobileHomePage() {
                                     fontWeight: 800, color: st.color, fontSize: 12,
                                     fontVariantNumeric: "tabular-nums", flexShrink: 0,
                                   }}>{fmtTime(a.start_at)}</span>
-                                  {isGroup && (
-                                    <span style={{
-                                      fontSize: 9, fontWeight: 800, color: "#fff",
-                                      background: "#0d9488",
-                                      padding: "1px 6px", borderRadius: 99,
-                                      letterSpacing: 0.4, flexShrink: 0,
-                                    }}>
-                                      👥 {a.participant_count ?? 0}/{a.group_max_participants ?? 0}
-                                    </span>
-                                  )}
-                                  {!isGroup && upPhone ? (
+                                  {upPhone ? (
                                     <a href={`tel:${upPhone}`}
                                       onClick={e => e.stopPropagation()}
                                       style={{
