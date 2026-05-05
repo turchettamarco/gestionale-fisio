@@ -31,12 +31,14 @@ import {
   type WorkingHourRow,
   type BookableService,
   type BlockedDay,
+  type StudioLocation,
   DAY_LABELS,
 } from "./components/shared/types";
 
 // Sezioni
 import SettingsNavBar from "./components/SettingsNavBar";
 import StudioBrandingSection from "./components/sections/StudioBrandingSection";
+import LocationsSection from "./components/sections/LocationsSection";
 import PracticeSection from "./components/sections/PracticeSection";
 import PricesSection from "./components/sections/PricesSection";
 import TreatmentsSection from "./components/sections/TreatmentsSection";
@@ -83,6 +85,7 @@ export default function SettingsPage() {
 
   // ── Stato sezioni accordion (apri/chiudi) ────────────────────────────────
   const [showStudio,    setShowStudio]    = useState(true);
+  const [showLocations, setShowLocations] = useState(false);
   const [showPractice,  setShowPractice]  = useState(true);
   const [showPrices,    setShowPrices]    = useState(true);
   const [showTreatments, setShowTreatments] = useState(true);
@@ -113,7 +116,7 @@ export default function SettingsPage() {
   const [loadingTemplates, setLoadingTemplates] = useState(true);
 
   // ── Studio (multi-tenancy) ───────────────────────────────────────────────
-  const { studio, refresh: refreshStudio } = useCurrentStudio();
+  const { studio, refresh: refreshStudio, locations: studioLocations, refreshLocations } = useCurrentStudio();
   const planLimits = usePlanLimits();
 
   const [studioName, setStudioName]                     = useState("");
@@ -135,6 +138,14 @@ export default function SettingsPage() {
   // Toggle UI legacy Prenotazioni dal sito (Fase N2.1)
   const [showBookingCardHome, setShowBookingCardHome]   = useState(false);
   const [showBookingBellCalendar, setShowBookingBellCalendar] = useState(false);
+
+  // ── Multi-sede (mig. 014) ─────────────────────────────────────────────
+  // Toggle globale + state separato dal salvataggio studio (può essere
+  // attivato/disattivato senza dover salvare tutto il branding).
+  const [multiLocationEnabled, setMultiLocationEnabled] = useState(false);
+  const [savingMultiToggle, setSavingMultiToggle]       = useState(false);
+  const [savingLocation, setSavingLocation]             = useState(false);
+  const loadingLocations = false; // Le locations arrivano già pronte dal context
 
   // ── Prezzi di gruppo (mig. 014) ──────────────────────────────────────────
   // Dichiarati qui in alto perché usati da saveGroupStats (sotto saveStudio).
@@ -163,6 +174,8 @@ export default function SettingsPage() {
     // UI legacy Prenotazioni dal sito (Fase N2.1)
     setShowBookingCardHome(studio.show_booking_card_home ?? false);
     setShowBookingBellCalendar(studio.show_booking_bell_calendar ?? false);
+    // Multi-sede (mig. 014)
+    setMultiLocationEnabled(studio.multi_location_enabled ?? false);
     // Appuntamenti di gruppo (mig. 014) — cast perché StudioContext potrebbe
     // non avere ancora il campo nel tipo TypeScript
     setGroupStatsCountAsSeparate(
@@ -227,6 +240,108 @@ export default function SettingsPage() {
       setSavingGroupStats(false);
     }
   }, [studio?.id, groupStatsCountAsSeparate, refreshStudio]);
+
+  // ── Multi-sede: salvataggio toggle multi_location_enabled ─────────────
+  const saveMultiLocationToggle = useCallback(async () => {
+    if (!studio?.id) { alert("Studio non disponibile"); return; }
+    setSavingMultiToggle(true);
+    try {
+      const { error } = await supabase
+        .from("studios")
+        .update({ multi_location_enabled: multiLocationEnabled })
+        .eq("id", studio.id);
+      if (error) {
+        alert("Errore salvataggio multi-sede: " + error.message);
+        return;
+      }
+      await refreshStudio();
+      flashSuccess(multiLocationEnabled ? "Multi-sede attivato." : "Multi-sede disattivato.");
+    } finally {
+      setSavingMultiToggle(false);
+    }
+  }, [studio?.id, multiLocationEnabled, refreshStudio]);
+
+  // ── Multi-sede: CRUD studio_locations ─────────────────────────────────
+  const createLocation = useCallback(async (payload: { name: string; address: string; border_color: string | null }) => {
+    if (!studio?.id) return;
+    setSavingLocation(true);
+    try {
+      // Calcola sort_order = max corrente + 1
+      const maxSort = studioLocations.reduce((m, l) => Math.max(m, l.sort_order ?? 0), 0);
+      const { error } = await supabase.from("studio_locations").insert({
+        studio_id: studio.id,
+        name: payload.name,
+        address: payload.address || null,
+        is_primary: studioLocations.length === 0,  // se è la prima → principale
+        border_color: payload.border_color,
+        sort_order: maxSort + 1,
+      });
+      if (error) { alert("Errore creazione sede: " + error.message); return; }
+      await refreshLocations();
+      flashSuccess("Sede aggiunta.");
+    } finally {
+      setSavingLocation(false);
+    }
+  }, [studio?.id, studioLocations, refreshLocations]);
+
+  const updateLocation = useCallback(async (id: string, payload: Partial<{ name: string; address: string; border_color: string | null }>) => {
+    if (!studio?.id) return;
+    setSavingLocation(true);
+    try {
+      const upd: Record<string, unknown> = {};
+      if (payload.name !== undefined) upd.name = payload.name;
+      if (payload.address !== undefined) upd.address = payload.address || null;
+      if (payload.border_color !== undefined) upd.border_color = payload.border_color;
+      const { error } = await supabase.from("studio_locations").update(upd).eq("id", id);
+      if (error) { alert("Errore aggiornamento sede: " + error.message); return; }
+      await refreshLocations();
+      flashSuccess("Sede aggiornata.");
+    } finally {
+      setSavingLocation(false);
+    }
+  }, [studio?.id, refreshLocations]);
+
+  const deleteLocation = useCallback(async (id: string) => {
+    if (!studio?.id) return;
+    setSavingLocation(true);
+    try {
+      // Pulisce anche eventuali appointments.location_id che puntavano qui
+      // (la FK è ON DELETE SET NULL, quindi la cancellazione è sicura).
+      const { error } = await supabase.from("studio_locations").delete().eq("id", id);
+      if (error) { alert("Errore eliminazione sede: " + error.message); return; }
+      await refreshLocations();
+      flashSuccess("Sede rimossa.");
+    } finally {
+      setSavingLocation(false);
+    }
+  }, [studio?.id, refreshLocations]);
+
+  const setPrimaryLocation = useCallback(async (id: string) => {
+    if (!studio?.id) return;
+    setSavingLocation(true);
+    try {
+      // Step 1: smarca tutte le altre come non-primary (vincolo unico studio_id+is_primary).
+      const { error: errOff } = await supabase
+        .from("studio_locations")
+        .update({ is_primary: false })
+        .eq("studio_id", studio.id);
+      if (errOff) { alert("Errore: " + errOff.message); return; }
+
+      // Step 2: marca la sede selezionata come principale + azzera border_color
+      // (la principale per convenzione non ha bordo distintivo).
+      const { error: errOn } = await supabase
+        .from("studio_locations")
+        .update({ is_primary: true, border_color: null })
+        .eq("id", id);
+      if (errOn) { alert("Errore: " + errOn.message); return; }
+
+      await refreshLocations();
+      flashSuccess("Sede principale aggiornata.");
+    } finally {
+      setSavingLocation(false);
+    }
+  }, [studio?.id, refreshLocations]);
+
 
   // ── Calendar feed token ──────────────────────────────────────────────────
   const [calendarToken, setCalendarToken]                 = useState<string | null>(null);
@@ -1095,6 +1210,21 @@ export default function SettingsPage() {
               showBookingBellCalendar={showBookingBellCalendar} setShowBookingBellCalendar={setShowBookingBellCalendar}
               savingStudio={savingStudio}
               onSave={() => void saveStudio()}
+            />
+
+            <LocationsSection
+              show={showLocations} onToggle={() => setShowLocations(!showLocations)}
+              multiLocationEnabled={multiLocationEnabled}
+              setMultiLocationEnabled={setMultiLocationEnabled}
+              savingMultiToggle={savingMultiToggle}
+              onSaveMultiToggle={() => void saveMultiLocationToggle()}
+              locations={studioLocations as StudioLocation[]}
+              loadingLocations={loadingLocations}
+              savingLocation={savingLocation}
+              onCreate={createLocation}
+              onUpdate={updateLocation}
+              onDelete={deleteLocation}
+              onSetPrimary={setPrimaryLocation}
             />
 
             <PracticeSection

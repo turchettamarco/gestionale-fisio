@@ -88,3 +88,18 @@ export type BlockedDay = {
 export const DAY_LABELS = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
 // Ordine di visualizzazione: Lun → Dom (ISO)
 export const DAY_ORDER_ISO = [1, 2, 3, 4, 5, 6, 0];
+
+// ── Sedi multiple di lavoro (mig. 014) ────────────────────────────────────
+// Tabella studio_locations. La sede `is_primary=true` viene creata automaticamente
+// dalla migration usando studios.name + studios.address esistenti, così nessuno
+// studio attuale viene rotto dall'introduzione del multi-sede.
+export type StudioLocation = {
+  id: string;
+  studio_id: string;
+  name: string;
+  address: string | null;
+  is_primary: boolean;
+  border_color: string | null;  // hex es. "#2563eb" o null per principale (no bordo)
+  sort_order: number;
+  created_at: string;
+};

@@ -37,7 +37,7 @@ const DAY_ORDER = [1,2,3,4,5,6,0];
 
 export default function MobileSettingsPage() {
   const router = useRouter();
-  const { studio: currentStudio, refresh: refreshStudio } = useCurrentStudio();
+  const { studio: currentStudio, refresh: refreshStudio, locations: studioLocations, refreshLocations } = useCurrentStudio();
   const currentStudioId = currentStudio?.id ?? null;
 
   const [saving, setSaving] = useState(false);
@@ -68,6 +68,25 @@ export default function MobileSettingsPage() {
   // UI legacy Prenotazioni dal sito (Fase N2.1)
   const [showBookingCardHome, setShowBookingCardHome] = useState(false);
   const [showBookingBellCalendar, setShowBookingBellCalendar] = useState(false);
+
+  // ── Multi-sede (mig. 014) ──
+  const [multiLocationEnabled, setMultiLocationEnabled] = useState(false);
+  const [savingMultiToggle, setSavingMultiToggle] = useState(false);
+  const [savingLocation, setSavingLocation] = useState(false);
+  const [editingLocId, setEditingLocId] = useState<string | null>(null);
+  const [showAddLocForm, setShowAddLocForm] = useState(false);
+  const [locFormName, setLocFormName] = useState("");
+  const [locFormAddress, setLocFormAddress] = useState("");
+  const [locFormBorderColor, setLocFormBorderColor] = useState<string>("#2563eb");
+  // Palette 6 preset multi-sede (combacia col desktop)
+  const LOC_BORDER_PRESETS: { value: string; label: string }[] = [
+    { value: "#2563eb", label: "Blu" },
+    { value: "#dc2626", label: "Rosso" },
+    { value: "#16a34a", label: "Verde" },
+    { value: "#f97316", label: "Arancio" },
+    { value: "#7c3aed", label: "Viola" },
+    { value: "#0d9488", label: "Teal" },
+  ];
 
   // ── Catalogo Trattamenti (sostituisce le vecchie tariffe + durate) ──
   const [treatments, setTreatments] = useState<TreatmentTypeRow[]>([]);
@@ -121,6 +140,8 @@ export default function MobileSettingsPage() {
       // UI legacy Prenotazioni dal sito (Fase N2.1)
       setShowBookingCardHome(currentStudio.show_booking_card_home ?? false);
       setShowBookingBellCalendar(currentStudio.show_booking_bell_calendar ?? false);
+      // Multi-sede (mig. 014)
+      setMultiLocationEnabled(currentStudio.multi_location_enabled ?? false);
     }
   },[currentStudio]);
 
@@ -183,6 +204,120 @@ export default function MobileSettingsPage() {
   }, [currentStudioId]);
 
   useEffect(() => { void reloadTreatments(); }, [reloadTreatments]);
+
+  // ── Multi-sede (mig. 014) handlers ─────────────────────────────────────
+  async function saveMultiToggle() {
+    if (!currentStudioId) { setError("Studio non disponibile"); return; }
+    setSavingMultiToggle(true); setError(""); setSuccess("");
+    try {
+      const { error: errUpd } = await supabase
+        .from("studios")
+        .update({ multi_location_enabled: multiLocationEnabled })
+        .eq("id", currentStudioId);
+      if (errUpd) { setError("Errore: " + errUpd.message); return; }
+      await refreshStudio();
+      setSuccess(multiLocationEnabled ? "Multi-sede attivato." : "Multi-sede disattivato.");
+      setTimeout(()=>setSuccess(""), 3000);
+    } finally {
+      setSavingMultiToggle(false);
+    }
+  }
+
+  function resetLocForm() {
+    setLocFormName("");
+    setLocFormAddress("");
+    setLocFormBorderColor("#2563eb");
+    setShowAddLocForm(false);
+    setEditingLocId(null);
+  }
+
+  async function createLoc() {
+    if (!currentStudioId) return;
+    if (!locFormName.trim()) { alert("Il nome della sede è obbligatorio"); return; }
+    setSavingLocation(true);
+    try {
+      const maxSort = studioLocations.reduce((m, l) => Math.max(m, l.sort_order ?? 0), 0);
+      const { error: errIns } = await supabase.from("studio_locations").insert({
+        studio_id: currentStudioId,
+        name: locFormName.trim(),
+        address: locFormAddress.trim() || null,
+        is_primary: studioLocations.length === 0,
+        border_color: locFormBorderColor,
+        sort_order: maxSort + 1,
+      });
+      if (errIns) { alert("Errore: " + errIns.message); return; }
+      await refreshLocations();
+      resetLocForm();
+      setSuccess("Sede aggiunta."); setTimeout(()=>setSuccess(""), 3000);
+    } finally {
+      setSavingLocation(false);
+    }
+  }
+
+  async function updateLoc(id: string) {
+    if (!currentStudioId) return;
+    if (!locFormName.trim()) { alert("Il nome della sede è obbligatorio"); return; }
+    setSavingLocation(true);
+    try {
+      const { error: errUpd } = await supabase.from("studio_locations").update({
+        name: locFormName.trim(),
+        address: locFormAddress.trim() || null,
+        border_color: locFormBorderColor,
+      }).eq("id", id);
+      if (errUpd) { alert("Errore: " + errUpd.message); return; }
+      await refreshLocations();
+      resetLocForm();
+      setSuccess("Sede aggiornata."); setTimeout(()=>setSuccess(""), 3000);
+    } finally {
+      setSavingLocation(false);
+    }
+  }
+
+  async function deleteLoc(id: string, name: string, isPrimary: boolean) {
+    if (isPrimary) { alert("Non puoi rimuovere la sede principale."); return; }
+    const ok = confirm(`Rimuovere la sede "${name}"?`);
+    if (!ok) return;
+    setSavingLocation(true);
+    try {
+      const { error: errDel } = await supabase.from("studio_locations").delete().eq("id", id);
+      if (errDel) { alert("Errore: " + errDel.message); return; }
+      await refreshLocations();
+      setSuccess("Sede rimossa."); setTimeout(()=>setSuccess(""), 3000);
+    } finally {
+      setSavingLocation(false);
+    }
+  }
+
+  async function setPrimaryLoc(id: string) {
+    if (!currentStudioId) return;
+    setSavingLocation(true);
+    try {
+      const { error: errOff } = await supabase
+        .from("studio_locations")
+        .update({ is_primary: false })
+        .eq("studio_id", currentStudioId);
+      if (errOff) { alert("Errore: " + errOff.message); return; }
+
+      const { error: errOn } = await supabase
+        .from("studio_locations")
+        .update({ is_primary: true, border_color: null })
+        .eq("id", id);
+      if (errOn) { alert("Errore: " + errOn.message); return; }
+
+      await refreshLocations();
+      setSuccess("Sede principale aggiornata."); setTimeout(()=>setSuccess(""), 3000);
+    } finally {
+      setSavingLocation(false);
+    }
+  }
+
+  function startEditLoc(loc: { id: string; name: string; address: string | null; border_color: string | null }) {
+    setEditingLocId(loc.id);
+    setLocFormName(loc.name);
+    setLocFormAddress(loc.address ?? "");
+    setLocFormBorderColor(loc.border_color ?? "#2563eb");
+    setShowAddLocForm(false);
+  }
 
   async function save() {
     setSaving(true); setError(""); setSuccess("");
@@ -491,6 +626,180 @@ export default function MobileSettingsPage() {
             </div>
             <div><label style={lbl}>Partita IVA</label><input value={vatNumber} onChange={e=>setVatNumber(e.target.value)} placeholder="Es. 03195120609" style={inp}/></div>
             <div><label style={lbl}>PEC</label><input type="email" value={pecEmail} onChange={e=>setPecEmail(e.target.value)} placeholder="Es. mariorossi@pec.it" style={inp}/></div>
+          </div>
+        </Section>
+
+        <Section id="sedi" title="📍 Sedi di lavoro" sub={multiLocationEnabled ? `${studioLocations.length} ${studioLocations.length===1?"sede attiva":"sedi attive"}` : "Studio singolo · attiva per gestire più sedi"}>
+          <div style={{ display:"flex", flexDirection:"column", gap:14, paddingTop:14 }}>
+
+            {/* Toggle globale */}
+            <div style={{
+              display:"flex", alignItems:"center", justifyContent:"space-between",
+              padding:"12px 14px", borderRadius:10,
+              background: multiLocationEnabled ? "rgba(37,99,235,0.05)" : "rgba(148,163,184,0.06)",
+              border: `1px solid ${multiLocationEnabled ? "rgba(37,99,235,0.2)" : THEME.border}`,
+            }}>
+              <div style={{ flex:1, paddingRight:12 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:THEME.text }}>Più sedi di lavoro</div>
+                <div style={{ fontSize:11, color:THEME.muted, marginTop:2, lineHeight:1.4 }}>
+                  Quando attivo, in fase di creazione appuntamento puoi scegliere la sede; l&apos;indirizzo viene usato nei promemoria.
+                </div>
+              </div>
+              <label style={{ display:"flex", alignItems:"center", cursor:"pointer", flexShrink:0 }}>
+                <input type="checkbox" checked={multiLocationEnabled} onChange={e=>setMultiLocationEnabled(e.target.checked)} style={{ display:"none" }} />
+                <span style={{
+                  position:"relative", width:44, height:24,
+                  background: multiLocationEnabled ? THEME.blue : THEME.gray,
+                  borderRadius:99, transition:"background 0.2s",
+                }}>
+                  <span style={{
+                    position:"absolute", top:2,
+                    left: multiLocationEnabled ? 22 : 2,
+                    width:20, height:20, background:"#fff",
+                    borderRadius:99, transition:"left 0.2s",
+                    boxShadow:"0 1px 3px rgba(0,0,0,0.2)",
+                  }} />
+                </span>
+              </label>
+            </div>
+
+            <button
+              onClick={()=>void saveMultiToggle()}
+              disabled={savingMultiToggle}
+              style={{
+                padding:"11px 14px", borderRadius:10, border:"none",
+                background: savingMultiToggle ? THEME.gray : THEME.gradient,
+                color:"#fff", fontWeight:700, fontSize:13,
+                cursor: savingMultiToggle ? "not-allowed" : "pointer",
+              }}
+            >
+              {savingMultiToggle ? "Salvataggio…" : "Salva impostazione multi-sede"}
+            </button>
+
+            {/* Lista sedi */}
+            <div style={{ paddingTop:8, borderTop:`1px dashed ${THEME.border}` }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:10, marginBottom:8 }}>
+                <div style={{ fontSize:11, fontWeight:700, color:THEME.text, textTransform:"uppercase", letterSpacing:0.5 }}>
+                  Le tue sedi
+                </div>
+                {multiLocationEnabled && !showAddLocForm && !editingLocId && (
+                  <button
+                    onClick={()=>{ setShowAddLocForm(true); setEditingLocId(null); setLocFormName(""); setLocFormAddress(""); setLocFormBorderColor("#2563eb"); }}
+                    style={{ padding:"6px 12px", fontSize:12, fontWeight:700, background:THEME.gradient, color:"#fff", border:"none", borderRadius:8, cursor:"pointer" }}
+                  >
+                    + Aggiungi
+                  </button>
+                )}
+              </div>
+
+              {studioLocations.length === 0 && !showAddLocForm && (
+                <div style={{ padding:"12px 14px", borderRadius:8, background:"rgba(148,163,184,0.06)", fontSize:12, color:THEME.muted, lineHeight:1.5 }}>
+                  Nessuna sede. Verrà creata automaticamente la sede principale al primo salvataggio dei dati studio.
+                </div>
+              )}
+
+              {studioLocations.map(loc => editingLocId === loc.id ? (
+                <div key={loc.id} style={{ background:THEME.panelSoft, border:`1px solid ${THEME.border}`, borderRadius:10, padding:12, marginBottom:8 }}>
+                  <div><label style={lbl}>Nome sede *</label><input value={locFormName} onChange={e=>setLocFormName(e.target.value)} style={inp}/></div>
+                  <div style={{ marginTop:10 }}><label style={lbl}>Indirizzo</label><input value={locFormAddress} onChange={e=>setLocFormAddress(e.target.value)} style={inp}/></div>
+                  <div style={{ marginTop:10 }}>
+                    <label style={lbl}>Colore bordo</label>
+                    <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:4 }}>
+                      {LOC_BORDER_PRESETS.map(p => (
+                        <button key={p.value} onClick={()=>setLocFormBorderColor(p.value)} style={{
+                          display:"flex", alignItems:"center", gap:5, padding:"6px 9px", borderRadius:7,
+                          border: locFormBorderColor===p.value ? `2px solid ${p.value}` : `1px solid ${THEME.border}`,
+                          background: locFormBorderColor===p.value ? `${p.value}10` : "#fff",
+                          fontSize:11, fontWeight:600, color: locFormBorderColor===p.value ? p.value : THEME.muted,
+                          cursor:"pointer",
+                        }}>
+                          <span style={{ width:12, height:12, borderRadius:3, background:p.value, display:"inline-block" }} />
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", gap:8, marginTop:12 }}>
+                    <button onClick={resetLocForm} style={{ flex:1, padding:"10px", borderRadius:8, border:`1px solid ${THEME.border}`, background:"#fff", color:THEME.muted, fontSize:13, fontWeight:700, cursor:"pointer" }}>Annulla</button>
+                    <button onClick={()=>void updateLoc(loc.id)} disabled={savingLocation} style={{ flex:1, padding:"10px", borderRadius:8, border:"none", background:THEME.gradient, color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+                      {savingLocation ? "Salvo…" : "Salva"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div key={loc.id} style={{
+                  background:"#fff",
+                  border: `${loc.is_primary ? 1 : 2}px solid ${loc.is_primary ? THEME.border : (loc.border_color || THEME.border)}`,
+                  borderRadius:10, padding:12, marginBottom:8,
+                }}>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8, flexWrap:"wrap", gap:6 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      {loc.is_primary ? (
+                        <span style={{ background:"rgba(37,99,235,0.1)", color:THEME.blue, fontSize:9, fontWeight:700, padding:"2px 6px", borderRadius:99, textTransform:"uppercase", letterSpacing:0.5 }}>Principale</span>
+                      ) : (
+                        <span style={{ background:`${loc.border_color || THEME.gray}15`, color: loc.border_color || THEME.muted, fontSize:9, fontWeight:700, padding:"2px 6px", borderRadius:99, textTransform:"uppercase", letterSpacing:0.5 }}>Secondaria</span>
+                      )}
+                      <span style={{ fontSize:13, fontWeight:700, color:THEME.text }}>{loc.name}</span>
+                    </div>
+                  </div>
+                  <div style={{ fontSize:12, color:THEME.muted, marginBottom:10 }}>
+                    {loc.address || <span style={{ fontStyle:"italic" }}>Nessun indirizzo</span>}
+                  </div>
+                  <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                    {!loc.is_primary && (
+                      <button onClick={()=>void setPrimaryLoc(loc.id)} style={{ padding:"6px 10px", fontSize:11, fontWeight:600, background:"#fff", color:THEME.muted, border:`1px solid ${THEME.border}`, borderRadius:6, cursor:"pointer" }}>
+                        Rendi principale
+                      </button>
+                    )}
+                    <button onClick={()=>startEditLoc(loc)} style={{ padding:"6px 10px", fontSize:11, fontWeight:600, background:"#fff", color:THEME.muted, border:`1px solid ${THEME.border}`, borderRadius:6, cursor:"pointer" }}>
+                      Modifica
+                    </button>
+                    {!loc.is_primary && studioLocations.length > 1 && (
+                      <button onClick={()=>void deleteLoc(loc.id, loc.name, loc.is_primary)} style={{ padding:"6px 10px", fontSize:11, fontWeight:600, background:"#fff", color:THEME.red, border:`1px solid ${THEME.red}40`, borderRadius:6, cursor:"pointer" }}>
+                        Rimuovi
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {showAddLocForm && (
+                <div style={{ background:THEME.panelSoft, border:`1px solid ${THEME.border}`, borderRadius:10, padding:12, marginBottom:8 }}>
+                  <div><label style={lbl}>Nome sede *</label><input value={locFormName} onChange={e=>setLocFormName(e.target.value)} placeholder="Es. Studio Roccasecca" style={inp}/></div>
+                  <div style={{ marginTop:10 }}><label style={lbl}>Indirizzo</label><input value={locFormAddress} onChange={e=>setLocFormAddress(e.target.value)} placeholder="Via Piave 34, Roccasecca" style={inp}/></div>
+                  <div style={{ marginTop:10 }}>
+                    <label style={lbl}>Colore bordo</label>
+                    <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:4 }}>
+                      {LOC_BORDER_PRESETS.map(p => (
+                        <button key={p.value} onClick={()=>setLocFormBorderColor(p.value)} style={{
+                          display:"flex", alignItems:"center", gap:5, padding:"6px 9px", borderRadius:7,
+                          border: locFormBorderColor===p.value ? `2px solid ${p.value}` : `1px solid ${THEME.border}`,
+                          background: locFormBorderColor===p.value ? `${p.value}10` : "#fff",
+                          fontSize:11, fontWeight:600, color: locFormBorderColor===p.value ? p.value : THEME.muted,
+                          cursor:"pointer",
+                        }}>
+                          <span style={{ width:12, height:12, borderRadius:3, background:p.value, display:"inline-block" }} />
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", gap:8, marginTop:12 }}>
+                    <button onClick={resetLocForm} style={{ flex:1, padding:"10px", borderRadius:8, border:`1px solid ${THEME.border}`, background:"#fff", color:THEME.muted, fontSize:13, fontWeight:700, cursor:"pointer" }}>Annulla</button>
+                    <button onClick={()=>void createLoc()} disabled={savingLocation} style={{ flex:1, padding:"10px", borderRadius:8, border:"none", background:THEME.gradient, color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+                      {savingLocation ? "Salvo…" : "Aggiungi"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {!multiLocationEnabled && studioLocations.length > 0 && (
+                <div style={{ marginTop:8, padding:"10px 12px", borderRadius:8, background:"rgba(148,163,184,0.06)", border:`1px solid ${THEME.border}`, fontSize:11, color:THEME.muted, lineHeight:1.5 }}>
+                  ℹ️ Multi-sede disattivato: tutti gli appuntamenti useranno la sede principale.
+                </div>
+              )}
+            </div>
+
           </div>
         </Section>
 
