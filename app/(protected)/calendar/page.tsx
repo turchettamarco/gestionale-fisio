@@ -2351,11 +2351,24 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
       setError("Inserisci nome e cognome per il nuovo paziente.");
       return;
     }
+    if (!currentStudioId) {
+      setError("Studio non disponibile. Riprova tra un momento.");
+      return;
+    }
 
     setCreatingQuickPatient(true);
     setError("");
 
     try {
+      // Recupera owner_id (auth user) per la multi-tenancy
+      const { data: userData } = await supabase.auth.getUser();
+      const ownerId = userData?.user?.id;
+      if (!ownerId) {
+        setError("Sessione scaduta. Effettua di nuovo il login.");
+        setCreatingQuickPatient(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from("patients")
         .insert({
@@ -2363,6 +2376,8 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
           last_name: quickPatientLastName.trim(),
           phone: quickPatientPhone.trim() || null,
           status: "da_completare",
+          owner_id: ownerId,                // multi-tenancy
+          studio_id: currentStudioId,        // multi-tenancy
           created_at: new Date().toISOString(),
         })
         .select("id, first_name, last_name, phone")
@@ -2392,7 +2407,54 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
     } finally {
       setCreatingQuickPatient(false);
     }
-  }, [quickPatientFirstName, quickPatientLastName, quickPatientPhone]);
+  }, [quickPatientFirstName, quickPatientLastName, quickPatientPhone, currentStudioId]);
+
+  // ─── Quick patient per gruppo (nuovo, mig. 015) ───────────────────
+  // Usato sia in fase di creazione gruppo (CreateAppointmentModal con
+  // isGroupAppointment=true) sia in aggiunta partecipanti a gruppo
+  // esistente (GroupEventModal). Crea il paziente con tenancy e lo
+  // restituisce; il chiamante decide cosa farne (aggiungerlo a
+  // initialParticipants oppure invocare onAddParticipant).
+  const createQuickPatientCore = useCallback(async (
+    payload: { first_name: string; last_name: string; phone: string | null }
+  ): Promise<PatientLite | null> => {
+    if (!currentStudioId) {
+      setError("Studio non disponibile. Riprova tra un momento.");
+      return null;
+    }
+    const { data: userData } = await supabase.auth.getUser();
+    const ownerId = userData?.user?.id;
+    if (!ownerId) {
+      setError("Sessione scaduta. Effettua di nuovo il login.");
+      return null;
+    }
+    try {
+      const { data, error } = await supabase
+        .from("patients")
+        .insert({
+          first_name: payload.first_name,
+          last_name: payload.last_name,
+          phone: payload.phone,
+          status: "da_completare",
+          owner_id: ownerId,
+          studio_id: currentStudioId,
+          created_at: new Date().toISOString(),
+        })
+        .select("id, first_name, last_name, phone")
+        .single();
+      if (error) throw error;
+      if (!data) return null;
+      return {
+        id: data.id,
+        first_name: data.first_name,
+        last_name: data.last_name,
+        phone: data.phone,
+      };
+    } catch (err: unknown) {
+      setError(`Errore creazione paziente: ${translateError(err)}`);
+      return null;
+    }
+  }, [currentStudioId]);
 
   const createAppointment = useCallback(async (sendWhatsApp: boolean = false) => {
   setError("");
@@ -3530,6 +3592,7 @@ return (
           addInitialParticipant={addInitialParticipant}
           removeInitialParticipant={removeInitialParticipant}
           searchPatientsForGroup={groupSearchPatients}
+          createQuickPatientForGroup={createQuickPatientCore}
           creating={creating}
         />
       )}
@@ -3558,6 +3621,7 @@ return (
             <GroupEventModal
               event={liveEv}
               searchPatients={groupSearchPatients}
+              createQuickPatient={createQuickPatientCore}
               onClose={() => setSelectedEvent(null)}
               onAddParticipant={onAddParticipant}
               onUpdateParticipant={onUpdateParticipant}

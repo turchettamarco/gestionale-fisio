@@ -28,6 +28,7 @@ import {
   type AppointmentParticipant,
   type PatientLite,
 } from "../../utils";
+import QuickPatientForm from "../QuickPatientForm";
 
 // Stesso schema di colori di GroupEventCard per coerenza visiva
 const AVATAR_COLORS: Array<{ bg: string; fg: string }> = [
@@ -64,6 +65,9 @@ export type GroupEventModalProps = {
    * Restituisce i pazienti che fanno match con la query (escludendo già nel gruppo).
    */
   searchPatients: (query: string) => Promise<PatientLite[]>;
+
+  /** Crea paziente rapido (mig. 015). Restituisce il paziente creato o null. */
+  createQuickPatient?: (payload: { first_name: string; last_name: string; phone: string | null }) => Promise<PatientLite | null>;
 
   /** Callback quando l'utente vuole chiudere il modal */
   onClose: () => void;
@@ -118,6 +122,7 @@ export type GroupEventModalProps = {
 export default function GroupEventModal({
   event,
   searchPatients,
+  createQuickPatient,
   onClose,
   onAddParticipant,
   onUpdateParticipant,
@@ -141,6 +146,8 @@ export default function GroupEventModal({
 
   // ─── State locale ───────────────────────────────────────────────────
   const [showAddSearch, setShowAddSearch] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [quickBusy, setQuickBusy] = useState(false);
   const [searchQ, setSearchQ] = useState("");
   const [newPatientPrice, setNewPatientPrice] = useState<string>(pricePP.toFixed(2));
   const [editingNotesFor, setEditingNotesFor] = useState<string | null>(null);
@@ -556,6 +563,50 @@ export default function GroupEventModal({
             </button>
           ) : (
             <div>
+              {/* Quick patient toggle (mig. 015) */}
+              {createQuickPatient && !quickOpen && (
+                <button
+                  type="button"
+                  onClick={() => setQuickOpen(true)}
+                  style={{
+                    width: "100%", padding: "8px 12px", marginBottom: 8,
+                    borderRadius: 7,
+                    border: `1px dashed ${THEME.teal}`,
+                    background: "rgba(13,148,136,0.04)",
+                    color: THEME.teal,
+                    fontWeight: 700, fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  + Nuovo paziente rapido
+                </button>
+              )}
+
+              {createQuickPatient && quickOpen && (
+                <QuickPatientForm
+                  busy={quickBusy}
+                  compact
+                  onCancel={() => setQuickOpen(false)}
+                  onSubmit={async (payload) => {
+                    setQuickBusy(true);
+                    try {
+                      const created = await createQuickPatient(payload);
+                      if (created) {
+                        // Aggiunge subito al gruppo con il prezzo corrente
+                        const price = parseFloat(newPatientPrice.replace(",", ".")) || 0;
+                        await onAddParticipant(event.id, created.id, price);
+                        setQuickOpen(false);
+                        setShowAddSearch(false);
+                        setSearchQ("");
+                        setNewPatientPrice(pricePP.toFixed(2));
+                      }
+                    } finally {
+                      setQuickBusy(false);
+                    }
+                  }}
+                />
+              )}
+
               <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                 <input
                   type="text"

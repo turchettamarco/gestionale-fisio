@@ -70,6 +70,8 @@ export type PatientSearchResult = {
 export type GroupEventModalMobileProps = {
   event: GroupEvent;
   searchPatients: (query: string) => Promise<PatientSearchResult[]>;
+  /** Quick patient (mig. 015) — restituisce il paziente creato o null */
+  createQuickPatient?: (payload: { first_name: string; last_name: string; phone: string | null }) => Promise<PatientSearchResult | null>;
   onClose: () => void;
   onAddParticipant: (appointmentId: string, patientId: string, price: number) => Promise<void>;
   onUpdateParticipant: (
@@ -135,6 +137,7 @@ function formatDate(d: Date): string {
 export default function GroupEventModalMobile({
   event,
   searchPatients,
+  createQuickPatient,
   onClose,
   onAddParticipant,
   onUpdateParticipant,
@@ -160,6 +163,12 @@ export default function GroupEventModalMobile({
   const [showAddSearch, setShowAddSearch] = useState(false);
   const [searchQ, setSearchQ] = useState("");
   const [newPatientPrice, setNewPatientPrice] = useState<string>(pricePP.toFixed(2));
+  // Quick patient (mig. 015)
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [quickBusy, setQuickBusy] = useState(false);
+  const [quickFn, setQuickFn] = useState("");
+  const [quickLn, setQuickLn] = useState("");
+  const [quickPh, setQuickPh] = useState("");
   const [busy, setBusy] = useState(false);
 
   // Gestione modifica gruppo (titolo, max, prezzo)
@@ -546,6 +555,121 @@ export default function GroupEventModalMobile({
             </button>
           ) : (
             <div>
+              {/* Quick patient (mig. 015) */}
+              {createQuickPatient && !quickOpen && (
+                <button
+                  type="button"
+                  onClick={() => setQuickOpen(true)}
+                  style={{
+                    width: "100%", padding: "9px 12px", marginBottom: 8,
+                    borderRadius: 8,
+                    border: `1px dashed #0d9488`,
+                    background: "rgba(13,148,136,0.05)",
+                    color: "#0d9488",
+                    fontWeight: 700, fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  + Nuovo paziente rapido
+                </button>
+              )}
+
+              {createQuickPatient && quickOpen && (
+                <div style={{
+                  border: `1px solid #2563eb`,
+                  background: "rgba(37,99,235,0.04)",
+                  padding: 10, borderRadius: 8, marginBottom: 8,
+                }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#1e40af", marginBottom: 8 }}>
+                    Nuovo paziente rapido
+                  </div>
+                  <div style={{ display: "grid", gap: 6, marginBottom: 8 }}>
+                    <input
+                      autoFocus
+                      value={quickFn}
+                      onChange={e => setQuickFn(e.target.value)}
+                      placeholder="Nome *"
+                      style={{
+                        padding: "9px 10px", borderRadius: 7,
+                        border: "1px solid #cbd5e1",
+                        fontSize: 13, fontWeight: 600, outline: "none",
+                        background: "#fff", fontFamily: "inherit",
+                      }}
+                    />
+                    <input
+                      value={quickLn}
+                      onChange={e => setQuickLn(e.target.value)}
+                      placeholder="Cognome *"
+                      style={{
+                        padding: "9px 10px", borderRadius: 7,
+                        border: "1px solid #cbd5e1",
+                        fontSize: 13, fontWeight: 600, outline: "none",
+                        background: "#fff", fontFamily: "inherit",
+                      }}
+                    />
+                    <input
+                      value={quickPh}
+                      onChange={e => setQuickPh(e.target.value)}
+                      placeholder="Telefono (opzionale)"
+                      style={{
+                        padding: "9px 10px", borderRadius: 7,
+                        border: "1px solid #cbd5e1",
+                        fontSize: 13, fontWeight: 600, outline: "none",
+                        background: "#fff", fontFamily: "inherit",
+                      }}
+                    />
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      onClick={() => {
+                        setQuickOpen(false);
+                        setQuickFn(""); setQuickLn(""); setQuickPh("");
+                      }}
+                      disabled={quickBusy}
+                      style={{
+                        flex: 1, padding: "9px", borderRadius: 7,
+                        border: "1px solid #cbd5e1",
+                        background: "#fff", color: "#64748b",
+                        fontWeight: 700, fontSize: 12, cursor: "pointer",
+                      }}
+                    >Annulla</button>
+                    <button
+                      onClick={async () => {
+                        const fn = quickFn.trim(), ln = quickLn.trim();
+                        if (!fn || !ln) return;
+                        setQuickBusy(true);
+                        try {
+                          const created = await createQuickPatient({
+                            first_name: fn, last_name: ln,
+                            phone: quickPh.trim() || null,
+                          });
+                          if (created) {
+                            // Aggiunge subito al gruppo col prezzo corrente
+                            const price = parseFloat(newPatientPrice.replace(",", ".")) || 0;
+                            await onAddParticipant(event.id, created.id, price);
+                            setQuickOpen(false);
+                            setQuickFn(""); setQuickLn(""); setQuickPh("");
+                            setShowAddSearch(false);
+                            setSearchQ("");
+                            setNewPatientPrice(pricePP.toFixed(2));
+                          }
+                        } finally {
+                          setQuickBusy(false);
+                        }
+                      }}
+                      disabled={quickBusy || !quickFn.trim() || !quickLn.trim()}
+                      style={{
+                        flex: 1, padding: "9px", borderRadius: 7,
+                        border: "none",
+                        background: "#16a34a", color: "#fff",
+                        fontWeight: 700, fontSize: 12, cursor: "pointer",
+                        opacity: quickBusy || !quickFn.trim() || !quickLn.trim() ? 0.6 : 1,
+                      }}
+                    >{quickBusy ? "Creo…" : "Crea e aggiungi"}</button>
+                  </div>
+                </div>
+              )}
+
               <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
                 <input
                   type="text"

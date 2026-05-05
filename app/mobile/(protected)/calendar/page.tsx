@@ -139,6 +139,8 @@ type CreateModalProps = {
   addInitialParticipantCal: (p: { id: string; first_name: string | null; last_name: string | null; phone?: string | null }) => void;
   removeInitialParticipantCal: (patientId: string) => void;
   searchPatientsForGroupCal: (q: string) => Promise<Array<{ id: string; first_name: string | null; last_name: string | null; phone?: string | null }>>;
+  /** Quick patient per gruppo (mig. 015) — restituisce paziente creato o null */
+  createQuickPatientForGroup?: (payload: { first_name: string; last_name: string; phone: string | null }) => Promise<PatientLite | null>;
 };
 
 type TouchDragState = {
@@ -1201,6 +1203,42 @@ function CalendarPageInner() {
     setSelectedPatient(p);setPatientQuery(`${p.first_name??""} ${p.last_name??""}`.trim());
     setPatientResults([]);setBusy(false);
   }, [quickFirstName,quickLastName,quickPhone,currentStudioId]);
+
+  // ─── Quick patient core per gruppo (mig. 015) ─────────────────────
+  // Usato sia in fase di creazione gruppo (CreateAppointmentMobileModal)
+  // sia in aggiunta partecipanti a gruppo esistente (GroupEventModalMobile).
+  // Crea il paziente con tenancy e lo restituisce; il chiamante decide
+  // come usarlo. NON tocca selectedPatient (che è per il flusso singolo).
+  const createQuickPatientCoreMobile = useCallback(async (
+    payload: { first_name: string; last_name: string; phone: string | null }
+  ): Promise<PatientLite | null> => {
+    if (!currentStudioId) {
+      setError("Studio non disponibile. Riprova tra un momento.");
+      return null;
+    }
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id ?? null;
+    if (!userId) {
+      setError("Sessione scaduta. Effettua di nuovo il login.");
+      return null;
+    }
+    const { data, error: e } = await supabase
+      .from("patients")
+      .insert({
+        first_name: payload.first_name,
+        last_name: payload.last_name,
+        phone: payload.phone,
+        owner_id: userId,
+        studio_id: currentStudioId,
+      })
+      .select("id,first_name,last_name,phone")
+      .single();
+    if (e) {
+      setError("Errore creazione paziente: " + e.message);
+      return null;
+    }
+    return data as PatientLite;
+  }, [currentStudioId]);
 
   const [createRecurring, setCreateRecurring] = useState(false);
   const [createRecurringCount, setCreateRecurringCount] = useState(6);
@@ -2649,6 +2687,7 @@ function CalendarPageInner() {
             prev.filter(x => x.id !== patientId)
           )}
           searchPatientsForGroupCal={groupSearchPatientsApi}
+          createQuickPatientForGroup={createQuickPatientCoreMobile}
         />
       )}
 
@@ -2801,6 +2840,17 @@ function CalendarPageInner() {
         <GroupEventModalMobile
           event={openGroup}
           searchPatients={groupSearchPatientsApi}
+          createQuickPatient={async (payload) => {
+            // Normalizza phone (PatientLite ha phone?: undefined,
+            // PatientSearchResult richiede string | null)
+            const p = await createQuickPatientCoreMobile(payload);
+            return p ? {
+              id: p.id,
+              first_name: p.first_name,
+              last_name: p.last_name,
+              phone: p.phone ?? null,
+            } : null;
+          }}
           onClose={() => setOpenGroup(null)}
           onAddParticipant={async (apptId, patientId, price) => {
             const ok = await addParticipantApi(apptId, patientId, price);
@@ -2971,10 +3021,17 @@ function CreateModal(props:CreateModalProps) {
     addInitialParticipantCal,
     removeInitialParticipantCal,
     searchPatientsForGroupCal,
+    createQuickPatientForGroup,
   }=props;
 
   // Step 6.1: search partecipanti iniziali (locale al modal)
   const [partSearchQ, setPartSearchQ] = useState("");
+  // Quick patient per gruppo (mig. 015)
+  const [quickGroupOpen, setQuickGroupOpen] = useState(false);
+  const [quickGroupBusy, setQuickGroupBusy] = useState(false);
+  const [quickGroupFn, setQuickGroupFn] = useState("");
+  const [quickGroupLn, setQuickGroupLn] = useState("");
+  const [quickGroupPh, setQuickGroupPh] = useState("");
   const [partSearchResults, setPartSearchResults] = useState<
     Array<{ id: string; first_name: string | null; last_name: string | null; phone?: string | null }>
   >([]);
@@ -3151,6 +3208,101 @@ function CreateModal(props:CreateModalProps) {
                   {createInitialParticipants.length}/{parseInt(createGroupMax, 10) || 0}
                 </div>
               </div>
+
+              {/* Quick patient (mig. 015) */}
+              {createQuickPatientForGroup && !quickGroupOpen && (
+                <button
+                  type="button"
+                  onClick={() => setQuickGroupOpen(true)}
+                  style={{
+                    width: "100%", padding: "9px 12px", marginBottom: 8,
+                    borderRadius: 8,
+                    border: `1px dashed #0d9488`,
+                    background: "rgba(13,148,136,0.05)",
+                    color: "#0d9488",
+                    fontWeight: 700, fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  + Nuovo paziente rapido
+                </button>
+              )}
+
+              {createQuickPatientForGroup && quickGroupOpen && (
+                <div style={{
+                  border: `1px solid #2563eb`,
+                  background: "rgba(37,99,235,0.04)",
+                  padding: 10, borderRadius: 8, marginBottom: 8,
+                }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#1e40af", marginBottom: 8 }}>
+                    Nuovo paziente rapido
+                  </div>
+                  <div style={{ display: "grid", gap: 6, marginBottom: 8 }}>
+                    <input
+                      autoFocus
+                      value={quickGroupFn}
+                      onChange={e => setQuickGroupFn(e.target.value)}
+                      placeholder="Nome *"
+                      style={{ ...inputS(), fontSize: 13 }}
+                    />
+                    <input
+                      value={quickGroupLn}
+                      onChange={e => setQuickGroupLn(e.target.value)}
+                      placeholder="Cognome *"
+                      style={{ ...inputS(), fontSize: 13 }}
+                    />
+                    <input
+                      value={quickGroupPh}
+                      onChange={e => setQuickGroupPh(e.target.value)}
+                      placeholder="Telefono (opzionale)"
+                      style={{ ...inputS(), fontSize: 13 }}
+                    />
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      onClick={() => {
+                        setQuickGroupOpen(false);
+                        setQuickGroupFn(""); setQuickGroupLn(""); setQuickGroupPh("");
+                      }}
+                      disabled={quickGroupBusy}
+                      style={{
+                        flex: 1, padding: "9px", borderRadius: 7,
+                        border: `1px solid ${THEME.border}`,
+                        background: "#fff", color: THEME.muted,
+                        fontWeight: 700, fontSize: 12, cursor: "pointer",
+                      }}
+                    >Annulla</button>
+                    <button
+                      onClick={async () => {
+                        const fn = quickGroupFn.trim(), ln = quickGroupLn.trim();
+                        if (!fn || !ln) return;
+                        setQuickGroupBusy(true);
+                        try {
+                          const created = await createQuickPatientForGroup({
+                            first_name: fn, last_name: ln,
+                            phone: quickGroupPh.trim() || null,
+                          });
+                          if (created) {
+                            addInitialParticipantCal(created);
+                            setQuickGroupOpen(false);
+                            setQuickGroupFn(""); setQuickGroupLn(""); setQuickGroupPh("");
+                          }
+                        } finally {
+                          setQuickGroupBusy(false);
+                        }
+                      }}
+                      disabled={quickGroupBusy || !quickGroupFn.trim() || !quickGroupLn.trim()}
+                      style={{
+                        flex: 1, padding: "9px", borderRadius: 7,
+                        border: "none",
+                        background: "#16a34a", color: "#fff",
+                        fontWeight: 700, fontSize: 12, cursor: "pointer",
+                        opacity: quickGroupBusy || !quickGroupFn.trim() || !quickGroupLn.trim() ? 0.6 : 1,
+                      }}
+                    >{quickGroupBusy ? "Creo…" : "Crea e aggiungi"}</button>
+                  </div>
+                </div>
+              )}
 
               <div style={{ position: "relative", marginBottom: 6 }}>
                 <input

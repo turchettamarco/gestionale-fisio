@@ -32,6 +32,7 @@ import {
   type LocationType, type TreatmentType, type PatientLite,
   type PracticeSettings,
 } from "../../utils";
+import QuickPatientForm from "../QuickPatientForm";
 
 export type CreateAppointmentModalProps = {
   // ─── Generale ─────────────────────────────────────────────
@@ -152,6 +153,8 @@ export type CreateAppointmentModalProps = {
   removeInitialParticipant: (patientId: string) => void;
   /** Funzione di ricerca pazienti per il campo search */
   searchPatientsForGroup: (query: string) => Promise<Array<{ id: string; first_name: string | null; last_name: string | null; phone?: string | null }>>;
+  /** Crea paziente rapido per gruppo (mig. 015). Restituisce il paziente creato o null in caso di errore. */
+  createQuickPatientForGroup?: (payload: { first_name: string; last_name: string; phone: string | null }) => Promise<{ id: string; first_name: string | null; last_name: string | null; phone?: string | null } | null>;
 
   // ─── Submit ───────────────────────────────────────────────
   creating: boolean;
@@ -193,6 +196,7 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
     groupRecurringMode, setGroupRecurringMode,
     initialParticipants, addInitialParticipant, removeInitialParticipant,
     searchPatientsForGroup,
+    createQuickPatientForGroup,
     creating,
   } = props;
 
@@ -206,6 +210,9 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
   const [participantsSearchResults, setParticipantsSearchResults] = useState<
     Array<{ id: string; first_name: string | null; last_name: string | null; phone?: string | null }>
   >([]);
+  // Quick patient inside group flow (mig. 015)
+  const [quickGroupOpen, setQuickGroupOpen] = useState(false);
+  const [quickGroupBusy, setQuickGroupBusy] = useState(false);
 
   const alreadyAddedIds = useMemo(
     () => new Set(initialParticipants.map(p => p.id)),
@@ -708,6 +715,49 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
                   {initialParticipants.length}/{parseInt(groupMaxParticipants, 10) || 0} selezionati
                 </div>
               </div>
+
+              {/* Quick patient (mig. 015): bottone + form inline.
+                  Visibile solo se è disponibile la callback di creazione. */}
+              {createQuickPatientForGroup && !quickGroupOpen && (
+                <button
+                  type="button"
+                  onClick={() => setQuickGroupOpen(true)}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    marginBottom: 8,
+                    borderRadius: 7,
+                    border: `1px dashed ${THEME.teal}`,
+                    background: "rgba(13,148,136,0.04)",
+                    color: THEME.teal,
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  + Nuovo paziente rapido
+                </button>
+              )}
+
+              {createQuickPatientForGroup && quickGroupOpen && (
+                <QuickPatientForm
+                  busy={quickGroupBusy}
+                  compact
+                  onCancel={() => setQuickGroupOpen(false)}
+                  onSubmit={async (payload) => {
+                    setQuickGroupBusy(true);
+                    try {
+                      const created = await createQuickPatientForGroup(payload);
+                      if (created) {
+                        addInitialParticipant(created);
+                        setQuickGroupOpen(false);
+                      }
+                    } finally {
+                      setQuickGroupBusy(false);
+                    }
+                  }}
+                />
+              )}
 
               {/* Search */}
               <div style={{ position: "relative", marginBottom: 8 }}>
