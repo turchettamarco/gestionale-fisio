@@ -28,6 +28,7 @@ import {
   THEME, fmtTime, formatDMY, pad2, statusBg, statusLabel,
   autoNameFontSize,
   assignLanes,
+  getLocationCardStyle,
   type CalendarEvent,
 } from "../../utils";
 import type { DraggingOverState, FreeWindow } from "./DayTimeline";
@@ -73,6 +74,9 @@ export type WeekViewProps = {
   timeSlots: string[];
   dayLabels: { dow: number; label: string }[];
   TIME_COL: number;
+
+  // ─── Multi-sede (mig. 014, fase 3) ─────────────────────────
+  studioLocations?: Array<{ id: string; name: string; address: string | null; is_primary: boolean; border_color: string | null }>;
 
   // ─── Drag-drop state ──────────────────────────────────────
   draggingEvent: DraggingEventState | null;
@@ -131,6 +135,7 @@ export type WeekViewProps = {
 export default function WeekView({
   weekDays, filteredEvents, currentTime,
   timeSlots, dayLabels, TIME_COL,
+  studioLocations,
   draggingEvent, draggingOver,
   showAvailableOnly, bulkMode, bulkSelected, isSearchActive, searchMatchIds,
   getEventPosition, getFreeWindows, getEventColor, getAvailabilityForecast,
@@ -438,6 +443,9 @@ export default function WeekView({
             const isMatch  = searchMatchIds.has(event.id);
             const isDimmed = isSearchActive && !isMatch;
 
+            // Multi-sede (mig. 014, fase 3)
+            const locStyle = getLocationCardStyle(event, studioLocations);
+
             const cardH = Math.max(height - 2, 28);
             // 3 livelli di rendering in base all'altezza:
             //   • isShort  (≤30min, < 38px) → 1 riga: orario + nome
@@ -481,8 +489,13 @@ export default function WeekView({
                   borderRadius: 6,
                   padding: "4px 6px",
                   boxSizing: "border-box",
-                  border: "none",
-                  borderLeft: event.calendar_note?.startsWith("[WEB|") ? "4px solid #facc15" : "none",
+                  // Multi-sede (mig. 014, fase 3): bordo colorato per sedi secondarie.
+                  // Se assente, ricade sul comportamento storico (no border, eventuale
+                  // borderLeft giallo per gli appuntamenti WEB).
+                  border: locStyle.borderColor ? `2px solid ${locStyle.borderColor}` : "none",
+                  borderLeft: event.calendar_note?.startsWith("[WEB|")
+                    ? "4px solid #facc15"
+                    : (locStyle.borderColor ? `2px solid ${locStyle.borderColor}` : "none"),
                   cursor: "move",
                   zIndex: isMatch ? 10 : 2,
                   // Durante un drag in corso, le card non draggate "lasciano passare"
@@ -506,6 +519,15 @@ export default function WeekView({
                     <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.85)", flexShrink: 0, lineHeight: 1 }}>
                       {fmtTime(event.start.toISOString())}{isDomicile && " 🏠"}
                     </span>
+                    {locStyle.initials && (
+                      <span title={locStyle.locationName ?? undefined} style={{
+                        fontSize: 8, fontWeight: 800, color: "#fff",
+                        background: locStyle.borderColor ?? undefined,
+                        padding: "1px 4px", borderRadius: 3,
+                        letterSpacing: 0.3, lineHeight: 1.1,
+                        flexShrink: 0,
+                      }}>{locStyle.initials}</span>
+                    )}
                     <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
                       {event.patient_name}
                     </span>
@@ -528,9 +550,20 @@ export default function WeekView({
                     {/* MEDIUM (45min) — 2 righe compatte: orario+icone / nome+tipo+prezzo+stato */}
                     {/* Riga 1: orario a sx, indicatori pagato/eseguito a dx */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 2, flexShrink: 0, marginBottom: 1 }}>
-                      <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.85)", whiteSpace: "nowrap", lineHeight: 1 }}>
-                        {fmtTime(event.start.toISOString())}
-                        {isDomicile && " 🏠"}
+                      <span style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.85)", whiteSpace: "nowrap", lineHeight: 1 }}>
+                          {fmtTime(event.start.toISOString())}
+                          {isDomicile && " 🏠"}
+                        </span>
+                        {locStyle.initials && (
+                          <span title={locStyle.locationName ?? undefined} style={{
+                            fontSize: 8, fontWeight: 800, color: "#fff",
+                            background: locStyle.borderColor ?? undefined,
+                            padding: "1px 4px", borderRadius: 3,
+                            letterSpacing: 0.3, lineHeight: 1.1,
+                            flexShrink: 0,
+                          }}>{locStyle.initials}</span>
+                        )}
                       </span>
                       <div style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0 }}>
                         {/* Pagato — micro icon button con popover */}
@@ -618,9 +651,20 @@ export default function WeekView({
                   <>
                     {/* Riga 1: orario + bottoni */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 2, flexShrink: 0, marginBottom: 2 }}>
-                      <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.85)", whiteSpace: "nowrap", lineHeight: 1 }}>
-                        {fmtTime(event.start.toISOString())}
-                        {isDomicile && " 🏠"}
+                      <span style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.85)", whiteSpace: "nowrap", lineHeight: 1 }}>
+                          {fmtTime(event.start.toISOString())}
+                          {isDomicile && " 🏠"}
+                        </span>
+                        {locStyle.initials && (
+                          <span title={locStyle.locationName ?? undefined} style={{
+                            fontSize: 8, fontWeight: 800, color: "#fff",
+                            background: locStyle.borderColor ?? undefined,
+                            padding: "1px 4px", borderRadius: 3,
+                            letterSpacing: 0.3, lineHeight: 1.1,
+                            flexShrink: 0,
+                          }}>{locStyle.initials}</span>
+                        )}
                       </span>
                       <div className="cal-evt-actions" style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0 }}>
                         {/* Pagato — micro icon button con popover */}

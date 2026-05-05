@@ -20,6 +20,7 @@
 import { type RefObject } from "react";
 import {
   THEME, fmtTime, statusColor, statusLabel,
+  getLocationCardStyle,
   type CalendarEvent,
 } from "../../utils";
 import type { MonthPopoverState } from "../popovers/MonthDayPopover";
@@ -45,6 +46,8 @@ export type MonthViewProps = {
   isSearchActive: boolean;
   /** Set degli id eventi che matchano la ricerca */
   searchMatchIds: Set<string>;
+  /** Multi-sede (mig. 014, fase 3) */
+  studioLocations?: Array<{ id: string; name: string; address: string | null; is_primary: boolean; border_color: string | null }>;
 };
 
 export default function MonthView({
@@ -52,6 +55,7 @@ export default function MonthView({
   monthClickTimer,
   onOpenCreateModal, onGoToDayView, onOpenMonthPopover,
   isSearchActive, searchMatchIds,
+  studioLocations,
 }: MonthViewProps) {
 
   return (
@@ -169,13 +173,16 @@ export default function MonthView({
                 {dayEvents.slice(0, 10).map((ev, i) => {
                   const isMatch = searchMatchIds.has(ev.id);
                   const isDimmed = isSearchActive && !isMatch;
+                  // Multi-sede (mig. 014, fase 3)
+                  const locStyle = getLocationCardStyle(ev, studioLocations);
                   return (
                     <div
                       key={i}
                       className={isMatch ? "search-highlight" : isDimmed ? "search-dimmed" : ""}
-                      title={ev.is_group
+                      title={(ev.is_group
                         ? `👥 ${ev.group_title || "Gruppo"} · ${(ev.participants?.length ?? 0)}/${ev.group_max_participants ?? 0} · ${fmtTime(ev.start.toISOString())}`
-                        : `${ev.patient_name} · ${fmtTime(ev.start.toISOString())} – ${fmtTime(ev.end.toISOString())} · ${statusLabel(ev.status)}`}
+                        : `${ev.patient_name} · ${fmtTime(ev.start.toISOString())} – ${fmtTime(ev.end.toISOString())} · ${statusLabel(ev.status)}`)
+                        + (locStyle.locationName && !locStyle.borderColor ? "" : (locStyle.locationName ? ` · ${locStyle.locationName}` : ""))}
                       onClick={e => {
                         e.stopPropagation();
                         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -200,9 +207,24 @@ export default function MonthView({
                         position: "relative",
                         zIndex: isMatch ? 5 : 0,
                         cursor: "pointer",
+                        // Multi-sede: bordo colorato per sedi secondarie
+                        border: locStyle.borderColor ? `1.5px solid ${locStyle.borderColor}` : "none",
                       }}
                     >
                       {ev.location === "domicile" && "🏠 "}
+                      {locStyle.initials && (
+                        <span style={{
+                          background: locStyle.borderColor ?? undefined,
+                          color: "#fff",
+                          fontSize: 7, fontWeight: 800,
+                          padding: "0 3px",
+                          borderRadius: 2,
+                          marginRight: 3,
+                          letterSpacing: 0.3,
+                          display: "inline-block",
+                          verticalAlign: "middle",
+                        }}>{locStyle.initials}</span>
+                      )}
                       {ev.is_group ? (
                         <>
                           👥 {fmtTime(ev.start.toISOString())} {ev.group_title || "Gruppo"} ({(ev.participants?.length ?? 0)}/{ev.group_max_participants ?? 0})

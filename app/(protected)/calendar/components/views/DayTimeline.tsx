@@ -22,6 +22,7 @@
 import {
   THEME, fmtTime, formatDMY, pad2, statusBg, statusLabel, getTreatmentLabel,
   assignLanes,
+  getLocationCardStyle,
   type CalendarEvent,
 } from "../../utils";
 import PaidIconButton from "@/src/components/PaidIconButton";
@@ -40,6 +41,9 @@ export type DayTimelineProps = {
   dayEvents: CalendarEvent[];
   /** Tempo corrente (per la linea "now") */
   currentTime: Date;
+
+  /** Multi-sede (mig. 014, fase 3) */
+  studioLocations?: Array<{ id: string; name: string; address: string | null; is_primary: boolean; border_color: string | null }>;
 
   /** Slot orari (es. ["08:00", "09:00", ...]) */
   timeSlots: string[];
@@ -108,6 +112,7 @@ export type DayTimelineProps = {
 export default function DayTimeline({
   currentDate, dayEvents, currentTime,
   timeSlots, dayLabels, TIME_COL,
+  studioLocations,
   draggingOver, showAvailableOnly, bulkMode, bulkSelected, searchMatchIds,
   onSlotClick, onContextMenu,
   onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
@@ -327,6 +332,9 @@ export default function DayTimeline({
           const waSent     = !!event.whatsapp_sent_at;
           const h          = Math.max(height - 2, 20);
 
+          // Multi-sede (mig. 014, fase 3)
+          const locStyle = getLocationCardStyle(event, studioLocations);
+
           return (
             <div
               key={event.id}
@@ -349,8 +357,10 @@ export default function DayTimeline({
                 borderRadius: 6,
                 padding: "6px 10px",
                 boxSizing: "border-box",
-                border: "none",
-                borderLeft: event.calendar_note?.startsWith("[WEB|") ? "4px solid #facc15" : "none",
+                border: locStyle.borderColor ? `2px solid ${locStyle.borderColor}` : "none",
+                borderLeft: event.calendar_note?.startsWith("[WEB|")
+                  ? "4px solid #facc15"
+                  : (locStyle.borderColor ? `2px solid ${locStyle.borderColor}` : "none"),
                 cursor: "move",
                 zIndex: 2,
                 // Durante un drag in corso, le card non draggate "lasciano passare"
@@ -372,6 +382,15 @@ export default function DayTimeline({
                   <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.9)", flexShrink: 0 }}>
                     {fmtTime(event.start.toISOString())}
                   </span>
+                  {locStyle.initials && (
+                    <span title={locStyle.locationName ?? undefined} style={{
+                      fontSize: 8, fontWeight: 800, color: "#fff",
+                      background: locStyle.borderColor ?? undefined,
+                      padding: "1px 4px", borderRadius: 3,
+                      letterSpacing: 0.3, lineHeight: 1.1,
+                      flexShrink: 0,
+                    }}>{locStyle.initials}</span>
+                  )}
                   <span style={{ fontSize: 10, fontWeight: 800, color: "#fff", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {event.patient_name}
                   </span>
@@ -458,6 +477,15 @@ export default function DayTimeline({
                       <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.85)", whiteSpace: "nowrap", flexShrink: 0 }}>
                         {fmtTime(event.start.toISOString())}–{fmtTime(event.end.toISOString())}
                       </span>
+                      {locStyle.initials && (
+                        <span title={locStyle.locationName ?? undefined} style={{
+                          fontSize: 8, fontWeight: 800, color: "#fff",
+                          background: locStyle.borderColor ?? undefined,
+                          padding: "1px 4px", borderRadius: 3,
+                          letterSpacing: 0.3, lineHeight: 1.1,
+                          flexShrink: 0,
+                        }}>{locStyle.initials}</span>
+                      )}
                       {isDomicile && <span style={{ fontSize: 9, flexShrink: 0 }}>🏠</span>}
                       {event.calendar_note?.startsWith("[WEB|") && (
                         <span style={{ fontSize: 7, background: "rgba(255,255,255,0.25)", borderRadius: 2, padding: "1px 3px", fontWeight: 800, flexShrink: 0 }}>WEB</span>

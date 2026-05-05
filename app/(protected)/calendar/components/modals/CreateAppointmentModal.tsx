@@ -73,6 +73,15 @@ export type CreateAppointmentModalProps = {
   createDomicileAddress: string;
   setCreateDomicileAddress: (s: string) => void;
 
+  // ─── Multi-sede (mig. 014, fase 2) ────────────────────────
+  /** Sedi disponibili (vuoto se multi-sede non attivo o non ancora migrato) */
+  studioLocations?: Array<{ id: string; name: string; address: string | null; is_primary: boolean; border_color: string | null }>;
+  /** ID sede selezionata; null = sede principale (o nessuna sede) */
+  createLocationId?: string | null;
+  setCreateLocationId?: (id: string | null) => void;
+  /** Toggle multi_location_enabled — se false, il dropdown non si vede */
+  multiLocationEnabled?: boolean;
+
   // ─── Trattamento e prezzo ─────────────────────────────────
   treatmentType: TreatmentType;
   setTreatmentType: (t: TreatmentType) => void;
@@ -159,6 +168,7 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
     createLocation, setCreateLocation,
     createClinicSite, setCreateClinicSite,
     createDomicileAddress, setCreateDomicileAddress,
+    studioLocations, createLocationId, setCreateLocationId, multiLocationEnabled,
     treatmentType, setTreatmentType,
     priceType, setPriceType,
     paymentMethod, setPaymentMethod,
@@ -345,20 +355,76 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
           {/* Sede o indirizzo */}
           <div>
             {createLocation === "studio" ? (
-              <label style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft }}>
-                Sede
-                <input
-                  value={createClinicSite}
-                  onChange={e => setCreateClinicSite(e.target.value)}
-                  placeholder={`Es. ${DEFAULT_CLINIC_SITE}`}
-                  style={{
-                    width: "100%", marginTop: 8, padding: 10, borderRadius: 8,
-                    border: `1px solid ${THEME.borderSoft}`,
-                    background: THEME.panelBg, color: THEME.text,
-                    outline: "none", fontWeight: 600, fontSize: 13,
-                  }}
-                />
-              </label>
+              multiLocationEnabled && studioLocations && studioLocations.length > 0 ? (
+                // ─ Multi-sede ON: dropdown sedi configurate ─
+                <label style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft }}>
+                  Sede
+                  {(() => {
+                    const selectedLoc = studioLocations.find(l => l.id === createLocationId)
+                                     ?? studioLocations.find(l => l.is_primary)
+                                     ?? studioLocations[0];
+                    const borderColor = selectedLoc && !selectedLoc.is_primary && selectedLoc.border_color
+                      ? selectedLoc.border_color
+                      : THEME.borderSoft;
+                    const borderWidth = selectedLoc && !selectedLoc.is_primary ? 2 : 1;
+                    return (
+                      <>
+                        <select
+                          value={createLocationId ?? selectedLoc?.id ?? ""}
+                          onChange={e => {
+                            const id = e.target.value || null;
+                            setCreateLocationId?.(id);
+                            // Sincronizza anche createClinicSite (campo testuale legacy)
+                            // col nome della sede selezionata, così i messaggi WA
+                            // continuano a mostrare il label corretto.
+                            if (id) {
+                              const loc = studioLocations.find(l => l.id === id);
+                              if (loc) setCreateClinicSite(loc.name);
+                            }
+                          }}
+                          style={{
+                            width: "100%", marginTop: 8, padding: 10, borderRadius: 8,
+                            border: `${borderWidth}px solid ${borderColor}`,
+                            background: THEME.panelBg, color: THEME.text,
+                            outline: "none", fontWeight: 600, fontSize: 13,
+                          }}
+                        >
+                          {studioLocations.map(loc => (
+                            <option key={loc.id} value={loc.id}>
+                              {loc.name}{loc.is_primary ? " (principale)" : ""}
+                            </option>
+                          ))}
+                        </select>
+                        {selectedLoc?.address && (
+                          <div style={{
+                            marginTop: 4, fontSize: 11,
+                            color: selectedLoc.is_primary ? THEME.muted : (selectedLoc.border_color || THEME.muted),
+                            fontWeight: 500,
+                          }}>
+                            📍 {selectedLoc.address}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </label>
+              ) : (
+                // ─ Multi-sede OFF (o non ancora migrato): input testo libero come prima ─
+                <label style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft }}>
+                  Sede
+                  <input
+                    value={createClinicSite}
+                    onChange={e => setCreateClinicSite(e.target.value)}
+                    placeholder={`Es. ${DEFAULT_CLINIC_SITE}`}
+                    style={{
+                      width: "100%", marginTop: 8, padding: 10, borderRadius: 8,
+                      border: `1px solid ${THEME.borderSoft}`,
+                      background: THEME.panelBg, color: THEME.text,
+                      outline: "none", fontWeight: 600, fontSize: 13,
+                    }}
+                  />
+                </label>
+              )
             ) : (
               <label style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft }}>
                 Indirizzo

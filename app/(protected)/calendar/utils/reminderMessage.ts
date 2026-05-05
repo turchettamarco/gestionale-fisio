@@ -43,10 +43,15 @@ export function buildReminderMessage(params: {
   studioAddress?: string | null;
   signatureName?: string | null;
   signatureTitle?: string | null;
+  // ─── Multi-sede (mig. 014, fase 2) ───
+  // Se passate, cerca l'indirizzo dalla sede dell'appuntamento (location_id).
+  // Fallback: studioAddress (sede principale) oppure clinic_site label.
+  studioLocations?: Array<{ id: string; name: string; address: string | null; is_primary: boolean }>;
 }): string {
   const {
     appointment, patientFirstName, template, isConfirmation, linkConferma = "",
     studioAddress, signatureName, signatureTitle,
+    studioLocations,
   } = params;
 
   const templateText =
@@ -62,11 +67,20 @@ export function buildReminderMessage(params: {
 
   let luogo = "";
   if (appointment.location === "studio") {
-    // Multi-tenancy: l'indirizzo dello studio attivo (currentStudio.address)
-    // ha la priorità assoluta. La mappa CLINIC_ADDRESSES è un fallback solo
-    // per studi storici senza address salvato sul record `studios`.
-    // In ultima istanza usiamo il nome stesso del clinic_site come label.
+    // Multi-sede (mig. 014, fase 2): se l'appuntamento ha location_id e
+    // l'elenco sedi è disponibile, usa l'indirizzo di QUELLA sede.
+    let multiSedeAddress: string | null = null;
+    if (appointment.location_id && studioLocations && studioLocations.length > 0) {
+      const matched = studioLocations.find(l => l.id === appointment.location_id);
+      if (matched?.address) multiSedeAddress = matched.address;
+    }
+    // Fallback chain:
+    //   1. Indirizzo sede multi-sede (se trovato)
+    //   2. studioAddress (legacy, sede principale)
+    //   3. CLINIC_ADDRESSES (storico)
+    //   4. clinic_site label
     luogo =
+      multiSedeAddress ||
       studioAddress ||
       CLINIC_ADDRESSES[appointment.clinic_site || ""] ||
       appointment.clinic_site ||

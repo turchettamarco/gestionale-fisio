@@ -36,6 +36,7 @@ export type AppointmentRow = {
   calendar_note: string | null;
   location: LocationType;
   clinic_site: string | null;
+  location_id: string | null;
   domicile_address: string | null;
   patients: { first_name: string; last_name: string } | null;
 };
@@ -98,6 +99,8 @@ export type CalendarEvent = {
   calendar_note: string | null;
   location: LocationType | null;
   clinic_site: string | null;
+  /** Multi-sede (mig. 014, fase 2): id della sede dello studio scelta. */
+  location_id: string | null;
   domicile_address: string | null;
   treatment_type: string | null;
   price_type: string | null;

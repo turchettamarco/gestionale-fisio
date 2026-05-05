@@ -102,7 +102,7 @@ function CalendarPageInner() {
 
   // Studio corrente dell'utente loggato (multi-tenancy).
   // Viene passato nelle INSERT degli appuntamenti e nei messaggi WA.
-  const { studio: currentStudio } = useCurrentStudio();
+  const { studio: currentStudio, locations: studioLocations } = useCurrentStudio();
   const currentStudioId = currentStudio?.id ?? null;
 
   const params = useSearchParams();
@@ -375,6 +375,9 @@ const userInitials = useMemo(() => {
   // Default = nome dello studio corrente (multi-tenancy). Aggiornato dall'effect sotto.
   const [createClinicSite, setCreateClinicSite] = useState("");
   const [createDomicileAddress, setCreateDomicileAddress] = useState("");
+  // Multi-sede (mig. 014, fase 2): id della sede selezionata. null = sede principale
+  // o multi-sede non attivo (in quel caso il salvataggio non scrive location_id).
+  const [createLocationId, setCreateLocationId] = useState<string | null>(null);
 
   // Sincronizza il default del campo "sede" con il nome dello studio corrente
   // (l'utente può comunque sovrascriverlo manualmente nel form di creazione).
@@ -384,6 +387,21 @@ const userInitials = useMemo(() => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStudio?.name]);
+
+  // Quando arrivano le sedi (o cambia la sede principale), aggiorna il default
+  // del dropdown "Sede" nel modale Crea: parte sempre dalla principale.
+  useEffect(() => {
+    if (!studioLocations || studioLocations.length === 0) return;
+    if (createLocationId) return;  // L'utente ha già scelto qualcosa
+    const primary = studioLocations.find(l => l.is_primary) ?? studioLocations[0];
+    if (primary) {
+      setCreateLocationId(primary.id);
+      // Allinea anche il campo legacy clinic_site col nome della principale
+      setCreateClinicSite(primary.name);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studioLocations]);
+
 
   const [treatmentType, setTreatmentType] = useState<TreatmentType>("seduta");
   const [priceType, setPriceType] = useState<"invoiced" | "cash">("cash"); // default: non fatturato
@@ -1119,7 +1137,7 @@ const { data, error } = await supabase
       const { data, error } = await supabase
         .from("appointments")
           .select(`
-          id, patient_id, start_at, end_at, status, calendar_note, location, clinic_site, domicile_address, treatment_type, price_type, payment_method, amount,
+          id, patient_id, start_at, end_at, status, calendar_note, location, clinic_site, location_id, domicile_address, treatment_type, price_type, payment_method, amount,
           expected_price, is_paid, paid_at,
           reminder_sent_at, reminder_status,
           whatsapp_sent_at,
@@ -1160,6 +1178,7 @@ const mapped = (data ?? []).map(
       calendar_note?: string | null;
       location?: string | null;
       clinic_site?: string | null;
+      location_id?: string | null;
       domicile_address?: string | null;
       treatment_type?: string | null;
       price_type?: string | null;
@@ -1257,6 +1276,7 @@ const mapped = (data ?? []).map(
       calendar_note: a.calendar_note ?? null,
       location: (a.location as LocationType) ?? null,
       clinic_site: a.clinic_site ?? null,
+      location_id: a.location_id ?? null,
       domicile_address: a.domicile_address ?? null,
       treatment_type: a.treatment_type ?? null,
       price_type: a.price_type ?? null,
@@ -1595,6 +1615,9 @@ A presto,
         studioAddress: currentStudio?.address,
         signatureName: currentStudio?.signature_name,
         signatureTitle: currentStudio?.signature_title,
+        // Multi-sede (mig. 014, fase 2): passa l'elenco sedi così il reminder
+        // può lookup l'indirizzo della sede dell'appuntamento.
+        studioLocations,
       });
 
       // 4. Costruisci URL WhatsApp scegliendo il formato giusto per dispositivo:
@@ -2471,6 +2494,11 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
         calendar_note: null as string | null,
         location: createLocation,
         clinic_site: createLocation === "studio" ? createClinicSite.trim() : null,
+        // Multi-sede (mig. 014, fase 2): scrivi location_id solo se la sede
+        // è "studio" e il toggle multi-sede è ON e c'è una sede selezionata.
+        // Altrimenti null → fallback alla sede principale lato lettura.
+        location_id: (createLocation === "studio" && currentStudio?.multi_location_enabled && createLocationId)
+          ? createLocationId : null,
         domicile_address: createLocation === "domicile" ? createDomicileAddress.trim() : null,
         treatment_type: null,
         price_type: null,
@@ -2489,6 +2517,8 @@ Grazie di cuore${firma ? `,\n${firma}` : ""}`;
         calendar_note: null as string | null,
         location: createLocation,
         clinic_site: createLocation === "studio" ? createClinicSite.trim() : null,
+        location_id: (createLocation === "studio" && currentStudio?.multi_location_enabled && createLocationId)
+          ? createLocationId : null,
         domicile_address: createLocation === "domicile" ? createDomicileAddress.trim() : null,
         treatment_type: treatmentType,
         price_type: priceType,
@@ -3258,6 +3288,7 @@ return (
               timeSlots={timeSlots}
               dayLabels={dayLabels}
               TIME_COL={TIME_COL}
+              studioLocations={studioLocations}
               draggingEvent={draggingEvent}
               draggingOver={draggingOver}
               showAvailableOnly={showAvailableOnly}
@@ -3320,6 +3351,7 @@ return (
               onOpenMonthPopover={setMonthPopover}
               isSearchActive={isSearchActive}
               searchMatchIds={searchMatchIds}
+              studioLocations={studioLocations}
             />
           ) : (
             /* ━━━ DAY VIEW — timeline + sidebar ━━━ */
@@ -3339,6 +3371,7 @@ return (
               timeSlots={timeSlots}
               dayLabels={dayLabels}
               TIME_COL={TIME_COL}
+              studioLocations={studioLocations}
               draggingOver={draggingOver}
               showAvailableOnly={showAvailableOnly}
               bulkMode={bulkMode}
@@ -3418,6 +3451,10 @@ return (
           setCreateClinicSite={setCreateClinicSite}
           createDomicileAddress={createDomicileAddress}
           setCreateDomicileAddress={setCreateDomicileAddress}
+          studioLocations={studioLocations}
+          createLocationId={createLocationId}
+          setCreateLocationId={setCreateLocationId}
+          multiLocationEnabled={!!currentStudio?.multi_location_enabled}
           treatmentType={treatmentType}
           setTreatmentType={setTreatmentType}
           priceType={priceType}

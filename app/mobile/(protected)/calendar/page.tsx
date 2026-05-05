@@ -7,6 +7,7 @@ import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { buildReminderMessage } from "@/app/(protected)/calendar/utils/reminderMessage";
 import { assignLanes } from "@/app/(protected)/calendar/utils/laneAssignment";
+import { getLocationCardStyle } from "@/app/(protected)/calendar/utils/locationHelpers";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 import PaidIconButton from "@/src/components/PaidIconButton";
@@ -111,6 +112,11 @@ type CreateModalProps = {
   createLocation: LocationType; setCreateLocation: (v: LocationType) => void;
   createClinicSite: string; setCreateClinicSite: (v: string) => void;
   createDomicileAddress: string; setCreateDomicileAddress: (v: string) => void;
+  // Multi-sede (mig. 014, fase 2)
+  studioLocations?: Array<{ id: string; name: string; address: string | null; is_primary: boolean; border_color: string | null }>;
+  createLocationId?: string | null;
+  setCreateLocationId?: (id: string | null) => void;
+  multiLocationEnabled?: boolean;
   createAmount: string; setCreateAmount: (v: string) => void;
   createNote: string; setCreateNote: (v: string) => void;
   createPriceType: "invoiced" | "cash"; setCreatePriceType: (v: "invoiced" | "cash") => void;
@@ -261,7 +267,7 @@ function CalendarPageInner() {
   const searchParams = useSearchParams();
 
   // Studio corrente (multi-tenancy)
-  const { studio: currentStudio } = useCurrentStudio();
+  const { studio: currentStudio, locations: studioLocations } = useCurrentStudio();
   const currentStudioId = currentStudio?.id ?? null;
 
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
@@ -421,6 +427,8 @@ function CalendarPageInner() {
   const [createLocation,        setCreateLocation]        = useState<LocationType>("studio");
   const [createClinicSite,      setCreateClinicSite]      = useState("");
   const [createDomicileAddress, setCreateDomicileAddress] = useState("");
+  // Multi-sede (mig. 014, fase 2)
+  const [createLocationId,      setCreateLocationId]      = useState<string | null>(null);
   const [createAmount,          setCreateAmount]          = useState("");
   const [createNote,            setCreateNote]            = useState("");
 
@@ -432,6 +440,18 @@ function CalendarPageInner() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStudio?.name]);
+
+  // Quando arrivano le sedi, default al dropdown sulla principale
+  useEffect(() => {
+    if (!studioLocations || studioLocations.length === 0) return;
+    if (createLocationId) return;
+    const primary = studioLocations.find(l => l.is_primary) ?? studioLocations[0];
+    if (primary) {
+      setCreateLocationId(primary.id);
+      setCreateClinicSite(primary.name);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studioLocations]);
   // Fatturazione + metodo pagamento allineati al desktop
   const [createPriceType,       setCreatePriceType]       = useState<"invoiced" | "cash">("invoiced");
   const [createPaymentMethod,   setCreatePaymentMethod]   = useState<"cash" | "pos" | "bank_transfer" | null>(null);
@@ -498,7 +518,7 @@ function CalendarPageInner() {
     const e0=new Date(date); e0.setHours(23,59,59,999);
     const {data,error:err} = await supabase.from("appointments").select(`
       id,patient_id,start_at,end_at,status,calendar_note,is_paid,paid_at,
-      location,clinic_site,domicile_address,studio_id,
+      location,clinic_site,location_id,domicile_address,studio_id,
       amount,treatment_type,price_type,payment_method,whatsapp_sent_at,
       is_group,group_title,group_max_participants,group_price_per_person,
       patients:patient_id(first_name,last_name,phone),
@@ -523,7 +543,7 @@ function CalendarPageInner() {
         status:(a.status??"booked") as Status, calendar_note:a.calendar_note??null,
         is_paid:a.is_paid??false,
         paid_at:a.paid_at?new Date(a.paid_at):null,
-        location:(a.location??null) as LocationType|null, clinic_site:a.clinic_site??null,
+        location:(a.location??null) as LocationType|null, clinic_site:a.clinic_site??null, location_id:(a as any).location_id??null,
         domicile_address:a.domicile_address??null,
         studio_id: a.studio_id ?? null,
         amount:a.amount??null,
@@ -613,7 +633,7 @@ function CalendarPageInner() {
     const lastDay  = new Date(date.getFullYear(), date.getMonth()+1, 0, 23, 59, 59, 999);
     const {data, error:err} = await supabase.from("appointments").select(`
       id,patient_id,start_at,end_at,status,calendar_note,is_paid,paid_at,
-      location,clinic_site,domicile_address,studio_id,
+      location,clinic_site,location_id,domicile_address,studio_id,
       amount,treatment_type,price_type,payment_method,whatsapp_sent_at,
       is_group,group_title,group_max_participants,group_price_per_person,
       patients:patient_id(first_name,last_name,phone),
@@ -638,7 +658,7 @@ function CalendarPageInner() {
           status:(a.status??"booked") as Status, calendar_note:a.calendar_note??null,
           is_paid:a.is_paid??false,
           paid_at:a.paid_at?new Date(a.paid_at):null,
-          location:(a.location??null) as LocationType|null, clinic_site:a.clinic_site??null,
+          location:(a.location??null) as LocationType|null, clinic_site:a.clinic_site??null, location_id:(a as any).location_id??null,
           domicile_address:a.domicile_address??null,
           studio_id: a.studio_id ?? null,
           amount:a.amount??null,
@@ -958,6 +978,7 @@ function CalendarPageInner() {
       studioAddress: currentStudio?.address,
       signatureName: currentStudio?.signature_name,
       signatureTitle: currentStudio?.signature_title,
+      studioLocations,
     });
 
     // Apri WhatsApp via wrapper openWA che usa schema URI nativo whatsapp://
@@ -1259,6 +1280,7 @@ function CalendarPageInner() {
           calendar_note: createNote.trim() || null,
           location: createLocation,
           clinic_site: createLocation==="studio"?(createClinicSite.trim()||currentStudio?.name||"Studio"):null,
+          location_id: (createLocation==="studio" && currentStudio?.multi_location_enabled && createLocationId) ? createLocationId : null,
           domicile_address: createLocation==="domicile"?(createDomicileAddress.trim()||null):null,
           amount: null,
           price_type: null,
@@ -1281,6 +1303,7 @@ function CalendarPageInner() {
           calendar_note:createNote.trim()||null,
           location:createLocation,
           clinic_site:createLocation==="studio"?(createClinicSite.trim()||currentStudio?.name||"Studio"):null,
+          location_id: (createLocation==="studio" && currentStudio?.multi_location_enabled && createLocationId) ? createLocationId : null,
           domicile_address:createLocation==="domicile"?(createDomicileAddress.trim()||null):null,
           amount,
           price_type: createPriceType,
@@ -1474,6 +1497,9 @@ function CalendarPageInner() {
     const hidden     = lanePos?.hidden ?? 0;
     const hiddenIds  = lanePos?.hiddenIds ?? [];
 
+    // Multi-sede (mig. 014, fase 3)
+    const locStyle = getLocationCardStyle(ev as any, studioLocations as any);
+
     return (
       <div
         key={ev.id}
@@ -1513,7 +1539,9 @@ function CalendarPageInner() {
           style={{
             position:"absolute",inset:0,
             background:bg,
-            border:`1.5px solid ${ev.location==="domicile"?"rgba(13,148,136,0.2)":col+"30"}`,
+            border: locStyle.borderColor
+              ? `2px solid ${locStyle.borderColor}`
+              : `1.5px solid ${ev.location==="domicile"?"rgba(13,148,136,0.2)":col+"30"}`,
             borderRadius:8,padding:short?"4px 10px":"8px 10px",
             boxSizing:"border-box",overflow:"hidden",
             boxShadow:isDragging?"0 8px 24px rgba(15,23,42,0.18)":"0 1px 4px rgba(15,23,42,0.06)",
@@ -1525,6 +1553,27 @@ function CalendarPageInner() {
             transition:isDragging||Math.abs(swipeX)>0?"none":"transform 0.2s,box-shadow 0.15s",
           }}
         >
+          {/* Badge sede multi-sede (mig. 014, fase 3) */}
+          {locStyle.initials && (
+            <span
+              title={locStyle.locationName ?? undefined}
+              style={{
+                position:"absolute",
+                top:3, right:3,
+                background: locStyle.borderColor ?? undefined,
+                color:"#fff",
+                fontSize:9, fontWeight:800,
+                padding:"1px 5px",
+                borderRadius:3,
+                letterSpacing:0.3,
+                lineHeight:1.1,
+                pointerEvents:"none",
+                zIndex:1,
+              }}
+            >
+              {locStyle.initials}
+            </span>
+          )}
           {/* Nome + 🏠 badge / GRUPPO badge */}
           <div style={{display:"flex",alignItems:"center",gap:5,flex:1,minWidth:0,overflow:"hidden"}}>
             {ev.is_group && (
@@ -1643,7 +1692,7 @@ function CalendarPageInner() {
       </div>
     );
   }, [getEventPosition,touchDraggingId,touchDragY,draggingId,currentTime,swipeState,
-      events,
+      events, studioLocations,
       handleEventTouchStart,handleCardSwipeStart,handleCardSwipeMove,handleCardSwipeEnd,
       handleTimelineTouchEnd,openEvent,togglePaid,sendReminder]);
 
@@ -2546,6 +2595,10 @@ function CalendarPageInner() {
           createLocation={createLocation} setCreateLocation={setCreateLocation}
           createClinicSite={createClinicSite}           setCreateClinicSite={setCreateClinicSite}
           createDomicileAddress={createDomicileAddress} setCreateDomicileAddress={setCreateDomicileAddress}
+          studioLocations={studioLocations as any}
+          createLocationId={createLocationId}
+          setCreateLocationId={setCreateLocationId}
+          multiLocationEnabled={!!currentStudio?.multi_location_enabled}
           createAmount={createAmount}     setCreateAmount={setCreateAmount}
           createNote={createNote}         setCreateNote={setCreateNote}
           createPriceType={createPriceType}     setCreatePriceType={setCreatePriceType}
@@ -3290,7 +3343,43 @@ function CreateModal(props:CreateModalProps) {
           </select>
         </FG>
         {createLocation==="studio"
-          ?<FG label="Sede"><input value={createClinicSite} onChange={e=>setCreateClinicSite(e.target.value)} style={inputS()} placeholder={props.studioNamePlaceholder || "Studio"} /></FG>
+          ?(props.multiLocationEnabled && props.studioLocations && props.studioLocations.length > 0
+              ? (() => {
+                  const locs = props.studioLocations!;
+                  const sel = locs.find(l => l.id === props.createLocationId)
+                          ?? locs.find(l => l.is_primary)
+                          ?? locs[0];
+                  const bc = sel && !sel.is_primary && sel.border_color ? sel.border_color : null;
+                  return (
+                    <FG label="Sede">
+                      <select
+                        value={props.createLocationId ?? sel?.id ?? ""}
+                        onChange={e => {
+                          const id = e.target.value || null;
+                          props.setCreateLocationId?.(id);
+                          if (id) {
+                            const l = locs.find(x => x.id === id);
+                            if (l) setCreateClinicSite(l.name);
+                          }
+                        }}
+                        style={{ ...inputS(), border: bc ? `2px solid ${bc}` : inputS().border }}
+                      >
+                        {locs.map(l => (
+                          <option key={l.id} value={l.id}>
+                            {l.name}{l.is_primary ? " (principale)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                      {sel?.address && (
+                        <div style={{ marginTop:4, fontSize:11, color: bc || "#64748b", fontWeight:500 }}>
+                          📍 {sel.address}
+                        </div>
+                      )}
+                    </FG>
+                  );
+                })()
+              : <FG label="Sede"><input value={createClinicSite} onChange={e=>setCreateClinicSite(e.target.value)} style={inputS()} placeholder={props.studioNamePlaceholder || "Studio"} /></FG>
+            )
           :<FG label="Indirizzo"><input value={createDomicileAddress} onChange={e=>setCreateDomicileAddress(e.target.value)} style={inputS()} placeholder="Indirizzo…" /></FG>
         }
         {!createIsGroup && (<>

@@ -85,3 +85,11 @@ export {
 // Lane assignment per visualizzazione overlap appuntamenti (Google-style)
 export { assignLanes } from "./laneAssignment";
 export type { LanePosition } from "./laneAssignment";
+
+// Helper multi-sede (mig. 014, fase 3)
+export {
+  locationInitials,
+  resolveAppointmentLocation,
+  getLocationCardStyle,
+} from "./locationHelpers";
+export type { StudioLocationLite } from "./locationHelpers";

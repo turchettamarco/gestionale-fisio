@@ -32,6 +32,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { buildReminderMessage } from "@/app/(protected)/calendar/utils/reminderMessage";
+import { resolveAppointmentLocation, locationInitials } from "@/app/(protected)/calendar/utils/locationHelpers";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import PaidPill from "@/src/components/PaidPill";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
@@ -199,7 +200,7 @@ export default function MobileHomePage() {
   const router = useRouter();
 
   // Studio corrente (multi-tenancy)
-  const { studio: currentStudio } = useCurrentStudio();
+  const { studio: currentStudio, locations: studioLocations } = useCurrentStudio();
   const currentStudioId = currentStudio?.id ?? null;
 
   // Orari di lavoro dello studio (per generare slot dinamici nel quick-add)
@@ -520,7 +521,7 @@ export default function MobileHomePage() {
     setLoading(true); setError("");
     try {
       const SEL = `id,patient_id,start_at,end_at,status,amount,is_paid,paid_at,payment_method,price_type,
-                   treatment_type,location,clinic_site,domicile_address,studio_id,
+                   treatment_type,location,clinic_site,location_id,domicile_address,studio_id,
                    whatsapp_sent_at,
                    is_group,group_title,group_max_participants,group_price_per_person,
                    patients:patient_id(first_name,last_name,phone),
@@ -753,6 +754,7 @@ export default function MobileHomePage() {
       end: new Date(appt.start_at),
       location: appt.location,
       clinic_site: appt.clinic_site,
+      location_id: (appt as any).location_id ?? null,
       domicile_address: appt.domicile_address,
     } as any;
 
@@ -765,6 +767,7 @@ export default function MobileHomePage() {
       studioAddress: currentStudio?.address,
       signatureName: currentStudio?.signature_name,
       signatureTitle: currentStudio?.signature_title,
+      studioLocations,
     });
 
     // Apri WhatsApp usando schema URI nativo whatsapp:// (apre app diretta)
@@ -1939,15 +1942,43 @@ export default function MobileHomePage() {
                           const displayName = isGroup
                             ? (a.group_title || "Gruppo")
                             : fullName(a.patients);
+                          // Multi-sede (mig. 014, fase 3)
+                          const apptLoc = resolveAppointmentLocation(
+                            { location_id: (a as any).location_id ?? null, location: a.location },
+                            studioLocations as any
+                          );
+                          const apptLocBorder = apptLoc && !apptLoc.is_primary ? (apptLoc.border_color || "#2563eb") : null;
+                          const apptLocInitials = apptLoc && !apptLoc.is_primary ? locationInitials(apptLoc.name) : null;
                           return (
                             <div
                               key={a.id}
                               style={{
                                 width: "100%", textAlign: "left",
-                                borderRadius: 8, border: `1px solid ${THEME.border}`,
+                                borderRadius: 8,
+                                border: apptLocBorder ? `2px solid ${apptLocBorder}` : `1px solid ${THEME.border}`,
                                 background: THEME.panelSoft, padding: "8px 10px",
+                                position: "relative",
                               }}
                             >
+                              {apptLocInitials && (
+                                <span
+                                  title={apptLoc?.name}
+                                  style={{
+                                    position: "absolute",
+                                    top: 6, right: 6,
+                                    background: apptLocBorder ?? undefined,
+                                    color: "#fff",
+                                    fontSize: 9, fontWeight: 800,
+                                    padding: "1px 5px",
+                                    borderRadius: 3,
+                                    letterSpacing: 0.3,
+                                    lineHeight: 1.1,
+                                    pointerEvents: "none",
+                                  }}
+                                >
+                                  {apptLocInitials}
+                                </span>
+                              )}
                               <div
                                 onClick={() => setDateYMD(dayKey)}
                                 style={{
