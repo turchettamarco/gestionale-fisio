@@ -32,3 +32,11 @@ export {
   type UseCalendarEventsOptions,
   type UseCalendarEventsReturn,
 } from "./useCalendarEvents";
+
+export {
+  useReminderFlow,
+  type WeeklyReminderTarget,
+  type LastCreatedAppointment,
+  type UseReminderFlowOptions,
+  type UseReminderFlowReturn,
+} from "./useReminderFlow";
