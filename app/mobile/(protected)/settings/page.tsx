@@ -624,7 +624,7 @@ export default function MobileSettingsPage() {
             <div style={{ padding:"10px 12px", borderRadius:8, background:"rgba(148,163,184,0.06)", fontSize:11, color:THEME.muted, lineHeight:1.5 }}>
               ℹ️ Questi dati sono <strong>interni</strong> e usati per la fatturazione elettronica. Non vengono mostrati ai pazienti.
             </div>
-            <div><label style={lbl}>Partita IVA</label><input value={vatNumber} onChange={e=>setVatNumber(e.target.value)} placeholder="Es. 03195120609" style={inp}/></div>
+            <div><label style={lbl}>Partita IVA</label><input value={vatNumber} onChange={e=>setVatNumber(e.target.value)} placeholder="Es. 12345678901" style={inp}/></div>
             <div><label style={lbl}>PEC</label><input type="email" value={pecEmail} onChange={e=>setPecEmail(e.target.value)} placeholder="Es. mariorossi@pec.it" style={inp}/></div>
           </div>
         </Section>
@@ -765,8 +765,8 @@ export default function MobileSettingsPage() {
 
               {showAddLocForm && (
                 <div style={{ background:THEME.panelSoft, border:`1px solid ${THEME.border}`, borderRadius:10, padding:12, marginBottom:8 }}>
-                  <div><label style={lbl}>Nome sede *</label><input value={locFormName} onChange={e=>setLocFormName(e.target.value)} placeholder="Es. Studio Roccasecca" style={inp}/></div>
-                  <div style={{ marginTop:10 }}><label style={lbl}>Indirizzo</label><input value={locFormAddress} onChange={e=>setLocFormAddress(e.target.value)} placeholder="Via Piave 34, Roccasecca" style={inp}/></div>
+                  <div><label style={lbl}>Nome sede *</label><input value={locFormName} onChange={e=>setLocFormName(e.target.value)} placeholder="Es. Sede Centro" style={inp}/></div>
+                  <div style={{ marginTop:10 }}><label style={lbl}>Indirizzo</label><input value={locFormAddress} onChange={e=>setLocFormAddress(e.target.value)} placeholder="Es. Via Roma 10, 00100 Città" style={inp}/></div>
                   <div style={{ marginTop:10 }}>
                     <label style={lbl}>Colore bordo</label>
                     <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:4 }}>

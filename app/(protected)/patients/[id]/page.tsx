@@ -2115,7 +2115,14 @@ ${rows}
                   <button onClick={() => printConsentDoc("privacy")} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.4)", background: "rgba(255,255,255,0.15)", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>🖨 Stampa</button>
                 </div>
                 <div style={{ padding: "12px 14px", maxHeight: 300, overflowY: "auto", fontSize: 10.5, lineHeight: 1.65, color: THEME.text }}>
-                  <p style={{ marginBottom: 6 }}><strong>Titolare:</strong> Dott. Turchetta Marco, Fisioterapista, P.IVA 03195120609, Via La Cupa 15 Pontecorvo FR</p>
+                  <p style={{ marginBottom: 6 }}>
+                    <strong>Titolare:</strong>{" "}
+                    {[
+                      currentStudio?.signature_name,
+                      currentStudio?.signature_title,
+                      currentStudio?.address,
+                    ].filter(Boolean).join(", ") || currentStudio?.name || "—"}
+                  </p>
                   <p style={{ marginBottom: 4 }}><strong>Dati trattati:</strong> anagrafici, dati di salute (Art. 9 GDPR), amministrativi.</p>
                   <p style={{ marginBottom: 4 }}><strong>Finalità:</strong> prestazioni fisioterapiche, obblighi di legge, gestione amministrativa, promemoria appuntamenti (con consenso).</p>
                   <p style={{ marginBottom: 4 }}><strong>Conservazione:</strong> 10 anni per documentazione sanitaria e fiscale.</p>
@@ -2147,7 +2154,7 @@ ${rows}
                 </div>
                 <div style={{ padding: "12px 14px", maxHeight: 300, overflowY: "auto", fontSize: 10.5, lineHeight: 1.65, color: THEME.text }}>
                   <p style={{ marginBottom: 6 }}><strong>Paziente:</strong> {patient?.last_name} {patient?.first_name} · {ddmmyyyy(patient?.birth_date ?? null)} · {patient?.tax_code} · {patient?.residence_city} · {patient?.phone}</p>
-                  <p style={{ marginBottom: 4 }}>Il <strong>Dott. Turchetta Marco</strong> mi ha illustrato: diagnosi, trattamento proposto (terapia manuale, esercizio, strumentale), benefici, rischi (dolore post-seduta, ecchimosi, aggravamento transitorio), alternative terapeutiche.</p>
+                  <p style={{ marginBottom: 4 }}>Il <strong>{currentStudio?.signature_name || "professionista"}</strong> mi ha illustrato: diagnosi, trattamento proposto (terapia manuale, esercizio, strumentale), benefici, rischi (dolore post-seduta, ecchimosi, aggravamento transitorio), alternative terapeutiche.</p>
                   <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 5, padding: "6px 10px", margin: "6px 0", fontSize: 10 }}>
                     <strong>Controindicazioni:</strong> pace-maker, gravidanza, neoplasie attive, ferite aperte, flebiti in fase acuta.
                   </div>

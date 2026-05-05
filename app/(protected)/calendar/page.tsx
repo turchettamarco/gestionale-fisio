@@ -3610,6 +3610,7 @@ return (
           state={hoverTooltip}
           onMouseLeave={handleEventHoverEnd}
           getDefaultAmount={getDefaultAmount}
+          studioLocations={studioLocations}
         />
       )}
 

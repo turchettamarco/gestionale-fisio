@@ -26,7 +26,7 @@ export type PracticeSectionProps = {
 export default function PracticeSection(p: PracticeSectionProps) {
   const fields = [
     { label: "Titolare (nome cognome)", value: p.ownerFullName, set: p.setOwnerFullName, placeholder: "Es. Dott. Mario Rossi" },
-    { label: "Partita IVA",             value: p.vatNumber,     set: p.setVatNumber,     placeholder: "Es. 03195120609" },
+    { label: "Partita IVA",             value: p.vatNumber,     set: p.setVatNumber,     placeholder: "Es. 12345678901" },
     { label: "PEC",                     value: p.pecEmail,      set: p.setPecEmail,      placeholder: "Es. mariorossi@pec.it" },
   ];
 

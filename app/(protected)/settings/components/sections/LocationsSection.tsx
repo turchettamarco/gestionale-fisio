@@ -83,7 +83,7 @@ function LocationForm({
           <input
             value={name}
             onChange={e => setName(e.target.value)}
-            placeholder="Es. Studio Roccasecca"
+            placeholder="Es. Sede Centro"
             style={inputStyle}
           />
         </div>
@@ -92,7 +92,7 @@ function LocationForm({
           <input
             value={address}
             onChange={e => setAddress(e.target.value)}
-            placeholder="Via Piave 34, Roccasecca"
+            placeholder="Es. Via Roma 10, 00100 Città"
             style={inputStyle}
           />
         </div>

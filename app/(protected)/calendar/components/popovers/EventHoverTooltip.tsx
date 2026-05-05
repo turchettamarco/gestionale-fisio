@@ -14,6 +14,7 @@
 
 import {
   THEME, fmtTime,
+  resolveAppointmentLocation,
   type CalendarEvent,
 } from "../../utils";
 import StatusBadge from "@/src/components/StatusBadge";
@@ -32,12 +33,21 @@ export type EventHoverTooltipProps = {
     tType: "seduta" | "macchinario",
     pType: "invoiced" | "cash"
   ) => number;
+  /** Multi-sede (mig. 014, fase 3) — sedi disponibili dello studio corrente */
+  studioLocations?: Array<{ id: string; name: string; address: string | null; is_primary: boolean; border_color: string | null }>;
 };
 
 export default function EventHoverTooltip({
-  state, onMouseLeave, getDefaultAmount,
+  state, onMouseLeave, getDefaultAmount, studioLocations,
 }: EventHoverTooltipProps) {
   const { event, x, y } = state;
+
+  // Multi-sede (mig. 014, fase 3): risolve la sede dell'appuntamento
+  // per mostrarla nel tooltip con il colore configurato.
+  const apptLocation = resolveAppointmentLocation(event, studioLocations);
+  const apptLocationColor = apptLocation && !apptLocation.is_primary
+    ? (apptLocation.border_color || THEME.blue)
+    : null;
 
   // Posizionamento dinamico: evita di uscire dalla finestra
   const left = typeof window !== "undefined"
@@ -94,6 +104,17 @@ export default function EventHoverTooltip({
           <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>
             {fmtTime(event.start.toISOString())} – {fmtTime(event.end.toISOString())}
           </div>
+          {apptLocation && (
+            <div style={{
+              fontSize: 10.5, marginTop: 4,
+              padding: "2px 8px", borderRadius: 4,
+              background: apptLocationColor ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.12)",
+              display: "inline-block",
+              fontWeight: 600,
+            }}>
+              📍 {apptLocation.name}{apptLocation.address ? ` · ${apptLocation.address}` : ""}
+            </div>
+          )}
         </div>
 
         {/* Stats */}
@@ -186,6 +207,23 @@ export default function EventHoverTooltip({
           <span style={{ color: THEME.muted }}>Orario</span>
           <span>{fmtTime(event.start.toISOString())} – {fmtTime(event.end.toISOString())}</span>
         </div>
+        {apptLocation && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+            <span style={{ color: THEME.muted }}>Sede</span>
+            <span style={{
+              maxWidth: 170, textAlign: "right",
+              color: apptLocationColor ?? THEME.text,
+              fontWeight: 700, lineHeight: 1.3,
+            }}>
+              {apptLocation.name}
+              {apptLocation.address && (
+                <span style={{ display: "block", fontSize: 10.5, fontWeight: 500, opacity: 0.85, marginTop: 1 }}>
+                  📍 {apptLocation.address}
+                </span>
+              )}
+            </span>
+          </div>
+        )}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ color: THEME.muted }}>Stato</span>
           <StatusBadge status={event.status} size="sm" />
