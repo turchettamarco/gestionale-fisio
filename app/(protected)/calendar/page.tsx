@@ -29,7 +29,6 @@ import {
   GOOGLE_REVIEW_LINK_FALLBACK,
   CLINIC_ADDRESSES,
   ALL_TREATMENTS,
-  setTreatmentCatalog,
   // Status / treatment helpers
   statusColor,
   statusBg,
@@ -64,6 +63,9 @@ import {
 
 // ─── Studio context (multi-tenancy) ──────────────────────────────────────────
 import { useCurrentStudio, useCurrentStudioId } from "@/src/contexts/StudioContext";
+
+// ─── Hook custom della pagina calendar (refactor B3.1) ───────────────────────
+import { useCalendarBootstrap } from "@/src/hooks/calendar";
 
 // ─── Popover (B2.1, B2.2) ────────────────────────────────────────────────────
 import EventHoverTooltip from "./components/popovers/EventHoverTooltip";
@@ -100,64 +102,64 @@ export default function CalendarPage() {
 
 function CalendarPageInner() {
 
-  // Studio corrente dell'utente loggato (multi-tenancy).
-  // Viene passato nelle INSERT degli appuntamenti e nei messaggi WA.
-  const { studio: currentStudio, locations: studioLocations } = useCurrentStudio();
-  const currentStudioId = currentStudio?.id ?? null;
+  // ─── Bootstrap: utente, studio, settings, catalogo, orari, viewport ──────
+  // Tutta la logica di setup è estratta in useCalendarBootstrap (refactor B3.1).
+  // La callback onTabletDetected viene definita più sotto, dopo la
+  // dichiarazione di setViewType (lo state vive ancora qui in pagina).
+  const bootstrap = useCalendarBootstrap({
+    onTabletDetected: () => {
+      // setViewType è dichiarato più avanti nel componente.
+      // Il reference è stabile (è un dispatcher React) quindi possiamo
+      // usarlo dentro questa closure: alla prima invocazione del listener
+      // la pagina è già montata con setViewType inizializzato.
+      setViewType((prev) => (prev === "week" ? "day" : prev));
+    },
+  });
+
+  const {
+    // Studio
+    currentStudio,
+    currentStudioId,
+    studioLocations,
+    // User
+    userEmail,
+    userId,
+    userLabel,
+    userInitials,
+    userMenuOpen,
+    setUserMenuOpen,
+    userMenuRef,
+    handleLogout,
+    // Practice settings
+    practiceSettings,
+    setPracticeSettings,
+    practiceSettingsLoaded,
+    loadPracticeSettings,
+    // Treatment catalog
+    treatmentCatalog,
+    setTreatmentCatalogState,
+    // Working hours + grid
+    workingHours,
+    setWorkingHours,
+    gridHourRange,
+    // Pricing helper
+    getDefaultAmount,
+    // Tempo + idratazione + viewport
+    currentTime,
+    setCurrentTime,
+    clientReady,
+    setClientReady,
+    isDesktop,
+    isTablet,
+    TIME_COL,
+  } = bootstrap;
 
   const params = useSearchParams();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Catalogo trattamenti dinamico (treatment_types). Riempie ALL_TREATMENTS
-  // tramite setTreatmentCatalog, e tiene una copia in stato React per
-  // forzare il re-render quando cambia.
-  const [treatmentCatalog, setTreatmentCatalogState] = useState<{ key: string; label: string; color: string; price_invoice: number; price_cash: number; duration_min: number }[]>([]);
-
-  // Orari di lavoro dello studio (per calcolare la finestra oraria della griglia calendario).
-  const [workingHours, setWorkingHours] = useState<{ day_of_week: number; open_time: string; close_time: string; is_open: boolean }[]>([]);
-
-// User menu (Logout + Settings)
-const [userEmail, setUserEmail] = useState<string | null>(null);
-const [userId, setUserId] = useState<string | null>(null);
-
-  // Prezzi standard letti dai Settings (practice_settings)
-  const [practiceSettings, setPracticeSettings] = useState<PracticeSettings | null>(null);
-  const [practiceSettingsLoaded, setPracticeSettingsLoaded] = useState(false);
-const [userMenuOpen, setUserMenuOpen] = useState(false);
-const userMenuRef = useRef<HTMLDivElement | null>(null);
-
-
-useEffect(() => {
-  let mounted = true;
-  (async () => {
-    try {
-      const { data } = await supabase.auth.getUser();
-      if (!mounted) return;
-      setUserEmail(data?.user?.email ?? null);
-      setUserId(data?.user?.id ?? null);
-    } catch {
-      // ignore
-    }
-  })();
-  return () => {
-    mounted = false;
-  };
-}, []);
-
-useEffect(() => {
-  const onDown = (e: MouseEvent) => {
-    if (!userMenuOpen) return;
-    const el = userMenuRef.current;
-    if (el && !el.contains(e.target as Node)) setUserMenuOpen(false);
-  };
-  document.addEventListener("mousedown", onDown);
-  return () => document.removeEventListener("mousedown", onDown);
-}, [userMenuOpen]);
-
-
-  // Chiudi sidebar con ESC
+  // Chiudi sidebar con ESC (sidebarOpen vive in pagina, non nel bootstrap).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setSidebarOpen(false);
@@ -165,171 +167,6 @@ useEffect(() => {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-
-const handleLogout = useCallback(async () => {
-  try {
-    await supabase.auth.signOut();
-  } finally {
-    setUserMenuOpen(false);
-    window.location.href = "/login";
-  }
-}, []);
-
-
-  const loadPracticeSettings = useCallback(async () => {
-    if (!userId) return;
-    try {
-      setPracticeSettingsLoaded(false);
-      const { data, error } = await supabase
-        .from("practice_settings")
-        .select("standard_invoice, standard_cash, machine_invoice, machine_cash, auto_apply_prices, google_review_link, default_appointment_status, overlap_mode, weekly_reminder_message, default_group_price, default_group_max_participants, payment_method_required, default_payment_method")
-        .eq("owner_id", userId)
-        .maybeSingle();
-
-      if (error) throw error;
-
-      setPracticeSettings({
-        standard_invoice: data?.standard_invoice ?? null,
-        standard_cash: data?.standard_cash ?? null,
-        machine_invoice: data?.machine_invoice ?? null,
-        machine_cash: data?.machine_cash ?? null,
-        auto_apply_prices: data?.auto_apply_prices ?? null,
-        google_review_link: data?.google_review_link ?? null,
-        default_appointment_status: (data?.default_appointment_status ?? "confirmed") as "confirmed"|"booked",
-        overlap_mode: ((data as any)?.overlap_mode ?? "warn") as "block"|"warn"|"visual",
-        weekly_reminder_message: (data as any)?.weekly_reminder_message ?? null,
-        default_group_price: (data as any)?.default_group_price ?? null,
-        default_group_max_participants: (data as any)?.default_group_max_participants ?? null,
-      });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.warn("Impossibile caricare practice_settings:", msg);
-      setPracticeSettings(null);
-    } finally {
-      setPracticeSettingsLoaded(true);
-    }
-  }, [userId]);
-
-  useEffect(() => {
-    if (!userId) return;
-    loadPracticeSettings();
-  }, [userId, loadPracticeSettings]);
-
-  // ─── Carica catalogo trattamenti dinamico (treatment_types) ──────────────
-  // Sostituisce la lista hardcoded ALL_TREATMENTS con i trattamenti che
-  // l'utente ha configurato in Impostazioni → Catalogo Trattamenti.
-  useEffect(() => {
-    if (!currentStudioId) return;
-    let mounted = true;
-    (async () => {
-      try {
-        const { data, error } = await supabase
-          .from("treatment_types")
-          .select("key, label, color, price_invoice, price_cash, duration_min, is_active, sort_order")
-          .eq("studio_id", currentStudioId)
-          .eq("is_active", true)
-          .order("sort_order", { ascending: true });
-        if (error) throw error;
-        if (!mounted) return;
-        const rows = (data ?? []).map(r => ({
-          key: r.key as string,
-          label: r.label as string,
-          color: r.color as string,
-          price_invoice: Number(r.price_invoice ?? 0),
-          price_cash: Number(r.price_cash ?? 0),
-          duration_min: Number(r.duration_min ?? 30),
-        }));
-        setTreatmentCatalogState(rows);
-        // Aggiorna anche il singleton runtime usato da getTreatmentColor/Label/ALL_TREATMENTS
-        setTreatmentCatalog(rows.map(r => ({ value: r.key, label: r.label, color: r.color })));
-      } catch (e) {
-        console.warn("[calendar] errore carica treatment_types:", e instanceof Error ? e.message : e);
-      }
-    })();
-    return () => { mounted = false; };
-  }, [currentStudioId]);
-
-  // ─── Carica orari di lavoro dello studio ─────────────────────────────────
-  // Determina la finestra oraria visibile della griglia calendario in base
-  // agli orari di apertura/chiusura impostati dall'utente.
-  useEffect(() => {
-    if (!currentStudioId) return;
-    let mounted = true;
-    (async () => {
-      const { data, error } = await supabase
-        .from("working_hours")
-        .select("day_of_week, open_time, close_time, is_open")
-        .eq("studio_id", currentStudioId)
-        .order("day_of_week");
-      if (!mounted) return;
-      if (error || !data) {
-        setWorkingHours([]);
-        return;
-      }
-      setWorkingHours(data as { day_of_week: number; open_time: string; close_time: string; is_open: boolean }[]);
-    })();
-    return () => { mounted = false; };
-  }, [currentStudioId]);
-
-  // Calcola la finestra oraria globale della griglia (min open, max close)
-  // tra tutti i giorni aperti. Default 7-22 se non ci sono orari configurati.
-  const gridHourRange = useMemo(() => {
-    const openDays = workingHours.filter(w => w.is_open);
-    if (openDays.length === 0) return { start: 7, end: 22 };
-    const parseHour = (t: string): number => {
-      const [h] = t.split(":").map(Number);
-      return h;
-    };
-    const parseHourCeil = (t: string): number => {
-      const [h, m] = t.split(":").map(Number);
-      return (m && m > 0) ? h + 1 : h;
-    };
-    const minStart = Math.min(...openDays.map(w => parseHour(w.open_time)));
-    const maxEnd   = Math.max(...openDays.map(w => parseHourCeil(w.close_time)));
-    // Margine di +/- 0 per evitare slot vuoti, ma garantisco minimo 1h di range
-    const start = Math.max(0, minStart);
-    const end   = Math.min(24, Math.max(maxEnd, start + 1));
-    return { start, end };
-  }, [workingHours]);
-
-  const getDefaultAmount = useCallback((tType: TreatmentType, pType: "invoiced" | "cash") => {
-    // 1. Prima cerca nel catalogo dinamico (treatment_types)
-    const fromCatalog = treatmentCatalog.find(t => t.key === tType);
-    if (fromCatalog) {
-      return pType === "invoiced" ? fromCatalog.price_invoice : fromCatalog.price_cash;
-    }
-
-    // 2. Fallback ai prezzi legacy in practice_settings (per compatibilità con
-    //    appuntamenti storici creati prima del catalogo dinamico)
-    const fallback = tType === "seduta"
-      ? (pType === "invoiced" ? 40 : 35)
-      : (pType === "invoiced" ? 25 : 20);
-
-    if (!practiceSettings) return fallback;
-
-    if (tType === "seduta") {
-      const v = pType === "invoiced" ? practiceSettings.standard_invoice : practiceSettings.standard_cash;
-      return (typeof v === "number" && !Number.isNaN(v)) ? v : fallback;
-    } else {
-      const v = pType === "invoiced" ? practiceSettings.machine_invoice : practiceSettings.machine_cash;
-      return (typeof v === "number" && !Number.isNaN(v)) ? v : fallback;
-    }
-  }, [practiceSettings, treatmentCatalog]);
-
-const userLabel = useMemo(() => {
-  if (!userEmail) return "Account";
-  const left = userEmail.split("@")[0] || userEmail;
-  return left.length > 18 ? left.slice(0, 18) + "…" : left;
-}, [userEmail]);
-
-const userInitials = useMemo(() => {
-  if (!userEmail) return "U";
-  const left = userEmail.split("@")[0] || "U";
-  const parts = left.replace(/[^a-zA-Z0-9]/g, " ").split(" ").filter(Boolean);
-  const a = (parts[0]?.[0] || "U").toUpperCase();
-  const b = (parts[1]?.[0] || "").toUpperCase();
-  return (a + b).slice(0, 2);
-}, [userEmail]);
 
 
 
@@ -454,12 +291,11 @@ const userInitials = useMemo(() => {
   const [creatingQuickPatient, setCreatingQuickPatient] = useState(false);
 
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
-  const [clientReady, setClientReady] = useState(false);
 
-  // Hydration-safe: mark client ready
+  // Hydration-safe: imposta currentDate al mount.
+  // (clientReady è ora gestito da useCalendarBootstrap.)
   useEffect(() => {
     setCurrentDate(new Date());
-    setClientReady(true);
   }, []);
 
   // ── Gestione parametri URL da GlobalSearch (?date=YYYY-MM-DD&view=day) ─────
@@ -630,7 +466,7 @@ const { data, error } = await supabase
     y: number;
   } | null>(null);
 
-  const [currentTime, setCurrentTime] = useState(new Date());
+  // currentTime è ora gestito da useCalendarBootstrap.
   const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
   const [showAvailableOnly, setShowAvailableOnly] = useState(false);
 
@@ -738,46 +574,7 @@ const { data, error } = await supabase
   
   // Sidebar behavior: overlay on mobile, "push content" on desktop
   const SIDEBAR_W = 300;
-  const [isDesktop, setIsDesktop] = useState(false);
-  const [isTablet, setIsTablet] = useState(false);
-
-  // Responsive time column width
-  const TIME_COL = isTablet && !isDesktop ? 50 : 80;
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mqlDesktop = window.matchMedia("(min-width: 1024px)");
-    const mqlTablet = window.matchMedia("(min-width: 768px) and (max-width: 1199px)");
-    const update = () => {
-      const desk = mqlDesktop.matches;
-      const tab = mqlTablet.matches;
-      setIsDesktop(desk);
-      setIsTablet(tab);
-      // Su tablet: default vista giorno (più comoda touch)
-      if (tab && !desk) {
-        setViewType(prev => prev === "week" ? "day" : prev);
-      }
-    };
-    update();
-    if (mqlDesktop.addEventListener) {
-      mqlDesktop.addEventListener("change", update);
-      mqlTablet.addEventListener("change", update);
-    }
-    return () => {
-      if (mqlDesktop.removeEventListener) {
-        mqlDesktop.removeEventListener("change", update);
-        mqlTablet.removeEventListener("change", update);
-      }
-    };
-  }, []);
-// Timer per linea del tempo corrente
-  useEffect(() => {
-    setCurrentTime(new Date());
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 60000);
-    return () => clearInterval(timer);
-  }, []);
+  // isDesktop, isTablet, TIME_COL e currentTime tick sono ora in useCalendarBootstrap.
 
   // Carica appuntamenti della giornata corrente per il menu laterale
   useEffect(() => {
