@@ -40,3 +40,10 @@ export {
   type UseReminderFlowOptions,
   type UseReminderFlowReturn,
 } from "./useReminderFlow";
+
+export {
+  useGroupOperations,
+  type InitialParticipant,
+  type UseGroupOperationsOptions,
+  type UseGroupOperationsReturn,
+} from "./useGroupOperations";
