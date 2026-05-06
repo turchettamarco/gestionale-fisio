@@ -417,6 +417,7 @@ export default function DayTimeline({
                         onUpdate={async (next) => onUpdatePayment(event.id, next)}
                         tone="light"
                         size={12}
+                        compact
                       />
                     ) : (
                       <button

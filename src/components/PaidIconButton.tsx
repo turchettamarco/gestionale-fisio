@@ -46,6 +46,13 @@ type Props = {
   tone?: "light" | "dark";
   /** Dimensione del bottone (px, default 18). */
   size?: number;
+  /**
+   * Modalità compatta: nasconde sfondo/bordo/padding/check (✓), mostrando
+   * solo l'icona del dollaro. Usata nelle card piccole della vista giorno
+   * dove il riquadro pieno sforerebbe oltre la colonna laterale stretta.
+   * Default false.
+   */
+  compact?: boolean;
   disabled?: boolean;
 };
 
@@ -54,6 +61,7 @@ export default function PaidIconButton({
   onUpdate,
   tone = "light",
   size = 18,
+  compact = false,
   disabled = false,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -137,24 +145,45 @@ export default function PaidIconButton({
             ? "Pagato — clicca per modificare"
             : "Segna pagato"
         }
-        style={{
-          background: bg,
-          border,
-          borderRadius: 4,
-          padding: "0 5px",
-          height: size,
-          minWidth: size + 8,
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 2,
-          cursor: disabled || busy ? "default" : "pointer",
-          opacity: busy ? 0.6 : 1,
-          lineHeight: 1,
-        }}
+        style={
+          compact
+            ? {
+                // Modalità compatta: solo l'icona, niente sfondo/bordo/padding.
+                // Pensata per card strette dove il riquadro pieno sforerebbe.
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                width: size,
+                height: size,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: disabled || busy ? "default" : "pointer",
+                opacity: busy ? 0.6 : 1,
+                lineHeight: 1,
+                color: iconColor,
+              }
+            : {
+                background: bg,
+                border,
+                borderRadius: 4,
+                padding: "0 5px",
+                height: size,
+                minWidth: size + 8,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 2,
+                cursor: disabled || busy ? "default" : "pointer",
+                opacity: busy ? 0.6 : 1,
+                lineHeight: 1,
+              }
+        }
       >
         <CircleDollarSign size={Math.max(11, size - 7)} color={iconColor} strokeWidth={2.2} />
-        {isPaid && (
+        {/* Il check ✓ viene mostrato solo nella variante NON-compatta. In compact
+            l'icona piena (con stato visivo dato dal colore) è sufficiente. */}
+        {isPaid && !compact && (
           <span
             style={{
               fontSize: Math.max(9, size - 9),
