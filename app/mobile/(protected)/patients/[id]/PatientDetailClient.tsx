@@ -36,6 +36,7 @@ import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 import PaidPill from "@/src/components/PaidPill";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
+import PatientPackagesSection from "@/src/components/packages/PatientPackagesSection";
 
 /* ─── Types ───────────────────────────────────────────────────────────── */
 type Plan   = "invoice" | "no_invoice";
@@ -356,7 +357,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState("");
   const [patient,   setPatient]   = useState<Patient | null>(null);
-  const [activeTab, setActiveTab] = useState<"info" | "clinical" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal">("info");
+  const [activeTab, setActiveTab] = useState<"info" | "clinical" | "packages" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal">("info");
 
   /* user */
   const [userEmail,    setUserEmail]    = useState<string | null>(null);
@@ -973,13 +974,14 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
           { id: "info",      label: "Info",    icon: "👤" },
           { id: "clinical",  label: "Clinica", icon: "🩺" },
           { id: "therapies", label: "Sedute",  icon: "📋" },
+          { id: "packages",  label: "Pacchetti", icon: "📦" },
           { id: "docs",      label: "Referti", icon: "📁" },
           { id: "esercizi",  label: "Esercizi", icon: "🏋️" },
           { id: "note",      label: "Note",    icon: "📝" },
           { id: "scales",    label: "Scale",   icon: "📊" },
           { id: "photos",    label: "Foto",    icon: "📷" },
           { id: "portal",    label: "Portale", icon: "🔑" },
-        ] as { id: "info" | "clinical" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal"; label: string; icon: string }[]).map(tab => (
+        ] as { id: "info" | "clinical" | "packages" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal"; label: string; icon: string }[]).map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
             padding: "11px 14px", background: "none", border: "none",
             borderBottom: `2.5px solid ${activeTab === tab.id ? T.blue : "transparent"}`,
@@ -1383,6 +1385,13 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
           <div style={{ padding:"14px 12px" }}>
             <div style={{ fontSize:15, fontWeight:800, color:T.text, marginBottom:14 }}>📷 Foto cliniche</div>
             <PhotoGallerySection patientId={patient.id} />
+          </div>
+        )}
+
+        {/* ─── PACCHETTI ─── */}
+        {activeTab === "packages" && (
+          <div style={{ paddingBottom: 14 }}>
+            <PatientPackagesSection patientId={patient.id} mode="mobile" />
           </div>
         )}
 

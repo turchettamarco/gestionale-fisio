@@ -13,6 +13,7 @@ import { PhotoGallerySection } from "./PhotoGallery";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import PaidPill from "@/src/components/PaidPill";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
+import PatientPackagesSection from "@/src/components/packages/PatientPackagesSection";
 
 function cleanPhoneWA(phone: string): string {
   // Delegato alla utility centrale in src/lib/whatsapp.ts per consistenza
@@ -815,6 +816,7 @@ export default function PatientDetailPage({
   const [secClinica,      setSecClinica]      = useState(false);
   const [secBodyChart,    setSecBodyChart]    = useState(false);
   const [secDocClinici,   setSecDocClinici]   = useState(false);
+  const [secPacchetti,    setSecPacchetti]    = useState(false);
   const [secTerapie,      setSecTerapie]      = useState(false);
   const [secDiarioSOAP,   setSecDiarioSOAP]   = useState(false);
   const [soapNotes,       setSoapNotes]       = useState<any[]>([]);
@@ -2818,6 +2820,22 @@ ${rows}
             </div>
           )}
           </div>
+          )}
+        </section>
+
+        {/* ── PACCHETTI SEDUTE ──────────────────────────────────────────────── */}
+        <section style={{ ...cardStyle }}>
+          <SecHeader
+            icon="📦"
+            title="Pacchetti sedute"
+            subtitle="Cicli di trattamento prepagati · acconti · saldi · rate"
+            open={secPacchetti}
+            onToggle={() => setSecPacchetti(s => !s)}
+          />
+          {secPacchetti && patient && (
+            <div style={cardBody}>
+              <PatientPackagesSection patientId={patient.id} mode="desktop" />
+            </div>
           )}
         </section>
 
