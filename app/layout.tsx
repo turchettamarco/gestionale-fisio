@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "FisioHub",
-  description: "Gestionale FisioHub — Studio Dr. Turchetta",
+  description: "Gestionale per fisioterapisti e osteopati",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
