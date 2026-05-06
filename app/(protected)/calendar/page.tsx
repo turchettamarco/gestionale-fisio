@@ -64,13 +64,15 @@ import {
 // ─── Studio context (multi-tenancy) ──────────────────────────────────────────
 import { useCurrentStudio, useCurrentStudioId } from "@/src/contexts/StudioContext";
 
-// ─── Hook custom della pagina calendar (refactor B3.1, B3.2, B3.3, B3.4, B3.5) ───
+// ─── Hook custom della pagina calendar (refactor B3.1 → B3.7) ────────────────
 import {
   useCalendarBootstrap,
   useSearchAndFilters,
   useCalendarEvents,
   useReminderFlow,
   useGroupOperations,
+  useDragAndDrop,
+  useAppointmentMutations,
 } from "@/src/hooks/calendar";
 
 // ─── Popover (B2.1, B2.2) ────────────────────────────────────────────────────
@@ -460,13 +462,7 @@ function CalendarPageInner() {
 
   // weeklyExpectedRevenue, viewType e l'effect loadPeriodStats sono ora in useCalendarEvents.
 
-  const [draggingEvent, setDraggingEvent] = useState<{
-    id: string;
-    originalStart: Date;
-    originalEnd: Date;
-  } | null>(null);
-  const [draggingOver, setDraggingOver] = useState<{dayIndex: number, hour: number, minute: number} | null>(null);
-  const [dragGhostPos, setDragGhostPos] = useState<{x: number, y: number} | null>(null);
+  // draggingEvent, draggingOver, dragGhostPos: ora in useDragAndDrop.
 
   // Overlap warning
   const [overlapWarning, setOverlapWarning] = useState<string | null>(null);
@@ -495,6 +491,29 @@ function CalendarPageInner() {
     y: number;
   } | null>(null);
   const hoverTimer = useRef<any>(null);
+
+  // ─── Drag and drop appuntamenti tra slot (refactor B3.6) ─────────────────
+  const dnd = useDragAndDrop({
+    currentDate,
+    loadAppointments,
+    setError,
+    setHoverTooltip,
+    hoverTimer,
+  });
+
+  const {
+    draggingEvent,
+    setDraggingEvent,
+    draggingOver,
+    setDraggingOver,
+    dragGhostPos,
+    setDragGhostPos,
+    handleDragStart,
+    handleDragOver,
+    handleDragLeave,
+    handleDrop,
+    handleDragEnd,
+  } = dnd;
 
   // Feature: Riepilogo giornaliero
   const [dailySummaryOpen, setDailySummaryOpen] = useState(false);
@@ -957,28 +976,6 @@ function CalendarPageInner() {
 
   // toggleBulkSelect: ora in useSearchAndFilters.
 
-  const bulkMarkPaid = useCallback(async () => {
-    if (bulkSelected.size === 0) return;
-    setError("");
-    const ids = Array.from(bulkSelected);
-    // Mantiene coerenza col CHECK constraint appointments_paid_consistency:
-    // is_paid=true ↔ paid_at NOT NULL (mig. 010).
-    const nowIso = new Date().toISOString();
-
-    for (const id of ids) {
-      const { error } = await supabase.from("appointments").update({ is_paid: true, paid_at: nowIso }).eq("id", id);
-      if (error) {
-        setError(`Errore aggiornamento: ${translateError(error)}`);
-        return;
-      }
-    }
-
-    setBulkSelected(new Set());
-    setBulkMode(false);
-    const startOfWeek = startOfISOWeekMonday(currentDate);
-    const endOfWeek = addDays(startOfWeek, 7);
-    await loadAppointments(startOfWeek, endOfWeek);
-  }, [bulkSelected, currentDate, loadAppointments]);
 
   const updateDuplicateDateTime = useCallback((newDate: string, newTime: string) => {
     if (!newDate || !newTime) return;
@@ -1066,6 +1063,89 @@ function CalendarPageInner() {
     setOverlapWarning(checkOverlap(createStartISO, createEndISO));
   }, [createStartISO, createEndISO, createOpen, checkOverlap]);
 
+  // ─── Mutazioni appuntamenti: create/save/delete + toggle + bulk + quick patient ───
+  // (refactor B3.7, ultimo hook). Composito: legge i form state via closure
+  // raggruppata in createForm/editForm/quickPatientForm.
+  const mutations = useAppointmentMutations({
+    createForm: {
+      createStartISO,
+      createEndISO,
+      createLocation,
+      createClinicSite,
+      createDomicileAddress,
+      createLocationId,
+      treatmentType,
+      priceType,
+      paymentMethod,
+      customAmount,
+      useCustomPrice,
+      isRecurring,
+      recurringDays,
+      recurringUntil,
+      recurringFrequency,
+      isGroupAppointment,
+      groupTitle,
+      groupMaxParticipants,
+      groupPricePerPerson,
+      groupRecurringMode,
+    },
+    editForm: {
+      editStatus,
+      editNote,
+      editAmount,
+      editTreatmentType,
+      editPriceType,
+      editPaymentMethod,
+      editDate,
+      editStartTime,
+      editDuration,
+    },
+    quickPatientForm: {
+      quickPatientFirstName,
+      quickPatientLastName,
+      quickPatientPhone,
+    },
+    setCreateOpen,
+    setCreating,
+    setQuickPatientOpen,
+    setQuickPatientFirstName,
+    setQuickPatientLastName,
+    setQuickPatientPhone,
+    setCreatingQuickPatient,
+    selectedPatient,
+    setSelectedPatient,
+    setPatientResults,
+    selectedEvent,
+    setSelectedEvent,
+    bulkSelected,
+    setBulkSelected,
+    setBulkMode,
+    initialParticipants,
+    setInitialParticipants,
+    currentStudio,
+    currentStudioId,
+    studioLocations,
+    practiceSettings,
+    getDefaultAmount,
+    treatmentCatalog,
+    setError,
+    currentDate,
+    loadAppointments,
+    checkOverlap,
+  });
+
+  const {
+    createAppointment,
+    saveAppointment,
+    deleteAppointment,
+    toggleDoneQuick,
+    togglePaidQuick,
+    handleUpdatePayment,
+    bulkMarkPaid,
+    createQuickPatient,
+    createQuickPatientCore,
+  } = mutations;
+
   // Feature: Month view helpers
   // monthDays è ora in useCalendarEvents.
 
@@ -1111,145 +1191,13 @@ function CalendarPageInner() {
     }
   }, [createOpen, duplicateMode, eventToDuplicate]);
 
-  const toggleDoneQuick = useCallback(async (apptId: string, current: Status) => {
-    setError("");
-    const next: Status = current === "done" ? "confirmed" : "done";
 
-    // Mantiene coerenza col CHECK constraint appointments_paid_consistency:
-    // is_paid=true ↔ paid_at NOT NULL (mig. 010).
-    const willBePaid = next === "done";
-    const payload = willBePaid
-      ? { status: next, is_paid: true,  paid_at: new Date().toISOString() }
-      : { status: next, is_paid: false, paid_at: null };
-    const { error } = await supabase.from("appointments").update(payload).eq("id", apptId);
-
-    if (error) {
-      setError(`Errore aggiornamento stato: ${translateError(error)}`);
-      return;
-    }
-
-    const startOfWeek = startOfISOWeekMonday(currentDate);
-    const endOfWeek = addDays(startOfWeek, 7);
-    await loadAppointments(startOfWeek, endOfWeek);
-  }, [currentDate, loadAppointments]);
-
-  const togglePaidQuick = useCallback(async (apptId: string, currentlyPaid: boolean) => {
-    setError("");
-    // Mantiene coerenza col CHECK constraint appointments_paid_consistency:
-    // is_paid=true ↔ paid_at NOT NULL (mig. 010).
-    const willBePaid = !currentlyPaid;
-    const payload = willBePaid
-      ? { is_paid: true,  paid_at: new Date().toISOString() }
-      : { is_paid: false, paid_at: null };
-    const { error } = await supabase.from("appointments").update(payload).eq("id", apptId);
-    if (error) {
-      setError(`Errore aggiornamento pagamento: ${translateError(error)}`);
-      return;
-    }
-    const startOfWeek = startOfISOWeekMonday(currentDate);
-    const endOfWeek = addDays(startOfWeek, 7);
-    await loadAppointments(startOfWeek, endOfWeek);
-  }, [currentDate, loadAppointments]);
 
   // Handler completo per il PaidIconButton/PaidPill: scrive is_paid + paid_at +
   // payment_method tutti insieme, in modo coerente con il CHECK constraint
   // (mig. 010) e con l'invariante "non fatturato = sempre contante" (mig. 011,
   // garantita anche dal trigger DB).
-  const handleUpdatePayment = useCallback(
-    async (
-      apptId: string,
-      next: {
-        is_paid: boolean;
-        paid_at: string | null;
-        payment_method: "cash" | "pos" | "bank_transfer" | null;
-      }
-    ) => {
-      setError("");
-      const payload: Record<string, unknown> = {
-        is_paid: next.is_paid,
-        paid_at: next.paid_at,
-      };
-      // payment_method va settato esplicitamente solo quando l'utente lo
-      // sceglie nel popover. Se non pagato, lo azzeriamo.
-      if (!next.is_paid) {
-        payload.payment_method = null;
-      } else if (next.payment_method) {
-        payload.payment_method = next.payment_method;
-      }
-      const { error } = await supabase.from("appointments").update(payload).eq("id", apptId);
-      if (error) {
-        setError(`Errore aggiornamento pagamento: ${translateError(error)}`);
-        return;
-      }
-      const startOfWeek = startOfISOWeekMonday(currentDate);
-      const endOfWeek = addDays(startOfWeek, 7);
-      await loadAppointments(startOfWeek, endOfWeek);
-    },
-    [currentDate, loadAppointments]
-  );
 
-  const createQuickPatient = useCallback(async () => {
-    if (!quickPatientFirstName.trim() || !quickPatientLastName.trim()) {
-      setError("Inserisci nome e cognome per il nuovo paziente.");
-      return;
-    }
-    if (!currentStudioId) {
-      setError("Studio non disponibile. Riprova tra un momento.");
-      return;
-    }
-
-    setCreatingQuickPatient(true);
-    setError("");
-
-    try {
-      // Recupera owner_id (auth user) per la multi-tenancy
-      const { data: userData } = await supabase.auth.getUser();
-      const ownerId = userData?.user?.id;
-      if (!ownerId) {
-        setError("Sessione scaduta. Effettua di nuovo il login.");
-        setCreatingQuickPatient(false);
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from("patients")
-        .insert({
-          first_name: quickPatientFirstName.trim(),
-          last_name: quickPatientLastName.trim(),
-          phone: quickPatientPhone.trim() || null,
-          status: "da_completare",
-          owner_id: ownerId,                // multi-tenancy
-          studio_id: currentStudioId,        // multi-tenancy
-          created_at: new Date().toISOString(),
-        })
-        .select("id, first_name, last_name, phone")
-        .single();
-
-      if (error) throw error;
-
-      if (data) {
-        const newPatient: PatientLite = {
-          id: data.id,
-          first_name: data.first_name,
-          last_name: data.last_name,
-          phone: data.phone,
-        };
-
-        setSelectedPatient(newPatient);
-        setPatientResults(prev => [newPatient, ...prev]);
-        setQuickPatientOpen(false);
-        setQuickPatientFirstName("");
-        setQuickPatientLastName("");
-        setQuickPatientPhone("");
-        
-        setError("Paziente creato con successo! Ora puoi creare l'appuntamento.");
-      }
-    } catch (err: unknown) {
-      setError(`Errore creazione paziente: ${translateError(err)}`);
-    } finally {
-      setCreatingQuickPatient(false);
-    }
-  }, [quickPatientFirstName, quickPatientLastName, quickPatientPhone, currentStudioId]);
 
   // ─── Quick patient per gruppo (nuovo, mig. 015) ───────────────────
   // Usato sia in fase di creazione gruppo (CreateAppointmentModal con
@@ -1257,512 +1205,9 @@ function CalendarPageInner() {
   // esistente (GroupEventModal). Crea il paziente con tenancy e lo
   // restituisce; il chiamante decide cosa farne (aggiungerlo a
   // initialParticipants oppure invocare onAddParticipant).
-  const createQuickPatientCore = useCallback(async (
-    payload: { first_name: string; last_name: string; phone: string | null }
-  ): Promise<PatientLite | null> => {
-    if (!currentStudioId) {
-      setError("Studio non disponibile. Riprova tra un momento.");
-      return null;
-    }
-    const { data: userData } = await supabase.auth.getUser();
-    const ownerId = userData?.user?.id;
-    if (!ownerId) {
-      setError("Sessione scaduta. Effettua di nuovo il login.");
-      return null;
-    }
-    try {
-      const { data, error } = await supabase
-        .from("patients")
-        .insert({
-          first_name: payload.first_name,
-          last_name: payload.last_name,
-          phone: payload.phone,
-          status: "da_completare",
-          owner_id: ownerId,
-          studio_id: currentStudioId,
-          created_at: new Date().toISOString(),
-        })
-        .select("id, first_name, last_name, phone")
-        .single();
-      if (error) throw error;
-      if (!data) return null;
-      return {
-        id: data.id,
-        first_name: data.first_name,
-        last_name: data.last_name,
-        phone: data.phone,
-      };
-    } catch (err: unknown) {
-      setError(`Errore creazione paziente: ${translateError(err)}`);
-      return null;
-    }
-  }, [currentStudioId]);
 
-  const createAppointment = useCallback(async (sendWhatsApp: boolean = false) => {
-  setError("");
 
-  // Per gli appuntamenti di gruppo, NON serve un paziente selezionato
-  // (i partecipanti verranno aggiunti dopo dal SelectedEventModal).
-  // Servono però titolo, max partecipanti e prezzo per persona.
-  if (isGroupAppointment) {
-    if (!groupTitle.trim()) {
-      setError("Inserisci un titolo per il gruppo (es. \"Posturale di gruppo\").");
-      return;
-    }
-    const maxN = parseInt(groupMaxParticipants, 10);
-    if (isNaN(maxN) || maxN < 2) {
-      setError("Numero massimo partecipanti non valido (minimo 2).");
-      return;
-    }
-    const pricePP = parseFloat(groupPricePerPerson.replace(",", "."));
-    if (isNaN(pricePP) || pricePP < 0) {
-      setError("Prezzo per persona non valido.");
-      return;
-    }
-  } else if (!selectedPatient) {
-    setError("Seleziona un paziente prima di creare l'appuntamento.");
-    return;
-  }
-  if (!createStartISO || !createEndISO) {
-    setError("Orari appuntamento non validi.");
-    return;
-  }
 
-  if (createLocation === "studio") {
-    if (!createClinicSite.trim()) {
-      setError("Inserisci il nome della sede (clinic_site).");
-      return;
-    }
-  } else {
-    if (createDomicileAddress.trim().length < 5) {
-      setError("Inserisci un indirizzo domicilio valido (min 5 caratteri).");
-      return;
-    }
-  }
-
-  const firstStart = new Date(createStartISO);
-  const firstEnd = new Date(createEndISO);
-  const durationMs = firstEnd.getTime() - firstStart.getTime();
-  if (durationMs <= 0) {
-    setError("Durata appuntamento non valida.");
-    return;
-  }
-
-  // Feature: Check overlap before creating
-  if (!isRecurring) {
-    const overlap = checkOverlap(createStartISO, createEndISO);
-    if (overlap) {
-      const proceed = window.confirm(`${overlap}\n\nVuoi procedere comunque?`);
-      if (!proceed) return;
-    }
-  }
-
-  if (isRecurring) {
-    if (recurringDays.length === 0) {
-      setError("Seleziona almeno un giorno per la ricorrenza.");
-      return;
-    }
-    const until = parseDateInput(recurringUntil);
-    if (until < firstStart) {
-      setError("La data 'Ripeti fino a' non può essere precedente alla prima data.");
-      return;
-    }
-  }
-
-  let amount: number | null = null;
-  if (isGroupAppointment) {
-    // Per i gruppi, "amount" sull'appointment padre resta NULL.
-    // Il totale si calcola come somma dei prezzi dei partecipanti.
-    amount = null;
-  } else if (useCustomPrice && customAmount !== "") {
-    const parsed = parseFloat(customAmount.replace(',', '.'));
-    if (!isNaN(parsed) && parsed >= 0) {
-      amount = parsed;
-    }
-  } else {
-    // Se nei Settings hai disattivato "applica automaticamente", lasciamo vuoto a meno che non sia custom
-    const autoApply = practiceSettings?.auto_apply_prices ?? true;
-    if (autoApply) {
-      amount = getDefaultAmount(treatmentType, priceType);
-    } else {
-      amount = null;
-    }
-  }
-
-  // Validazione: se fatturato, payment_method è obbligatorio SOLO se l'utente
-  // ha attivato il check bloccante nelle impostazioni (default true per retro-compat).
-  // Se non bloccante e l'utente non ha scelto, applichiamo automaticamente il
-  // default configurato (default "pos") senza interrompere il flusso.
-  // (skip per i gruppi: i pagamenti sono per singolo partecipante)
-  let effectivePaymentMethod = paymentMethod;
-  if (!isGroupAppointment && priceType === "invoiced" && !paymentMethod) {
-    const required = practiceSettings?.payment_method_required ?? true;
-    if (required) {
-      alert("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");
-      return;
-    }
-    // Non bloccante → applica il default
-    effectivePaymentMethod = (practiceSettings?.default_payment_method ?? "pos") as "cash" | "pos" | "bank_transfer";
-  }
-
-  setCreating(true);
-
-  // Per i gruppi, patient_id=null e is_group=true.
-  // Il vincolo CHECK del DB richiede patient_id NULL quando is_group=TRUE.
-  const basePayload = isGroupAppointment
-    ? {
-        patient_id: null,
-        status: (practiceSettings?.default_appointment_status ?? "confirmed") as Status,
-        calendar_note: null as string | null,
-        location: createLocation,
-        clinic_site: createLocation === "studio" ? createClinicSite.trim() : null,
-        // Multi-sede (mig. 014, fase 2): scrivi location_id solo se la sede
-        // è "studio" e il toggle multi-sede è ON e c'è una sede selezionata.
-        // Altrimenti null → fallback alla sede principale lato lettura.
-        location_id: (createLocation === "studio" && currentStudio?.multi_location_enabled && createLocationId)
-          ? createLocationId : null,
-        domicile_address: createLocation === "domicile" ? createDomicileAddress.trim() : null,
-        treatment_type: null,
-        price_type: null,
-        payment_method: null,
-        amount: null,
-        studio_id: currentStudioId,
-        // Campi gruppo (mig. 014)
-        is_group: true,
-        group_title: groupTitle.trim(),
-        group_max_participants: parseInt(groupMaxParticipants, 10),
-        group_price_per_person: parseFloat(groupPricePerPerson.replace(",", ".")),
-      }
-    : {
-        patient_id: selectedPatient!.id,
-        status: (practiceSettings?.default_appointment_status ?? "confirmed") as Status,
-        calendar_note: null as string | null,
-        location: createLocation,
-        clinic_site: createLocation === "studio" ? createClinicSite.trim() : null,
-        location_id: (createLocation === "studio" && currentStudio?.multi_location_enabled && createLocationId)
-          ? createLocationId : null,
-        domicile_address: createLocation === "domicile" ? createDomicileAddress.trim() : null,
-        treatment_type: treatmentType,
-        price_type: priceType,
-        payment_method: priceType === "invoiced" ? effectivePaymentMethod : null,
-        amount: amount,
-        studio_id: currentStudioId,  // multi-tenancy
-        is_group: false,
-      };
-
-  try {
-    let createdAppointmentId: string | null = null;
-
-    if (!isRecurring) {
-      const payload = {
-        ...basePayload,
-        start_at: firstStart.toISOString(),
-        end_at: firstEnd.toISOString(),
-      };
-
-      const { data, error: insErr } = await supabase.from("appointments").insert(payload).select().single();
-      if (insErr) throw new Error(insErr.message);
-
-      if (data) {
-        createdAppointmentId = data.id;
-
-        // ─── Step 6.1: inserisci i partecipanti iniziali (se ci sono) ──
-        if (isGroupAppointment && initialParticipants.length > 0 && createdAppointmentId) {
-          const pricePP = parseFloat(groupPricePerPerson.replace(",", "."));
-          const partRows = initialParticipants.map(p => ({
-            appointment_id: createdAppointmentId,
-            patient_id: p.id,
-            price: isFinite(pricePP) ? pricePP : 0,
-            payment_status: "unpaid",
-            attendance_status: "pending",
-          }));
-          const { error: partErr } = await supabase
-            .from("appointment_participants")
-            .insert(partRows);
-          if (partErr) {
-            // Non blocchiamo: il gruppo è creato. Mostriamo un warning.
-            console.error("[create-group] errore inserimento partecipanti:", partErr);
-            alert(
-              `Gruppo creato, ma c'è stato un errore nell'aggiungere i partecipanti: ${partErr.message}\n` +
-              `Puoi aggiungerli manualmente dalla scheda del gruppo.`
-            );
-          }
-        }
-        
-        // Per i gruppi non c'è un singolo paziente a cui inviare il WA.
-        // I promemoria a tutti i partecipanti verranno inviati dopo, dal SelectedEventModal.
-        if (sendWhatsApp && !isGroupAppointment && selectedPatient) {
-          if (!(selectedPatient.phone || "").trim()) {
-            alert("Nessun telefono registrato per questo paziente");
-          } else {
-            const dataRelativa = formatDateRelative(firstStart);
-            const ora = fmtTime(firstStart.toISOString());
-            
-            let luogo = "";
-            if (createLocation === 'studio') {
-              luogo = currentStudio?.address ||
-                      CLINIC_ADDRESSES[createClinicSite] || 
-                      createClinicSite || 
-                      "";
-            } else {
-              luogo = `Presso il suo domicilio (${createDomicileAddress})`;
-            }
-            
-            const nomePaziente = selectedPatient.first_name || "Cliente";
-            const firma = [currentStudio?.signature_name, currentStudio?.signature_title]
-              .filter(Boolean).join("\n");
-            
-            const message = `Grazie per averci scelto.
-Ricordiamo il prossimo appuntamento fissato per ${dataRelativa} alle ${ora}.
-
-📍 ${luogo}
-
-A presto${firma ? `,\n${firma}` : ""}`;
-            
-            openWhatsApp(selectedPatient.phone || "", message);
-
-            // Segna WhatsApp inviato per questo appuntamento (timestamp = verità)
-            if (createdAppointmentId) {
-              const nowIso = new Date().toISOString();
-              await supabase.from("appointments").update({ whatsapp_sent_at: nowIso, whatsapp_sent: true }).eq("id", createdAppointmentId);
-            }
-          }
-        }
-      }
-
-    } else {
-      const until = parseDateInput(recurringUntil);
-
-      const starts = generateRecurringStarts({
-        firstStart,
-        untilDate: until,
-        weekDays: recurringDays,
-        frequency: recurringFrequency,
-      });
-
-      if (starts.length > 200) {
-        throw new Error(
-          `Ricorrenza troppo ampia: ${starts.length} appuntamenti. Riduci l'intervallo o i giorni selezionati.`
-        );
-      }
-
-      const rows = starts.map((s) => ({
-        ...basePayload,
-        start_at: s.toISOString(),
-        end_at: new Date(s.getTime() + durationMs).toISOString(),
-      }));
-
-      const { data: insertedRows, error: insErr } = await supabase
-        .from("appointments")
-        .insert(rows)
-        .select("id, start_at");
-      if (insErr) throw new Error(insErr.message);
-
-      // ─── Step 6.1: partecipanti iniziali per gruppi ricorrenti ─────
-      // Modalità "closed": replica i pazienti su TUTTE le occorrenze
-      // Modalità "open": solo la prima occorrenza riceve i partecipanti
-      if (isGroupAppointment && initialParticipants.length > 0 && insertedRows && insertedRows.length > 0) {
-        const pricePP = parseFloat(groupPricePerPerson.replace(",", "."));
-        // Ordina cronologicamente per identificare la "prima" occorrenza
-        const sortedAppts = [...insertedRows].sort((a, b) =>
-          new Date(a.start_at).getTime() - new Date(b.start_at).getTime()
-        );
-        const targetAppts = groupRecurringMode === "closed"
-          ? sortedAppts                          // tutti
-          : sortedAppts.slice(0, 1);             // solo il primo
-        const allPartRows: Array<Record<string, unknown>> = [];
-        for (const a of targetAppts) {
-          for (const p of initialParticipants) {
-            allPartRows.push({
-              appointment_id: a.id,
-              patient_id: p.id,
-              price: isFinite(pricePP) ? pricePP : 0,
-              payment_status: "unpaid",
-              attendance_status: "pending",
-            });
-          }
-        }
-        const { error: partErr } = await supabase
-          .from("appointment_participants")
-          .insert(allPartRows);
-        if (partErr) {
-          console.error("[create-group-recurring] errore inserimento partecipanti:", partErr);
-          alert(
-            `Gruppi creati, ma c'è stato un errore nell'aggiungere i partecipanti: ${partErr.message}\n` +
-            `Puoi aggiungerli manualmente dalle schede dei gruppi.`
-          );
-        }
-      }
-      
-      if (sendWhatsApp) {
-        alert("Per appuntamenti ricorrenti, WhatsApp non viene inviato automaticamente per evitare troppi messaggi.");
-      }
-    }
-
-    setCreateOpen(false);
-    // Reset partecipanti iniziali per il prossimo gruppo (step 6.1)
-    setInitialParticipants([]);
-    const startOfWeek = startOfISOWeekMonday(currentDate);
-    const endOfWeek = addDays(startOfWeek, 7);
-    await loadAppointments(startOfWeek, endOfWeek);
-    
-  } catch (e: unknown) {
-    setError(`Errore creazione appuntamento: ${translateError(e)}`);
-  } finally {
-    setCreating(false);
-  }
-}, [
-  selectedPatient,
-  createStartISO,
-  createEndISO,
-  createLocation,
-  createClinicSite,
-  createDomicileAddress,
-  isRecurring,
-  recurringDays,
-  recurringUntil,
-  recurringFrequency,
-  treatmentType,
-  priceType,
-  paymentMethod,
-  useCustomPrice,
-  customAmount,
-  practiceSettings,
-  getDefaultAmount,
-  currentDate,
-  loadAppointments,
-  checkOverlap,
-  // Gruppo (mig. 014)
-  isGroupAppointment,
-  groupTitle,
-  groupMaxParticipants,
-  groupPricePerPerson,
-  groupRecurringMode,
-  initialParticipants,
-  currentStudio,
-  currentStudioId,
-]);
-
-  const saveAppointment = useCallback(async () => {
-  if (!selectedEvent) return;
-
-  setError("");
-
-  let amount: number | null = null;
-  if (editAmount !== "" && editAmount !== null && editAmount !== undefined) {
-    const parsed = parseFloat(editAmount.replace(',', '.'));
-    if (!isNaN(parsed) && parsed >= 0) {
-      amount = parsed;
-    }
-  }
-
-  // Calcola nuove date e orari se modificati
-  let newStartDate = selectedEvent.start;
-  let newEndDate = selectedEvent.end;
-  
-  if (editDate && editStartTime) {
-    const [hours, minutes] = editStartTime.split(':').map(Number);
-    newStartDate = parseDateInput(editDate);
-    newStartDate.setHours(hours, minutes, 0, 0);
-    
-    const durationHours = parseFloat(editDuration);
-    newEndDate = new Date(newStartDate.getTime() + durationHours * 60 * 60000);
-  }
-
-  if (!newStartDate || !newEndDate) {
-    alert("Errore: data o ora non valida");
-    return;
-  }
-
-  const ALLOWED = new Set(["booked","confirmed","done","cancelled","not_paid"]);
-
-  const normalizedStatus =
-    (editStatus as string) === "no_show" ? "not_paid" as Status : editStatus;
-
-  if (!ALLOWED.has(normalizedStatus)) {
-    setError(`STATUS ILLEGALE: ${String(normalizedStatus)}`);
-    return;
-  }
-
-  // Validazione: se fatturato, payment_method è obbligatorio SOLO se bloccante.
-  let effectiveEditPaymentMethod = editPaymentMethod;
-  if (editPriceType === "invoiced" && !editPaymentMethod) {
-    const required = practiceSettings?.payment_method_required ?? true;
-    if (required) {
-      alert("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");
-      return;
-    }
-    effectiveEditPaymentMethod = (practiceSettings?.default_payment_method ?? "pos") as "cash" | "pos" | "bank_transfer";
-  }
-
-  // Creiamo l'oggetto di aggiornamento.
-  // is_paid segue lo stato: done => pagato, altrimenti non pagato.
-  // paid_at deve essere coerente con is_paid (CHECK appointments_paid_consistency, mig. 010).
-  const willBePaid = normalizedStatus === "done";
-  const updateData = {
-    status: normalizedStatus,
-    is_paid: willBePaid,
-    paid_at: willBePaid ? new Date().toISOString() : null,
-    calendar_note: editNote,
-    amount: amount,
-    treatment_type: editTreatmentType,
-    price_type: editPriceType,
-    payment_method: editPriceType === "invoiced" ? effectiveEditPaymentMethod : null,
-    start_at: newStartDate.toISOString(),
-    end_at: newEndDate.toISOString(),
-  };
-
-  // Rimuoviamo le proprietà undefined/null
-  // ECCEZIONE: payment_method e paid_at devono poter essere settati a null
-  // (quando passi da "fatturato" a "contanti", devi cancellare il metodo;
-  //  quando l'appuntamento non è più done, paid_at va azzerato per il CHECK)
-  const cleanedData = Object.fromEntries(
-    Object.entries(updateData).filter(([k, v]) => {
-      if (k === "payment_method" || k === "paid_at") return v !== undefined; // null è valido
-      return v !== null && v !== undefined;
-    })
-  );
-
-  try {
-    const { error } = await supabase
-      .from("appointments")
-      .update(cleanedData)
-      .eq("id", selectedEvent.id);
-
-    if (error) {
-      setError(`Errore salvataggio: ${translateError(error)}`);
-      return;
-    }
-
-    setSelectedEvent(null);
-    const startOfWeek = startOfISOWeekMonday(currentDate);
-    const endOfWeek = addDays(startOfWeek, 7);
-    await loadAppointments(startOfWeek, endOfWeek);
-  } catch (err: unknown) {
-    setError(`Errore salvataggio: ${translateError(err)}`);
-  }
-}, [selectedEvent, editStatus, editNote, editAmount, editTreatmentType, editPriceType, editDate, editStartTime, editDuration, currentDate, loadAppointments]);
-
-  const deleteAppointment = useCallback(async () => {
-    if (!selectedEvent) return;
-
-    const ok = window.confirm("Vuoi eliminare definitivamente questo appuntamento?");
-    if (!ok) return;
-
-    setError("");
-
-    const { error } = await supabase.from("appointments").delete().eq("id", selectedEvent.id);
-
-    if (error) {
-      setError(`Errore eliminazione: ${translateError(error)}`);
-      return;
-    }
-
-    setSelectedEvent(null);
-    const startOfWeek = startOfISOWeekMonday(currentDate);
-    const endOfWeek = addDays(startOfWeek, 7);
-    await loadAppointments(startOfWeek, endOfWeek);
-  }, [selectedEvent, currentDate, loadAppointments]);
 
   const printCalendar = useCallback(() => {
     exportToPDF();
@@ -1798,93 +1243,9 @@ A presto${firma ? `,\n${firma}` : ""}`;
     });
   }, []);
 
-  const handleDragStart = useCallback((event: React.DragEvent, apptId: string, originalStart: Date, originalEnd: Date) => {
-    setDraggingEvent({ id: apptId, originalStart, originalEnd });
-    // Nascondi subito il tooltip — non deve interferire con il drag
-    if (hoverTimer.current) clearTimeout(hoverTimer.current);
-    setHoverTooltip(null);
-    event.dataTransfer.setData("text/plain", apptId);
-    event.dataTransfer.effectAllowed = "move";
+  // handleDragStart, handleDragOver, handleDragLeave, handleDrop, handleDragEnd:
+  // ora in useDragAndDrop.
 
-    if (event.currentTarget instanceof HTMLElement) {
-      event.currentTarget.style.opacity = "0.35";
-      event.currentTarget.style.transform = "scale(0.96)";
-    }
-  }, []);
-
-  const handleDragOver = useCallback((event: React.DragEvent, dayIndex?: number, hour?: number, minute: number = 0) => {
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    
-    if (dayIndex !== undefined && hour !== undefined) {
-      setDraggingOver({ dayIndex, hour, minute });
-    }
-    
-    // Track ghost position for visual feedback
-    setDragGhostPos({ x: event.clientX, y: event.clientY });
-    
-    if (event.currentTarget instanceof HTMLElement) {
-      event.currentTarget.style.backgroundColor = "rgba(37,99,235,0.08)";
-      event.currentTarget.style.transition = "background-color 0.15s ease";
-    }
-  }, []);
-
-  const handleDragLeave = useCallback((event: React.DragEvent) => {
-    setDraggingOver(null);
-    if (event.currentTarget instanceof HTMLElement) {
-      event.currentTarget.style.backgroundColor = "transparent";
-    }
-  }, []);
-
-  const handleDrop = useCallback(async (event: React.DragEvent, targetDate: Date, targetHour: number, targetMinute: number = 0) => {
-    event.preventDefault();
-    setDraggingOver(null);
-    
-    if (event.currentTarget instanceof HTMLElement) {
-      event.currentTarget.style.backgroundColor = "transparent";
-    }
-    
-    if (!draggingEvent) return;
-
-    const apptId = event.dataTransfer.getData("text/plain");
-    if (apptId !== draggingEvent.id) return;
-
-    const newStart = new Date(targetDate);
-    newStart.setHours(targetHour, targetMinute, 0, 0);
-    
-    const duration = draggingEvent.originalEnd.getTime() - draggingEvent.originalStart.getTime();
-    const newEnd = new Date(newStart.getTime() + duration);
-
-    setError("");
-
-    const { error } = await supabase
-      .from("appointments")
-      .update({
-        start_at: newStart.toISOString(),
-        end_at: newEnd.toISOString(),
-      })
-      .eq("id", apptId);
-
-    if (error) {
-      setError(`Errore spostamento: ${translateError(error)}`);
-    } else {
-      const startOfWeek = startOfISOWeekMonday(currentDate);
-      const endOfWeek = addDays(startOfWeek, 7);
-      await loadAppointments(startOfWeek, endOfWeek);
-    }
-
-    setDraggingEvent(null);
-  }, [draggingEvent, currentDate, loadAppointments]);
-
-  const handleDragEnd = useCallback((event: React.DragEvent) => {
-    if (event.currentTarget instanceof HTMLElement) {
-      event.currentTarget.style.opacity = "1";
-      event.currentTarget.style.transform = "scale(1)";
-    }
-    setDraggingEvent(null);
-    setDragGhostPos(null);
-    setDraggingOver(null);
-  }, []);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, event?: CalendarEvent) => {
     e.preventDefault();

@@ -47,3 +47,22 @@ export {
   type UseGroupOperationsOptions,
   type UseGroupOperationsReturn,
 } from "./useGroupOperations";
+
+export {
+  useDragAndDrop,
+  type DraggingEvent,
+  type DraggingOver,
+  type HoverTooltipState,
+  type UseDragAndDropOptions,
+  type UseDragAndDropReturn,
+} from "./useDragAndDrop";
+
+export {
+  useAppointmentMutations,
+  type CreateFormState,
+  type EditFormState,
+  type QuickPatientFormState,
+  type SelectedEventLite,
+  type UseAppointmentMutationsOptions,
+  type UseAppointmentMutationsReturn,
+} from "./useAppointmentMutations";
