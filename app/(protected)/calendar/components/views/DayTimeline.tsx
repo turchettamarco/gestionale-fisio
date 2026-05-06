@@ -51,6 +51,12 @@ export type DayTimelineProps = {
   dayLabels: { dow: number; label: string }[];
   /** Larghezza colonna ora */
   TIME_COL: number;
+  /**
+   * Ora di inizio della griglia (default 7).
+   * Usata per calcolare la posizione Y della linea "ora corrente"
+   * coerentemente con il gridHourRange dinamico.
+   */
+  gridStartHour?: number;
 
   /** Stato drag-over corrente */
   draggingOver: DraggingOverState | null;
@@ -112,6 +118,7 @@ export type DayTimelineProps = {
 export default function DayTimeline({
   currentDate, dayEvents, currentTime,
   timeSlots, dayLabels, TIME_COL,
+  gridStartHour = 7,
   studioLocations,
   draggingOver, showAvailableOnly, bulkMode, bulkSelected, searchMatchIds,
   onSlotClick, onContextMenu,
@@ -566,7 +573,9 @@ export default function DayTimeline({
           {isToday && (() => {
             const currentHour = currentTime.getHours();
             const currentMinute = currentTime.getMinutes();
-            const topPosition = ((currentHour - 7) * 60 + currentMinute) * DAY_PX_PER_MIN;
+            // FIX bug: prima era hardcoded "currentHour - 7" assumendo griglia
+            // sempre da ora 7. Ora usa gridStartHour dinamico (mig. orari di lavoro).
+            const topPosition = ((currentHour - gridStartHour) * 60 + currentMinute) * DAY_PX_PER_MIN;
 
             return (
               <div

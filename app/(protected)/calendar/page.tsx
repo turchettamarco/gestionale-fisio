@@ -1576,6 +1576,7 @@ return (
               timeSlots={timeSlots}
               dayLabels={dayLabels}
               TIME_COL={TIME_COL}
+              gridStartHour={gridHourRange.start}
               studioLocations={studioLocations}
               draggingEvent={draggingEvent}
               draggingOver={draggingOver}
@@ -1659,6 +1660,7 @@ return (
               timeSlots={timeSlots}
               dayLabels={dayLabels}
               TIME_COL={TIME_COL}
+              gridStartHour={gridHourRange.start}
               studioLocations={studioLocations}
               draggingOver={draggingOver}
               showAvailableOnly={showAvailableOnly}

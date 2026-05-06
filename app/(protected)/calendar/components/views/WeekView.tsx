@@ -74,6 +74,12 @@ export type WeekViewProps = {
   timeSlots: string[];
   dayLabels: { dow: number; label: string }[];
   TIME_COL: number;
+  /**
+   * Ora di inizio della griglia (default 7).
+   * Usata per calcolare la posizione Y della linea "ora corrente"
+   * coerentemente con il gridHourRange dinamico.
+   */
+  gridStartHour?: number;
 
   // ─── Multi-sede (mig. 014, fase 3) ─────────────────────────
   studioLocations?: Array<{ id: string; name: string; address: string | null; is_primary: boolean; border_color: string | null }>;
@@ -135,6 +141,7 @@ export type WeekViewProps = {
 export default function WeekView({
   weekDays, filteredEvents, currentTime,
   timeSlots, dayLabels, TIME_COL,
+  gridStartHour = 7,
   studioLocations,
   draggingEvent, draggingOver,
   showAvailableOnly, bulkMode, bulkSelected, isSearchActive, searchMatchIds,
@@ -866,7 +873,9 @@ export default function WeekView({
 
               const currentHour = now.getHours();
               const currentMinute = now.getMinutes();
-              const topPosition = ((currentHour - 7) * 60 + currentMinute) * WEEK_PX_PER_MIN;
+              // FIX bug: prima era hardcoded "currentHour - 7" assumendo griglia
+              // sempre da ora 7. Ora usa gridStartHour dinamico (mig. orari di lavoro).
+              const topPosition = ((currentHour - gridStartHour) * 60 + currentMinute) * WEEK_PX_PER_MIN;
 
               const dayWidth = `calc((100% - ${TIME_COL}px) / 6)`;
               const leftPosition = `calc(${TIME_COL}px + ${currentDayIndex} * (${dayWidth}))`;
