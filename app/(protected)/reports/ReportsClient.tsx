@@ -10,7 +10,7 @@ function openWADirect(phone: string, message: string = ""): void {
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import Link from "next/link";
-import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { useCurrentStudio, useStudioLocations } from "@/src/contexts/StudioContext";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter, type StudioHeaderData } from "@/src/lib/pdfHeader";
 import { BuildInfo } from "@/src/components/BuildInfo";
 import NotificationsBell from "@/src/components/NotificationsBell";
@@ -64,6 +64,28 @@ const euro2 = new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",min
 // ─── Types ────────────────────────────────────────────────────────────────────
 type UnpaidRow  = {id:string;patient_id:string;name:string;amount:number;date:string;type:string;days:number;};
 type PaidRow    = {id:string;patient_id:string;name:string;amount:number;date:string;type:string;};
+// ── Tappa 2: dettaglio per metodo di pagamento ──
+// kind="single" = appuntamento singolo · "group_part" = partecipante gruppo · "group_agg" = riga aggregata gruppo
+type PaidDetailRow = {
+  id: string;
+  patient_id: string;
+  name: string;
+  amount: number;
+  date: string;          // ISO start_at
+  type: string;          // treatment_type o "Gruppo: <titolo>"
+  kind: "single" | "group_part" | "group_agg";
+  location_id: string | null;
+};
+type PaymentMethodKey = "cash" | "pos" | "bank_transfer" | "none" | "cash_regime";
+type RentalRow = {
+  id: string;
+  patient_name: string;
+  device_name: string;
+  start_date: string;
+  end_date: string;
+  total_amount: number;
+  is_paid: boolean;
+};
 type MonthBar   = {label:string;monthKey:string;revenue:number;unpaid:number;};
 type TopPat     = {id:string;name:string;total:number;count:number;};
 type TreatBreak = {type:string;count:number;revenue:number;};
@@ -110,6 +132,42 @@ function printUnpaid(rows:UnpaidRow[],title:string,studio?:StudioHeaderData){
   Object.keys(byPat).sort().forEach(n=>{const g=byPat[n];grand+=g.tot;body+=`<tr style="background:#f5f5f5"><td colspan="3"><b>${esc(n)}</b></td><td><b>${euro2.format(g.tot)}</b></td></tr>`;g.rows.forEach(r=>{body+=`<tr><td></td><td>${esc(r.type)}</td><td>${new Date(r.date).toLocaleDateString("it-IT")} (${r.days}gg)</td><td>${euro2.format(r.amount)}</td></tr>`;});});
   body+=`<tr style="background:#e8e8e8"><td colspan="3"><b>TOTALE</b></td><td><b>${euro2.format(grand)}</b></td></tr>`;
   pw.document.write(`<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>${esc(title)}</title><style>body{font-family:Arial,sans-serif;padding:2cm;color:#0f172a}table{width:100%;border-collapse:collapse;margin-top:24px}th,td{border:1px solid #ccc;padding:6pt;font-size:10pt}th{background:#eee}button{padding:8px 16px;cursor:pointer;margin-bottom:24px;background:#2563eb;color:#fff;border:none;border-radius:6px;font-weight:700}@media print{button{display:none}}${studioHeaderCss}</style></head><body><button onclick="window.print()">🖨 Stampa / Salva PDF</button>${studioPdfHeader(studio,{docTitle:title})}<table><thead><tr><th>Paziente</th><th>Tipo</th><th>Data</th><th>Importo</th></tr></thead><tbody>${body}</tbody></table>${studioPdfFooter(studio)}<script>window.onload=()=>setTimeout(()=>window.print(),400);</script></body></html>`);
+  pw.document.close();
+}
+
+// ─── Print lista incassi per metodo (Tappa 2) ────────────────────────────────
+function printPaymentList(rows: PaidDetailRow[], methodLabel: string, periodLabel: string, studio?: StudioHeaderData) {
+  const pw = window.open("", "_blank"); if (!pw) return;
+  const esc = (s: any) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const title = `Incassi ${methodLabel} — ${periodLabel}`;
+  // Ordino per data desc
+  const sorted = [...rows].sort((a, b) => (a.date < b.date ? 1 : -1));
+  const tot = sorted.reduce((s, r) => s + r.amount, 0);
+  let body = "";
+  sorted.forEach(r => {
+    const kindBadge = r.kind === "group_part" ? "Gruppo (partec.)" : r.kind === "group_agg" ? "Gruppo" : "Seduta";
+    body += `<tr><td>${new Date(r.date).toLocaleDateString("it-IT")} ${new Date(r.date).toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})}</td><td>${esc(r.name)}</td><td>${esc(r.type)}</td><td>${kindBadge}</td><td style="text-align:right">${euro2.format(r.amount)}</td></tr>`;
+  });
+  body += `<tr style="background:#e8e8e8"><td colspan="4"><b>TOTALE</b></td><td style="text-align:right"><b>${euro2.format(tot)}</b></td></tr>`;
+  pw.document.write(`<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>${esc(title)}</title><style>body{font-family:Arial,sans-serif;padding:2cm;color:#0f172a}table{width:100%;border-collapse:collapse;margin-top:24px}th,td{border:1px solid #ccc;padding:6pt;font-size:10pt}th{background:#eee;text-align:left}button{padding:8px 16px;cursor:pointer;margin-bottom:24px;background:#2563eb;color:#fff;border:none;border-radius:6px;font-weight:700}@media print{button{display:none}}${studioHeaderCss}</style></head><body><button onclick="window.print()">🖨 Stampa / Salva PDF</button>${studioPdfHeader(studio,{docTitle:title})}<p style="font-size:11pt;margin:8pt 0"><b>${sorted.length}</b> elementi · totale <b>${euro2.format(tot)}</b></p><table><thead><tr><th>Data</th><th>Paziente</th><th>Tipo</th><th>Origine</th><th style="text-align:right">Importo</th></tr></thead><tbody>${body}</tbody></table>${studioPdfFooter(studio)}<script>window.onload=()=>setTimeout(()=>window.print(),400);</script></body></html>`);
+  pw.document.close();
+}
+
+// ─── Print lista noleggi (Tappa 2) ───────────────────────────────────────────
+function printRentalsList(rows: RentalRow[], periodLabel: string, studio?: StudioHeaderData) {
+  const pw = window.open("", "_blank"); if (!pw) return;
+  const esc = (s: any) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const title = `Noleggi — ${periodLabel}`;
+  const sorted = [...rows].sort((a, b) => (a.end_date < b.end_date ? 1 : -1));
+  const tot = sorted.reduce((s, r) => s + (r.is_paid ? r.total_amount : 0), 0);
+  const totDue = sorted.reduce((s, r) => s + (r.is_paid ? 0 : r.total_amount), 0);
+  let body = "";
+  sorted.forEach(r => {
+    body += `<tr><td>${esc(r.patient_name)}</td><td>${esc(r.device_name)}</td><td>${new Date(r.start_date).toLocaleDateString("it-IT")} → ${new Date(r.end_date).toLocaleDateString("it-IT")}</td><td>${r.is_paid ? "Pagato" : "Da incassare"}</td><td style="text-align:right">${euro2.format(r.total_amount)}</td></tr>`;
+  });
+  body += `<tr style="background:#e8e8e8"><td colspan="4"><b>TOTALE INCASSATO</b></td><td style="text-align:right"><b>${euro2.format(tot)}</b></td></tr>`;
+  if (totDue > 0) body += `<tr style="background:#fee2e2"><td colspan="4"><b>DA INCASSARE</b></td><td style="text-align:right"><b>${euro2.format(totDue)}</b></td></tr>`;
+  pw.document.write(`<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>${esc(title)}</title><style>body{font-family:Arial,sans-serif;padding:2cm;color:#0f172a}table{width:100%;border-collapse:collapse;margin-top:24px}th,td{border:1px solid #ccc;padding:6pt;font-size:10pt}th{background:#eee;text-align:left}button{padding:8px 16px;cursor:pointer;margin-bottom:24px;background:#2563eb;color:#fff;border:none;border-radius:6px;font-weight:700}@media print{button{display:none}}${studioHeaderCss}</style></head><body><button onclick="window.print()">🖨 Stampa / Salva PDF</button>${studioPdfHeader(studio,{docTitle:title})}<p style="font-size:11pt;margin:8pt 0"><b>${sorted.length}</b> noleggi · incassato <b>${euro2.format(tot)}</b>${totDue > 0 ? ` · da incassare <b>${euro2.format(totDue)}</b>` : ""}</p><table><thead><tr><th>Paziente</th><th>Strumento</th><th>Periodo</th><th>Stato</th><th style="text-align:right">Importo</th></tr></thead><tbody>${body}</tbody></table>${studioPdfFooter(studio)}<script>window.onload=()=>setTimeout(()=>window.print(),400);</script></body></html>`);
   pw.document.close();
 }
 
@@ -180,6 +238,22 @@ export default function ReportsPage(){
     cashRegimeTotal: 0, cashRegimeCount: 0,
   });
 
+  // ── Tappa 2: dettaglio per metodo di pagamento (modal cliccabile) ──
+  const [paidByMethod, setPaidByMethod] = useState<Record<PaymentMethodKey, PaidDetailRow[]>>({
+    cash: [], pos: [], bank_transfer: [], none: [], cash_regime: [],
+  });
+  const [methodModal, setMethodModal] = useState<PaymentMethodKey | null>(null);
+
+  // ── Tappa 2: sede selezionata (filtro) ──
+  const studioLocations = useStudioLocations();
+  const [selectedLocId, setSelectedLocId] = useState<string>("all");
+  const [locMenuOpen, setLocMenuOpen] = useState(false);
+  const locMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // ── Tappa 2: noleggi nel periodo ──
+  const [rentals, setRentals] = useState<RentalRow[]>([]);
+  const [rentalsModalOpen, setRentalsModalOpen] = useState(false);
+
   const baseDate=useMemo(()=>{const[y,m,d]=dateStr.split("-").map(Number);return new Date(y,m-1,d);},[dateStr]);
 
   // ── User menu / dropdown navbar ──
@@ -204,6 +278,7 @@ export default function ReportsPage(){
       const t = e.target as Node;
       if (userMenuOpen && userMenuRef.current && !userMenuRef.current.contains(t)) setUserMenuOpen(false);
       if (periodMenuOpen && periodMenuRef.current && !periodMenuRef.current.contains(t)) setPeriodMenuOpen(false);
+      if (locMenuOpen && locMenuRef.current && !locMenuRef.current.contains(t)) setLocMenuOpen(false);
       if (actionsMenuOpen && actionsMenuRef.current && !actionsMenuRef.current.contains(t)) {
         setActionsMenuOpen(false);
         setUnpaidSubmenuOpen(false);
@@ -211,7 +286,7 @@ export default function ReportsPage(){
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
-  }, [userMenuOpen, periodMenuOpen, actionsMenuOpen]);
+  }, [userMenuOpen, periodMenuOpen, actionsMenuOpen, locMenuOpen]);
 
   const handleLogout = useCallback(async () => {
     try { await supabase.auth.signOut(); } finally {
@@ -254,17 +329,19 @@ export default function ReportsPage(){
       }
 
       // ── Appuntamenti periodo ──
-      const[{data:done},{data:unp},{data:allA},{data:cancelled},{data:groups}]=await Promise.all([
-        supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id,price_type,payment_method").eq("status","done").gte("amount",0.01).gte("start_at",fs).lte("start_at",ts).order("start_at",{ascending:false}),
-        supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id").eq("status","not_paid").gte("start_at",fs).lte("start_at",ts).order("start_at",{ascending:false}),
-        supabase.from("appointments").select("status,start_at,patient_id").gte("start_at",fs).lte("start_at",ts),
-        supabase.from("appointments").select("status,start_at").eq("status","cancelled").gte("start_at",fs).lte("start_at",ts),
+      // Tappa 2: aggiungiamo location_id alle SELECT (filtro sede + dettaglio modal).
+      // Filtro sede: applicato in JS dopo fetch (più semplice gestire "Tutte" + null).
+      const[{data:done},{data:unp},{data:allA},,{data:groups},{data:rentalsRaw}]=await Promise.all([
+        supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id,price_type,payment_method,location_id").eq("status","done").gte("amount",0.01).gte("start_at",fs).lte("start_at",ts).order("start_at",{ascending:false}),
+        supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id,location_id").eq("status","not_paid").gte("start_at",fs).lte("start_at",ts).order("start_at",{ascending:false}),
+        supabase.from("appointments").select("status,start_at,patient_id,location_id").gte("start_at",fs).lte("start_at",ts),
+        supabase.from("appointments").select("status,start_at,location_id").eq("status","cancelled").gte("start_at",fs).lte("start_at",ts),
         // ─── GRUPPI (mig. 014) ─────────────────────────────────────────────
         // Per ogni gruppo "done" nel periodo, prendiamo i partecipanti pagati con dati paziente.
         // I gruppi padre hanno amount=null quindi NON vengono presi dalla query "done" sopra.
         supabase.from("appointments")
           .select(`
-            id, start_at, group_title,
+            id, start_at, group_title, location_id,
             appointment_participants (
               id, patient_id, price, payment_status, paid_at,
               attendance_status, payment_method,
@@ -276,9 +353,32 @@ export default function ReportsPage(){
           .gte("start_at", fs)
           .lte("start_at", ts)
           .order("start_at", { ascending: false }),
+        // ─── NOLEGGI (Tappa 2) ─────────────────────────────────────────────
+        // Definizione: noleggi che si CONCLUDONO nel periodo (end_date in [from,to]).
+        // Revenue effettivo = is_paid=true · da incassare = is_paid=false.
+        // Nota: tabella "noleggios" non ha (ancora) location_id, quindi il filtro sede
+        // non si applica ai noleggi — rimangono globali a tutto lo studio.
+        supabase.from("noleggios")
+          .select("id,patient_name,device_name,start_date,end_date,total_amount,is_paid")
+          .gte("end_date", from.toISOString().slice(0,10))
+          .lte("end_date", to.toISOString().slice(0,10))
+          .order("end_date", { ascending: false }),
       ]);
 
-      const doneData=done||[],unpData=unp||[],allData=allA||[];
+      // ── Filtro per sede (Tappa 2) ──
+      // Se selectedLocId !== "all", tieni solo righe con quella location_id.
+      // Le righe con location_id=null restano in "Tutte le sedi" (compat. dati storici).
+      const locFilter = <T extends { location_id?: string | null }>(arr: T[] | null | undefined): T[] => {
+        if (!arr) return [];
+        if (selectedLocId === "all") return arr;
+        return arr.filter(r => r.location_id === selectedLocId);
+      };
+      const doneFiltered = locFilter(done as any);
+      const unpFiltered = locFilter(unp as any);
+      const allFiltered = locFilter(allA as any);
+      const groupsFiltered = locFilter(groups as any);
+
+      const doneData=doneFiltered,unpData=unpFiltered,allData=allFiltered;
       const allIds=Array.from(new Set([...doneData,...unpData].map((r:any)=>r.patient_id).filter(Boolean)));
       const patMap=await pats(allIds);
 
@@ -299,7 +399,7 @@ export default function ReportsPage(){
       const groupRows: PaidRow[] = [];
       const groupsByMethod = { cash: 0, pos: 0, bank_transfer: 0, none: 0 };
       const groupsByMethodCount = { cash: 0, pos: 0, bank_transfer: 0, none: 0 };
-      for (const g of (groups ?? [])) {
+      for (const g of (groupsFiltered ?? [])) {
         const parts = ((g as any).appointment_participants ?? []) as Array<{
           id: string; patient_id: string; price: number | null;
           payment_status?: string | null; paid_at?: string | null;
@@ -397,6 +497,79 @@ export default function ReportsPage(){
         noneCount: byMethodCount.none + groupsByMethodCount.none,
         cashRegimeTotal, cashRegimeCount,
       });
+
+      // ── Tappa 2: dettaglio per metodo di pagamento (per modal) ──
+      // Costruisco una mappa method → lista PaidDetailRow ordinata per data desc.
+      const detailMap: Record<PaymentMethodKey, PaidDetailRow[]> = {
+        cash: [], pos: [], bank_transfer: [], none: [], cash_regime: [],
+      };
+      // (a) Sedute singole
+      doneData.forEach((r: any) => {
+        const amt = parseFloat(String(r.amount)) || 0;
+        if (amt <= 0) return;
+        const row: PaidDetailRow = {
+          id: r.id,
+          patient_id: r.patient_id,
+          name: patMap.get(r.patient_id)?.name || "Sconosciuto",
+          amount: amt,
+          date: r.start_at,
+          type: r.treatment_type || "Seduta",
+          kind: "single",
+          location_id: r.location_id ?? null,
+        };
+        if (r.price_type === "cash") {
+          detailMap.cash_regime.push(row);
+        } else if (r.price_type === "invoiced") {
+          const m = (r.payment_method as PaymentMethodKey) || "none";
+          if (m === "cash" || m === "pos" || m === "bank_transfer") detailMap[m].push(row);
+          else detailMap.none.push(row);
+        } else {
+          detailMap.none.push(row);
+        }
+      });
+      // (b) Partecipanti gruppi pagati e presenti
+      for (const g of (groupsFiltered ?? [])) {
+        const parts = ((g as any).appointment_participants ?? []) as Array<{
+          id: string; patient_id: string; price: number | null;
+          payment_status?: string | null;
+          attendance_status?: string | null;
+          payment_method?: string | null;
+          patients?: Array<{first_name?: string; last_name?: string}> | {first_name?: string; last_name?: string} | null;
+        }>;
+        const paidPresent = parts.filter(p =>
+          p.attendance_status === "present" && p.payment_status === "paid"
+        );
+        for (const p of paidPresent) {
+          const pp = Array.isArray(p.patients) ? p.patients[0] : p.patients;
+          const fullName = pp ? `${pp.last_name ?? ""} ${pp.first_name ?? ""}`.trim() : "Sconosciuto";
+          const row: PaidDetailRow = {
+            id: p.id,
+            patient_id: p.patient_id,
+            name: fullName || "Sconosciuto",
+            amount: Number(p.price) || 0,
+            date: (g as any).start_at,
+            type: `Gruppo: ${(g as any).group_title || "Gruppo"}`,
+            kind: "group_part",
+            location_id: (g as any).location_id ?? null,
+          };
+          const m = (p.payment_method as PaymentMethodKey) || "none";
+          if (m === "cash" || m === "pos" || m === "bank_transfer") detailMap[m].push(row);
+          else detailMap.none.push(row);
+        }
+      }
+      setPaidByMethod(detailMap);
+
+      // ── Tappa 2: noleggi del periodo (no filtro sede — la tabella non ha location_id) ──
+      const rentalsList: RentalRow[] = (rentalsRaw || []).map((r: any) => ({
+        id: r.id,
+        patient_name: r.patient_name || "Sconosciuto",
+        device_name: r.device_name || "",
+        start_date: r.start_date,
+        end_date: r.end_date,
+        total_amount: parseFloat(String(r.total_amount)) || 0,
+        is_paid: !!r.is_paid,
+      }));
+      setRentals(rentalsList);
 
       // ── Tutti i non pagati (storico) ──
       const{data:allUnp}=await supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id").eq("status","not_paid").order("start_at",{ascending:false}).limit(2000);
@@ -606,7 +779,7 @@ export default function ReportsPage(){
     finally{if(loadIdRef.current === currentId) setLoading(false);}
   }
 
-  useEffect(()=>{loadData();},[period,dateStr]); // eslint-disable-line
+  useEffect(()=>{loadData();},[period,dateStr,selectedLocId]); // eslint-disable-line
 
   // ─── Export completo per commercialista (apre in Excel con BOM UTF-8) ─────
   const [exporting, setExporting] = useState(false);
@@ -754,6 +927,9 @@ export default function ReportsPage(){
         .rh:hover{background:rgba(37,99,235,0.025)!important;}
         .sc::-webkit-scrollbar{width:4px;} .sc::-webkit-scrollbar-thumb{background:rgba(37,99,235,0.12);border-radius:99px;}
         @media print{.np{display:none!important}}
+        /* Card metodo cliccabile (Tappa 2) */
+        .rep-method-card:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(15,23,42,0.06);border-color:${T.teal}!important;}
+        .rep-method-card:active{transform:translateY(0);}
         /* Search compatta sotto 900px */
         @media (max-width: 900px){
           .rep-search-text{display:none;}
@@ -846,6 +1022,50 @@ export default function ReportsPage(){
               </div>
             )}
           </div>
+          {/* Dropdown sede (Tappa 2) — visibile solo se ci sono ≥2 sedi */}
+          {studioLocations.length >= 2 && (
+            <div ref={locMenuRef} style={{position:"relative",flexShrink:0}}>
+              {(() => {
+                const sel = studioLocations.find(l => l.id === selectedLocId);
+                const label = selectedLocId === "all" ? "Tutte le sedi" : (sel?.name || "—");
+                const dot = selectedLocId !== "all" && sel?.border_color ? sel.border_color : null;
+                return (
+                  <button
+                    onClick={()=>setLocMenuOpen(v=>!v)}
+                    title={`Filtro sede: ${label}`}
+                    className="rep-loc-btn"
+                    style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",border:`1px solid ${T.border}`,borderRadius:7,background:T.panelBg,color:T.text,cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap",maxWidth:170,overflow:"hidden",textOverflow:"ellipsis"}}
+                  >
+                    {dot && <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:dot,flexShrink:0}}/>}
+                    <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
+                    <span style={{fontSize:9,color:T.muted,flexShrink:0}}>{locMenuOpen?"▲":"▼"}</span>
+                  </button>
+                );
+              })()}
+              {locMenuOpen && (
+                <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,background:T.panelBg,border:`1px solid ${T.border}`,borderRadius:9,boxShadow:"0 6px 22px rgba(15,23,42,0.10)",overflow:"hidden",zIndex:55,minWidth:200,maxHeight:320,overflowY:"auto"}} className="sc">
+                  <button
+                    onClick={()=>{setSelectedLocId("all");setLocMenuOpen(false);}}
+                    style={{width:"100%",padding:"9px 14px",border:"none",background:selectedLocId==="all"?"rgba(13,148,136,0.08)":"transparent",color:selectedLocId==="all"?T.teal:T.text,cursor:"pointer",fontSize:12,fontWeight:selectedLocId==="all"?700:600,textAlign:"left",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${T.border}`}}
+                  >
+                    <span>Tutte le sedi</span>
+                    {selectedLocId==="all" && <span style={{fontSize:11,color:T.teal}}>✓</span>}
+                  </button>
+                  {studioLocations.map(loc => (
+                    <button
+                      key={`loc-${loc.id}`}
+                      onClick={()=>{setSelectedLocId(loc.id);setLocMenuOpen(false);}}
+                      style={{width:"100%",padding:"9px 14px",border:"none",background:selectedLocId===loc.id?"rgba(13,148,136,0.08)":"transparent",color:selectedLocId===loc.id?T.teal:T.text,cursor:"pointer",fontSize:12,fontWeight:selectedLocId===loc.id?700:600,textAlign:"left",display:"flex",alignItems:"center",gap:8}}
+                    >
+                      {loc.border_color && <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:loc.border_color,flexShrink:0}}/>}
+                      <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis"}}>{loc.name}</span>
+                      {selectedLocId===loc.id && <span style={{fontSize:11,color:T.teal}}>✓</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Destra: chip + dropdown azioni */}
@@ -933,6 +1153,49 @@ export default function ReportsPage(){
         ═══════════════════════════════════════════════════════ */}
         {tab==="overview"&&(
           <div style={{display:"flex",flexDirection:"column",gap:16}}>
+
+            {/* Card noleggi (Tappa 2) — visibile solo se ci sono noleggi nel periodo */}
+            {(() => {
+              if (rentals.length === 0) return null;
+              const rentalsPaid = rentals.filter(r => r.is_paid);
+              const rentalsDue = rentals.filter(r => !r.is_paid);
+              const totalPaid = rentalsPaid.reduce((s, r) => s + r.total_amount, 0);
+              const totalDue = rentalsDue.reduce((s, r) => s + r.total_amount, 0);
+              return (
+                <button
+                  onClick={() => setRentalsModalOpen(true)}
+                  className="rep-method-card"
+                  style={{
+                    ...card, padding: "16px 22px", cursor: "pointer", textAlign: "left",
+                    border: `1px solid ${T.borderSoft}`,
+                    background: "linear-gradient(135deg, #fefce8 0%, #ffffff 60%)",
+                    width: "100%", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
+                    transition: "transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease",
+                  }}
+                >
+                  <div style={{ display:"flex", alignItems:"center", gap:10, flex:"0 0 auto" }}>
+                    <div style={{ width:36, height:36, borderRadius:9, background:"rgba(202,138,4,0.12)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, color:"#a16207" }}>⟲</div>
+                    <div>
+                      <div style={{ fontSize:11, fontWeight:700, color:T.muted, textTransform:"uppercase" as const, letterSpacing:0.7 }}>Noleggi conclusi nel periodo</div>
+                      <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{rentals.length} {rentals.length === 1 ? "noleggio" : "noleggi"} · clicca per dettaglio</div>
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", alignItems:"center", gap:24, flex:"1 1 auto", justifyContent:"flex-end", flexWrap:"wrap" }}>
+                    <div style={{ textAlign:"right" }}>
+                      <div style={{ fontSize:10, fontWeight:700, color:T.muted, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Incassato</div>
+                      <div style={{ fontSize:22, fontWeight:900, color:T.green, lineHeight:1 }}>{euro.format(totalPaid)}</div>
+                    </div>
+                    {totalDue > 0 && (
+                      <div style={{ textAlign:"right" }}>
+                        <div style={{ fontSize:10, fontWeight:700, color:T.muted, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Da incassare</div>
+                        <div style={{ fontSize:22, fontWeight:900, color:T.red, lineHeight:1 }}>{euro.format(totalDue)}</div>
+                      </div>
+                    )}
+                    <div style={{ fontSize:18, color:T.muted, fontWeight:700, marginLeft:4 }}>›</div>
+                  </div>
+                </button>
+              );
+            })()}
 
             {/* Riga principale: incassato + non pagato */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
@@ -1088,29 +1351,45 @@ export default function ReportsPage(){
               const totFatt = pb.cash + pb.pos + pb.bank_transfer + pb.none;
               const totGen = totFatt + pb.cashRegimeTotal;
               if (totGen === 0) return null;
-              const items = [
-                { label: "Contanti (fatt.)", value: pb.cash, count: pb.cashCount, color: T.amber },
-                { label: "POS",              value: pb.pos, count: pb.posCount, color: T.blue },
-                { label: "Bonifico",         value: pb.bank_transfer, count: pb.bankCount, color: T.teal },
-                ...(pb.none > 0 ? [{ label: "Non specificato", value: pb.none, count: pb.noneCount, color: T.muted }] : []),
-                ...(pb.cashRegimeTotal > 0 ? [{ label: "Contanti (non fatt.)", value: pb.cashRegimeTotal, count: pb.cashRegimeCount, color: T.red }] : []),
+              const items: { key: PaymentMethodKey; label: string; value: number; count: number; color: string }[] = [
+                { key: "cash",         label: "Contanti (fatt.)",     value: pb.cash, count: pb.cashCount, color: T.amber },
+                { key: "pos",          label: "POS",                  value: pb.pos, count: pb.posCount, color: T.blue },
+                { key: "bank_transfer",label: "Bonifico",             value: pb.bank_transfer, count: pb.bankCount, color: T.teal },
+                ...(pb.none > 0 ? [{ key: "none" as PaymentMethodKey, label: "Non specificato", value: pb.none, count: pb.noneCount, color: T.muted }] : []),
+                ...(pb.cashRegimeTotal > 0 ? [{ key: "cash_regime" as PaymentMethodKey, label: "Contanti (non fatt.)", value: pb.cashRegimeTotal, count: pb.cashRegimeCount, color: T.red }] : []),
               ];
               return (
                 <div style={{...card,padding:"18px 22px"}}>
-                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}>
                     <div style={{ fontSize:13,fontWeight:700,color:T.text }}>Incassi per metodo di pagamento</div>
                     <div style={{ fontSize:11,color:T.muted }}>{euro.format(totGen)} totale</div>
+                  </div>
+                  <div style={{ fontSize:10, color:T.muted, marginBottom:12, fontStyle:"italic" }}>
+                    Clicca una box per vedere l'elenco delle sedute incassate con quel metodo.
                   </div>
                   <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10 }}>
                     {items.map((it, i) => {
                       const pct = totGen > 0 ? (it.value / totGen) * 100 : 0;
+                      const detailRows = paidByMethod[it.key] || [];
+                      const clickable = detailRows.length > 0;
                       return (
-                        <div key={i} style={{
-                          padding: "12px 14px", borderRadius: 10,
-                          background: T.soft, border: `1px solid ${T.borderSoft}`,
-                        }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase" as const, letterSpacing: 0.7, marginBottom: 6 }}>
-                            {it.label}
+                        <button
+                          key={i}
+                          onClick={() => clickable && setMethodModal(it.key)}
+                          disabled={!clickable}
+                          className={clickable ? "rep-method-card" : ""}
+                          style={{
+                            padding: "12px 14px", borderRadius: 10,
+                            background: T.soft, border: `1px solid ${T.borderSoft}`,
+                            cursor: clickable ? "pointer" : "default",
+                            textAlign: "left", display: "block", width: "100%",
+                            transition: "transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease",
+                            opacity: clickable ? 1 : 0.7,
+                          }}
+                        >
+                          <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase" as const, letterSpacing: 0.7, marginBottom: 6, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                            <span>{it.label}</span>
+                            {clickable && <span style={{fontSize:10,color:it.color,fontWeight:800}}>›</span>}
                           </div>
                           <div style={{ fontSize: 18, fontWeight: 900, color: it.color, lineHeight: 1 }}>
                             {euro.format(it.value)}
@@ -1118,7 +1397,7 @@ export default function ReportsPage(){
                           <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
                             {it.count} sed. · {pct.toFixed(0)}%
                           </div>
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
@@ -1471,6 +1750,214 @@ export default function ReportsPage(){
         )}
 
       </div>
+
+      {/* ─── MODAL: Dettaglio metodo pagamento (Tappa 2) ─── */}
+      {methodModal && (() => {
+        const methodLabels: Record<PaymentMethodKey, string> = {
+          cash: "Contanti (fatturato)",
+          pos: "POS",
+          bank_transfer: "Bonifico",
+          none: "Senza metodo specificato",
+          cash_regime: "Contanti (non fatturato)",
+        };
+        const methodColors: Record<PaymentMethodKey, string> = {
+          cash: T.amber, pos: T.blue, bank_transfer: T.teal, none: T.muted, cash_regime: T.red,
+        };
+        const rows = paidByMethod[methodModal] || [];
+        const sortedRows = [...rows].sort((a, b) => (a.date < b.date ? 1 : -1));
+        const totalAmt = sortedRows.reduce((s, r) => s + r.amount, 0);
+        const lbl = methodLabels[methodModal];
+        const col = methodColors[methodModal];
+        return (
+          <div
+            onClick={() => setMethodModal(null)}
+            style={{ position:"fixed", inset:0, background:"rgba(15,23,42,0.55)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{ background:T.panelBg, borderRadius:14, width:"100%", maxWidth:780, maxHeight:"85vh", display:"flex", flexDirection:"column", boxShadow:"0 20px 60px rgba(15,23,42,0.4)", overflow:"hidden" }}
+            >
+              {/* Header modal */}
+              <div style={{ padding:"18px 22px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:14, flexShrink:0 }}>
+                <div style={{ minWidth:0 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:T.muted, textTransform:"uppercase" as const, letterSpacing:0.6, marginBottom:4 }}>
+                    Incassi via {lbl}
+                  </div>
+                  <div style={{ fontSize:18, fontWeight:800, color:T.text, marginBottom:6 }}>
+                    {periodLabel()}
+                  </div>
+                  <div style={{ display:"flex", alignItems:"baseline", gap:12, flexWrap:"wrap" }}>
+                    <span style={{ fontSize:30, fontWeight:900, color:col, lineHeight:1, letterSpacing:-0.5 }}>{euro.format(totalAmt)}</span>
+                    <span style={{ fontSize:13, color:T.muted, fontWeight:600 }}>{sortedRows.length} {sortedRows.length === 1 ? "elemento" : "elementi"}</span>
+                  </div>
+                </div>
+                <div style={{ display:"flex", gap:8, flexShrink:0 }}>
+                  <button
+                    onClick={() => printPaymentList(sortedRows, lbl, periodLabel(), currentStudio)}
+                    disabled={sortedRows.length === 0}
+                    style={{ padding:"8px 14px", borderRadius:8, border:`1px solid ${T.teal}`, background:T.teal, color:"#fff", fontSize:12, fontWeight:700, cursor:sortedRows.length===0?"not-allowed":"pointer", opacity:sortedRows.length===0?0.5:1, display:"flex", alignItems:"center", gap:6, whiteSpace:"nowrap" }}
+                  >
+                    <span style={{ fontSize:14 }}>⎙</span>
+                    <span>Stampa lista</span>
+                  </button>
+                  <button
+                    onClick={() => setMethodModal(null)}
+                    title="Chiudi"
+                    style={{ width:34, height:34, borderRadius:8, border:`1px solid ${T.border}`, background:T.panelBg, color:T.muted, cursor:"pointer", fontSize:16, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center" }}
+                  >×</button>
+                </div>
+              </div>
+              {/* Lista */}
+              <div className="sc" style={{ flex:1, overflowY:"auto", padding:"8px 0" }}>
+                {sortedRows.length === 0 ? (
+                  <div style={{ padding:"40px 22px", textAlign:"center", color:T.muted, fontSize:13 }}>
+                    Nessuna seduta incassata con questo metodo nel periodo.
+                  </div>
+                ) : (
+                  <div>
+                    {sortedRows.map((r, i) => {
+                      const d = new Date(r.date);
+                      const dateStr = d.toLocaleDateString("it-IT", { day:"2-digit", month:"short" });
+                      const timeStr = d.toLocaleTimeString("it-IT", { hour:"2-digit", minute:"2-digit" });
+                      const kindBadge = r.kind === "group_part" ? "Gruppo" : "Seduta";
+                      const kindColor = r.kind === "group_part" ? T.blue : T.teal;
+                      return (
+                        <div
+                          key={`mm-${i}-${r.id}`}
+                          style={{
+                            padding:"11px 22px", display:"grid",
+                            gridTemplateColumns:"68px 1fr auto",
+                            gap:12, alignItems:"center",
+                            borderBottom: i < sortedRows.length - 1 ? `1px solid ${T.borderSoft}` : "none",
+                          }}
+                        >
+                          <div style={{ fontSize:11, color:T.muted, fontWeight:600 }}>
+                            <div>{dateStr}</div>
+                            <div style={{ fontSize:10 }}>{timeStr}</div>
+                          </div>
+                          <div style={{ minWidth:0 }}>
+                            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:2 }}>
+                              <span style={{ fontSize:13, fontWeight:700, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.name}</span>
+                              <span style={{ fontSize:9, fontWeight:700, color:kindColor, background:`${kindColor}1a`, padding:"2px 6px", borderRadius:4, textTransform:"uppercase" as const, letterSpacing:0.4, flexShrink:0 }}>{kindBadge}</span>
+                            </div>
+                            <div style={{ fontSize:11, color:T.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.type}</div>
+                          </div>
+                          <div style={{ fontSize:15, fontWeight:800, color:col, whiteSpace:"nowrap" }}>{euro2.format(r.amount)}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              {/* Footer totale */}
+              <div style={{ padding:"14px 22px", borderTop:`1px solid ${T.border}`, display:"flex", justifyContent:"space-between", alignItems:"center", background:T.soft, flexShrink:0 }}>
+                <span style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Totale {lbl.toLowerCase()}</span>
+                <span style={{ fontSize:18, fontWeight:900, color:col }}>{euro.format(totalAmt)}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ─── MODAL: Dettaglio noleggi (Tappa 2) ─── */}
+      {rentalsModalOpen && (() => {
+        const sorted = [...rentals].sort((a, b) => (a.end_date < b.end_date ? 1 : -1));
+        const totalPaid = sorted.filter(r => r.is_paid).reduce((s, r) => s + r.total_amount, 0);
+        const totalDue = sorted.filter(r => !r.is_paid).reduce((s, r) => s + r.total_amount, 0);
+        return (
+          <div
+            onClick={() => setRentalsModalOpen(false)}
+            style={{ position:"fixed", inset:0, background:"rgba(15,23,42,0.55)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{ background:T.panelBg, borderRadius:14, width:"100%", maxWidth:820, maxHeight:"85vh", display:"flex", flexDirection:"column", boxShadow:"0 20px 60px rgba(15,23,42,0.4)", overflow:"hidden" }}
+            >
+              <div style={{ padding:"18px 22px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:14, flexShrink:0 }}>
+                <div style={{ minWidth:0 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:T.muted, textTransform:"uppercase" as const, letterSpacing:0.6, marginBottom:4 }}>
+                    Noleggi conclusi
+                  </div>
+                  <div style={{ fontSize:18, fontWeight:800, color:T.text, marginBottom:6 }}>
+                    {periodLabel()}
+                  </div>
+                  <div style={{ display:"flex", alignItems:"baseline", gap:14, flexWrap:"wrap" }}>
+                    <span style={{ fontSize:13, fontWeight:600, color:T.muted }}>Incassato</span>
+                    <span style={{ fontSize:22, fontWeight:900, color:T.green, lineHeight:1 }}>{euro.format(totalPaid)}</span>
+                    {totalDue > 0 && (
+                      <>
+                        <span style={{ fontSize:13, fontWeight:600, color:T.muted, marginLeft:8 }}>Da incassare</span>
+                        <span style={{ fontSize:22, fontWeight:900, color:T.red, lineHeight:1 }}>{euro.format(totalDue)}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div style={{ display:"flex", gap:8, flexShrink:0 }}>
+                  <button
+                    onClick={() => printRentalsList(sorted, periodLabel(), currentStudio)}
+                    disabled={sorted.length === 0}
+                    style={{ padding:"8px 14px", borderRadius:8, border:`1px solid ${T.teal}`, background:T.teal, color:"#fff", fontSize:12, fontWeight:700, cursor:sorted.length===0?"not-allowed":"pointer", opacity:sorted.length===0?0.5:1, display:"flex", alignItems:"center", gap:6, whiteSpace:"nowrap" }}
+                  >
+                    <span style={{ fontSize:14 }}>⎙</span>
+                    <span>Stampa lista</span>
+                  </button>
+                  <button
+                    onClick={() => setRentalsModalOpen(false)}
+                    title="Chiudi"
+                    style={{ width:34, height:34, borderRadius:8, border:`1px solid ${T.border}`, background:T.panelBg, color:T.muted, cursor:"pointer", fontSize:16, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center" }}
+                  >×</button>
+                </div>
+              </div>
+              <div className="sc" style={{ flex:1, overflowY:"auto" }}>
+                {sorted.length === 0 ? (
+                  <div style={{ padding:"40px 22px", textAlign:"center", color:T.muted, fontSize:13 }}>
+                    Nessun noleggio concluso nel periodo.
+                  </div>
+                ) : (
+                  <div>
+                    {sorted.map((r, i) => (
+                      <div
+                        key={`r-${r.id}`}
+                        style={{
+                          padding:"12px 22px",
+                          display:"grid", gridTemplateColumns:"1fr auto", gap:14, alignItems:"center",
+                          borderBottom: i < sorted.length - 1 ? `1px solid ${T.borderSoft}` : "none",
+                        }}
+                      >
+                        <div style={{ minWidth:0 }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+                            <span style={{ fontSize:13, fontWeight:700, color:T.text }}>{r.patient_name}</span>
+                            <span style={{ fontSize:9, fontWeight:700, color: r.is_paid ? T.green : T.red, background: r.is_paid ? "rgba(22,163,74,0.10)" : "rgba(220,38,38,0.10)", padding:"2px 6px", borderRadius:4, textTransform:"uppercase" as const, letterSpacing:0.4 }}>
+                              {r.is_paid ? "Pagato" : "Da incassare"}
+                            </span>
+                          </div>
+                          <div style={{ fontSize:11, color:T.muted }}>
+                            {r.device_name} · {new Date(r.start_date).toLocaleDateString("it-IT")} → {new Date(r.end_date).toLocaleDateString("it-IT")}
+                          </div>
+                        </div>
+                        <div style={{ fontSize:15, fontWeight:800, color: r.is_paid ? T.green : T.red, whiteSpace:"nowrap" }}>{euro2.format(r.total_amount)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div style={{ padding:"14px 22px", borderTop:`1px solid ${T.border}`, display:"flex", justifyContent:"space-between", alignItems:"center", background:T.soft, flexShrink:0, gap:12, flexWrap:"wrap" }}>
+                <span style={{ fontSize:12, color:T.muted, fontWeight:600 }}>{sorted.length} {sorted.length === 1 ? "noleggio" : "noleggi"} totali</span>
+                <div style={{ display:"flex", gap:18, alignItems:"baseline", flexWrap:"wrap" }}>
+                  <span style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Incassato</span>
+                  <span style={{ fontSize:16, fontWeight:900, color:T.green }}>{euro.format(totalPaid)}</span>
+                  {totalDue > 0 && (
+                    <>
+                      <span style={{ fontSize:12, color:T.muted, fontWeight:600, marginLeft:6 }}>Da incassare</span>
+                      <span style={{ fontSize:16, fontWeight:900, color:T.red }}>{euro.format(totalDue)}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
