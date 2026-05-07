@@ -15,6 +15,8 @@
 
 "use client";
 
+import { useRef, useState, useEffect } from "react";
+import { Printer, FileText, CalendarPlus, Table, ClipboardList, CheckCheck } from "lucide-react";
 import { THEME, addDays } from "../../utils";
 import type { CalendarFilters } from "./FiltersPopover";
 
@@ -83,6 +85,33 @@ export default function CalendarToolbar({
   bulkMode, setBulkMode, bulkSelected, setBulkSelected, onBulkMarkPaid,
   showAllUpcoming,
 }: CalendarToolbarProps) {
+
+  // Ref al bottone Azioni e posizione calcolata del dropdown.
+  // Usiamo position:fixed con coordinate dinamiche per sfuggire
+  // allo stacking context locale (la toolbar ha z-index basso che
+  // intrappolerebbe un dropdown con position:absolute).
+  const actionsBtnRef = useRef<HTMLButtonElement>(null);
+  const [actionsMenuPos, setActionsMenuPos] = useState<{ top: number; right: number } | null>(null);
+
+  useEffect(() => {
+    if (!actionsMenuOpen) return;
+    const updatePos = () => {
+      const btn = actionsBtnRef.current;
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      setActionsMenuPos({
+        top: rect.bottom + 6,
+        right: window.innerWidth - rect.right,
+      });
+    };
+    updatePos();
+    window.addEventListener("resize", updatePos);
+    window.addEventListener("scroll", updatePos, true);
+    return () => {
+      window.removeEventListener("resize", updatePos);
+      window.removeEventListener("scroll", updatePos, true);
+    };
+  }, [actionsMenuOpen]);
 
   // Indica se almeno uno dei filtri avanzati è attivo (per evidenziare il bottone)
   const hasActiveFilters =
@@ -241,6 +270,7 @@ export default function CalendarToolbar({
         {/* Menu Azioni */}
         <div style={{ position: "relative" }}>
           <button
+            ref={actionsBtnRef}
             onClick={() => setActionsMenuOpen(v => !v)}
             style={{
               padding: "8px 14px", borderRadius: 8,
@@ -252,14 +282,14 @@ export default function CalendarToolbar({
           >
             Azioni {actionsMenuOpen ? "▲" : "▼"}
           </button>
-          {actionsMenuOpen && (
+          {actionsMenuOpen && actionsMenuPos && (
             <>
               <div style={{ position: "fixed", inset: 0, zIndex: 9998 }} onClick={() => setActionsMenuOpen(false)} />
               <div style={{
-                position: "fixed", top: 120, right: 28,
+                position: "fixed", top: actionsMenuPos.top, right: actionsMenuPos.right,
                 background: THEME.panelBg, border: `1.5px solid ${THEME.border}`,
                 borderRadius: 10, boxShadow: "0 8px 28px rgba(30,64,175,0.18)",
-                zIndex: 9999, minWidth: 220, overflow: "hidden",
+                zIndex: 9999, minWidth: 240, overflow: "hidden",
               }}>
                 {/* ─── Sezione Stampa / Export ───────────────────── */}
                 <div style={{ padding: "8px 16px", fontSize: 10, fontWeight: 800, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, background: THEME.panelSoft, borderBottom: `1px solid ${THEME.border}` }}>
@@ -267,27 +297,31 @@ export default function CalendarToolbar({
                 </div>
                 <button
                   onClick={() => { onPrintCalendar(); setActionsMenuOpen(false); }}
-                  style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", borderBottom: `1px solid ${THEME.border}`, textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: THEME.text }}
+                  style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", borderBottom: `1px solid ${THEME.border}`, textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: THEME.text, display: "flex", alignItems: "center", gap: 12 }}
                 >
-                  ◈ Stampa calendario
+                  <Printer size={18} strokeWidth={1.75} color={THEME.muted} />
+                  <span>Stampa calendario</span>
                 </button>
                 <button
                   onClick={() => { onExportToPDF(); setActionsMenuOpen(false); }}
-                  style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", borderBottom: `1px solid ${THEME.border}`, textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: THEME.text }}
+                  style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", borderBottom: `1px solid ${THEME.border}`, textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: THEME.text, display: "flex", alignItems: "center", gap: 12 }}
                 >
-                  ▤ Esporta PDF
+                  <FileText size={18} strokeWidth={1.75} color={THEME.muted} />
+                  <span>Esporta PDF</span>
                 </button>
                 <button
                   onClick={() => { onExportToGoogleCalendar(); setActionsMenuOpen(false); }}
-                  style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", borderBottom: `1px solid ${THEME.border}`, textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: THEME.text }}
+                  style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", borderBottom: `1px solid ${THEME.border}`, textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: THEME.text, display: "flex", alignItems: "center", gap: 12 }}
                 >
-                  ▦ Esporta Google Calendar
+                  <CalendarPlus size={18} strokeWidth={1.75} color={THEME.muted} />
+                  <span>Esporta Google Calendar</span>
                 </button>
                 <button
                   onClick={() => { onExportAppointments(); setActionsMenuOpen(false); }}
-                  style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", borderBottom: `1px solid ${THEME.border}`, textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: THEME.text }}
+                  style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", borderBottom: `1px solid ${THEME.border}`, textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: THEME.text, display: "flex", alignItems: "center", gap: 12 }}
                 >
-                  ▤ Esporta CSV
+                  <Table size={18} strokeWidth={1.75} color={THEME.muted} />
+                  <span>Esporta CSV</span>
                 </button>
 
                 {/* ─── Sezione Strumenti giornata ───────────────────── */}
@@ -296,9 +330,10 @@ export default function CalendarToolbar({
                 </div>
                 <button
                   onClick={() => { onOpenDailySummary(); setActionsMenuOpen(false); }}
-                  style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", borderBottom: `1px solid ${THEME.border}`, textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: THEME.text }}
+                  style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", borderBottom: `1px solid ${THEME.border}`, textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: THEME.text, display: "flex", alignItems: "center", gap: 12 }}
                 >
-                  📋 Riepilogo giornaliero
+                  <ClipboardList size={18} strokeWidth={1.75} color={THEME.muted} />
+                  <span>Riepilogo giornaliero</span>
                 </button>
                 <button
                   onClick={() => {
@@ -306,9 +341,10 @@ export default function CalendarToolbar({
                     setBulkSelected(new Set());
                     setActionsMenuOpen(false);
                   }}
-                  style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: bulkMode ? THEME.blue : THEME.text }}
+                  style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: bulkMode ? THEME.blue : THEME.text, display: "flex", alignItems: "center", gap: 12 }}
                 >
-                  💰 {bulkMode ? `Bulk attivo (${bulkSelected.size})` : "Segna pagati in blocco"}
+                  <CheckCheck size={18} strokeWidth={1.75} color={bulkMode ? THEME.blue : THEME.muted} />
+                  <span>{bulkMode ? `Bulk attivo (${bulkSelected.size})` : "Segna pagati in blocco"}</span>
                 </button>
               </div>
             </>
