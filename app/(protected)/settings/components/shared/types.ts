@@ -106,3 +106,37 @@ export type StudioLocation = {
   sort_order: number;
   created_at: string;
 };
+
+// ── Team membri (mig. 019 + 020) ──────────────────────────────────────────
+// Tabella studio_members con campi estesi. Una riga può rappresentare:
+// - un membro attivo: user_id valorizzato, fa parte del team
+// - un invito pendente: user_id NULL, email + invite_token valorizzati
+export type StudioMemberRow = {
+  studio_id: string;
+  user_id: string | null;       // NULL = invito pendente
+  role: "owner" | "therapist" | "assistant";
+  display_name: string | null;
+  display_color: string | null; // hex
+  signature_short: string | null; // 1-3 caratteri
+  is_active: boolean;
+  sort_order: number;
+  email: string | null;
+  invite_token: string | null;  // UUID, NULL dopo claim
+  invited_at: string | null;    // ISO
+};
+
+// ── Stanze (mig. 019 + 020) ───────────────────────────────────────────────
+// Tabella studio_rooms. Lega una stanza a una sede (location_id) o trasversale.
+// treatment_types: NULL o [] = nessuna restrizione (universale)
+export type StudioRoomRow = {
+  id: string;
+  studio_id: string;
+  location_id: string | null;
+  name: string;
+  color: string | null;
+  is_active: boolean;
+  sort_order: number;
+  treatment_types: string[] | null; // mig. 020
+  created_at: string;
+  updated_at?: string;
+};

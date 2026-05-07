@@ -17,7 +17,7 @@
 
 import { THEME } from "./shared/theme";
 
-export type SettingsTab = "studio" | "calendar" | "communications" | "account";
+export type SettingsTab = "studio" | "team" | "calendar" | "communications" | "account";
 
 export type SettingsTabsProps = {
   activeTab: SettingsTab;
@@ -26,6 +26,7 @@ export type SettingsTabsProps = {
 
 const TABS: Array<{ id: SettingsTab; icon: string; label: string; description: string }> = [
   { id: "studio",          icon: "🏥", label: "Studio",          description: "Anagrafica, prezzi, orari" },
+  { id: "team",            icon: "👥", label: "Team",            description: "Operatori e stanze" },
   { id: "calendar",        icon: "📅", label: "Calendario",      description: "Durate, prenotazioni, blocchi" },
   { id: "communications",  icon: "💬", label: "Comunicazioni",   description: "Messaggi e integrazioni" },
   { id: "account",         icon: "👤", label: "Account",         description: "Password e gestione" },

@@ -32,6 +32,8 @@ import {
   type BookableService,
   type BlockedDay,
   type StudioLocation,
+  type StudioMemberRow,
+  type StudioRoomRow,
   DAY_LABELS,
 } from "./components/shared/types";
 
@@ -50,6 +52,8 @@ import BlockedDaysSection from "./components/sections/BlockedDaysSection";
 import ManagementSection from "./components/sections/ManagementSection";
 import PasswordSection from "./components/sections/PasswordSection";
 import IntegrationsSection from "./components/sections/IntegrationsSection";
+import TeamSection from "./components/sections/TeamSection";
+import RoomsSection from "./components/sections/RoomsSection";
 import SettingsTabs, { type SettingsTab } from "./components/SettingsTabs";
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -82,12 +86,15 @@ export default function SettingsPage() {
   const [showGestione,  setShowGestione]  = useState(false);
   const [showPassword,  setShowPassword]  = useState(false);
   const [showBackup,    setShowBackup]    = useState(false);
+  // Tab "Team" (mig. 019/020)
+  const [showTeam,      setShowTeam]      = useState(true);
+  const [showRooms,     setShowRooms]     = useState(true);
 
   // ── Preferenza tab in localStorage ────────────────────────────────────────
   useEffect(() => {
     if (typeof window === "undefined") return;
     const saved = localStorage.getItem("settings_active_tab");
-    if (saved === "studio" || saved === "calendar" || saved === "communications" || saved === "account") {
+    if (saved === "studio" || saved === "team" || saved === "calendar" || saved === "communications" || saved === "account") {
       setActiveTab(saved);
     }
   }, []);
@@ -132,6 +139,32 @@ export default function SettingsPage() {
   const [savingMultiToggle, setSavingMultiToggle]       = useState(false);
   const [savingLocation, setSavingLocation]             = useState(false);
   const loadingLocations = false; // Le locations arrivano già pronte dal context
+
+  // ── Multi-operatore (mig. 019 + 020) ─────────────────────────────────
+  // Toggle + lista membri (inviti pendenti inclusi) + handler CRUD
+  const [multiOperatorEnabled, setMultiOperatorEnabled] = useState(false);
+  const [savingMultiOpToggle, setSavingMultiOpToggle]   = useState(false);
+  const [members, setMembers]                           = useState<StudioMemberRow[]>([]);
+  const [loadingMembers, setLoadingMembers]             = useState(true);
+  const [savingMember, setSavingMember]                 = useState(false);
+  const [currentUserId, setCurrentUserId]               = useState<string | null>(null);
+
+  // ── Multi-stanza (mig. 019 + 020) ────────────────────────────────────
+  const [multiRoomEnabled, setMultiRoomEnabled]         = useState(false);
+  const [savingMultiRoomToggle, setSavingMultiRoomToggle] = useState(false);
+  const [rooms, setRooms]                               = useState<StudioRoomRow[]>([]);
+  const [loadingRooms, setLoadingRooms]                 = useState(true);
+  const [savingRoom, setSavingRoom]                     = useState(false);
+
+  // ── Trattamenti (per la RoomsSection) ─────────────────────────────────
+  // Caricati separatamente perché la RoomsSection ha bisogno della lista
+  // dei trattamenti per il selettore "trattamenti consentiti".
+  const [allTreatments, setAllTreatments] = useState<Array<{
+    id: string; key: string; label: string; color: string;
+    price_invoice: number; price_cash: number; duration_min: number;
+    is_active: boolean; sort_order: number; is_builtin: boolean;
+    studio_id: string;
+  }>>([]);
 
   // ── Prezzi di gruppo (mig. 014) ──────────────────────────────────────────
   // Dichiarati qui in alto perché usati da saveGroupStats (sotto saveStudio).
@@ -327,6 +360,351 @@ export default function SettingsPage() {
       setSavingLocation(false);
     }
   }, [studio?.id, refreshLocations]);
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // ── Multi-operatore (mig. 019 + 020) ────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════
+
+  // Carica tutti i membri (attivi + inviti pendenti) dello studio.
+  const loadMembers = useCallback(async () => {
+    if (!studio?.id) return;
+    setLoadingMembers(true);
+    try {
+      const { data, error } = await supabase
+        .from("studio_members")
+        .select("studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invite_token, invited_at")
+        .eq("studio_id", studio.id)
+        .eq("is_active", true)
+        .order("role", { ascending: true })  // owner first
+        .order("sort_order", { ascending: true });
+      if (error) {
+        console.error("Errore loadMembers:", error);
+        setMembers([]);
+        return;
+      }
+      setMembers((data || []) as StudioMemberRow[]);
+    } finally {
+      setLoadingMembers(false);
+    }
+  }, [studio?.id]);
+
+  // Inizializza currentUserId + flag multi_operator + carica members
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (!cancelled) setCurrentUserId(data.user?.id ?? null);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (studio?.id) {
+      setMultiOperatorEnabled(Boolean(studio.multi_operator_enabled));
+      setMultiRoomEnabled(Boolean(studio.multi_room_enabled));
+      void loadMembers();
+    }
+  }, [studio?.id, studio?.multi_operator_enabled, studio?.multi_room_enabled, loadMembers]);
+
+  const saveMultiOperatorToggle = useCallback(async () => {
+    if (!studio?.id) { alert("Studio non disponibile"); return; }
+    setSavingMultiOpToggle(true);
+    try {
+      const { error } = await supabase
+        .from("studios")
+        .update({ multi_operator_enabled: multiOperatorEnabled })
+        .eq("id", studio.id);
+      if (error) {
+        alert("Errore salvataggio multi-operatore: " + error.message);
+        return;
+      }
+      await refreshStudio();
+      flashSuccess(multiOperatorEnabled ? "Multi-operatore attivato." : "Multi-operatore disattivato.");
+    } finally {
+      setSavingMultiOpToggle(false);
+    }
+  }, [studio?.id, multiOperatorEnabled, refreshStudio]);
+
+  // Genera un nuovo invito (placeholder con user_id = NULL, invite_token = uuid).
+  // Restituisce il token così la UI può mostrare subito il link da copiare.
+  const createInvite = useCallback(async (payload: {
+    display_name: string;
+    email: string;
+    role: StudioMemberRow["role"];
+    display_color: string;
+    signature_short: string;
+  }): Promise<{ inviteToken: string } | null> => {
+    if (!studio?.id) { alert("Studio non disponibile"); return null; }
+    setSavingMember(true);
+    try {
+      // Verifica che la mail non sia già usata da un membro/invito esistente
+      const existing = members.find(m =>
+        m.email && m.email.toLowerCase() === payload.email.toLowerCase()
+      );
+      if (existing) {
+        alert(`L'email ${payload.email} è già usata${existing.user_id == null ? " da un invito pendente" : " da un membro"}. Annulla l'invito esistente prima di crearne uno nuovo.`);
+        return null;
+      }
+
+      // Genera un UUID lato client (compatibile con tutti i browser moderni)
+      const inviteToken = (typeof crypto !== "undefined" && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+            const r = Math.random() * 16 | 0;
+            const v = c === "x" ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+          });
+
+      const maxSort = members.reduce((m, x) => Math.max(m, x.sort_order ?? 0), 0);
+      const { error } = await supabase.from("studio_members").insert({
+        studio_id: studio.id,
+        user_id: null,
+        role: payload.role,
+        display_name: payload.display_name,
+        display_color: payload.display_color,
+        signature_short: payload.signature_short,
+        is_active: true,
+        sort_order: maxSort + 1,
+        email: payload.email,
+        invite_token: inviteToken,
+        invited_at: new Date().toISOString(),
+      });
+      if (error) {
+        alert("Errore creazione invito: " + error.message);
+        return null;
+      }
+
+      await loadMembers();
+      flashSuccess(`Invito creato per ${payload.email}. Copia il link e condividilo.`);
+      return { inviteToken };
+    } finally {
+      setSavingMember(false);
+    }
+  }, [studio?.id, members, loadMembers]);
+
+  // Aggiorna un membro esistente. La chiave è user_id (per membri attivi) o
+  // invite_token (per inviti pendenti). isToken distingue i due casi.
+  const updateMember = useCallback(async (
+    userIdOrToken: string,
+    isToken: boolean,
+    payload: Partial<{
+      display_name: string;
+      role: StudioMemberRow["role"];
+      display_color: string;
+      signature_short: string;
+    }>
+  ) => {
+    if (!studio?.id) return;
+    setSavingMember(true);
+    try {
+      const upd: Record<string, unknown> = {};
+      if (payload.display_name !== undefined) upd.display_name = payload.display_name;
+      if (payload.role !== undefined) upd.role = payload.role;
+      if (payload.display_color !== undefined) upd.display_color = payload.display_color;
+      if (payload.signature_short !== undefined) upd.signature_short = payload.signature_short;
+
+      const query = supabase
+        .from("studio_members")
+        .update(upd)
+        .eq("studio_id", studio.id);
+      const { error } = await (isToken
+        ? query.eq("invite_token", userIdOrToken)
+        : query.eq("user_id", userIdOrToken));
+      if (error) {
+        alert("Errore aggiornamento membro: " + error.message);
+        return;
+      }
+      await loadMembers();
+      flashSuccess("Membro aggiornato.");
+    } finally {
+      setSavingMember(false);
+    }
+  }, [studio?.id, loadMembers]);
+
+  // Elimina un membro (cancellazione fisica dell'invito pendente, oppure
+  // is_active=false per i membri attivi → preserva integrità storica).
+  const deleteMember = useCallback(async (
+    userIdOrToken: string,
+    isToken: boolean
+  ) => {
+    if (!studio?.id) return;
+    setSavingMember(true);
+    try {
+      if (isToken) {
+        // Invito pendente: DELETE fisico
+        const { error } = await supabase
+          .from("studio_members")
+          .delete()
+          .eq("studio_id", studio.id)
+          .eq("invite_token", userIdOrToken);
+        if (error) {
+          alert("Errore annullamento invito: " + error.message);
+          return;
+        }
+        flashSuccess("Invito annullato.");
+      } else {
+        // Membro attivo: soft-delete → is_active = false (mantiene FK su appuntamenti)
+        const { error } = await supabase
+          .from("studio_members")
+          .update({ is_active: false })
+          .eq("studio_id", studio.id)
+          .eq("user_id", userIdOrToken);
+        if (error) {
+          alert("Errore rimozione membro: " + error.message);
+          return;
+        }
+        flashSuccess("Membro rimosso dal team.");
+      }
+      await loadMembers();
+    } finally {
+      setSavingMember(false);
+    }
+  }, [studio?.id, loadMembers]);
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // ── Multi-stanza (mig. 019 + 020) ───────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════
+
+  // Carica le stanze attive dello studio
+  const loadRooms = useCallback(async () => {
+    if (!studio?.id) return;
+    setLoadingRooms(true);
+    try {
+      const { data, error } = await supabase
+        .from("studio_rooms")
+        .select("id, studio_id, location_id, name, color, is_active, sort_order, treatment_types, created_at, updated_at")
+        .eq("studio_id", studio.id)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true });
+      if (error) {
+        console.error("Errore loadRooms:", error);
+        setRooms([]);
+        return;
+      }
+      setRooms((data || []) as StudioRoomRow[]);
+    } finally {
+      setLoadingRooms(false);
+    }
+  }, [studio?.id]);
+
+  // Carica anche i trattamenti (per la RoomsSection)
+  const loadAllTreatments = useCallback(async () => {
+    if (!studio?.id) return;
+    try {
+      const { data, error } = await supabase
+        .from("treatment_types")
+        .select("id, studio_id, key, label, color, price_invoice, price_cash, duration_min, is_active, sort_order, is_builtin")
+        .eq("studio_id", studio.id)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true });
+      if (error) {
+        setAllTreatments([]);
+        return;
+      }
+      setAllTreatments((data || []) as typeof allTreatments);
+    } catch {
+      setAllTreatments([]);
+    }
+  }, [studio?.id]);
+
+  useEffect(() => {
+    if (studio?.id) {
+      void loadRooms();
+      void loadAllTreatments();
+    }
+  }, [studio?.id, loadRooms, loadAllTreatments]);
+
+  const saveMultiRoomToggle = useCallback(async () => {
+    if (!studio?.id) { alert("Studio non disponibile"); return; }
+    setSavingMultiRoomToggle(true);
+    try {
+      const { error } = await supabase
+        .from("studios")
+        .update({ multi_room_enabled: multiRoomEnabled })
+        .eq("id", studio.id);
+      if (error) {
+        alert("Errore salvataggio multi-stanza: " + error.message);
+        return;
+      }
+      await refreshStudio();
+      flashSuccess(multiRoomEnabled ? "Multi-stanza attivato." : "Multi-stanza disattivato.");
+    } finally {
+      setSavingMultiRoomToggle(false);
+    }
+  }, [studio?.id, multiRoomEnabled, refreshStudio]);
+
+  const createRoom = useCallback(async (payload: {
+    name: string;
+    color: string | null;
+    location_id: string | null;
+    treatment_types: string[] | null;
+  }) => {
+    if (!studio?.id) return;
+    setSavingRoom(true);
+    try {
+      const maxSort = rooms.reduce((m, r) => Math.max(m, r.sort_order ?? 0), 0);
+      const { error } = await supabase.from("studio_rooms").insert({
+        studio_id: studio.id,
+        location_id: payload.location_id,
+        name: payload.name,
+        color: payload.color,
+        is_active: true,
+        sort_order: maxSort + 1,
+        treatment_types: payload.treatment_types,
+      });
+      if (error) { alert("Errore creazione stanza: " + error.message); return; }
+      await loadRooms();
+      flashSuccess("Stanza aggiunta.");
+    } finally {
+      setSavingRoom(false);
+    }
+  }, [studio?.id, rooms, loadRooms]);
+
+  const updateRoom = useCallback(async (id: string, payload: Partial<{
+    name: string;
+    color: string | null;
+    location_id: string | null;
+    treatment_types: string[] | null;
+  }>) => {
+    if (!studio?.id) return;
+    setSavingRoom(true);
+    try {
+      const upd: Record<string, unknown> = {};
+      if (payload.name !== undefined) upd.name = payload.name;
+      if (payload.color !== undefined) upd.color = payload.color;
+      if (payload.location_id !== undefined) upd.location_id = payload.location_id;
+      if (payload.treatment_types !== undefined) upd.treatment_types = payload.treatment_types;
+
+      const { error } = await supabase
+        .from("studio_rooms")
+        .update(upd)
+        .eq("id", id);
+      if (error) { alert("Errore aggiornamento stanza: " + error.message); return; }
+      await loadRooms();
+      flashSuccess("Stanza aggiornata.");
+    } finally {
+      setSavingRoom(false);
+    }
+  }, [studio?.id, loadRooms]);
+
+  const deleteRoom = useCallback(async (id: string) => {
+    if (!studio?.id) return;
+    setSavingRoom(true);
+    try {
+      // Soft-delete (is_active = false): preserva integrità FK su appuntamenti
+      const { error } = await supabase
+        .from("studio_rooms")
+        .update({ is_active: false })
+        .eq("id", id);
+      if (error) { alert("Errore eliminazione stanza: " + error.message); return; }
+      await loadRooms();
+      flashSuccess("Stanza eliminata.");
+    } finally {
+      setSavingRoom(false);
+    }
+  }, [studio?.id, loadRooms]);
 
 
   // ── Calendar feed token ──────────────────────────────────────────────────
@@ -1273,6 +1651,44 @@ export default function SettingsPage() {
           onReload={() => void loadWorkingHours()}
           onSave={() => void saveWorkingHours()}
         />
+          </>
+        )}
+
+        {/* ─── Tab "Team": operatori + stanze ─── */}
+        {activeTab === "team" && (
+          <>
+            <TeamSection
+              show={showTeam}
+              onToggle={() => setShowTeam(!showTeam)}
+              multiOperatorEnabled={multiOperatorEnabled}
+              setMultiOperatorEnabled={setMultiOperatorEnabled}
+              savingMultiToggle={savingMultiOpToggle}
+              onSaveMultiToggle={() => void saveMultiOperatorToggle()}
+              members={members}
+              currentUserId={currentUserId}
+              loadingMembers={loadingMembers}
+              savingMember={savingMember}
+              onCreateInvite={createInvite}
+              onUpdateMember={updateMember}
+              onDeleteMember={deleteMember}
+            />
+
+            <RoomsSection
+              show={showRooms}
+              onToggle={() => setShowRooms(!showRooms)}
+              multiRoomEnabled={multiRoomEnabled}
+              setMultiRoomEnabled={setMultiRoomEnabled}
+              savingMultiToggle={savingMultiRoomToggle}
+              onSaveMultiToggle={() => void saveMultiRoomToggle()}
+              rooms={rooms}
+              locations={studioLocations as StudioLocation[]}
+              treatments={allTreatments}
+              loadingRooms={loadingRooms}
+              savingRoom={savingRoom}
+              onCreate={createRoom}
+              onUpdate={updateRoom}
+              onDelete={deleteRoom}
+            />
           </>
         )}
 
