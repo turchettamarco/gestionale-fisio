@@ -48,6 +48,10 @@ export type CalendarToolbarProps = {
   setActionsMenuOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
   onExportAppointments: () => void;
   onOpenDailySummary: () => void;
+  // Stampa / export (spostati dalla CalendarTopBar)
+  onPrintCalendar: () => void;
+  onExportToPDF: () => void;
+  onExportToGoogleCalendar: () => void;
   bulkMode: boolean;
   setBulkMode: (b: boolean | ((prev: boolean) => boolean)) => void;
   bulkSelected: Set<string>;
@@ -75,6 +79,7 @@ export default function CalendarToolbar({
   filters, onToggleFiltersPopover,
   actionsMenuOpen, setActionsMenuOpen,
   onExportAppointments, onOpenDailySummary,
+  onPrintCalendar, onExportToPDF, onExportToGoogleCalendar,
   bulkMode, setBulkMode, bulkSelected, setBulkSelected, onBulkMarkPaid,
   showAllUpcoming,
 }: CalendarToolbarProps) {
@@ -256,12 +261,39 @@ export default function CalendarToolbar({
                 borderRadius: 10, boxShadow: "0 8px 28px rgba(30,64,175,0.18)",
                 zIndex: 9999, minWidth: 220, overflow: "hidden",
               }}>
+                {/* ─── Sezione Stampa / Export ───────────────────── */}
+                <div style={{ padding: "8px 16px", fontSize: 10, fontWeight: 800, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, background: THEME.panelSoft, borderBottom: `1px solid ${THEME.border}` }}>
+                  Stampa / Esporta
+                </div>
+                <button
+                  onClick={() => { onPrintCalendar(); setActionsMenuOpen(false); }}
+                  style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", borderBottom: `1px solid ${THEME.border}`, textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: THEME.text }}
+                >
+                  ◈ Stampa calendario
+                </button>
+                <button
+                  onClick={() => { onExportToPDF(); setActionsMenuOpen(false); }}
+                  style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", borderBottom: `1px solid ${THEME.border}`, textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: THEME.text }}
+                >
+                  ▤ Esporta PDF
+                </button>
+                <button
+                  onClick={() => { onExportToGoogleCalendar(); setActionsMenuOpen(false); }}
+                  style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", borderBottom: `1px solid ${THEME.border}`, textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: THEME.text }}
+                >
+                  ▦ Esporta Google Calendar
+                </button>
                 <button
                   onClick={() => { onExportAppointments(); setActionsMenuOpen(false); }}
                   style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", borderBottom: `1px solid ${THEME.border}`, textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: THEME.text }}
                 >
                   ▤ Esporta CSV
                 </button>
+
+                {/* ─── Sezione Strumenti giornata ───────────────────── */}
+                <div style={{ padding: "8px 16px", fontSize: 10, fontWeight: 800, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, background: THEME.panelSoft, borderBottom: `1px solid ${THEME.border}`, borderTop: `1px solid ${THEME.border}` }}>
+                  Strumenti
+                </div>
                 <button
                   onClick={() => { onOpenDailySummary(); setActionsMenuOpen(false); }}
                   style={{ width: "100%", padding: "11px 16px", background: "none", border: "none", borderBottom: `1px solid ${THEME.border}`, textAlign: "left", fontSize: 13, fontWeight: 600, cursor: "pointer", color: THEME.text }}

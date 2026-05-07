@@ -483,11 +483,9 @@ function CalendarPageInner() {
     macchinario: "#7c3aed",  // viola smorzato
   };
 
-  const [printMenuOpen, setPrintMenuOpen] = useState(false);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   // filtersExpanded, filtersPopoverOpen, calendarSearch, calendarSearchOpen,
   // isSearchActive, searchMatchIds: ora in useSearchAndFilters.
-  const printMenuRef = useRef<HTMLDivElement>(null);
 
   // dailySummary è ora in useCalendarEvents.
 
@@ -1223,18 +1221,7 @@ function CalendarPageInner() {
 
   const printCalendar = useCallback(() => {
     exportToPDF();
-    setPrintMenuOpen(false);
   }, [exportToPDF]);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (printMenuRef.current && !printMenuRef.current.contains(event.target as Node)) {
-        setPrintMenuOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   const dayLabels = useMemo(
     () => [
@@ -1390,26 +1377,8 @@ return (
 
       {/* ━━━ TOP NAVIGATION BAR ━━━ */}
       <CalendarTopBar
-        viewType={viewType}
-        onSetViewType={setViewType}
-        currentDate={currentDate}
-        setCurrentDate={setCurrentDate}
-        onGoToPreviousWeek={goToPreviousWeek}
-        onGoToNextWeek={goToNextWeek}
-        onGoToPreviousMonth={goToPreviousMonth}
-        onGoToNextMonth={goToNextMonth}
-        onGoToToday={goToToday}
-        weekOptions={weekOptions}
-        onGotoWeekStart={gotoWeekStart}
-        printMenuOpen={printMenuOpen}
-        setPrintMenuOpen={setPrintMenuOpen}
-        printMenuRef={printMenuRef}
-        onPrintCalendar={printCalendar}
-        onExportToPDF={exportToPDF}
-        onExportToGoogleCalendar={exportToGoogleCalendar}
-        bookingPanelOpen={bookingPanel}
         pendingBookingsCount={bookingRequests.filter(r => r.status === "pending").length}
-        onToggleBookingPanel={() => setBookingPanel(v => !v)}
+        onOpenBookingPanel={() => setBookingPanel(v => !v)}
         showBookingBell={currentStudio?.show_booking_bell_calendar === true}
         notificationsBellEnabled={currentStudio?.notify_bell_enabled !== false}
         onNotificationAppointmentClick={(apptId) => {
@@ -1573,6 +1542,9 @@ return (
             setActionsMenuOpen={setActionsMenuOpen}
             onExportAppointments={exportAppointments}
             onOpenDailySummary={() => setDailySummaryOpen(true)}
+            onPrintCalendar={printCalendar}
+            onExportToPDF={exportToPDF}
+            onExportToGoogleCalendar={exportToGoogleCalendar}
             bulkMode={bulkMode}
             setBulkMode={setBulkMode}
             bulkSelected={bulkSelected}

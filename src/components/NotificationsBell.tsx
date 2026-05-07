@@ -1,14 +1,16 @@
 // src/components/NotificationsBell.tsx
 // ═══════════════════════════════════════════════════════════════════════
-// Campanella notifiche per il calendario (desktop + mobile).
-// 
-// - Polling ogni 30s su /api/notifications
-// - Badge rosso con count notifiche non lette
-// - Click → dropdown con lista
-// - Click su notifica → POST /api/notifications {id} (mark read)
-//   + chiama onAppointmentClick per aprire l'appuntamento nel calendario
-// - "Segna tutte come lette" → POST {mark_all: true}
-// - Auto-hidden se notify_bell_enabled = false a livello studio
+// Campanella unificata (desktop + mobile).
+//
+// SEZIONI nel dropdown:
+//   1. Prenotazioni dal sito (opzionale, prop bookingSection)
+//      → counter pending + click apre BookingRequestsPanel esterno
+//   2. Notifiche conferme/annullamenti pazienti (prop enabled)
+//      → polling /api/notifications, mark-as-read, click apre appuntamento
+//
+// Il badge sul bottone è la SOMMA di prenotazioni pending + notifiche unread.
+//
+// La campanella è nascosta solo se entrambe le sezioni sono disabilitate.
 // ═══════════════════════════════════════════════════════════════════════
 "use client";
 
@@ -37,6 +39,14 @@ type Props = {
   // Tema colori
   primaryColor?: string;   // default teal
   dangerColor?: string;    // default red
+  // ─── Sezione prenotazioni online (opzionale) ──────────────────
+  // Se attiva, in cima al dropdown appare una sezione "Prenotazioni dal sito"
+  // con il counter pending e un pulsante che apre il pannello dedicato.
+  bookingSection?: {
+    enabled: boolean;
+    pendingCount: number;
+    onOpenPanel: () => void;
+  };
 };
 
 const POLL_MS = 30000;
@@ -47,6 +57,7 @@ export default function NotificationsBell({
   dropdownAlign = "right",
   primaryColor = "#0d9488",
   dangerColor = "#dc2626",
+  bookingSection,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationItem[]>([]);
@@ -132,7 +143,13 @@ export default function NotificationsBell({
     setOpen(false);
   }
 
-  if (!enabled) return null;
+  // Visibile se è attiva la sezione notifiche standard OPPURE la sezione prenotazioni
+  const visible = enabled || (bookingSection?.enabled === true);
+  if (!visible) return null;
+
+  // Badge totale = notifiche non lette + prenotazioni pending (se attive)
+  const bookingPending = bookingSection?.enabled ? bookingSection.pendingCount : 0;
+  const totalBadge = unreadCount + bookingPending;
 
   return (
     <div style={{ position: "relative", display: "inline-block" }}>
@@ -161,7 +178,7 @@ export default function NotificationsBell({
         onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.18)")}
       >
         🔔
-        {unreadCount > 0 && (
+        {totalBadge > 0 && (
           <span
             style={{
               position: "absolute",
@@ -182,7 +199,7 @@ export default function NotificationsBell({
               boxSizing: "border-box",
             }}
           >
-            {unreadCount > 99 ? "99+" : unreadCount}
+            {totalBadge > 99 ? "99+" : totalBadge}
           </span>
         )}
       </button>
@@ -220,8 +237,10 @@ export default function NotificationsBell({
               background: "#f8fafc",
             }}
           >
-            <div style={{ fontWeight: 700, fontSize: 14 }}>Notifiche</div>
-            {unreadCount > 0 && (
+            <div style={{ fontWeight: 700, fontSize: 14 }}>
+              {enabled ? "Notifiche" : "Avvisi"}
+            </div>
+            {enabled && unreadCount > 0 && (
               <button
                 onClick={markAllAsRead}
                 disabled={loading}
@@ -241,17 +260,71 @@ export default function NotificationsBell({
             )}
           </div>
 
-          {/* Lista */}
-          <div style={{ overflowY: "auto", flex: 1 }}>
-            {items.length === 0 ? (
-              <div style={{ padding: 30, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
-                <div style={{ fontSize: 28, marginBottom: 6 }}>📭</div>
-                Nessuna notifica
+          {/* ─── Sezione Prenotazioni dal sito (se abilitata) ─── */}
+          {bookingSection?.enabled && (
+            <button
+              onClick={() => {
+                bookingSection.onOpenPanel();
+                setOpen(false);
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                width: "100%",
+                padding: "12px 16px",
+                background: bookingSection.pendingCount > 0 ? "#fff7ed" : "#fff",
+                border: "none",
+                borderBottom: "1px solid #e2e8f0",
+                cursor: "pointer",
+                textAlign: "left",
+                fontFamily: "inherit",
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = bookingSection.pendingCount > 0 ? "#ffedd5" : "#f8fafc")}
+              onMouseLeave={e => (e.currentTarget.style.background = bookingSection.pendingCount > 0 ? "#fff7ed" : "#fff")}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 18 }}>📅</span>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: "#0f172a" }}>
+                    Prenotazioni dal sito
+                  </div>
+                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
+                    {bookingSection.pendingCount > 0
+                      ? `${bookingSection.pendingCount} in attesa di conferma`
+                      : "Nessuna richiesta in attesa"}
+                  </div>
+                </div>
               </div>
-            ) : (
-              items.map(n => <NotificationRow key={n.id} item={n} onClick={() => onClickItem(n)} />)
-            )}
-          </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {bookingSection.pendingCount > 0 && (
+                  <span style={{
+                    minWidth: 22, height: 22, padding: "0 6px",
+                    borderRadius: 11, background: "#f97316", color: "#fff",
+                    fontSize: 11, fontWeight: 800,
+                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    {bookingSection.pendingCount}
+                  </span>
+                )}
+                <span style={{ color: "#94a3b8", fontSize: 14 }}>›</span>
+              </div>
+            </button>
+          )}
+
+          {/* Lista notifiche */}
+          {enabled && (
+            <div style={{ overflowY: "auto", flex: 1 }}>
+              {items.length === 0 ? (
+                <div style={{ padding: 30, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
+                  <div style={{ fontSize: 28, marginBottom: 6 }}>📭</div>
+                  Nessuna notifica
+                </div>
+              ) : (
+                items.map(n => <NotificationRow key={n.id} item={n} onClick={() => onClickItem(n)} />)
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
