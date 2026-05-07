@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { openWhatsApp } from "@/src/lib/whatsapp";
 
@@ -12,6 +12,8 @@ import { supabase } from "@/src/lib/supabaseClient";
 import Link from "next/link";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter, type StudioHeaderData } from "@/src/lib/pdfHeader";
+import { BuildInfo } from "@/src/components/BuildInfo";
+import NotificationsBell from "@/src/components/NotificationsBell";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const T = {
@@ -147,7 +149,6 @@ export default function ReportsPage(){
   const[paidRows,   setPaidRows]   =useState<PaidRow[]>([]);
   const[showAllPaid,setShowAllPaid]=useState(false);
   const[unpaidFilter,setUnpaidFilter]=useState("");
-  const[showUnpaidDD,setShowUnpaidDD]=useState(false);
 
   // ── Pazienti ──
   const[newPatients,    setNewPatients]    =useState(0);
@@ -180,6 +181,46 @@ export default function ReportsPage(){
   });
 
   const baseDate=useMemo(()=>{const[y,m,d]=dateStr.split("-").map(Number);return new Date(y,m-1,d);},[dateStr]);
+
+  // ── User menu / dropdown navbar ──
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
+  const [periodMenuOpen, setPeriodMenuOpen] = useState(false);
+  const periodMenuRef = useRef<HTMLDivElement | null>(null);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const actionsMenuRef = useRef<HTMLDivElement | null>(null);
+  const [unpaidSubmenuOpen, setUnpaidSubmenuOpen] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      setUserEmail(data?.user?.email ?? null);
+    })();
+  }, []);
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (userMenuOpen && userMenuRef.current && !userMenuRef.current.contains(t)) setUserMenuOpen(false);
+      if (periodMenuOpen && periodMenuRef.current && !periodMenuRef.current.contains(t)) setPeriodMenuOpen(false);
+      if (actionsMenuOpen && actionsMenuRef.current && !actionsMenuRef.current.contains(t)) {
+        setActionsMenuOpen(false);
+        setUnpaidSubmenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [userMenuOpen, periodMenuOpen, actionsMenuOpen]);
+
+  const handleLogout = useCallback(async () => {
+    try { await supabase.auth.signOut(); } finally {
+      setUserMenuOpen(false);
+      window.location.href = "/login";
+    }
+  }, []);
+
+  const userInitials = userEmail ? userEmail.slice(0, 2).toUpperCase() : "?";
 
   // ref per annullare chiamate in corso se period/date cambiano prima che finiscano
   const loadIdRef = useRef(0);
@@ -713,52 +754,164 @@ export default function ReportsPage(){
         .rh:hover{background:rgba(37,99,235,0.025)!important;}
         .sc::-webkit-scrollbar{width:4px;} .sc::-webkit-scrollbar-thumb{background:rgba(37,99,235,0.12);border-radius:99px;}
         @media print{.np{display:none!important}}
+        /* Search compatta sotto 900px */
+        @media (max-width: 900px){
+          .rep-search-text{display:none;}
+          .rep-search-kbd{display:none;}
+        }
+        /* Mobile: chip nascoste, period label compatta */
+        @media (max-width: 640px){
+          .rep-chip{display:none;}
+          .rep-period-label{font-size:12px!important;max-width:120px;}
+          .rep-subheader{padding:0 12px!important;}
+        }
       `}</style>
 
-      {/* ━━━ NAVBAR ━━━ */}
-      <header className="np" style={{position:"sticky",top:0,zIndex:50,background:T.gradient,padding:"0 24px",height:54,display:"flex",alignItems:"center",justifyContent:"space-between",boxShadow:"0 2px 12px rgba(13,148,136,0.2)"}}>
-        <div style={{display:"flex",alignItems:"center",gap:20}}>
+      {/* ━━━ NAVBAR GLOBALE — riga 1 ━━━ */}
+      <header className="np" style={{position:"sticky",top:0,zIndex:50,background:T.gradient,padding:"0 20px",height:54,display:"flex",alignItems:"center",justifyContent:"space-between",boxShadow:"0 2px 12px rgba(13,148,136,0.18)",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:20,flexShrink:0}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <div style={{width:28,height:28,borderRadius:7,background:"rgba(255,255,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:13,border:"1.5px solid rgba(255,255,255,0.3)"}}>F</div>
             <span style={{fontWeight:700,fontSize:14,color:"#fff",letterSpacing:0.5,textTransform:"uppercase" as const}}>Fisio<span style={{fontWeight:800}}>Hub</span></span>
           </div>
           <nav style={{display:"flex",gap:2}}>
-            {[{href:"/",l:"Home"},{href:"/calendar",l:"Calendario"},{href:"/reports",l:"Report",a:true},{href:"/noleggio",l:"Noleggio"},{href:"/patients",l:"Pazienti"},].map((item,i)=>(
-              <Link key={`nav-${i}`} href={item.href} style={{padding:"5px 11px",borderRadius:7,fontSize:12,fontWeight:700,background:(item as any).a?"rgba(255,255,255,0.22)":"transparent",color:(item as any).a?"#fff":"rgba(255,255,255,0.8)"}}>{item.l}</Link>
+            {[{href:"/",l:"Home"},{href:"/calendar",l:"Calendario"},{href:"/reports",l:"Report",a:true},{href:"/noleggio",l:"Noleggio"},{href:"/patients",l:"Pazienti"}].map((item,i)=>(
+              <Link key={`nav-${i}`} href={item.href} style={{padding:"6px 11px",borderRadius:7,fontSize:12,fontWeight:700,background:(item as any).a?"rgba(255,255,255,0.22)":"transparent",color:(item as any).a?"#fff":"rgba(255,255,255,0.8)",letterSpacing:0.2}}>{item.l}</Link>
             ))}
           </nav>
         </div>
 
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <span style={{fontWeight:700,fontSize:14,color:"#fff",whiteSpace:"nowrap"}}>{periodLabel()}</span>
-          <button onClick={()=>navigate(-1)} style={{padding:"5px 11px",borderRadius:7,border:"1.5px solid rgba(255,255,255,0.35)",background:"rgba(255,255,255,0.15)",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13}}>◀</button>
-          <button onClick={()=>setDateStr(toYMD(new Date()))} style={{padding:"5px 11px",borderRadius:7,border:"1.5px solid rgba(255,255,255,0.5)",background:"rgba(255,255,255,0.25)",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:12}}>Oggi</button>
-          <button onClick={()=>navigate(1)} style={{padding:"5px 11px",borderRadius:7,border:"1.5px solid rgba(255,255,255,0.35)",background:"rgba(255,255,255,0.15)",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13}}>▶</button>
-          <div style={{display:"flex",gap:0,marginLeft:4}}>
-            {([{k:"day",l:"Giorno"},{k:"week",l:"Sett."},{k:"month",l:"Mese"},{k:"quarter",l:"Trim."},{k:"semester",l:"Semestre"},{k:"year",l:"Anno"}] as{k:Period;l:string}[]).map((p,i,arr)=>(
-              <button key={`per-${i}`} onClick={()=>setPeriod(p.k)} style={{padding:"5px 10px",borderRadius:i===0?"7px 0 0 7px":i===arr.length-1?"0 7px 7px 0":"0",border:`1.5px solid ${period===p.k?T.blue:"rgba(255,255,255,0.3)"}`,background:period===p.k?"rgba(255,255,255,0.28)":"rgba(255,255,255,0.1)",color:period===p.k?"#fff":"rgba(255,255,255,0.8)",cursor:"pointer",fontWeight:700,fontSize:11}}>{p.l}</button>
-            ))}
-          </div>
-        </div>
-
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          {!loading&&<><span style={{fontSize:11,fontWeight:700,color:"#fff",background:"rgba(255,255,255,0.2)",padding:"4px 10px",borderRadius:6,border:"1px solid rgba(255,255,255,0.15)",whiteSpace:"nowrap"}}>{euro.format(revenue)}</span>{unpaidTot>0&&<span style={{fontSize:11,fontWeight:700,color:"#fff",background:"rgba(220,38,38,0.35)",padding:"4px 10px",borderRadius:6,border:"1px solid rgba(255,255,255,0.15)",whiteSpace:"nowrap"}}>{euro.format(unpaidTot)}</span>}</>}
-          <button onClick={()=>exportCSVFull()} disabled={exporting} style={{padding:"5px 12px",borderRadius:7,border:"1.5px solid rgba(255,255,255,0.35)",background:"rgba(255,255,255,0.18)",color:"#fff",cursor:exporting?"wait":"pointer",fontWeight:700,fontSize:12,whiteSpace:"nowrap" as const,opacity:exporting?0.6:1}}>{exporting?"…":"↓ Excel"}</button>
-          <div style={{position:"relative"}}>
-            <button onClick={()=>setShowUnpaidDD(v=>!v)} style={{padding:"5px 12px",borderRadius:7,border:"1.5px solid rgba(220,38,38,0.5)",background:"rgba(220,38,38,0.3)",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:12,display:"flex",alignItems:"center",gap:5}}>
-              Stampa non pagati {showUnpaidDD?"▲":"▼"}
+        <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+          <button
+            className="rep-search-btn"
+            onClick={()=>window.dispatchEvent(new CustomEvent("fisiohub:open-search"))}
+            title="Cerca pazienti e appuntamenti (Ctrl+K)"
+            style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,0.14)",border:"1px solid rgba(255,255,255,0.22)",borderRadius:7,padding:"0 11px",height:30,color:"rgba(255,255,255,0.85)",fontSize:12,fontWeight:500,cursor:"pointer"}}
+          >
+            <span style={{color:"rgba(255,255,255,0.65)",fontSize:13}}>⌕</span>
+            <span className="rep-search-text">Cerca pazienti…</span>
+            <span className="rep-search-kbd" style={{marginLeft:6,padding:"1px 6px",borderRadius:4,background:"rgba(255,255,255,0.18)",fontSize:10,fontWeight:700,letterSpacing:0.3}}>Ctrl K</span>
+          </button>
+          <button onClick={()=>loadData()} title="Aggiorna" style={{width:30,height:30,borderRadius:7,border:"1px solid rgba(255,255,255,0.28)",background:"rgba(255,255,255,0.14)",color:"#fff",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>↺</button>
+          <NotificationsBell
+            enabled={(currentStudio as any)?.notify_bell_enabled !== false}
+          />
+          <div ref={userMenuRef} style={{position:"relative"}}>
+            <button onClick={()=>setUserMenuOpen(v=>!v)} style={{width:30,height:30,borderRadius:7,border:"1px solid rgba(255,255,255,0.32)",background:"rgba(255,255,255,0.18)",color:"#fff",fontWeight:800,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+              {userInitials}
             </button>
-            {showUnpaidDD&&(
-              <div style={{position:"absolute",top:"calc(100% + 8px)",right:0,background:T.panelBg,border:`1.5px solid ${T.border}`,borderRadius:12,boxShadow:"0 8px 32px rgba(30,64,175,0.15)",zIndex:9999,minWidth:200,overflow:"hidden"}}>
-                <button onClick={()=>{printUnpaid(unpaidRows,"Terapie Non Pagate",currentStudio);setShowUnpaidDD(false);}} style={{width:"100%",padding:"10px 16px",background:"none",border:"none",borderBottom:`1px solid ${T.border}`,textAlign:"left",fontSize:13,fontWeight:600,cursor:"pointer",color:T.text}}>Tutti i non pagati</button>
-                {uniquePatients.map((p,i)=>(
-                  <button key={`updd-${i}`} onClick={()=>{printUnpaid(unpaidRows.filter(r=>r.name===p),`Non pagati — ${p}`,currentStudio);setShowUnpaidDD(false);}} style={{width:"100%",padding:"9px 16px",background:"none",border:"none",borderBottom:`1px solid ${T.border}`,textAlign:"left",fontSize:12,cursor:"pointer",color:T.text}}>{p}</button>
-                ))}
+            {userMenuOpen && (
+              <div style={{position:"absolute",right:0,top:"calc(100% + 8px)",width:200,background:"#fff",border:`1px solid ${T.border}`,borderRadius:10,boxShadow:"0 8px 28px rgba(15,23,42,0.12)",overflow:"hidden",zIndex:60}}>
+                <div style={{padding:"10px 15px",borderBottom:`1px solid ${T.border}`,fontSize:12,color:T.muted}}>{userEmail}</div>
+                <Link href="/settings" onClick={()=>setUserMenuOpen(false)} style={{display:"block",padding:"10px 15px",color:T.text,fontSize:13,fontWeight:600,borderBottom:`1px solid ${T.border}`}}>Impostazioni</Link>
+                <Link href="/piano" onClick={()=>setUserMenuOpen(false)} style={{display:"block",padding:"10px 15px",color:T.text,fontSize:13,fontWeight:600,borderBottom:`1px solid ${T.border}`,textDecoration:"none"}}>💎 Piano</Link>
+                <button onClick={handleLogout} style={{width:"100%",padding:"10px 15px",background:"transparent",border:"none",cursor:"pointer",color:T.red,fontWeight:600,fontSize:13,textAlign:"left"}}>Logout</button>
+                <BuildInfo />
               </div>
             )}
           </div>
         </div>
       </header>
+
+      {/* ━━━ SUB-HEADER REPORT — riga 2 (sticky sotto navbar) ━━━ */}
+      <div className="np rep-subheader" style={{position:"sticky",top:54,zIndex:40,background:T.panelBg,borderBottom:`1px solid ${T.border}`,padding:"0 20px",height:48,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,boxShadow:"0 1px 3px rgba(15,23,42,0.04)"}}>
+        {/* Sinistra: periodo + navigazione */}
+        <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,minWidth:0}}>
+          <span className="rep-period-label" style={{fontWeight:700,fontSize:13,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{periodLabel()}</span>
+          {/* Frecce + Oggi come segmented control unico */}
+          <div style={{display:"flex",border:`1px solid ${T.border}`,borderRadius:7,overflow:"hidden",flexShrink:0}}>
+            <button onClick={()=>navigate(-1)} title="Periodo precedente" style={{padding:"5px 9px",border:"none",borderRight:`1px solid ${T.border}`,background:T.panelBg,color:T.muted,cursor:"pointer",fontSize:12,fontWeight:700}}>◀</button>
+            <button onClick={()=>setDateStr(toYMD(new Date()))} style={{padding:"5px 11px",border:"none",borderRight:`1px solid ${T.border}`,background:T.panelBg,color:T.text,cursor:"pointer",fontSize:11,fontWeight:700}}>Oggi</button>
+            <button onClick={()=>navigate(1)} title="Periodo successivo" style={{padding:"5px 9px",border:"none",background:T.panelBg,color:T.muted,cursor:"pointer",fontSize:12,fontWeight:700}}>▶</button>
+          </div>
+          {/* Dropdown periodo */}
+          <div ref={periodMenuRef} style={{position:"relative",flexShrink:0}}>
+            {(() => {
+              const labels:Record<Period,string> = {day:"Giorno",week:"Settimana",month:"Mese",quarter:"Trimestre",semester:"Semestre",year:"Anno"};
+              return (
+                <button onClick={()=>setPeriodMenuOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",border:`1px solid ${T.border}`,borderRadius:7,background:T.panelBg,color:T.text,cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>
+                  <span>{labels[period]}</span>
+                  <span style={{fontSize:9,color:T.muted}}>{periodMenuOpen?"▲":"▼"}</span>
+                </button>
+              );
+            })()}
+            {periodMenuOpen && (
+              <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,background:T.panelBg,border:`1px solid ${T.border}`,borderRadius:9,boxShadow:"0 6px 22px rgba(15,23,42,0.10)",overflow:"hidden",zIndex:55,minWidth:140}}>
+                {([{k:"day",l:"Giorno"},{k:"week",l:"Settimana"},{k:"month",l:"Mese"},{k:"quarter",l:"Trimestre"},{k:"semester",l:"Semestre"},{k:"year",l:"Anno"}] as{k:Period;l:string}[]).map(p=>(
+                  <button key={`pm-${p.k}`} onClick={()=>{setPeriod(p.k);setPeriodMenuOpen(false);}} style={{width:"100%",padding:"9px 14px",border:"none",background:period===p.k?"rgba(13,148,136,0.08)":"transparent",color:period===p.k?T.teal:T.text,cursor:"pointer",fontSize:12,fontWeight:period===p.k?700:600,textAlign:"left",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                    <span>{p.l}</span>
+                    {period===p.k && <span style={{fontSize:11,color:T.teal}}>✓</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Destra: chip + dropdown azioni */}
+        <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+          {!loading && (
+            <>
+              <span className="rep-chip" title="Incassato nel periodo" style={{fontSize:11,fontWeight:800,color:T.green,background:"rgba(22,163,74,0.08)",padding:"4px 10px",borderRadius:6,border:`1px solid rgba(22,163,74,0.18)`,whiteSpace:"nowrap"}}>↗ {euro.format(revenue)}</span>
+              {unpaidTot>0 && (
+                <span className="rep-chip" title="Da incassare" style={{fontSize:11,fontWeight:800,color:T.red,background:"rgba(220,38,38,0.06)",padding:"4px 10px",borderRadius:6,border:`1px solid rgba(220,38,38,0.18)`,whiteSpace:"nowrap"}}>! {euro.format(unpaidTot)}</span>
+              )}
+            </>
+          )}
+          {/* Dropdown azioni unico */}
+          <div ref={actionsMenuRef} style={{position:"relative"}}>
+            <button onClick={()=>{setActionsMenuOpen(v=>!v);setUnpaidSubmenuOpen(false);}} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 11px",border:`1px solid ${T.teal}`,borderRadius:7,background:T.teal,color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>
+              <span>Azioni</span>
+              <span style={{fontSize:9}}>{actionsMenuOpen?"▲":"▼"}</span>
+            </button>
+            {actionsMenuOpen && (
+              <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,background:T.panelBg,border:`1px solid ${T.border}`,borderRadius:9,boxShadow:"0 8px 28px rgba(15,23,42,0.12)",overflow:"visible",zIndex:55,minWidth:230}}>
+                <button
+                  onClick={()=>{exportCSVFull();setActionsMenuOpen(false);}}
+                  disabled={exporting}
+                  style={{width:"100%",padding:"11px 14px",border:"none",background:"transparent",borderBottom:`1px solid ${T.border}`,color:T.text,cursor:exporting?"wait":"pointer",fontSize:12,fontWeight:600,textAlign:"left",display:"flex",alignItems:"center",gap:8,opacity:exporting?0.6:1}}
+                >
+                  <span style={{fontSize:14}}>↓</span>
+                  <span>{exporting?"Download in corso…":"Esporta Excel (commercialista)"}</span>
+                </button>
+                <button
+                  onClick={()=>{printUnpaid(unpaidRows,"Terapie Non Pagate",currentStudio);setActionsMenuOpen(false);}}
+                  disabled={unpaidRows.length===0}
+                  style={{width:"100%",padding:"11px 14px",border:"none",background:"transparent",borderBottom:`1px solid ${T.border}`,color:unpaidRows.length===0?T.muted:T.text,cursor:unpaidRows.length===0?"not-allowed":"pointer",fontSize:12,fontWeight:600,textAlign:"left",display:"flex",alignItems:"center",gap:8,opacity:unpaidRows.length===0?0.5:1}}
+                >
+                  <span style={{fontSize:14}}>⎙</span>
+                  <span>Stampa tutti i non pagati</span>
+                </button>
+                {/* Sottomenu per paziente */}
+                <div style={{position:"relative"}}>
+                  <button
+                    onClick={()=>setUnpaidSubmenuOpen(v=>!v)}
+                    disabled={uniquePatients.length===0}
+                    style={{width:"100%",padding:"11px 14px",border:"none",background:unpaidSubmenuOpen?"rgba(13,148,136,0.06)":"transparent",color:uniquePatients.length===0?T.muted:T.text,cursor:uniquePatients.length===0?"not-allowed":"pointer",fontSize:12,fontWeight:600,textAlign:"left",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,opacity:uniquePatients.length===0?0.5:1}}
+                  >
+                    <span style={{display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:14}}>⎙</span>
+                      <span>Stampa non pagati per paziente</span>
+                    </span>
+                    <span style={{fontSize:10,color:T.muted}}>{unpaidSubmenuOpen?"▲":"▶"}</span>
+                  </button>
+                  {unpaidSubmenuOpen && uniquePatients.length>0 && (
+                    <div className="sc" style={{maxHeight:280,overflowY:"auto",background:T.soft,borderTop:`1px solid ${T.border}`}}>
+                      {uniquePatients.map((p,i)=>(
+                        <button
+                          key={`unp-pat-${i}`}
+                          onClick={()=>{printUnpaid(unpaidRows.filter(r=>r.name===p),`Non pagati — ${p}`,currentStudio);setActionsMenuOpen(false);setUnpaidSubmenuOpen(false);}}
+                          style={{width:"100%",padding:"9px 14px 9px 30px",border:"none",background:"transparent",borderBottom:i<uniquePatients.length-1?`1px solid ${T.border}`:"none",color:T.text,cursor:"pointer",fontSize:11,fontWeight:500,textAlign:"left"}}
+                        >{p}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* ━━━ TAB BAR ━━━ */}
       <div className="np" style={{background:T.panelBg,borderBottom:`1px solid ${T.border}`,padding:"0 24px",display:"flex",gap:0}}>
