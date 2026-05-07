@@ -8,17 +8,12 @@ import { ReactNode, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { StudioProvider, useCurrentStudio } from "./StudioContext";
 import { supabase } from "@/src/lib/supabaseClient";
-import ErrorBoundary from "@/src/components/ErrorBoundary";
-import GlobalErrorHandlers from "@/src/components/GlobalErrorHandlers";
 
 export default function ProtectedProviders({ children }: { children: ReactNode }) {
   return (
-    <ErrorBoundary label="protected_root">
-      <GlobalErrorHandlers />
-      <StudioProvider>
-        <OnboardingGuard>{children}</OnboardingGuard>
-      </StudioProvider>
-    </ErrorBoundary>
+    <StudioProvider>
+      <OnboardingGuard>{children}</OnboardingGuard>
+    </StudioProvider>
   );
 }
 

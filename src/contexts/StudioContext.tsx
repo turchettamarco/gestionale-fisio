@@ -13,7 +13,6 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
-import { setLoggerStudioId } from "@/src/lib/logger";
 
 export type Studio = {
   id: string;
@@ -188,12 +187,6 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       listener.subscription.unsubscribe();
     };
   }, []);
-
-  // Tieni allineato il logger col studio_id corrente, così gli error_logs
-  // sono già associati allo studio giusto senza che ogni chiamante lo passi.
-  useEffect(() => {
-    setLoggerStudioId(studio?.id ?? null);
-  }, [studio?.id]);
 
   return (
     <StudioContext.Provider value={{ studio, member, locations, loading, error, refresh: load, refreshLocations }}>
