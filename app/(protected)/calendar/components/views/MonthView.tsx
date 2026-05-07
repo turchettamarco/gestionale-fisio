@@ -231,7 +231,9 @@ export default function MonthView({
                         </>
                       ) : (
                         <>
-                          {fmtTime(ev.start.toISOString())} {ev.patient_name}
+                          {fmtTime(ev.start.toISOString())}{" "}
+                          {ev.package_id && <span title="Scala da pacchetto" style={{ marginRight: 2 }}>📦</span>}
+                          {ev.patient_name}
                         </>
                       )}
                     </div>

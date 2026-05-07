@@ -183,11 +183,12 @@ export async function DELETE(
       return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
     }
 
-    // Blocca delete se ci sono sedute già consumate (integrità dati)
+    // Blocca delete se ci sono sedute già consumate (escluse cancelled)
     const { count: usedCount } = await supabase
       .from("appointments")
       .select("*", { count: "exact", head: true })
-      .eq("package_id", id);
+      .eq("package_id", id)
+      .neq("status", "cancelled");
 
     if ((usedCount ?? 0) > 0) {
       return NextResponse.json(

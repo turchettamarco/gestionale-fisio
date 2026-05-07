@@ -21,6 +21,7 @@ import {
 } from "../../utils";
 import PaidIconButton from "@/src/components/PaidIconButton";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
+import PackageBadge from "@/src/components/packages/PackageBadge";
 
 const GG = ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
 const MESI = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
@@ -182,10 +183,13 @@ export default function DaySidebar({
               </div>
 
               {/* Tipo + importo */}
-              <div className="ev-meta" style={{ fontSize: 11, color: THEME.muted, marginBottom: 6 }}>
-                {ev.treatment_type === "macchinario" ? "Macchinario" : "Seduta"}
-                {ev.location === "domicile" ? " · 🏠 Domicilio" : ""}
-                {ev.amount ? ` · €${ev.amount}` : ""}
+              <div className="ev-meta" style={{ fontSize: 11, color: THEME.muted, marginBottom: 6, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                {ev.package_id && <PackageBadge packageId={ev.package_id} variant="default" />}
+                <span>
+                  {ev.treatment_type === "macchinario" ? "Macchinario" : "Seduta"}
+                  {ev.location === "domicile" ? " · 🏠 Domicilio" : ""}
+                  {ev.amount ? ` · €${ev.amount}` : ""}
+                </span>
               </div>
 
               {/* Azioni rapide */}

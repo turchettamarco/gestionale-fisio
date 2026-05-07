@@ -135,4 +135,7 @@ export type CalendarEvent = {
   group_price_per_person: number | null;
   /** Partecipanti caricati (lazy: vuoto se non ancora caricati). */
   participants?: AppointmentParticipant[];
+  /** Pacchetto sedute collegato (mig. 014_packages). Se valorizzato la seduta
+   *  scala dal pacchetto e l'incasso non è gestito sulla singola. */
+  package_id?: string | null;
 };

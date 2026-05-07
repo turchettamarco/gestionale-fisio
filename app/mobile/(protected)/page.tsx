@@ -36,6 +36,7 @@ import { resolveAppointmentLocation, locationInitials } from "@/app/(protected)/
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import PaidPill from "@/src/components/PaidPill";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
+import PackageBadge from "@/src/components/packages/PackageBadge";
 import NotificationsBell from "@/src/components/NotificationsBell";
 import GroupEventModalMobile, { type GroupEvent, type Participant } from "./components/GroupEventModalMobile";
 import {
@@ -91,6 +92,9 @@ type Appointment = {
   group_paid_total?: number;
   /** Totale calcolato dai prezzi individuali dei partecipanti */
   group_total?: number;
+  // ─── Pacchetto sedute (mig. 014_packages) ─────────────────────────────
+  /** Se valorizzato, l'appuntamento scala una seduta dal pacchetto. */
+  package_id?: string | null;
 };
 
 type PatientOption = { id: string; label: string; phone: string | null; firstName: string };
@@ -524,6 +528,7 @@ export default function MobileHomePage() {
                    treatment_type,location,clinic_site,location_id,domicile_address,studio_id,
                    whatsapp_sent_at,
                    is_group,group_title,group_max_participants,group_price_per_person,
+                   package_id,
                    patients:patient_id(first_name,last_name,phone),
                    appointment_participants(id,price,payment_status)`;
 
@@ -572,6 +577,7 @@ export default function MobileHomePage() {
           participant_paid_count: paidCount,
           group_total: groupTotal,
           group_paid_total: groupPaidTotal,
+          package_id: a.package_id ?? null,
         };
       };
 
@@ -1752,6 +1758,7 @@ export default function MobileHomePage() {
                           )}
                           {a.is_paid && <span style={{ fontSize: 10, flexShrink: 0, opacity: 0.7 }}>💰</span>}
                           {a.location === "domicile" && <span style={{ fontSize: 10, flexShrink: 0, opacity: 0.7 }}>🏠</span>}
+                          {a.package_id && <PackageBadge packageId={a.package_id} variant="compact" />}
                           <span style={{
                             fontSize: 11, color: THEME.gray, fontWeight: 500, flexShrink: 0,
                           }}>

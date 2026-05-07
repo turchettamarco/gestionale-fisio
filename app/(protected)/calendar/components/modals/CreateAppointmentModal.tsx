@@ -33,6 +33,7 @@ import {
   type PracticeSettings,
 } from "../../utils";
 import QuickPatientForm from "../QuickPatientForm";
+import PackagePickerSection from "@/src/components/packages/PackagePickerSection";
 
 export type CreateAppointmentModalProps = {
   // ─── Generale ─────────────────────────────────────────────
@@ -156,6 +157,11 @@ export type CreateAppointmentModalProps = {
   /** Crea paziente rapido per gruppo (mig. 015). Restituisce il paziente creato o null in caso di errore. */
   createQuickPatientForGroup?: (payload: { first_name: string; last_name: string; phone: string | null }) => Promise<{ id: string; first_name: string | null; last_name: string | null; phone?: string | null } | null>;
 
+  // ─── Pacchetti sedute (mig. 014_packages) ─────────────────
+  /** Pacchetto sedute selezionato per scalare la seduta. null = pagamento singolo */
+  selectedPackageId: string | null;
+  setSelectedPackageId: (id: string | null) => void;
+
   // ─── Submit ───────────────────────────────────────────────
   creating: boolean;
 };
@@ -197,6 +203,7 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
     initialParticipants, addInitialParticipant, removeInitialParticipant,
     searchPatientsForGroup,
     createQuickPatientForGroup,
+    selectedPackageId, setSelectedPackageId,
     creating,
   } = props;
 
@@ -1452,6 +1459,15 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
           )}
         </div>
         </>
+        )}
+
+        {/* ─── Picker pacchetto sedute ─── (mostra solo se paziente selezionato e non gruppo) */}
+        {!isGroupAppointment && selectedPatient && (
+          <PackagePickerSection
+            patientId={selectedPatient.id}
+            value={selectedPackageId}
+            onChange={setSelectedPackageId}
+          />
         )}
 
         {/* ─── Bottoni azione ───────────────────────────── */}

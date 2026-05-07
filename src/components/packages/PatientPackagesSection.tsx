@@ -25,6 +25,7 @@ import type {
   PaymentMethod,
   PackageStatus,
 } from "@/src/lib/packages/types";
+import { invalidatePackageBadgeCache } from "./PackageBadge";
 
 // ─── Theme ─────────────────────────────────────────────────────────────
 const T = {
@@ -716,6 +717,7 @@ function PackageDetailModal({
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [showAddPayment, setShowAddPayment] = useState(false);
+  const [showEditForm, setShowEditForm] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -841,6 +843,9 @@ function PackageDetailModal({
             </span>
             {pkg.status === "active" && (
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <button onClick={() => setShowEditForm(true)} style={btnTiny}>
+                  ✏ Modifica
+                </button>
                 <button onClick={() => handleChangeStatus("cancelled")} style={btnTinyDanger}>
                   Annulla
                 </button>
@@ -849,10 +854,17 @@ function PackageDetailModal({
                 </button>
               </div>
             )}
-            {(pkg.status === "cancelled" || pkg.status === "refunded") && (
-              <button onClick={() => handleChangeStatus("active")} style={btnTiny}>
-                Riattiva
-              </button>
+            {(pkg.status === "cancelled" || pkg.status === "refunded" || pkg.status === "completed" || pkg.status === "expired") && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <button onClick={() => setShowEditForm(true)} style={btnTiny}>
+                  ✏ Modifica
+                </button>
+                {(pkg.status === "cancelled" || pkg.status === "refunded") && (
+                  <button onClick={() => handleChangeStatus("active")} style={btnTiny}>
+                    Riattiva
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
@@ -1049,6 +1061,19 @@ function PackageDetailModal({
           }}
         />
       )}
+
+      {showEditForm && pkg && (
+        <EditPackageModal
+          pkg={pkg}
+          isMobile={isMobile}
+          onClose={() => setShowEditForm(false)}
+          onSaved={() => {
+            setShowEditForm(false);
+            load();
+            onChanged();
+          }}
+        />
+      )}
     </ModalShell>
   );
 }
@@ -1193,6 +1218,238 @@ function AddPaymentModal({
         </button>
         <button onClick={submit} disabled={saving} style={btnPrimary(isMobile)}>
           {saving ? "Salvataggio…" : "Registra versamento"}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Modal modifica completa pacchetto
+// ═══════════════════════════════════════════════════════════════════════
+function EditPackageModal({
+  pkg,
+  isMobile,
+  onClose,
+  onSaved,
+}: {
+  pkg: PatientPackageEnriched;
+  isMobile: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [title, setTitle] = useState(pkg.title);
+  const [notes, setNotes] = useState(pkg.notes || "");
+  const [hasSessionsLimit, setHasSessionsLimit] = useState(pkg.total_sessions !== null);
+  const [totalSessions, setTotalSessions] = useState<string>(
+    pkg.total_sessions !== null ? String(pkg.total_sessions) : "10"
+  );
+  const [totalAmount, setTotalAmount] = useState<string>(
+    (pkg.total_amount_cents / 100).toFixed(2).replace(".", ",")
+  );
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
+    pkg.default_payment_method || "cash"
+  );
+  const [startsAt, setStartsAt] = useState(pkg.starts_at);
+  const [expiresAt, setExpiresAt] = useState(pkg.expires_at || "");
+  const [statusVal, setStatusVal] = useState<PackageStatus>(pkg.status);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    setErr(null);
+
+    if (!title.trim()) {
+      setErr("Il titolo è obbligatorio");
+      return;
+    }
+
+    const amountCents = Math.round(
+      parseFloat(totalAmount.replace(",", ".")) * 100
+    );
+    if (!Number.isFinite(amountCents) || amountCents < 0) {
+      setErr("Importo totale non valido");
+      return;
+    }
+
+    // Validazione: non scendere sotto i versamenti già registrati
+    if (amountCents < pkg.paid_cents) {
+      setErr(
+        `L'importo totale non può essere inferiore a quanto già incassato (${(pkg.paid_cents / 100).toFixed(2)} €). Storna prima i versamenti in eccesso.`
+      );
+      return;
+    }
+
+    let sessions: number | null = null;
+    if (hasSessionsLimit) {
+      const n = parseInt(totalSessions, 10);
+      if (!Number.isFinite(n) || n <= 0) {
+        setErr("Numero sedute non valido");
+        return;
+      }
+      // Validazione: non scendere sotto le sedute già usate
+      if (n < pkg.sessions_used) {
+        setErr(
+          `Il numero sedute non può essere inferiore alle sedute già consumate (${pkg.sessions_used}).`
+        );
+        return;
+      }
+      sessions = n;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/packages/${pkg.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: title.trim(),
+          notes: notes.trim() || null,
+          total_sessions: sessions,
+          total_amount_cents: amountCents,
+          default_payment_method: paymentMethod,
+          starts_at: startsAt,
+          expires_at: expiresAt || null,
+          status: statusVal,
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Errore salvataggio");
+      onSaved();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Errore");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <ModalShell isMobile={isMobile} onClose={onClose} title="Modifica pacchetto">
+      {err && <ErrorBox msg={err} />}
+
+      <Field label="Titolo del pacchetto *">
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          style={inputStyle}
+          autoFocus
+        />
+      </Field>
+
+      <Field label="Tipo di pacchetto">
+        <div style={{ display: "flex", gap: 8 }}>
+          <SegmentedBtn
+            active={hasSessionsLimit}
+            onClick={() => setHasSessionsLimit(true)}
+            label="Numero sedute fisso"
+          />
+          <SegmentedBtn
+            active={!hasSessionsLimit}
+            onClick={() => setHasSessionsLimit(false)}
+            label="Acconto libero"
+          />
+        </div>
+      </Field>
+
+      {hasSessionsLimit && (
+        <Field label={`Numero sedute totali (${pkg.sessions_used} già usate)`}>
+          <input
+            type="number"
+            min={Math.max(1, pkg.sessions_used)}
+            value={totalSessions}
+            onChange={(e) => setTotalSessions(e.target.value)}
+            style={inputStyle}
+          />
+        </Field>
+      )}
+
+      <Field
+        label={`Importo totale (€) — ${(pkg.paid_cents / 100).toFixed(2)} € già incassati`}
+      >
+        <input
+          type="text"
+          inputMode="decimal"
+          value={totalAmount}
+          onChange={(e) => setTotalAmount(e.target.value)}
+          style={inputStyle}
+        />
+      </Field>
+
+      <Field label="Metodo di pagamento predefinito">
+        <div style={{ display: "flex", gap: 8 }}>
+          {(["cash", "pos", "bank_transfer"] as PaymentMethod[]).map((m) => (
+            <SegmentedBtn
+              key={m}
+              active={paymentMethod === m}
+              onClick={() => setPaymentMethod(m)}
+              label={paymentMethodLabel(m)}
+            />
+          ))}
+        </div>
+      </Field>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+          gap: 10,
+        }}
+      >
+        <Field label="Data inizio">
+          <input
+            type="date"
+            value={startsAt}
+            onChange={(e) => setStartsAt(e.target.value)}
+            style={inputStyle}
+          />
+        </Field>
+        <Field label="Scadenza (opzionale)">
+          <input
+            type="date"
+            value={expiresAt}
+            onChange={(e) => setExpiresAt(e.target.value)}
+            style={inputStyle}
+          />
+        </Field>
+      </div>
+
+      <Field label="Stato">
+        <select
+          value={statusVal}
+          onChange={(e) => setStatusVal(e.target.value as PackageStatus)}
+          style={inputStyle}
+        >
+          <option value="active">Attivo</option>
+          <option value="completed">Completato</option>
+          <option value="expired">Scaduto</option>
+          <option value="refunded">Rimborsato</option>
+          <option value="cancelled">Annullato</option>
+        </select>
+      </Field>
+
+      <Field label="Note (opzionale)">
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          rows={2}
+          style={{ ...inputStyle, resize: "vertical", minHeight: 50 }}
+        />
+      </Field>
+
+      <div
+        style={{
+          display: "flex",
+          gap: 10,
+          marginTop: 14,
+          flexDirection: isMobile ? "column-reverse" : "row",
+          justifyContent: "flex-end",
+        }}
+      >
+        <button onClick={onClose} disabled={saving} style={btnSecondary(isMobile)}>
+          Annulla
+        </button>
+        <button onClick={submit} disabled={saving} style={btnPrimary(isMobile)}>
+          {saving ? "Salvataggio…" : "Salva modifiche"}
         </button>
       </div>
     </ModalShell>

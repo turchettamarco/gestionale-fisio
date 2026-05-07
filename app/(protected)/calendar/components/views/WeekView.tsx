@@ -35,6 +35,7 @@ import type { DraggingOverState, FreeWindow } from "./DayTimeline";
 import PaidIconButton from "@/src/components/PaidIconButton";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
 import GroupEventCard from "./GroupEventCard";
+import PackageBadge from "@/src/components/packages/PackageBadge";
 
 const WEEK_PX_PER_MIN = 1;
 
@@ -538,6 +539,7 @@ export default function WeekView({
                     <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
                       {event.patient_name}
                     </span>
+                    {event.package_id && <PackageBadge packageId={event.package_id} variant="compact-dark" />}
                     {isPaid && <span style={{ fontSize: 9, flexShrink: 0, opacity: 0.9 }}>🪙</span>}
                     {event.amount && (
                       <span style={{ fontSize: 9, flexShrink: 0, color: "rgba(255,255,255,0.9)", fontWeight: 600 }}>
@@ -634,6 +636,7 @@ export default function WeekView({
                         {event.patient_name}
                       </span>
                       <div style={{ display: "flex", gap: 4, alignItems: "center", flexShrink: 0, fontSize: 9, color: "rgba(255,255,255,0.9)" }}>
+                        {event.package_id && <PackageBadge packageId={event.package_id} variant="compact-dark" />}
                         {/* Tipo + prezzo abbreviato (si nasconde su colonne strettissime) */}
                         {event.amount && (
                           <span style={{ whiteSpace: "nowrap", fontWeight: 600 }}>
@@ -754,7 +757,8 @@ export default function WeekView({
 
                     {/* Riga 3: tipo+importo + status badge */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 3, marginTop: "auto" }}>
-                      <span style={{ fontSize: 9, color: "rgba(255,255,255,0.8)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      <span style={{ fontSize: 9, color: "rgba(255,255,255,0.8)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 4 }}>
+                        {event.package_id && <PackageBadge packageId={event.package_id} variant="compact-dark" />}
                         {event.treatment_type === "macchinario" ? "Macch." : "Seduta"}
                         {event.amount ? ` · €${event.amount}` : ""}
                       </span>

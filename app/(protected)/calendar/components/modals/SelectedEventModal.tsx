@@ -33,6 +33,7 @@ import {
   type CalendarEvent,
 } from "../../utils";
 import StatusBadge from "@/src/components/StatusBadge";
+import EventPackageBox from "@/src/components/packages/EventPackageBox";
 
 export type SelectedEventState = {
   id: string;
@@ -48,6 +49,9 @@ export type SelectedEventState = {
   price_type?: string | null;
   start?: Date;
   end?: Date;
+  /** Pacchetto sedute collegato (mig. 014_packages) — se valorizzato la
+   *  seduta scala dal pacchetto e l'incasso vive sui package_payments */
+  package_id?: string | null;
 };
 
 export type SelectedEventModalProps = {
@@ -186,6 +190,11 @@ export default function SelectedEventModal({
             ✕
           </button>
         </div>
+
+        {/* ─── Box pacchetto sedute (mig. 014_packages) ─── */}
+        {selectedEvent.package_id && (
+          <EventPackageBox packageId={selectedEvent.package_id} />
+        )}
 
         {/* ─── Bottone duplica ─────────────────────────────── */}
         <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>

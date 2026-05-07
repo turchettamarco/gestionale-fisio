@@ -32,10 +32,12 @@ export async function getPackageEnriched(
   if (error || !pkg) return null;
 
   // Conta sedute consumate
+  // Conta sedute consumate (escluse quelle cancellate)
   const { count: usedCount } = await db
     .from("appointments")
     .select("*", { count: "exact", head: true })
-    .eq("package_id", packageId);
+    .eq("package_id", packageId)
+    .neq("status", "cancelled");
 
   // Somma versamenti
   const { data: paymentsRaw } = await db
@@ -108,11 +110,12 @@ export async function listPackagesEnriched(
 
   const ids = packages.map((p) => p.id);
 
-  // Aggrega sedute usate per pacchetto in una sola query
+  // Aggrega sedute usate per pacchetto in una sola query (escluse cancelled)
   const { data: apptsRaw } = await db
     .from("appointments")
     .select("package_id")
-    .in("package_id", ids);
+    .in("package_id", ids)
+    .neq("status", "cancelled");
 
   const appts = (apptsRaw ?? []) as Array<{ package_id: string | null }>;
   const usedByPackage = new Map<string, number>();

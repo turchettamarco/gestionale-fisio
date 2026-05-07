@@ -203,6 +203,7 @@ export function useCalendarEvents(
           reminder_sent_at, reminder_status,
           whatsapp_sent_at,
           is_group, group_title, group_max_participants, group_price_per_person,
+          package_id,
           patients:patient_id ( first_name, last_name, treatment, diagnosis, phone ),
           appointment_participants (
             id, appointment_id, patient_id, price, payment_status, payment_method, paid_at,
@@ -259,6 +260,8 @@ export function useCalendarEvents(
             group_title?: string | null;
             group_max_participants?: number | null;
             group_price_per_person?: number | null;
+            // Pacchetto sedute (mig. 014_packages)
+            package_id?: string | null;
             patients?: Array<{
               first_name?: string;
               last_name?: string;
@@ -389,6 +392,8 @@ export function useCalendarEvents(
               group_max_participants: a.group_max_participants ?? null,
               group_price_per_person: a.group_price_per_person ?? null,
               participants,
+              // Pacchetto sedute (mig. 014_packages)
+              package_id: a.package_id ?? null,
             };
           }
         );

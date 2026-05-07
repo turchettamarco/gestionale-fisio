@@ -37,6 +37,7 @@ import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 import PaidPill from "@/src/components/PaidPill";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
 import PatientPackagesSection from "@/src/components/packages/PatientPackagesSection";
+import PackageBadge from "@/src/components/packages/PackageBadge";
 
 /* ─── Types ───────────────────────────────────────────────────────────── */
 type Plan   = "invoice" | "no_invoice";
@@ -71,6 +72,7 @@ type AppointmentRow = {
   payment_method: "cash" | "pos" | "bank_transfer" | null;
   price_type: string | null;
   amount: number | null;
+  package_id?: string | null;
 };
 
 type PatientDoc = {
@@ -467,7 +469,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   }
   async function loadAppointments() {
     const res = await supabase.from("appointments")
-      .select("id,start_at,status,is_paid,paid_at,payment_method,price_type,amount")
+      .select("id,start_at,status,is_paid,paid_at,payment_method,price_type,amount,package_id")
       .eq("patient_id", patientId).order("start_at", { ascending: false });
     if (res.error) setError(res.error.message);
     else setAppointments((res.data ?? []) as AppointmentRow[]);
@@ -1290,13 +1292,14 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
                       }}>
                         <div style={{ display: "flex", justifyContent: "space-between",
                           alignItems: "center", marginBottom: 8 }}>
-                          <div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                             <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>
                               {formatDateIT(appt.start_at)}
                             </span>
-                            <span style={{ fontSize: 11, color: T.muted, marginLeft: 6 }}>
+                            <span style={{ fontSize: 11, color: T.muted }}>
                               {fmtTime(appt.start_at)}
                             </span>
+                            {appt.package_id && <PackageBadge packageId={appt.package_id} variant="compact" />}
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                             {/* Importo — cliccabile per modificare */}

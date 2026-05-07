@@ -10,6 +10,8 @@ import { assignLanes } from "@/app/(protected)/calendar/utils/laneAssignment";
 import { getLocationCardStyle } from "@/app/(protected)/calendar/utils/locationHelpers";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
+import PackagePickerSection from "@/src/components/packages/PackagePickerSection";
+import PackageBadge from "@/src/components/packages/PackageBadge";
 import PaidIconButton from "@/src/components/PaidIconButton";
 import NotificationsBell from "@/src/components/NotificationsBell";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
@@ -94,6 +96,8 @@ type CalendarEvent = {
   participant_count?: number;
   participant_paid_count?: number;
   group_total?: number;
+  // ─── Pacchetto sedute (mig. 014_packages) ──────────────────────────
+  package_id?: string | null;
 };
 
 type CreateModalProps = {
@@ -141,6 +145,9 @@ type CreateModalProps = {
   searchPatientsForGroupCal: (q: string) => Promise<Array<{ id: string; first_name: string | null; last_name: string | null; phone?: string | null }>>;
   /** Quick patient per gruppo (mig. 015) — restituisce paziente creato o null */
   createQuickPatientForGroup?: (payload: { first_name: string; last_name: string; phone: string | null }) => Promise<PatientLite | null>;
+  // ─── Pacchetto sedute (mig. 014_packages) ────────────────────────────
+  selectedPackageId: string | null;
+  setSelectedPackageId: (id: string | null) => void;
 };
 
 type TouchDragState = {
@@ -540,6 +547,7 @@ function CalendarPageInner() {
       location,clinic_site,location_id,domicile_address,studio_id,
       amount,treatment_type,price_type,payment_method,whatsapp_sent_at,
       is_group,group_title,group_max_participants,group_price_per_person,
+      package_id,
       patients:patient_id(first_name,last_name,phone),
       appointment_participants(id,price,payment_status)
     `).gte("start_at",s0.toISOString()).lt("start_at",e0.toISOString())
@@ -576,6 +584,8 @@ function CalendarPageInner() {
         participant_count: participantCount,
         participant_paid_count: paidCount,
         group_total: groupTotal,
+        // Pacchetto sedute (mig. 014_packages)
+        package_id: a.package_id ?? null,
       };
     });
     setEvents(mapped); setLoading(false);
@@ -655,6 +665,7 @@ function CalendarPageInner() {
       location,clinic_site,location_id,domicile_address,studio_id,
       amount,treatment_type,price_type,payment_method,whatsapp_sent_at,
       is_group,group_title,group_max_participants,group_price_per_person,
+      package_id,
       patients:patient_id(first_name,last_name,phone),
       appointment_participants(id,price,payment_status)
     `).gte("start_at", firstDay.toISOString()).lte("start_at", lastDay.toISOString())
@@ -691,6 +702,8 @@ function CalendarPageInner() {
           participant_count: participantCount,
           participant_paid_count: paidCount,
           group_total: groupTotal,
+          // Pacchetto (mig. 014_packages)
+          package_id: a.package_id ?? null,
         };
       });
       setMonthEvents(mapped);
@@ -1159,6 +1172,7 @@ function CalendarPageInner() {
     setCreateDuration(60); setCreateStatus(defaultStatus); setCreateLocation("studio");
     setCreateClinicSite(currentStudio?.name || ""); setCreateDomicileAddress(""); setCreateAmount(""); setCreateNote("");
     setCreateTreatmentType(treatmentCatalog[0]?.key ?? "seduta");
+    setSelectedPackageId(null); // mig. 014_packages
   }, [currentDate, defaultStatus, treatmentCatalog]);
 
   /* ── Patient search (create) ─────────────── */
@@ -1254,6 +1268,10 @@ function CalendarPageInner() {
   const [createInitialParticipants, setCreateInitialParticipants] = useState<
     Array<{ id: string; first_name: string | null; last_name: string | null; phone?: string | null }>
   >([]);
+
+  // ─── Pacchetto sedute selezionato (mig. 014_packages) ─────────────────────
+  // Se valorizzato, l'appuntamento da creare scalerà una seduta dal pacchetto.
+  const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
 
   // Carica i default da practice_settings (per pre-popolare prezzo/max gruppo)
   useEffect(() => {
@@ -1368,10 +1386,12 @@ function CalendarPageInner() {
           clinic_site:createLocation==="studio"?(createClinicSite.trim()||currentStudio?.name||"Studio"):null,
           location_id: (createLocation==="studio" && currentStudio?.multi_location_enabled && createLocationId) ? createLocationId : null,
           domicile_address:createLocation==="domicile"?(createDomicileAddress.trim()||null):null,
-          amount,
+          // Se la seduta scala da un pacchetto, niente importo o metodo (vive sui package_payments)
+          amount: selectedPackageId ? null : amount,
           price_type: createPriceType,
-          payment_method: createPriceType === "invoiced" ? effectiveCreatePM : null,
+          payment_method: selectedPackageId ? null : (createPriceType === "invoiced" ? effectiveCreatePM : null),
           treatment_type: createTreatmentType || null,
+          package_id: selectedPackageId,           // mig. 014_packages
           owner_id: userId,                // multi-tenancy
           studio_id: currentStudioId,      // multi-tenancy
         });
@@ -1659,6 +1679,7 @@ function CalendarPageInner() {
             }}>
               {ev.is_group ? (ev.group_title || "Gruppo") : ev.patient_name}
             </span>
+            {ev.package_id && !ev.is_group && <PackageBadge packageId={ev.package_id} variant="compact" />}
             {isPast&&<span style={{fontSize:9,color:THEME.muted,flexShrink:0,background:THEME.panelSoft,padding:"1px 5px",borderRadius:99,border:`1px solid ${THEME.border}`}}>scaduto</span>}
           </div>
 
@@ -2376,6 +2397,7 @@ function CalendarPageInner() {
                           <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                             {isGroup ? (ev.group_title || "Gruppo") : ev.patient_name}
                           </span>
+                          {ev.package_id && !isGroup && <PackageBadge packageId={ev.package_id} variant="compact" />}
                         </div>
                         <div style={{fontSize:11,color:THEME.muted,marginTop:2,display:"flex",gap:6}}>
                           <span>{fmtTime(ev.start)}–{fmtTime(ev.end)}</span>
@@ -2688,6 +2710,8 @@ function CalendarPageInner() {
           )}
           searchPatientsForGroupCal={groupSearchPatientsApi}
           createQuickPatientForGroup={createQuickPatientCoreMobile}
+          selectedPackageId={selectedPackageId}
+          setSelectedPackageId={setSelectedPackageId}
         />
       )}
 
@@ -3022,6 +3046,7 @@ function CreateModal(props:CreateModalProps) {
     removeInitialParticipantCal,
     searchPatientsForGroupCal,
     createQuickPatientForGroup,
+    selectedPackageId,setSelectedPackageId,
   }=props;
 
   // Step 6.1: search partecipanti iniziali (locale al modal)
@@ -3463,6 +3488,15 @@ function CreateModal(props:CreateModalProps) {
               borderRadius:8,fontSize:13,color:THEME.blue,fontWeight:700}}>
               ✓ {`${selectedPatient.first_name??""} ${selectedPatient.last_name??""}`.trim()}
             </div>
+          )}
+          {/* Picker pacchetto sedute (mig. 014_packages): mostra solo se non gruppo + paziente */}
+          {!createIsGroup && selectedPatient && (
+            <PackagePickerSection
+              patientId={selectedPatient.id}
+              value={selectedPackageId}
+              onChange={setSelectedPackageId}
+              compact
+            />
           )}
         </FG>
         <div style={{borderTop:`1.5px solid ${THEME.border}`,paddingTop:14}}>

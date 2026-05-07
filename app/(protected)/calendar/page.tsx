@@ -322,6 +322,8 @@ function CalendarPageInner() {
     price_type?: string | null;
     start?: Date;
     end?: Date;
+    /** Pacchetto sedute collegato (mig. 014_packages) */
+    package_id?: string | null;
   } | null>(null);
 
   // ─── Group operations: partecipanti, modifica/duplica/elimina (refactor B3.5) ───
@@ -425,6 +427,11 @@ function CalendarPageInner() {
   const [groupPricePerPerson, setGroupPricePerPerson]             = useState<string>("15.00");
   /** Modalità gruppo ricorrente: closed=replica i pazienti su tutte le occorrenze, open=lascia vuoto */
   const [groupRecurringMode, setGroupRecurringMode]               = useState<"closed" | "open">("closed");
+
+  // ─── Pacchetto sedute selezionato (mig. 014_packages) ────────────────────
+  // Se valorizzato, l'appuntamento da creare scalerà una seduta dal pacchetto.
+  // Resettato quando si cambia paziente o si chiude il modal.
+  const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
 
   // initialParticipants e i suoi helper (addInitialParticipant, removeInitialParticipant)
   // sono ora in useGroupOperations.
@@ -706,6 +713,9 @@ function CalendarPageInner() {
         : "15.00"
     );
     setGroupRecurringMode("closed");
+
+    // Reset pacchetto selezionato (mig. 014_packages)
+    setSelectedPackageId(null);
 
     setQuickPatientFirstName("");
     setQuickPatientLastName("");
@@ -1088,6 +1098,7 @@ function CalendarPageInner() {
       groupMaxParticipants,
       groupPricePerPerson,
       groupRecurringMode,
+      selectedPackageId,
     },
     editForm: {
       editStatus,
@@ -1122,6 +1133,7 @@ function CalendarPageInner() {
     setBulkMode,
     initialParticipants,
     setInitialParticipants,
+    setSelectedPackageId,
     currentStudio,
     currentStudioId,
     studioLocations,
@@ -1463,6 +1475,7 @@ return (
             price_type: appointment.price_type,
             start: appointment.start,
             end: appointment.end,
+            package_id: appointment.package_id ?? null,
           });
           setEditStatus(appointment.status);
           setEditNote(appointment.calendar_note || "");
@@ -1613,6 +1626,7 @@ return (
                   price_type: event.price_type,
                   start: event.start,
                   end: event.end,
+                  package_id: event.package_id ?? null,
                 });
                 setEditStatus(event.status);
                 setEditNote(event.calendar_note || "");
@@ -1693,6 +1707,7 @@ return (
                   price_type: event.price_type,
                   start: event.start,
                   end: event.end,
+                  package_id: event.package_id ?? null,
                 });
                 setEditStatus(event.status);
                 setEditNote(event.calendar_note || "");
@@ -1716,7 +1731,7 @@ return (
       {createOpen && (
         <CreateAppointmentModal
           duplicateMode={duplicateMode}
-          onClose={() => { setCreateOpen(false); setInitialParticipants([]); }}
+          onClose={() => { setCreateOpen(false); setInitialParticipants([]); setSelectedPackageId(null); }}
           showAllUpcoming={showAllUpcoming}
           onRequestCreate={() => setShowWhatsAppConfirm(true)}
           createStartISO={createStartISO}
@@ -1798,6 +1813,8 @@ return (
           removeInitialParticipant={removeInitialParticipant}
           searchPatientsForGroup={groupSearchPatients}
           createQuickPatientForGroup={createQuickPatientCore}
+          selectedPackageId={selectedPackageId}
+          setSelectedPackageId={setSelectedPackageId}
           creating={creating}
         />
       )}

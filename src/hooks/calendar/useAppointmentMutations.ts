@@ -118,6 +118,10 @@ export interface CreateFormState {
   groupMaxParticipants: string;
   groupPricePerPerson: string;
   groupRecurringMode: "closed" | "open";
+  // Pacchetto sedute (mig. 014_packages):
+  // se valorizzato, l'appuntamento scala una seduta dal pacchetto e
+  // l'incasso non viene gestito sulla seduta singola
+  selectedPackageId?: string | null;
 }
 
 /** Stato del modale EDIT (form di modifica appuntamento esistente) */
@@ -174,6 +178,9 @@ export interface UseAppointmentMutationsOptions {
   // Gruppi (groups hook)
   initialParticipants: InitialParticipant[];
   setInitialParticipants: Dispatch<SetStateAction<InitialParticipant[]>>;
+
+  // Pacchetti sedute (mig. 014_packages) — setter per reset post-create
+  setSelectedPackageId?: Dispatch<SetStateAction<string | null>>;
 
   // Bootstrap
   currentStudio: Studio | null;
@@ -252,6 +259,7 @@ export function useAppointmentMutations(
     setBulkMode,
     initialParticipants,
     setInitialParticipants,
+    setSelectedPackageId,
     currentStudio,
     currentStudioId,
     practiceSettings,
@@ -717,9 +725,19 @@ export function useAppointmentMutations(
                 : null,
             treatment_type: treatmentType,
             price_type: priceType,
-            payment_method:
-              priceType === "invoiced" ? effectivePaymentMethod : null,
-            amount: amount,
+            // Se la seduta scala da un pacchetto, niente metodo pagamento
+            // sulla singola (l'incasso vive sui package_payments)
+            payment_method: createForm.selectedPackageId
+              ? null
+              : priceType === "invoiced"
+              ? effectivePaymentMethod
+              : null,
+            // Stesso ragionamento per amount: NULL quando scala da pacchetto
+            amount: createForm.selectedPackageId ? null : amount,
+            // Pacchetto: se selezionato, link diretto. is_paid resta a false
+            // (la singola seduta non è "pagata" nel senso classico, è coperta
+            // dal pacchetto. I report incassano dai versamenti pacchetto.)
+            package_id: createForm.selectedPackageId ?? null,
             studio_id: currentStudioId, // multi-tenancy
             is_group: false,
           };
@@ -909,6 +927,8 @@ A presto${firma ? `,\n${firma}` : ""}`;
         setCreateOpen(false);
         // Reset partecipanti iniziali per il prossimo gruppo (step 6.1)
         setInitialParticipants([]);
+        // Reset pacchetto selezionato (mig. 014_packages)
+        setSelectedPackageId?.(null);
         const startOfWeek = startOfISOWeekMonday(currentDate);
         const endOfWeek = addDays(startOfWeek, 7);
         await loadAppointments(startOfWeek, endOfWeek);

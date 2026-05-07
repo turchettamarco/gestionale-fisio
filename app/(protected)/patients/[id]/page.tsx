@@ -14,6 +14,7 @@ import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import PaidPill from "@/src/components/PaidPill";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
 import PatientPackagesSection from "@/src/components/packages/PatientPackagesSection";
+import PackageBadge from "@/src/components/packages/PackageBadge";
 
 function cleanPhoneWA(phone: string): string {
   // Delegato alla utility centrale in src/lib/whatsapp.ts per consistenza
@@ -573,6 +574,8 @@ type AppointmentRow = {
   price_type: string | null;
   amount: number | null;
   calendar_note: string | null;
+  /** Pacchetto sedute collegato (mig. 014_packages) */
+  package_id?: string | null;
 };
 
 type DocType = "gdpr_informativa_privacy" | "consenso_trattamento" | "altro";
@@ -1001,7 +1004,7 @@ export default function PatientDetailPage({
     setError("");
     const res = await supabase
       .from("appointments")
-      .select("id, start_at, end_at, status, is_paid, paid_at, payment_method, price_type, amount, calendar_note")
+      .select("id, start_at, end_at, status, is_paid, paid_at, payment_method, price_type, amount, calendar_note, package_id")
       .eq("patient_id", patientId)
       .order("start_at", { ascending: false });
     if (res.error) { setError(translateError(res.error)); setAppointments([]); setLoadingAppts(false); return; }
@@ -2885,7 +2888,10 @@ ${rows}
                     return (
                       <tr key={a.id} style={{ background: idx % 2 === 0 ? "#fff" : THEME.panelSoft, borderBottom: `1px solid ${THEME.border}` }}>
                         <td style={{ padding: "12px 14px", color: THEME.text, fontWeight: 700, fontSize: 13 }}>
-                          {formatDateTimeIT(a.start_at)}
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <span>{formatDateTimeIT(a.start_at)}</span>
+                            {a.package_id && <PackageBadge packageId={a.package_id} variant="default" />}
+                          </div>
                         </td>
                         <td style={{ padding: "12px 14px" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>

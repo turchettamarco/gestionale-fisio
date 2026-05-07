@@ -28,6 +28,7 @@ import {
 import PaidIconButton from "@/src/components/PaidIconButton";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
 import GroupEventCard from "./GroupEventCard";
+import PackageBadge from "@/src/components/packages/PackageBadge";
 
 const DAY_PX_PER_MIN = 1;
 
@@ -401,6 +402,7 @@ export default function DayTimeline({
                   <span style={{ fontSize: 10, fontWeight: 800, color: "#fff", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {event.patient_name}
                   </span>
+                  {event.package_id && <PackageBadge packageId={event.package_id} variant="compact-dark" />}
                   {isDomicile && <span style={{ fontSize: 9, flexShrink: 0 }}>🏠</span>}
                 </div>
               ) : (
@@ -516,7 +518,8 @@ export default function DayTimeline({
                     </div>
                     {/* Tipo + importo (solo se c'è spazio) */}
                     {h >= 50 && (
-                      <div style={{ fontSize: 9, color: "rgba(255,255,255,0.82)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flexShrink: 0 }}>
+                      <div style={{ fontSize: 9, color: "rgba(255,255,255,0.82)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flexShrink: 0, display: "flex", alignItems: "center", gap: 4 }}>
+                        {event.package_id && <PackageBadge packageId={event.package_id} variant="compact-dark" />}
                         {getTreatmentLabel(event.treatment_type)}
                         {event.amount ? ` · €${event.amount}` : ""}
                       </div>
