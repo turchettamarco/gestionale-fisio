@@ -16,8 +16,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════
 
-import { useEffect, useMemo, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 
@@ -37,7 +36,7 @@ import type {
 } from "./components/dashboard/shared/types";
 
 // Sezioni
-import DashboardNavBar from "./components/dashboard/DashboardNavBar";
+import AppNavbar from "@/src/components/AppNavbar";
 import HeroSection from "./components/dashboard/HeroSection";
 import WebBookingPopup from "./components/dashboard/WebBookingPopup";
 import LeftColumnSection from "./components/dashboard/LeftColumnSection";
@@ -49,7 +48,6 @@ import type { WorkingHourRow } from "./components/dashboard/shared/utils";
 
 
 export default function HomePage() {
-  const router = useRouter();
   const { studio: currentStudio } = useCurrentStudio();
   const currentStudioId = currentStudio?.id ?? null;
 
@@ -68,25 +66,6 @@ export default function HomePage() {
     })();
     return () => { cancelled = true; };
   }, [currentStudioId]);
-
-  // ── Auth ────────────────────────────────────────────────────────────
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.auth.getUser();
-      setUserEmail(data.user?.email ?? null);
-    })();
-  }, []);
-
-  const handleLogout = useCallback(async () => {
-    try { await supabase.auth.signOut(); } finally { router.push("/login"); }
-  }, [router]);
-
-  const userInitials = useMemo(() => {
-    const l = (userEmail || "").split("@")[0].replace(/[^a-zA-Z]/g, "").toUpperCase();
-    return (l.slice(0, 2) || "U").padEnd(2, "U");
-  }, [userEmail]);
 
   // ── Date di riferimento ─────────────────────────────────────────────
   const today          = useMemo(() => startOfDay(new Date()), []);
@@ -666,22 +645,7 @@ export default function HomePage() {
         @media(min-width:768px)and(max-width:1199px){.th{display:none!important}.main-cols{grid-template-columns:1fr 1fr!important}.kpi-grid{grid-template-columns:1fr 1fr!important}}
       `}</style>
 
-      <DashboardNavBar
-        userEmail={userEmail}
-        userInitials={userInitials}
-        onRefresh={fetchAppts}
-        pushEnabled={pushEnabled}
-        pushLoading={pushLoading}
-        onRequestPushPermission={() => void requestPushPermission()}
-        onLogout={handleLogout}
-        notificationsBellEnabled={currentStudio?.notify_bell_enabled !== false}
-        onNotificationAppointmentClick={(_apptId) => {
-          // Naviga al calendario (se vogliamo aprire un giorno specifico,
-          // dovremo recuperare la data dall'appuntamento. Per ora portiamo
-          // l'utente al calendario, che mostrerà la propria notifica).
-          router.push("/calendar");
-        }}
-      />
+      <AppNavbar active="home" onRefresh={fetchAppts} />
 
       <HeroSection
         loading={loading}

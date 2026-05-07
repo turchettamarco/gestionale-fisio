@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { openWhatsApp } from "@/src/lib/whatsapp";
 
@@ -9,11 +9,9 @@ function openWADirect(phone: string, message: string = ""): void {
 }
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
-import Link from "next/link";
 import { useCurrentStudio, useStudioLocations } from "@/src/contexts/StudioContext";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter, type StudioHeaderData } from "@/src/lib/pdfHeader";
-import { BuildInfo } from "@/src/components/BuildInfo";
-import NotificationsBell from "@/src/components/NotificationsBell";
+import AppNavbar from "@/src/components/AppNavbar";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const T = {
@@ -256,10 +254,7 @@ export default function ReportsPage(){
 
   const baseDate=useMemo(()=>{const[y,m,d]=dateStr.split("-").map(Number);return new Date(y,m-1,d);},[dateStr]);
 
-  // ── User menu / dropdown navbar ──
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const userMenuRef = useRef<HTMLDivElement | null>(null);
+  // ── Dropdown della sub-header (gestione locale, AppNavbar gestisce il proprio user-menu) ──
   const [periodMenuOpen, setPeriodMenuOpen] = useState(false);
   const periodMenuRef = useRef<HTMLDivElement | null>(null);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
@@ -267,16 +262,8 @@ export default function ReportsPage(){
   const [unpaidSubmenuOpen, setUnpaidSubmenuOpen] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      const { data } = await supabase.auth.getUser();
-      setUserEmail(data?.user?.email ?? null);
-    })();
-  }, []);
-
-  useEffect(() => {
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node;
-      if (userMenuOpen && userMenuRef.current && !userMenuRef.current.contains(t)) setUserMenuOpen(false);
       if (periodMenuOpen && periodMenuRef.current && !periodMenuRef.current.contains(t)) setPeriodMenuOpen(false);
       if (locMenuOpen && locMenuRef.current && !locMenuRef.current.contains(t)) setLocMenuOpen(false);
       if (actionsMenuOpen && actionsMenuRef.current && !actionsMenuRef.current.contains(t)) {
@@ -286,16 +273,7 @@ export default function ReportsPage(){
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
-  }, [userMenuOpen, periodMenuOpen, actionsMenuOpen, locMenuOpen]);
-
-  const handleLogout = useCallback(async () => {
-    try { await supabase.auth.signOut(); } finally {
-      setUserMenuOpen(false);
-      window.location.href = "/login";
-    }
-  }, []);
-
-  const userInitials = userEmail ? userEmail.slice(0, 2).toUpperCase() : "?";
+  }, [periodMenuOpen, actionsMenuOpen, locMenuOpen]);
 
   // ref per annullare chiamate in corso se period/date cambiano prima che finiscano
   const loadIdRef = useRef(0);
@@ -944,50 +922,7 @@ export default function ReportsPage(){
       `}</style>
 
       {/* ━━━ NAVBAR GLOBALE — riga 1 ━━━ */}
-      <header className="np" style={{position:"sticky",top:0,zIndex:50,background:T.gradient,padding:"0 20px",height:54,display:"flex",alignItems:"center",justifyContent:"space-between",boxShadow:"0 2px 12px rgba(13,148,136,0.18)",gap:8}}>
-        <div style={{display:"flex",alignItems:"center",gap:20,flexShrink:0}}>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div style={{width:28,height:28,borderRadius:7,background:"rgba(255,255,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:13,border:"1.5px solid rgba(255,255,255,0.3)"}}>F</div>
-            <span style={{fontWeight:700,fontSize:14,color:"#fff",letterSpacing:0.5,textTransform:"uppercase" as const}}>Fisio<span style={{fontWeight:800}}>Hub</span></span>
-          </div>
-          <nav style={{display:"flex",gap:2}}>
-            {[{href:"/",l:"Home"},{href:"/calendar",l:"Calendario"},{href:"/reports",l:"Report",a:true},{href:"/noleggio",l:"Noleggio"},{href:"/patients",l:"Pazienti"}].map((item,i)=>(
-              <Link key={`nav-${i}`} href={item.href} style={{padding:"6px 11px",borderRadius:7,fontSize:12,fontWeight:700,background:(item as any).a?"rgba(255,255,255,0.22)":"transparent",color:(item as any).a?"#fff":"rgba(255,255,255,0.8)",letterSpacing:0.2}}>{item.l}</Link>
-            ))}
-          </nav>
-        </div>
-
-        <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-          <button
-            className="rep-search-btn"
-            onClick={()=>window.dispatchEvent(new CustomEvent("fisiohub:open-search"))}
-            title="Cerca pazienti e appuntamenti (Ctrl+K)"
-            style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,0.14)",border:"1px solid rgba(255,255,255,0.22)",borderRadius:7,padding:"0 11px",height:30,color:"rgba(255,255,255,0.85)",fontSize:12,fontWeight:500,cursor:"pointer"}}
-          >
-            <span style={{color:"rgba(255,255,255,0.65)",fontSize:13}}>⌕</span>
-            <span className="rep-search-text">Cerca pazienti…</span>
-            <span className="rep-search-kbd" style={{marginLeft:6,padding:"1px 6px",borderRadius:4,background:"rgba(255,255,255,0.18)",fontSize:10,fontWeight:700,letterSpacing:0.3}}>Ctrl K</span>
-          </button>
-          <button onClick={()=>loadData()} title="Aggiorna" style={{width:30,height:30,borderRadius:7,border:"1px solid rgba(255,255,255,0.28)",background:"rgba(255,255,255,0.14)",color:"#fff",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>↺</button>
-          <NotificationsBell
-            enabled={(currentStudio as any)?.notify_bell_enabled !== false}
-          />
-          <div ref={userMenuRef} style={{position:"relative"}}>
-            <button onClick={()=>setUserMenuOpen(v=>!v)} style={{width:30,height:30,borderRadius:7,border:"1px solid rgba(255,255,255,0.32)",background:"rgba(255,255,255,0.18)",color:"#fff",fontWeight:800,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
-              {userInitials}
-            </button>
-            {userMenuOpen && (
-              <div style={{position:"absolute",right:0,top:"calc(100% + 8px)",width:200,background:"#fff",border:`1px solid ${T.border}`,borderRadius:10,boxShadow:"0 8px 28px rgba(15,23,42,0.12)",overflow:"hidden",zIndex:60}}>
-                <div style={{padding:"10px 15px",borderBottom:`1px solid ${T.border}`,fontSize:12,color:T.muted}}>{userEmail}</div>
-                <Link href="/settings" onClick={()=>setUserMenuOpen(false)} style={{display:"block",padding:"10px 15px",color:T.text,fontSize:13,fontWeight:600,borderBottom:`1px solid ${T.border}`}}>Impostazioni</Link>
-                <Link href="/piano" onClick={()=>setUserMenuOpen(false)} style={{display:"block",padding:"10px 15px",color:T.text,fontSize:13,fontWeight:600,borderBottom:`1px solid ${T.border}`,textDecoration:"none"}}>💎 Piano</Link>
-                <button onClick={handleLogout} style={{width:"100%",padding:"10px 15px",background:"transparent",border:"none",cursor:"pointer",color:T.red,fontWeight:600,fontSize:13,textAlign:"left"}}>Logout</button>
-                <BuildInfo />
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
+      <AppNavbar active="reports" onRefresh={loadData} />
 
       {/* ━━━ SUB-HEADER REPORT — riga 2 (sticky sotto navbar) ━━━ */}
       <div className="np rep-subheader" style={{position:"sticky",top:54,zIndex:40,background:T.panelBg,borderBottom:`1px solid ${T.border}`,padding:"0 20px",height:48,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,boxShadow:"0 1px 3px rgba(15,23,42,0.04)"}}>

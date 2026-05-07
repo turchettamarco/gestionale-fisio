@@ -36,7 +36,7 @@ import {
 } from "./components/shared/types";
 
 // Sezioni
-import SettingsNavBar from "./components/SettingsNavBar";
+import AppNavbar from "@/src/components/AppNavbar";
 import StudioBrandingSection from "./components/sections/StudioBrandingSection";
 import LocationsSection from "./components/sections/LocationsSection";
 import PracticeSection from "./components/sections/PracticeSection";
@@ -56,20 +56,6 @@ import SettingsTabs, { type SettingsTab } from "./components/SettingsTabs";
 // Componente principale
 // ═══════════════════════════════════════════════════════════════════════
 export default function SettingsPage() {
-
-  // ── Auth ──────────────────────────────────────────────────────────────────
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.auth.getUser();
-      setUserEmail(data?.user?.email ?? null);
-    })();
-  }, []);
-
-  const handleLogout = useCallback(async () => {
-    try { await supabase.auth.signOut(); } finally { window.location.href = "/login"; }
-  }, []);
 
   // ── Stato globale (feedback) ─────────────────────────────────────────────
   const [error, setError]     = useState("");
@@ -1100,7 +1086,7 @@ export default function SettingsPage() {
         @media(min-width:768px)and(max-width:1024px){.th{display:none!important}}
       `}</style>
 
-      <SettingsNavBar userEmail={userEmail} onLogout={handleLogout} />
+      <AppNavbar active="settings" />
 
       <main style={{ padding: "28px 32px", maxWidth: 900, margin: "0 auto" }}>
 

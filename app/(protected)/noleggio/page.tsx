@@ -1,13 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { BuildInfo } from "@/src/components/BuildInfo";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { normalizePhoneForWA, openWhatsApp } from "@/src/lib/whatsapp";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter } from "@/src/lib/pdfHeader";
+import AppNavbar from "@/src/components/AppNavbar";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const THEME = {
@@ -63,26 +61,10 @@ function getAlertLevel(daysRemaining: number, warningDays: number): "expired"|"u
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function NoleggioPage() {
-  const router = useRouter();
 
   // Studio corrente (multi-tenancy)
   const { studio: currentStudio } = useCurrentStudio();
   const currentStudioId = currentStudio?.id ?? null;
-
-  const [userEmail, setUserEmail] = useState<string|null>(null);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const userMenuRef = useRef<HTMLDivElement|null>(null);
-
-  useEffect(()=>{
-    (async()=>{ const{data}=await supabase.auth.getUser(); setUserEmail(data.user?.email??null); })();
-  },[]);
-  useEffect(()=>{
-    const onDown=(e:MouseEvent)=>{ if(!userMenuOpen)return; if(userMenuRef.current&&!userMenuRef.current.contains(e.target as Node)) setUserMenuOpen(false); };
-    document.addEventListener("mousedown",onDown);
-    return()=>document.removeEventListener("mousedown",onDown);
-  },[userMenuOpen]);
-  const handleLogout=useCallback(async()=>{ try{await supabase.auth.signOut();}finally{router.push("/login");} },[router]);
-  const userInitials=useMemo(()=>{ const l=(userEmail||"").split("@")[0].replace(/[^a-zA-Z]/g,"").toUpperCase(); return(l.slice(0,2)||"U"); },[userEmail]);
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [noleggios, setNoleggios] = useState<NoleggioRow[]>([]);
@@ -488,28 +470,7 @@ ${studioPdfHeader(currentStudio,{docTitle:"Contratto di Noleggio",docSubtitle:"M
       `}</style>
 
       {/* NAVBAR */}
-      <header style={{ position:"sticky", top:0, zIndex:30, background:"linear-gradient(135deg,#0d9488,#2563eb)", padding:"0 20px", height:58, display:"flex", alignItems:"center", justifyContent:"space-between", boxShadow:"0 2px 12px rgba(13,148,136,0.18)" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:20 }}>
-          <Link href="/" style={{ display:"flex", alignItems:"center", gap:8 }}>
-            <div style={{ width:30, height:30, borderRadius:8, background:"rgba(255,255,255,0.2)", border:"1.5px solid rgba(255,255,255,0.3)", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:800, fontSize:14 }}>F</div>
-            <span style={{ fontWeight:700, fontSize:15, color:"#fff", letterSpacing:0.5, textTransform:"uppercase" }}>Fisio<span style={{ fontWeight:800 }}>Hub</span></span>
-          </Link>
-          <nav style={{ display:"flex", gap:2 }}>
-            {([{href:"/",label:"Home"},{href:"/calendar",label:"Calendario"},{href:"/reports",label:"Report"},{href:"/patients",label:"Pazienti"},{href:"/noleggio",label:"Noleggio",active:true},{href:"/settings",label:"Impostazioni"}] as const).map(item=>(
-              <Link key={item.href} href={item.href} style={{ padding:"6px 12px", borderRadius:8, fontSize:12, fontWeight:700, background:(item as any).active?"rgba(255,255,255,0.2)":"transparent", color:(item as any).active?"#fff":"rgba(255,255,255,0.8)", letterSpacing:0.3 }}>{item.label}</Link>
-            ))}
-          </nav>
-        </div>
-        <div ref={userMenuRef} style={{ position:"relative" }}>
-          <button onClick={()=>setUserMenuOpen(v=>!v)} style={{ width:32, height:32, borderRadius:8, border:"1.5px solid rgba(255,255,255,0.35)", background:"rgba(255,255,255,0.2)", color:"#fff", fontWeight:800, fontSize:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>{userInitials}</button>
-          {userMenuOpen&&(<div style={{ position:"absolute", right:0, top:"calc(100% + 8px)", width:200, background:"#fff", border:`1px solid ${THEME.border}`, borderRadius:10, boxShadow:"0 8px 24px rgba(15,23,42,0.10)", overflow:"hidden", zIndex:60 }}>
-            <div style={{ padding:"11px 16px", borderBottom:`1px solid ${THEME.border}`, fontSize:12, color:THEME.muted }}>{userEmail}</div>
-            <Link href="/piano" onClick={()=>setUserMenuOpen(false)} style={{ display:"block", padding:"11px 16px", color:THEME.text, textDecoration:"none", fontSize:13, fontWeight:600, borderBottom:`1px solid ${THEME.border}` }}>💎 Piano</Link>
-            <button onClick={handleLogout} style={{ width:"100%", padding:"11px 16px", background:"transparent", border:"none", cursor:"pointer", color:THEME.red, fontWeight:600, fontSize:13, textAlign:"left" }}>Logout</button>
-            <BuildInfo />
-          </div>)}
-        </div>
-      </header>
+      <AppNavbar active="noleggio" onRefresh={loadNoleggios} />
 
       <main style={{ padding:"28px 32px", maxWidth:1000, margin:"0 auto" }}>
 

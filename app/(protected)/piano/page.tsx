@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { usePlanLimits } from "@/src/hooks/usePlanLimits";
 import UpgradeButtons from "@/src/components/UpgradeButtons";
 import PlanDetailModal from "@/src/components/PlanDetailModal";
+import AppNavbar from "@/src/components/AppNavbar";
 
 // Design system ispirato a Linear/Apple: bianco, spazi, tipografia pulita
 const T = {
@@ -73,7 +74,7 @@ export default function PianoPage() {
   return (
     <div style={{ background: T.pageBg, minHeight: "100vh" }}>
       {/* Navbar identica al resto del gestionale */}
-      <Navbar />
+      <AppNavbar active="piano" />
 
       <main style={{ padding: "48px 24px 80px" }}>
         <div style={{ maxWidth: 980, margin: "0 auto" }}>
@@ -120,90 +121,6 @@ export default function PianoPage() {
         />
       )}
     </div>
-  );
-}
-
-/* ═════════════════════════════════════════════════════════════════════
-   NAVBAR — identica al resto del gestionale
-   ═════════════════════════════════════════════════════════════════════ */
-
-function Navbar() {
-  return (
-    <header
-      style={{
-        position: "sticky",
-        top: 0,
-        zIndex: 40,
-        background: "linear-gradient(135deg,#0d9488,#2563eb)",
-        padding: "0 24px",
-        height: 54,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        boxShadow: "0 2px 16px rgba(13,148,136,0.20)",
-        gap: 8,
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: 7,
-              background: "rgba(255,255,255,0.2)",
-              border: "1.5px solid rgba(255,255,255,0.3)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#fff",
-              fontWeight: 800,
-              fontSize: 13,
-            }}
-          >
-            F
-          </div>
-          <span
-            style={{
-              fontWeight: 700,
-              fontSize: 14,
-              color: "#fff",
-              letterSpacing: 0.8,
-              textTransform: "uppercase",
-            }}
-          >
-            Fisio<span style={{ fontWeight: 800 }}>Hub</span>
-          </span>
-        </div>
-        <nav style={{ display: "flex", gap: 1 }}>
-          {(
-            [
-              { href: "/", label: "Home" },
-              { href: "/calendar", label: "Calendario" },
-              { href: "/reports", label: "Report" },
-              { href: "/noleggio", label: "Noleggio" },
-              { href: "/patients", label: "Pazienti" },
-            ] as const
-          ).map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              style={{
-                padding: "5px 11px",
-                borderRadius: 7,
-                fontSize: 12,
-                fontWeight: 700,
-                color: "rgba(255,255,255,0.78)",
-                letterSpacing: 0.2,
-                textDecoration: "none",
-              }}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-      </div>
-    </header>
   );
 }
 
