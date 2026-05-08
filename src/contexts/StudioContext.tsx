@@ -64,7 +64,8 @@ export type StudioLocationLite = {
  */
 export type StudioMember = {
   studio_id: string;
-  user_id: string;
+  /** auth.users.id del membro, o NULL se è un invito pendente (mig. 020). */
+  user_id: string | null;
   role: "owner" | "therapist" | "assistant";
   display_name: string | null;
   // Campi mig. 019 (opzionali per backward-compat con DB pre-019)
@@ -74,6 +75,9 @@ export type StudioMember = {
   sort_order?: number;
   email?: string | null;
   invited_at?: string | null;
+  /** Token UUID dell'invito (mig. 020). NULL dopo il claim, oppure se il
+   *  membro è stato aggiunto direttamente senza link (es. signup self). */
+  invite_token?: string | null;
 };
 
 /**
@@ -165,7 +169,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       // Tentativo 1: query post-019 con tutti i campi nuovi
       const { data, error: memErr } = await supabase
         .from("studio_members")
-        .select("studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invited_at")
+        .select("studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invited_at, invite_token")
         .eq("studio_id", studioId)
         .order("sort_order", { ascending: true })
         .order("display_name", { ascending: true });
@@ -253,7 +257,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       let memberData: StudioMember | null = null;
       const { data: memberDataRich, error: memberErrRich } = await supabase
         .from("studio_members")
-        .select("studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invited_at")
+        .select("studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invited_at, invite_token")
         .eq("user_id", userData.user.id)
         .limit(1)
         .maybeSingle();

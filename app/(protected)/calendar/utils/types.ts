@@ -138,4 +138,11 @@ export type CalendarEvent = {
   /** Pacchetto sedute collegato (mig. 014_packages). Se valorizzato la seduta
    *  scala dal pacchetto e l'incasso non è gestito sulla singola. */
   package_id?: string | null;
+  /** Operatore che svolge la seduta (mig. 019). NULL = non assegnato (legacy
+   *  o studio in modalità single-operatore). Nei rendering multi-operatore
+   *  gli eventi con operator_id NULL finiscono in una colonna "Non assegnati". */
+  operator_id?: string | null;
+  /** Stanza in cui si svolge la seduta (mig. 019). NULL = non assegnata
+   *  (es. domiciliare, oppure studio in modalità single-room). */
+  room_id?: string | null;
 };

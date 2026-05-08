@@ -62,7 +62,7 @@ import {
 } from "./utils";
 
 // ─── Studio context (multi-tenancy) ──────────────────────────────────────────
-import { useCurrentStudio, useCurrentStudioId } from "@/src/contexts/StudioContext";
+import { useCurrentStudio, useCurrentStudioId, useStudioMembers, useMultiOperatorEnabled } from "@/src/contexts/StudioContext";
 
 // ─── Hook custom della pagina calendar (refactor B3.1 → B3.7) ────────────────
 import {
@@ -91,6 +91,7 @@ import CalendarToolbar from "./components/panels/CalendarToolbar";
 // ─── Views (B2.6, B2.7) ──────────────────────────────────────────────────────
 import MonthView from "./components/views/MonthView";
 import DayView from "./components/views/DayView";
+import type { OperatorUnavailabilitySlot } from "./components/views/DayTimelineMulti";
 import WeekView from "./components/views/WeekView";
 
 // ─── Modals (B2.8) ───────────────────────────────────────────────────────────
@@ -109,6 +110,21 @@ export default function CalendarPage() {
 
 
 function CalendarPageInner() {
+
+  // ─── Multi-operatore (mig. 019, Fase 4a) ─────────────────────────────────
+  // Membri attivi e flag, esposti dal context. La vista giorno usa questi
+  // per decidere se renderizzare DayTimelineMulti vs DayTimeline classico.
+  const allMembers = useStudioMembers();
+  const multiOperatorEnabled = useMultiOperatorEnabled();
+  // Filtra solo i membri attivi. Includiamo anche gli inviti PENDENTI
+  // (user_id NULL): li mostriamo come colonne nel calendario perché
+  // l'owner potrebbe voler pianificare appuntamenti per loro PRIMA che
+  // il collega si registri. Nel rendering distingueremo poi i pending
+  // con un badge nell'header (vedi DayTimelineMulti).
+  const activeMembers = useMemo(
+    () => allMembers.filter(m => m.is_active !== false),
+    [allMembers]
+  );
 
   // ─── Bootstrap: utente, studio, settings, catalogo, orari, viewport ──────
   // Tutta la logica di setup è estratta in useCalendarBootstrap (refactor B3.1).
@@ -443,6 +459,54 @@ function CalendarPageInner() {
   const [creatingQuickPatient, setCreatingQuickPatient] = useState(false);
 
   // currentDate, setCurrentDate e l'effect di mount sono ora in useCalendarEvents.
+
+  // ── Multi-operatore: caricamento indisponibilità (mig. 019, Fase 4a) ──
+  // Carichiamo le indisponibilità solo per il giorno corrente (vista day)
+  // perché in 4a non gestiamo settimana/mese multi-op.
+  const [unavailabilities, setUnavailabilities] = useState<OperatorUnavailabilitySlot[]>([]);
+
+  useEffect(() => {
+    // Carica solo se multi-op è attivo + ci sono ≥2 operatori (= scenario in cui DayTimelineMulti rende)
+    if (!multiOperatorEnabled || activeMembers.length < 2) {
+      setUnavailabilities([]);
+      return;
+    }
+    if (!currentStudioId) return;
+
+    let cancelled = false;
+    (async () => {
+      // Range del giorno: 00:00 → 23:59
+      const dayStart = new Date(currentDate);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(currentDate);
+      dayEnd.setHours(23, 59, 59, 999);
+
+      const { data, error } = await supabase
+        .from("operator_unavailability")
+        .select("id, operator_id, start_at, end_at, reason, all_day")
+        .eq("studio_id", currentStudioId)
+        // Range overlap: tutto ciò che si sovrappone al giorno
+        .lt("start_at", dayEnd.toISOString())
+        .gt("end_at", dayStart.toISOString());
+
+      if (cancelled) return;
+      if (error) {
+        // Se la tabella non esiste o RLS blocca, niente errori al utente:
+        // semplicemente nessuna ferie viene mostrata.
+        setUnavailabilities([]);
+        return;
+      }
+      setUnavailabilities((data ?? []).map(r => ({
+        id: r.id as string,
+        operator_id: r.operator_id as string,
+        start_at: new Date(r.start_at as string),
+        end_at: new Date(r.end_at as string),
+        reason: (r.reason as string | null) ?? null,
+        all_day: Boolean(r.all_day),
+      })));
+    })();
+    return () => { cancelled = true; };
+  }, [multiOperatorEnabled, activeMembers.length, currentStudioId, currentDate]);
 
   // ── Gestione parametri URL da GlobalSearch (?date=YYYY-MM-DD&view=day) ─────
   useEffect(() => {
@@ -1643,6 +1707,9 @@ return (
                   .sort((a, b) => a.start.getTime() - b.start.getTime())
               }
               currentTime={currentTime}
+              multiOperatorMode={multiOperatorEnabled && activeMembers.length >= 2}
+              members={activeMembers}
+              unavailabilities={unavailabilities}
               timeSlots={timeSlots}
               dayLabels={dayLabels}
               TIME_COL={TIME_COL}

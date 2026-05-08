@@ -204,6 +204,7 @@ export function useCalendarEvents(
           whatsapp_sent_at,
           is_group, group_title, group_max_participants, group_price_per_person,
           package_id,
+          operator_id, room_id,
           patients:patient_id ( first_name, last_name, treatment, diagnosis, phone ),
           appointment_participants (
             id, appointment_id, patient_id, price, payment_status, payment_method, paid_at,
@@ -262,6 +263,9 @@ export function useCalendarEvents(
             group_price_per_person?: number | null;
             // Pacchetto sedute (mig. 014_packages)
             package_id?: string | null;
+            // Multi-operatore + multi-stanza (mig. 019)
+            operator_id?: string | null;
+            room_id?: string | null;
             patients?: Array<{
               first_name?: string;
               last_name?: string;
@@ -394,6 +398,9 @@ export function useCalendarEvents(
               participants,
               // Pacchetto sedute (mig. 014_packages)
               package_id: a.package_id ?? null,
+              // Multi-operatore + multi-stanza (mig. 019)
+              operator_id: a.operator_id ?? null,
+              room_id: a.room_id ?? null,
             };
           }
         );
