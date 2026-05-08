@@ -74,6 +74,40 @@ function buildErrorInfo(code: string, message: string, router: any): ErrorInfo {
         message: "Errore di sistema",
         hint: "Si è verificato un errore inaspettato. Riprova tra qualche minuto. Se il problema persiste, contatta l'assistenza.",
       };
+    // ─── Team invite errors (mig. 020) ───
+    case "INVALID_INVITE_TOKEN":
+      return {
+        message: "Link di invito non valido",
+        hint: "Il link copiato sembra incompleto. Chiedi al tuo collega di rinviarlo per intero.",
+      };
+    case "INVITE_ALREADY_CLAIMED":
+      return {
+        message: "Invito già accettato",
+        hint: "Se hai già un account, accedi direttamente con email e password.",
+        action: { label: "Vai al login", href: "/login" },
+      };
+    case "INVITE_DEACTIVATED":
+      return {
+        message: "Invito annullato",
+        hint: "Il titolare dello studio ha annullato questo invito. Chiedi un nuovo link per registrarti.",
+      };
+    case "INVITE_EMAIL_MISMATCH":
+      return {
+        message: "Email diversa da quella dell'invito",
+        hint: message, // contiene già il dettaglio specifico
+      };
+    case "INVITE_LOOKUP_ERROR":
+    case "AUTH_CREATE_ERROR":
+    case "CLAIM_ERROR":
+      return {
+        message: "Errore di sistema",
+        hint: "Si è verificato un errore tecnico. Riprova tra qualche minuto.",
+      };
+    case "INVALID_NAME":
+      return {
+        message: "Nome troppo corto",
+        hint: "Il tuo nome deve essere di almeno 2 caratteri.",
+      };
     default:
       return { message: message || "Errore durante la registrazione" };
   }
@@ -105,12 +139,73 @@ function SignupInner() {
   const params = useSearchParams();
   const inviteFromUrl = params.get("invite") || "";
 
+  // ─── Rilevamento tipo invito ───────────────────────────────────────────
+  // Se il param ?invite= è in formato UUID, è un invito di TEAM (mig. 020):
+  // il collega entra in uno studio esistente, non ne crea uno nuovo.
+  // Se invece è un codice testuale (es. ABCD1234), è il classico invito beta.
+  const isTeamInvite = useMemo(() => {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(inviteFromUrl);
+  }, [inviteFromUrl]);
+
+  // Pre-fetch info invito team (per mostrare il nome dello studio prima della
+  // registrazione: "Stai entrando nel team di FisioHub")
+  const [teamInviteInfo, setTeamInviteInfo] = useState<{
+    studioName: string;
+    suggestedName: string | null;
+    suggestedEmail: string | null;
+    role: string;
+  } | null>(null);
+  const [teamInviteError, setTeamInviteError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isTeamInvite || !inviteFromUrl) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/signup/team-invite/info?token=${encodeURIComponent(inviteFromUrl)}`);
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          if (!cancelled) setTeamInviteError(j.error || "Invito non valido o scaduto.");
+          return;
+        }
+        const j = await r.json();
+        if (!cancelled) {
+          setTeamInviteInfo({
+            studioName: j.studio_name || "Studio",
+            suggestedName: j.suggested_name || null,
+            suggestedEmail: j.suggested_email || null,
+            role: j.role || "therapist",
+          });
+        }
+      } catch {
+        if (!cancelled) setTeamInviteError("Errore di connessione. Riprova.");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isTeamInvite, inviteFromUrl]);
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [studioName, setStudioName] = useState("");
   const [operatorName, setOperatorName] = useState("");
-  const [inviteCode, setInviteCode] = useState(inviteFromUrl.toUpperCase());
+  const [inviteCode, setInviteCode] = useState(isTeamInvite ? "" : inviteFromUrl.toUpperCase());
+
+  // Pre-compila email + nome quando arriva l'info dell'invito team
+  useEffect(() => {
+    if (teamInviteInfo) {
+      if (teamInviteInfo.suggestedEmail && !email) {
+        setEmail(teamInviteInfo.suggestedEmail);
+      }
+      if (teamInviteInfo.suggestedName && !operatorName) {
+        setOperatorName(teamInviteInfo.suggestedName);
+      }
+    }
+    // Eslint: dipendiamo SOLO da teamInviteInfo, non vogliamo riapplicare
+    // se l'utente cambia email/nome manualmente.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamInviteInfo]);
+
 
   const [loading, setLoading] = useState(false);
   const [errInfo, setErrInfo] = useState<ErrorInfo | null>(null);
@@ -128,17 +223,24 @@ function SignupInner() {
   const pwdStrength = useMemo(() => passwordStrength(password), [password]);
 
   const canSubmit = useMemo(() => {
-    return (
-      email.trim().length > 3 &&
-      password.length >= 8 &&
-      /\d/.test(password) &&
-      /[a-zA-Z]/.test(password) &&
-      studioName.trim().length >= 2 &&
-      operatorName.trim().length >= 2 &&
-      inviteCode.trim().length >= 4 &&
-      !loading
-    );
-  }, [email, password, studioName, operatorName, inviteCode, loading]);
+    if (loading) return false;
+    if (email.trim().length <= 3) return false;
+    if (password.length < 8) return false;
+    if (!/\d/.test(password)) return false;
+    if (!/[a-zA-Z]/.test(password)) return false;
+    if (operatorName.trim().length < 2) return false;
+
+    if (isTeamInvite) {
+      // Team invite: serve solo che il token sia caricato e valido
+      return Boolean(teamInviteInfo) && !teamInviteError;
+    } else {
+      // Beta signup: servono nome studio + codice invito
+      return (
+        studioName.trim().length >= 2 &&
+        inviteCode.trim().length >= 4
+      );
+    }
+  }, [email, password, studioName, operatorName, inviteCode, loading, isTeamInvite, teamInviteInfo, teamInviteError]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -146,16 +248,27 @@ function SignupInner() {
     setLoading(true);
 
     try {
-      const r = await fetch("/api/signup", {
+      // Branching: team invite (UUID) vs beta signup (codice testuale)
+      const endpoint = isTeamInvite ? "/api/signup/team-invite" : "/api/signup";
+      const payload = isTeamInvite
+        ? {
+            email: email.trim(),
+            password,
+            operator_name: operatorName.trim(),
+            invite_token: inviteFromUrl,
+          }
+        : {
+            email: email.trim(),
+            password,
+            studio_name: studioName.trim(),
+            operator_name: operatorName.trim(),
+            invite_code: inviteCode.trim().toUpperCase(),
+          };
+
+      const r = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: email.trim(),
-          password,
-          studio_name: studioName.trim(),
-          operator_name: operatorName.trim(),
-          invite_code: inviteCode.trim().toUpperCase(),
-        }),
+        body: JSON.stringify(payload),
       });
 
       const j = await r.json();
@@ -215,42 +328,70 @@ function SignupInner() {
   return (
     <Wrapper>
       <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <div style={{ textAlign: "center", marginBottom: 8 }}>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: "#0f172a", letterSpacing: -0.3 }}>
-            Crea il tuo studio
-          </h1>
-          <p style={{ margin: "6px 0 0", color: "#64748b", fontSize: 13 }}>
-            Registrazione beta — richiede codice d&apos;invito
-          </p>
-        </div>
+        {isTeamInvite ? (
+          // ─── HEADER team invite ──────────────────────────────────────────
+          <div style={{ textAlign: "center", marginBottom: 8 }}>
+            <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: "#0f172a", letterSpacing: -0.3 }}>
+              Unisciti al team
+            </h1>
+            {teamInviteError ? (
+              <p style={{ margin: "6px 0 0", color: "#dc2626", fontSize: 13, fontWeight: 600 }}>
+                ⚠ {teamInviteError}
+              </p>
+            ) : teamInviteInfo ? (
+              <p style={{ margin: "6px 0 0", color: "#64748b", fontSize: 13 }}>
+                Sei stato invitato a far parte di{" "}
+                <strong style={{ color: "#0d9488" }}>{teamInviteInfo.studioName}</strong>
+              </p>
+            ) : (
+              <p style={{ margin: "6px 0 0", color: "#94a3b8", fontSize: 13 }}>
+                Verifica invito in corso…
+              </p>
+            )}
+          </div>
+        ) : (
+          // ─── HEADER beta signup classico ─────────────────────────────────
+          <div style={{ textAlign: "center", marginBottom: 8 }}>
+            <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: "#0f172a", letterSpacing: -0.3 }}>
+              Crea il tuo studio
+            </h1>
+            <p style={{ margin: "6px 0 0", color: "#64748b", fontSize: 13 }}>
+              Registrazione beta — richiede codice d&apos;invito
+            </p>
+          </div>
+        )}
 
-        {/* Codice invito */}
-        <div>
-          <label style={lbl}>Codice d&apos;invito</label>
-          <input
-            type="text"
-            value={inviteCode}
-            onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-            placeholder="ABCD1234"
-            style={{ ...inp, letterSpacing: 2, fontFamily: "monospace", textTransform: "uppercase" }}
-            autoComplete="off"
-            required
-          />
-        </div>
+        {/* Codice invito (solo per beta classico) */}
+        {!isTeamInvite && (
+          <div>
+            <label style={lbl}>Codice d&apos;invito</label>
+            <input
+              type="text"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+              placeholder="ABCD1234"
+              style={{ ...inp, letterSpacing: 2, fontFamily: "monospace", textTransform: "uppercase" }}
+              autoComplete="off"
+              required
+            />
+          </div>
+        )}
 
-        {/* Nome studio */}
-        <div>
-          <label style={lbl}>Nome dello studio</label>
-          <input
-            type="text"
-            value={studioName}
-            onChange={(e) => setStudioName(e.target.value)}
-            placeholder="Es. Fisio Center Milano"
-            style={inp}
-            autoComplete="organization"
-            required
-          />
-        </div>
+        {/* Nome studio (solo per beta classico) */}
+        {!isTeamInvite && (
+          <div>
+            <label style={lbl}>Nome dello studio</label>
+            <input
+              type="text"
+              value={studioName}
+              onChange={(e) => setStudioName(e.target.value)}
+              placeholder="Es. Fisio Center Milano"
+              style={inp}
+              autoComplete="organization"
+              required
+            />
+          </div>
+        )}
 
         {/* Nome operatore */}
         <div>
