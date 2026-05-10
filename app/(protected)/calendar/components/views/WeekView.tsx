@@ -27,7 +27,7 @@
 import {
   THEME, fmtTime, formatDMY, pad2, statusBg, statusLabel,
   autoNameFontSize,
-  assignLanes,
+  assignLanes, assignLanesByOperator,
   getLocationCardStyle,
   type CalendarEvent,
 } from "../../utils";
@@ -137,6 +137,31 @@ export type WeekViewProps = {
     }
   ) => Promise<void> | void;
   onSendReminder: (eventId: string, phone?: string, firstName?: string) => void;
+
+  // ─── Multi-operatore (mig. 019, Fase 4b) ───────────────────────────────
+  /**
+   * Quando true e operatorOrder è popolato, le lane vengono calcolate per
+   * operatore (sub-colonne fisse MGA) invece che per overlap temporale.
+   * Ogni evento finisce nella sub-colonna del suo operator_id; eventi
+   * senza operator_id vanno in una sub-colonna "Non assegnati" alla fine.
+   *
+   * Il rendering esistente delle card non cambia: usa lane/totalLanes
+   * passati da assignLanesByOperator esattamente come faceva con
+   * assignLanes (overlap classico).
+   */
+  multiOperatorMode?: boolean;
+  /**
+   * Lista degli user_id degli operatori, nell'ordine in cui devono apparire
+   * le sub-colonne (sinistra → destra). Tipicamente: owner per primo, poi
+   * gli altri membri attivi ordinati per sort_order.
+   */
+  operatorOrder?: string[];
+  /**
+   * Mappa operator_id → colore. Usata per colorare il bordo sx delle card
+   * in modalità multi-op (così a colpo d'occhio si distingue chi è chi anche
+   * con sub-colonne strette).
+   */
+  operatorColorMap?: Map<string, string>;
 };
 
 export default function WeekView({
@@ -152,6 +177,7 @@ export default function WeekView({
   onEventHover, onEventHoverEnd,
   onSelectEvent, onToggleBulkSelect,
   onToggleDone, onTogglePaid, onUpdatePayment, onSendReminder,
+  multiOperatorMode, operatorOrder, operatorColorMap,
 }: WeekViewProps) {
   // ─── Note: la variabile non è usata direttamente ma mantenuta nelle props
   //     per future estensioni (es. bordo evento basato su getEventColor)
@@ -249,6 +275,31 @@ export default function WeekView({
                   ⌂ domicilio
                 </div>
               )}
+
+              {/* Multi-operatore (Fase 4b): mini-pallini colorati per ricordare
+                  quali sub-colonne ci sono e in che ordine. Visibile solo se
+                  multiOperatorMode è ON e ci sono ≥2 operatori. */}
+              {multiOperatorMode && operatorOrder && operatorOrder.length >= 2 && (
+                <div style={{
+                  display: "flex", justifyContent: "center", gap: 4,
+                  marginTop: 4, paddingTop: 4,
+                  borderTop: "1px solid rgba(255,255,255,0.15)",
+                }}>
+                  {operatorOrder.map(opId => {
+                    const color = operatorColorMap?.get(opId) ?? "#94a3b8";
+                    return (
+                      <div
+                        key={opId}
+                        style={{
+                          width: 8, height: 8, borderRadius: "50%",
+                          background: color,
+                          boxShadow: "0 0 0 1px rgba(255,255,255,0.4)",
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              )}
             </div>
           );
         })}
@@ -306,6 +357,31 @@ export default function WeekView({
                       position: "relative",
                     }}
                   >
+                    {/* Multi-operatore (Fase 4b): divisori verticali leggeri
+                        per separare visivamente le sub-colonne operatore.
+                        Disegnati come overlay assoluto, pointer-events none
+                        così non interferiscono col click sugli slot. */}
+                    {multiOperatorMode && operatorOrder && operatorOrder.length >= 2 && (
+                      <div style={{
+                        position: "absolute", inset: 0,
+                        display: "flex",
+                        pointerEvents: "none",
+                        zIndex: 0,
+                      }}>
+                        {operatorOrder.map((_, i) => (
+                          <div
+                            key={i}
+                            style={{
+                              flex: 1,
+                              borderRight: i < operatorOrder.length - 1
+                                ? "1px dashed rgba(148,163,184,0.35)"
+                                : "none",
+                            }}
+                          />
+                        ))}
+                      </div>
+                    )}
+
                     {/* Slot 00–30 min */}
                     <div
                       style={{
@@ -402,12 +478,22 @@ export default function WeekView({
           {(() => {
             // Calcolo lane positions per OGNI giorno separatamente
             // (l'overlap si verifica solo all'interno dello stesso giorno).
-            // Massimo 3 lane visibili: oltre, ultima ingloba badge "+N altri".
+            //
+            // SINGLE-OP: lane = posizione nel cluster di overlap (max 3 visibili).
+            // MULTI-OP (Fase 4b): lane = indice operatore. Sub-colonne fisse MGA,
+            //   eventi con operator_id NULL finiscono in colonna "non assegnati"
+            //   (mostrata solo se serve).
             //
             // DURANTE DRAG: salto il calcolo lane → tutte le card tornano a piena
             // larghezza per facilitare lo spostamento (ricompaiono affiancate
             // appena finisce il drag).
             const lanePositions = new Map<string, ReturnType<typeof assignLanes> extends Map<string, infer V> ? V : never>();
+
+            // Determina se servirà la colonna "non assegnati" (= almeno un evento
+            // della settimana ha operator_id NULL e siamo in modalità multi-op)
+            const useMultiOp = !!multiOperatorMode && !!operatorOrder && operatorOrder.length >= 2;
+            const hasUnassigned = useMultiOp && filteredEvents.some(e => !e.operator_id);
+
             if (!draggingEvent) {
               for (let i = 0; i < weekDays.length; i++) {
                 const day = weekDays[i];
@@ -416,7 +502,9 @@ export default function WeekView({
                   e.start.getMonth() === day.getMonth() &&
                   e.start.getFullYear() === day.getFullYear()
                 );
-                const dayLanes = assignLanes(dayEvents, 3);
+                const dayLanes = useMultiOp
+                  ? assignLanesByOperator(dayEvents, operatorOrder!, hasUnassigned)
+                  : assignLanes(dayEvents, 3);
                 dayLanes.forEach((v, k) => lanePositions.set(k, v));
               }
             } else {
@@ -500,10 +588,23 @@ export default function WeekView({
                   // Multi-sede (mig. 014, fase 3): bordo colorato per sedi secondarie.
                   // Se assente, ricade sul comportamento storico (no border, eventuale
                   // borderLeft giallo per gli appuntamenti WEB).
+                  // In MULTI-OPERATORE (Fase 4b) il borderLeft è il colore dell'operatore,
+                  // sovrascrive sia il giallo WEB che il colore sede (la sede in multi
+                  // resta visibile come badge testuale negli eventi più alti).
                   border: locStyle.borderColor ? `2px solid ${locStyle.borderColor}` : "none",
-                  borderLeft: event.calendar_note?.startsWith("[WEB|")
-                    ? "4px solid #facc15"
-                    : (locStyle.borderColor ? `2px solid ${locStyle.borderColor}` : "none"),
+                  borderLeft: (() => {
+                    // Priorità in multi-op: colore operatore
+                    if (multiOperatorMode && event.operator_id && operatorColorMap?.has(event.operator_id)) {
+                      return `4px solid ${operatorColorMap.get(event.operator_id)}`;
+                    }
+                    if (multiOperatorMode && !event.operator_id) {
+                      return "4px solid #94a3b8"; // grigio "non assegnato"
+                    }
+                    // Fallback comportamento storico
+                    if (event.calendar_note?.startsWith("[WEB|")) return "4px solid #facc15";
+                    if (locStyle.borderColor) return `2px solid ${locStyle.borderColor}`;
+                    return "none";
+                  })(),
                   cursor: "move",
                   zIndex: isMatch ? 10 : 2,
                   // Durante un drag in corso, le card non draggate "lasciano passare"

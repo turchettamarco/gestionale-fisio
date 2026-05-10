@@ -159,6 +159,7 @@ export default function CalendarPrefsSection(p: CalendarPrefsSectionProps) {
           )}
         </div>
 
+
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
           <BtnPrimary label={p.savingPractice ? "Salvataggio…" : "Salva preferenze"} onClick={p.onSave} disabled={p.savingPractice} />
         </div>

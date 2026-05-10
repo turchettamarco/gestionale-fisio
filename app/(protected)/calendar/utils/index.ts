@@ -83,7 +83,7 @@ export {
 } from "./reminderMessage";
 
 // Lane assignment per visualizzazione overlap appuntamenti (Google-style)
-export { assignLanes } from "./laneAssignment";
+export { assignLanes, assignLanesByOperator } from "./laneAssignment";
 export type { LanePosition } from "./laneAssignment";
 
 // Helper multi-sede (mig. 014, fase 3)

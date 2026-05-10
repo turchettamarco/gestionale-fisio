@@ -42,7 +42,66 @@ type EventLike = {
   start: Date;
   end: Date;
   status?: string;
+  /** Multi-operatore (mig. 019). NULL = non assegnato. */
+  operator_id?: string | null;
 };
+
+// ═══════════════════════════════════════════════════════════════════════
+// MODALITÀ OPERATORE (Fase 4b — vista settimana sub-colonne MGA)
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Quando vogliamo che ogni operatore abbia la sua sub-colonna fissa nella
+// vista settimana, NON calcoliamo le lane per overlap temporale ma per
+// operator_id. La lane è l'indice dell'operatore nella lista passata.
+//
+// USO:
+//   const positions = assignLanesByOperator(events, ['user_id_1', 'user_id_2'], true);
+//   // Lane 0 = primo operatore, Lane 1 = secondo, Lane 2 = "non assegnati"
+//   // (se hasUnassigned = true)
+//
+// VANTAGGIO: il rendering esistente nel WeekView funziona invariato perché
+// usa già lane/totalLanes per posizionare le card. Non dobbiamo riscrivere
+// il render.
+//
+// SCELTA DESIGN: niente "compressione max 3 lane" qui. Se ci sono 5
+// operatori, vediamo 5 sub-colonne strette (~10px ciascuna). Le card sono
+// distinguibili per colore, non per testo, quindi il restringimento è
+// accettabile fino a 6-8 operatori.
+// ═══════════════════════════════════════════════════════════════════════
+export function assignLanesByOperator(
+  events: EventLike[],
+  operatorOrder: string[],
+  hasUnassignedColumn: boolean = false,
+): Map<string, LanePosition> {
+  const result = new Map<string, LanePosition>();
+  if (events.length === 0) return result;
+
+  // Mappa operator_id → indice della lane
+  const opIndex = new Map<string, number>();
+  operatorOrder.forEach((opId, i) => opIndex.set(opId, i));
+
+  // Lane "non assegnati": viene dopo gli operatori (se richiesta)
+  const unassignedLane = hasUnassignedColumn ? operatorOrder.length : -1;
+  const totalLanes = operatorOrder.length + (hasUnassignedColumn ? 1 : 0);
+
+  // Filtro eventi cancellati
+  const valid = events.filter(e => e.status !== "cancelled");
+
+  for (const ev of valid) {
+    let lane: number;
+    if (ev.operator_id && opIndex.has(ev.operator_id)) {
+      lane = opIndex.get(ev.operator_id)!;
+    } else if (hasUnassignedColumn) {
+      lane = unassignedLane;
+    } else {
+      // Operator_id non riconosciuto E nessuna colonna unassigned: skip
+      continue;
+    }
+    result.set(ev.id, { lane, totalLanes });
+  }
+
+  return result;
+}
 
 /**
  * Assegna lane (colonne verticali) a eventi che si sovrappongono nel tempo.

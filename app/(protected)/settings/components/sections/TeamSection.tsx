@@ -427,6 +427,12 @@ export type TeamSectionProps = {
     }>
   ) => Promise<void>;
   onDeleteMember: (userIdOrToken: string, isToken: boolean) => Promise<void>;
+  // Layout vista settimana multi-operatore (mig. 022)
+  // Visibile solo se multi_operator_enabled = true
+  weeklyViewLayout: "classic" | "timeline" | "pile" | "grid";
+  setWeeklyViewLayout: (v: "classic" | "timeline" | "pile" | "grid") => void;
+  savingWeeklyLayout: boolean;
+  onSaveWeeklyLayout: () => void;
 };
 
 export default function TeamSection({
@@ -443,6 +449,10 @@ export default function TeamSection({
   onCreateInvite,
   onUpdateMember,
   onDeleteMember,
+  weeklyViewLayout,
+  setWeeklyViewLayout,
+  savingWeeklyLayout,
+  onSaveWeeklyLayout,
 }: TeamSectionProps) {
   const [showNewForm, setShowNewForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null); // user_id o invite_token
@@ -678,6 +688,167 @@ export default function TeamSection({
                 />
               );
             })}
+          </div>
+
+          {/* ── Layout vista settimanale (mig. 022) ─────────────────────
+              Visibile solo in modalità multi-operatore. La scelta vale per
+              tutto il team. In single-op il calendario usa sempre la
+              vista settimana classica indipendentemente da questo setting. */}
+          <div style={{ marginTop: 24, paddingTop: 18, borderTop: `1px dashed ${THEME.border}` }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: THEME.text, marginBottom: 4 }}>
+              Layout vista settimana
+            </div>
+            <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 12, lineHeight: 1.5 }}>
+              Quando il team ha 2+ operatori, scegli come visualizzare la settimana. La scelta vale per tutto il team. In modalità single-operatore viene sempre usata la vista classica.
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {([
+                {
+                  k: "classic" as const,
+                  title: "Classica",
+                  desc: "Sub-colonne MGA dentro ogni giorno. Vista tradizionale, densità alta.",
+                  status: "Attiva",
+                  preview: (
+                    // 4 colonne giorno × 3 sub-colonne MGA strette dentro ciascuna
+                    <div style={{ display: "flex", gap: 2, height: 36, background: "#f8fafc", padding: 3, borderRadius: 6 }}>
+                      {[0, 1, 2, 3].map(i => (
+                        <div key={i} style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 1 }}>
+                          <div style={{ background: "#0d9488", borderRadius: 1, opacity: 0.85 }} />
+                          <div style={{ background: "#8b5cf6", borderRadius: 1, opacity: 0.85 }} />
+                          <div style={{ background: "#ec4899", borderRadius: 1, opacity: 0.85 }} />
+                        </div>
+                      ))}
+                    </div>
+                  ),
+                },
+                {
+                  k: "timeline" as const,
+                  title: "Timeline operatore",
+                  desc: "Una riga per persona, settimana orizzontale. Nomi pieni leggibili.",
+                  status: "Attiva",
+                  preview: (
+                    // 3 righe (una per operatore) × 5 colonne giorno con chip per appuntamento
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2, height: 36, background: "#f8fafc", padding: 3, borderRadius: 6 }}>
+                      {[
+                        { color: "#0d9488", filled: [true, true, false, true, true] },
+                        { color: "#8b5cf6", filled: [true, false, true, true, false] },
+                        { color: "#ec4899", filled: [false, true, true, false, true] },
+                      ].map((row, i) => (
+                        <div key={i} style={{ flex: 1, display: "flex", gap: 1 }}>
+                          {row.filled.map((on, j) => (
+                            <div key={j} style={{ flex: 1, background: on ? row.color : "#e2e8f0", borderRadius: 1, opacity: on ? 0.9 : 0.4 }} />
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  ),
+                },
+                {
+                  k: "pile" as const,
+                  title: "Pile cronologiche",
+                  desc: "Ogni giorno è una pila di card colorate per operatore.",
+                  status: "In arrivo",
+                  preview: (
+                    // 5 colonne giorno con pila verticale di card colori mescolati
+                    <div style={{ display: "flex", gap: 2, height: 36, background: "#f8fafc", padding: 3, borderRadius: 6 }}>
+                      {[
+                        ["#0d9488", "#8b5cf6", "#0d9488", "#ec4899"],
+                        ["#8b5cf6", "#0d9488", "#ec4899"],
+                        ["#0d9488", "#8b5cf6"],
+                        ["#ec4899", "#0d9488", "#8b5cf6", "#0d9488", "#ec4899"],
+                        ["#0d9488", "#ec4899", "#8b5cf6"],
+                      ].map((dayColors, i) => (
+                        <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 1 }}>
+                          {dayColors.map((c, j) => (
+                            <div key={j} style={{ flex: 1, background: c, borderRadius: 1, opacity: 0.85 }} />
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  ),
+                },
+                {
+                  k: "grid" as const,
+                  title: "Griglia + chip",
+                  desc: "Griglia ora × giorno classica. Dentro ogni cella, chip colorati MGA.",
+                  status: "In arrivo",
+                  preview: (
+                    // 3 fasce orarie × 4 giorni, ogni cella ha 2-3 chip arrotondati
+                    <div style={{ display: "flex", flexDirection: "column", gap: 1, height: 36, background: "#f8fafc", padding: 3, borderRadius: 6 }}>
+                      {[
+                        [["#0d9488", "#8b5cf6"], ["#0d9488"], ["#0d9488", "#8b5cf6", "#ec4899"], ["#8b5cf6"]],
+                        [["#0d9488"], ["#0d9488", "#ec4899"], ["#8b5cf6"], ["#0d9488", "#8b5cf6"]],
+                        [["#ec4899"], ["#0d9488", "#8b5cf6"], ["#0d9488"], ["#ec4899", "#0d9488"]],
+                      ].map((row, i) => (
+                        <div key={i} style={{ flex: 1, display: "flex", gap: 1 }}>
+                          {row.map((cell, j) => (
+                            <div key={j} style={{ flex: 1, display: "flex", gap: 1, alignItems: "center", padding: "0 1px" }}>
+                              {cell.map((c, k) => (
+                                <div key={k} style={{ flex: 1, height: 3, background: c, borderRadius: 99, opacity: 0.9 }} />
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  ),
+                },
+              ]).map(opt => {
+                const active = weeklyViewLayout === opt.k;
+                const comingSoon = opt.status === "In arrivo";
+                return (
+                  <button
+                    key={opt.k}
+                    onClick={() => setWeeklyViewLayout(opt.k)}
+                    style={{
+                      padding: "12px 14px", borderRadius: 10, cursor: "pointer",
+                      border: active ? `2px solid ${THEME.teal}` : `1.5px solid ${THEME.border}`,
+                      background: active ? "rgba(13,148,136,0.06)" : "#fff",
+                      textAlign: "left", fontFamily: "inherit",
+                      display: "flex", flexDirection: "column", gap: 8,
+                      opacity: comingSoon ? 0.85 : 1,
+                    }}
+                  >
+                    {opt.preview}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "space-between" }}>
+                      <span style={{ fontWeight: 800, fontSize: 13, color: active ? THEME.teal : THEME.text }}>
+                        {opt.title}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 9,
+                          fontWeight: 700,
+                          padding: "2px 6px",
+                          borderRadius: 99,
+                          background: comingSoon ? "#fef3c7" : "rgba(22,163,74,0.1)",
+                          color: comingSoon ? "#92400e" : "#15803d",
+                          letterSpacing: 0.3,
+                        }}
+                      >
+                        {comingSoon ? "IN ARRIVO" : "DISPONIBILE"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11, color: THEME.muted, lineHeight: 1.4 }}>
+                      {opt.desc}
+                    </div>
+                    {active && (
+                      <div style={{ fontSize: 11, fontWeight: 700, color: THEME.teal, marginTop: 2 }}>
+                        ✓ Selezionato
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+              <BtnPrimary
+                label={savingWeeklyLayout ? "Salvataggio…" : "Salva layout"}
+                onClick={onSaveWeeklyLayout}
+                disabled={savingWeeklyLayout}
+              />
+            </div>
           </div>
         </div>
       )}

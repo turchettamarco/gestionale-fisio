@@ -62,7 +62,7 @@ import {
 } from "./utils";
 
 // ─── Studio context (multi-tenancy) ──────────────────────────────────────────
-import { useCurrentStudio, useCurrentStudioId, useStudioMembers, useMultiOperatorEnabled } from "@/src/contexts/StudioContext";
+import { useCurrentStudio, useCurrentStudioId, type StudioMember } from "@/src/contexts/StudioContext";
 
 // ─── Hook custom della pagina calendar (refactor B3.1 → B3.7) ────────────────
 import {
@@ -93,6 +93,7 @@ import MonthView from "./components/views/MonthView";
 import DayView from "./components/views/DayView";
 import type { OperatorUnavailabilitySlot } from "./components/views/DayTimelineMulti";
 import WeekView from "./components/views/WeekView";
+import WeekViewTimeline from "./components/views/WeekViewTimeline";
 
 // ─── Modals (B2.8) ───────────────────────────────────────────────────────────
 import WhatsAppConfirmDialog from "./components/modals/WhatsAppConfirmDialog";
@@ -111,11 +112,19 @@ export default function CalendarPage() {
 
 function CalendarPageInner() {
 
-  // ─── Multi-operatore (mig. 019, Fase 4a) ─────────────────────────────────
-  // Membri attivi e flag, esposti dal context. La vista giorno usa questi
-  // per decidere se renderizzare DayTimelineMulti vs DayTimeline classico.
-  const allMembers = useStudioMembers();
-  const multiOperatorEnabled = useMultiOperatorEnabled();
+  // ─── Multi-operatore (mig. 019, Fase 4a/4b) ─────────────────────────────
+  // Carichiamo TUTTO direttamente con query locali invece di usare il context:
+  // sia il flag multi_operator_enabled che la lista membri. Il context aveva
+  // race condition (i dati arrivavano dopo il primo render), e visto che qui
+  // il render delle viste calendario dipende criticamente da questi dati,
+  // li carichiamo "alla mano".
+  const [multiOperatorEnabled, setMultiOperatorEnabled] = useState<boolean>(false);
+  const [allMembers, setAllMembers] = useState<StudioMember[]>([]);
+  // Layout della vista settimana scelto in Settings → Team (mig. 022).
+  // Default 'classic' = WeekView con sub-colonne MGA (l'attuale 4b).
+  // Senza effetto se single-op (multi off OR <2 operatori).
+  const [weeklyViewLayout, setWeeklyViewLayout] = useState<"classic" | "timeline" | "pile" | "grid">("classic");
+
   // Filtra solo i membri attivi. Includiamo anche gli inviti PENDENTI
   // (user_id NULL): li mostriamo come colonne nel calendario perché
   // l'owner potrebbe voler pianificare appuntamenti per loro PRIMA che
@@ -125,6 +134,32 @@ function CalendarPageInner() {
     () => allMembers.filter(m => m.is_active !== false),
     [allMembers]
   );
+
+  // Derivate per le viste multi-op (settimana, mese): l'ordine delle sub-colonne
+  // e la mappa colore per il bordo card. Calcolate una volta sola e passate ai
+  // componenti, così i componenti non devono importare gli hook context.
+  //
+  // PENDING INCLUSI: i membri invitati ma non ancora registrati (user_id NULL)
+  // hanno una "lane key fittizia" basata su invite_token. Servono come colonne
+  // visuali per ricordarsi che esistono e per pre-pianificare appuntamenti
+  // (anche se in pratica gli appuntamenti possono essere assegnati solo a
+  // utenti registrati con user_id valorizzato).
+  const operatorOrder = useMemo<string[]>(() => {
+    return activeMembers
+      .map(m => m.user_id ?? (m.invite_token ? `pending:${m.invite_token}` : null))
+      .filter((id): id is string => id != null);
+  }, [activeMembers]);
+
+  const operatorColorMap = useMemo<Map<string, string>>(() => {
+    const m = new Map<string, string>();
+    for (const member of activeMembers) {
+      const key = member.user_id ?? (member.invite_token ? `pending:${member.invite_token}` : null);
+      if (key && member.display_color) {
+        m.set(key, member.display_color);
+      }
+    }
+    return m;
+  }, [activeMembers]);
 
   // ─── Bootstrap: utente, studio, settings, catalogo, orari, viewport ──────
   // Tutta la logica di setup è estratta in useCalendarBootstrap (refactor B3.1).
@@ -459,6 +494,56 @@ function CalendarPageInner() {
   const [creatingQuickPatient, setCreatingQuickPatient] = useState(false);
 
   // currentDate, setCurrentDate e l'effect di mount sono ora in useCalendarEvents.
+
+  // ── Multi-operatore: caricamento membri + flag (mig. 019, Fase 4a/4b) ──
+  // Query diretta su studio_members + studios per avere i dati immediatamente
+  // disponibili al primo render. Bypassa il context per evitare race
+  // condition. Si ricarica quando cambia studio_id.
+  useEffect(() => {
+    if (!currentStudioId) {
+      setAllMembers([]);
+      setMultiOperatorEnabled(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      // Query parallele: membri + flag studio
+      const [membersResult, studioResult] = await Promise.all([
+        supabase
+          .from("studio_members")
+          .select("studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invited_at, invite_token")
+          .eq("studio_id", currentStudioId)
+          .order("sort_order", { ascending: true })
+          .order("display_name", { ascending: true }),
+        supabase
+          .from("studios")
+          .select("multi_operator_enabled, weekly_view_layout")
+          .eq("id", currentStudioId)
+          .maybeSingle(),
+      ]);
+
+      if (cancelled) return;
+
+      const data = membersResult.data;
+      const error = membersResult.error;
+      if (error || !data) {
+        setAllMembers([]);
+      } else {
+        setAllMembers(data as StudioMember[]);
+      }
+
+      const studioData = studioResult.data;
+      setMultiOperatorEnabled(Boolean(studioData?.multi_operator_enabled));
+      // mig. 022 — layout vista settimana
+      const layout = studioData?.weekly_view_layout;
+      if (layout === "classic" || layout === "timeline" || layout === "pile" || layout === "grid") {
+        setWeeklyViewLayout(layout);
+      } else {
+        setWeeklyViewLayout("classic");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [currentStudioId]);
 
   // ── Multi-operatore: caricamento indisponibilità (mig. 019, Fase 4a) ──
   // Carichiamo le indisponibilità solo per il giorno corrente (vista day)
@@ -1085,6 +1170,35 @@ function CalendarPageInner() {
     }
   }, []);
 
+  // Handler riusabile per "click su evento → apri modale dettaglio".
+  // Estratto come useCallback per essere passato a viste diverse (WeekView,
+  // WeekViewTimeline, ecc.) senza duplicazione.
+  const handleSelectEventForModal = useCallback((event: CalendarEvent) => {
+    setSelectedEvent({
+      id: event.id,
+      title: event.patient_name,
+      patient_id: event.patient_id,
+      location: event.location,
+      clinic_site: event.clinic_site,
+      domicile_address: event.domicile_address,
+      treatment: event.treatment,
+      diagnosis: event.diagnosis,
+      amount: event.amount,
+      treatment_type: event.treatment_type,
+      price_type: event.price_type,
+      start: event.start,
+      end: event.end,
+      package_id: event.package_id ?? null,
+    });
+    setEditStatus(event.status);
+    setEditNote(event.calendar_note || "");
+    setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
+    setEditTreatmentType((event.treatment_type as "seduta" | "macchinario") || "seduta");
+    setEditPriceType((event.price_type as "invoiced" | "cash") || "invoiced");
+    setEditPaymentMethod((event.payment_method as "cash" | "pos" | "bank_transfer" | null) || null);
+    if (event.patient_id) loadPatientFromEvent(event.patient_id);
+  }, [setSelectedEvent, setEditStatus, setEditNote, setEditAmount, setEditTreatmentType, setEditPriceType, setEditPaymentMethod, loadPatientFromEvent]);
+
   // Feature: Copia ultimo setting del paziente
   const loadLastPatientSettings = useCallback(async (patientId: string) => {
     const { data } = await supabase
@@ -1618,6 +1732,27 @@ return (
           />
 
           {viewType === "week" ? (
+            // ━━━ WEEK VIEW — branching multi-op layout (mig. 022) ━━━
+            // Single-op (multi off OR <2 operatori) → sempre WeekView classica.
+            // Multi-op + layout 'timeline' → WeekViewTimeline (Approccio A).
+            // Multi-op + altri layout (pile, grid) → ancora WeekView classica
+            // come fallback finché non sono implementati (Fase 4b.2b/c).
+            (multiOperatorEnabled && activeMembers.length >= 2 && weeklyViewLayout === "timeline") ? (
+              <WeekViewTimeline
+                weekDays={weekDays}
+                filteredEvents={filteredEvents}
+                currentTime={currentTime}
+                members={activeMembers}
+                operatorColorMap={operatorColorMap}
+                onCreateForOperatorAndDay={(date) => {
+                  // Per ora ignoriamo l'operatorKey nel quick-add: il modale
+                  // ha già il selettore operatore. In Fase 4b.3 si potrà
+                  // pre-selezionare l'operatore passato.
+                  handleSlotClick(date, date.getHours(), date.getMinutes());
+                }}
+                onSelectEvent={handleSelectEventForModal}
+              />
+            ) : (
             <WeekView
               weekDays={weekDays}
               filteredEvents={filteredEvents}
@@ -1647,37 +1782,17 @@ return (
               onDrop={handleDrop}
               onEventHover={handleEventHover}
               onEventHoverEnd={handleEventHoverEnd}
-              onSelectEvent={(event) => {
-                setSelectedEvent({
-                  id: event.id,
-                  title: event.patient_name,
-                  patient_id: event.patient_id,
-                  location: event.location,
-                  clinic_site: event.clinic_site,
-                  domicile_address: event.domicile_address,
-                  treatment: event.treatment,
-                  diagnosis: event.diagnosis,
-                  amount: event.amount,
-                  treatment_type: event.treatment_type,
-                  price_type: event.price_type,
-                  start: event.start,
-                  end: event.end,
-                  package_id: event.package_id ?? null,
-                });
-                setEditStatus(event.status);
-                setEditNote(event.calendar_note || "");
-                setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
-                setEditTreatmentType((event.treatment_type as "seduta" | "macchinario") || "seduta");
-                setEditPriceType((event.price_type as "invoiced" | "cash") || "invoiced");
-        setEditPaymentMethod((event.payment_method as "cash" | "pos" | "bank_transfer" | null) || null);
-                if (event.patient_id) loadPatientFromEvent(event.patient_id);
-              }}
+              onSelectEvent={handleSelectEventForModal}
               onToggleBulkSelect={toggleBulkSelect}
               onToggleDone={toggleDoneQuick}
               onTogglePaid={togglePaidQuick}
               onUpdatePayment={handleUpdatePayment}
               onSendReminder={sendReminder}
+              multiOperatorMode={multiOperatorEnabled && activeMembers.length >= 2}
+              operatorOrder={operatorOrder}
+              operatorColorMap={operatorColorMap}
             />
+            )
           ) : viewType === "month" ? (
             /* ━━━ MONTH VIEW — COMPACT ━━━ */
             <MonthView

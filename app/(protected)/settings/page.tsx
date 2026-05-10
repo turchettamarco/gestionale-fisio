@@ -148,6 +148,9 @@ export default function SettingsPage() {
   const [loadingMembers, setLoadingMembers]             = useState(true);
   const [savingMember, setSavingMember]                 = useState(false);
   const [currentUserId, setCurrentUserId]               = useState<string | null>(null);
+  // Layout vista settimana multi-operatore (mig. 022)
+  const [weeklyViewLayout, setWeeklyViewLayout]         = useState<"classic" | "timeline" | "pile" | "grid">("classic");
+  const [savingWeeklyLayout, setSavingWeeklyLayout]     = useState(false);
 
   // ── Multi-stanza (mig. 019 + 020) ────────────────────────────────────
   const [multiRoomEnabled, setMultiRoomEnabled]         = useState(false);
@@ -403,9 +406,16 @@ export default function SettingsPage() {
     if (studio?.id) {
       setMultiOperatorEnabled(Boolean(studio.multi_operator_enabled));
       setMultiRoomEnabled(Boolean(studio.multi_room_enabled));
+      // mig. 022 — hidrata layout vista settimana (default 'classic')
+      const layout = studio.weekly_view_layout;
+      if (layout === "classic" || layout === "timeline" || layout === "pile" || layout === "grid") {
+        setWeeklyViewLayout(layout);
+      } else {
+        setWeeklyViewLayout("classic");
+      }
       void loadMembers();
     }
-  }, [studio?.id, studio?.multi_operator_enabled, studio?.multi_room_enabled, loadMembers]);
+  }, [studio?.id, studio?.multi_operator_enabled, studio?.multi_room_enabled, studio?.weekly_view_layout, loadMembers]);
 
   const saveMultiOperatorToggle = useCallback(async () => {
     if (!studio?.id) { alert("Studio non disponibile"); return; }
@@ -425,6 +435,28 @@ export default function SettingsPage() {
       setSavingMultiOpToggle(false);
     }
   }, [studio?.id, multiOperatorEnabled, refreshStudio]);
+
+  // Salva il layout vista settimana (mig. 022). Vive su `studios` ed è
+  // studio-wide. Handler dedicato perché ha il suo bottone "Salva layout"
+  // nella TeamSection.
+  const saveWeeklyLayout = useCallback(async () => {
+    if (!studio?.id) { alert("Studio non disponibile"); return; }
+    setSavingWeeklyLayout(true);
+    try {
+      const { error } = await supabase
+        .from("studios")
+        .update({ weekly_view_layout: weeklyViewLayout })
+        .eq("id", studio.id);
+      if (error) {
+        alert("Errore salvataggio layout: " + error.message);
+        return;
+      }
+      await refreshStudio();
+      flashSuccess("Layout settimana aggiornato.");
+    } finally {
+      setSavingWeeklyLayout(false);
+    }
+  }, [studio?.id, weeklyViewLayout, refreshStudio]);
 
   // Genera un nuovo invito (placeholder con user_id = NULL, invite_token = uuid).
   // Restituisce il token così la UI può mostrare subito il link da copiare.
@@ -1671,6 +1703,10 @@ export default function SettingsPage() {
               onCreateInvite={createInvite}
               onUpdateMember={updateMember}
               onDeleteMember={deleteMember}
+              weeklyViewLayout={weeklyViewLayout}
+              setWeeklyViewLayout={setWeeklyViewLayout}
+              savingWeeklyLayout={savingWeeklyLayout}
+              onSaveWeeklyLayout={() => void saveWeeklyLayout()}
             />
 
             <RoomsSection
