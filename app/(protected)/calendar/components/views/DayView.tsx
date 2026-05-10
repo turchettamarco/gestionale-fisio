@@ -36,6 +36,9 @@ export type DayViewProps = {
   multiOperatorMode?: boolean;
   /** Membri del team (passati solo se multiOperatorMode = true) */
   members?: StudioMember[];
+  /** Mappa room_id → color. Se passata, le card usano colore stanza al posto
+   *  del colore operatore (Fase Stanze). */
+  roomColorMap?: Map<string, string>;
   /** Indisponibilità del giorno corrente (ferie, pause) per la vista multi.
    *  Lette dal page.tsx con una query semplice; in Fase 4a la creazione
    *  delle indisponibilità non è prevista (sarà Fase 5). */
@@ -81,7 +84,7 @@ export type DayViewProps = {
 
 export default function DayView({
   currentDate, dayEvents, currentTime,
-  multiOperatorMode, members, unavailabilities,
+  multiOperatorMode, members, roomColorMap, unavailabilities,
   timeSlots, dayLabels, TIME_COL,
   gridStartHour,
   studioLocations,
@@ -115,6 +118,7 @@ export default function DayView({
           dayEvents={dayEvents}
           currentTime={currentTime}
           members={members!}
+          roomColorMap={roomColorMap}
           unavailabilities={unavailabilities ?? []}
           timeSlots={timeSlots}
           TIME_COL={TIME_COL}

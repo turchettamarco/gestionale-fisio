@@ -89,6 +89,7 @@ import CalendarTopBar from "./components/panels/CalendarTopBar";
 import FiltersPopover from "./components/panels/FiltersPopover";
 import CalendarToolbar from "./components/panels/CalendarToolbar";
 import OperatorLegend from "./components/OperatorLegend";
+import RoomLegend from "./components/RoomLegend";
 
 // ─── Views (B2.6, B2.7) ──────────────────────────────────────────────────────
 import MonthView from "./components/views/MonthView";
@@ -124,6 +125,10 @@ function CalendarPageInner() {
   // il render delle viste calendario dipende criticamente da questi dati,
   // li carichiamo "alla mano".
   const [multiOperatorEnabled, setMultiOperatorEnabled] = useState<boolean>(false);
+
+  // Multi-stanza (mig. 019, Fase Stanze): toggle del flag e elenco stanze attive.
+  const [multiRoomEnabled, setMultiRoomEnabled] = useState<boolean>(false);
+  const [studioRooms, setStudioRooms] = useState<Array<{ id: string; name: string; color: string | null }>>([]);
   const [allMembers, setAllMembers] = useState<StudioMember[]>([]);
   // Layout della vista settimana scelto in Settings → Team (mig. 022).
   // Default 'classic' = WeekView con sub-colonne MGA (l'attuale 4b).
@@ -136,6 +141,13 @@ function CalendarPageInner() {
   // Funziona in TUTTE le viste calendario (Day/Week/Month) perché filtra
   // direttamente filteredEvents.
   const [operatorFilter, setOperatorFilter] = useState<string | null>(null);
+
+  // Filtro stanza interattivo (Fase Stanze, parallelo a operatorFilter).
+  // Combinabile in AND con il filtro operatori. Valori speciali:
+  //   - null: nessun filtro stanza
+  //   - "_no_room_": solo eventi senza stanza assegnata
+  //   - <uuid>: solo eventi con quella stanza
+  const [roomFilter, setRoomFilter] = useState<string | null>(null);
 
   // Filtra solo i membri attivi. Includiamo anche gli inviti PENDENTI
   // (user_id NULL): li mostriamo come colonne nel calendario perché
@@ -172,6 +184,16 @@ function CalendarPageInner() {
     }
     return m;
   }, [activeMembers]);
+
+  // Mappa room_id → color per la vista Roster (e future viste).
+  // Le stanze sono caricate dallo studio corrente via useEffect più sotto.
+  const roomColorMap = useMemo<Map<string, string>>(() => {
+    const m = new Map<string, string>();
+    for (const r of studioRooms) {
+      if (r.color) m.set(r.id, r.color);
+    }
+    return m;
+  }, [studioRooms]);
 
   // ─── Bootstrap: utente, studio, settings, catalogo, orari, viewport ──────
   // Tutta la logica di setup è estratta in useCalendarBootstrap (refactor B3.1).
@@ -431,6 +453,10 @@ function CalendarPageInner() {
   // modifica. Null = non assegnato. Idratato da liveEvent quando il modale apre.
   const [editOperatorId, setEditOperatorId] = useState<string | null>(null);
 
+  // Multi-stanza (mig. 019, Fase Stanze): room_id per il modale di modifica.
+  // Null = nessuna stanza. Idratato da liveEvent quando il modale apre.
+  const [editRoomId, setEditRoomId] = useState<string | null>(null);
+
   // createOpen, createStartISO, createEndISO: dichiarati più in alto.
   // q, searching, patientResults, selectedPatient: ora in useSearchAndFilters.
   const [creating, setCreating] = useState(false);
@@ -448,6 +474,10 @@ function CalendarPageInner() {
   // creazione lo settiamo all'utente loggato come default ragionevole (vedi
   // openCreateModal sotto).
   const [createOperatorId, setCreateOperatorId] = useState<string | null>(null);
+
+  // Multi-stanza (mig. 019, Fase Stanze): id della stanza selezionata in
+  // creazione. null = nessuna. Default null = nessuna stanza pre-selezionata.
+  const [createRoomId, setCreateRoomId] = useState<string | null>(null);
 
   // Sincronizza il default del campo "sede" con il nome dello studio corrente
   // (l'utente può comunque sovrascriverlo manualmente nel form di creazione).
@@ -525,12 +555,14 @@ function CalendarPageInner() {
     if (!currentStudioId) {
       setAllMembers([]);
       setMultiOperatorEnabled(false);
+      setMultiRoomEnabled(false);
+      setStudioRooms([]);
       return;
     }
     let cancelled = false;
     (async () => {
-      // Query parallele: membri + flag studio
-      const [membersResult, studioResult] = await Promise.all([
+      // Query parallele: membri + flag studio + stanze
+      const [membersResult, studioResult, roomsResult] = await Promise.all([
         supabase
           .from("studio_members")
           .select("studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invited_at, invite_token")
@@ -539,9 +571,16 @@ function CalendarPageInner() {
           .order("display_name", { ascending: true }),
         supabase
           .from("studios")
-          .select("multi_operator_enabled, weekly_view_layout")
+          .select("multi_operator_enabled, multi_room_enabled, weekly_view_layout")
           .eq("id", currentStudioId)
           .maybeSingle(),
+        supabase
+          .from("studio_rooms")
+          .select("id, name, color, is_active, sort_order")
+          .eq("studio_id", currentStudioId)
+          .eq("is_active", true)
+          .order("sort_order", { ascending: true })
+          .order("name", { ascending: true }),
       ]);
 
       if (cancelled) return;
@@ -556,12 +595,20 @@ function CalendarPageInner() {
 
       const studioData = studioResult.data;
       setMultiOperatorEnabled(Boolean(studioData?.multi_operator_enabled));
+      setMultiRoomEnabled(Boolean(studioData?.multi_room_enabled));
       // mig. 022 + 024 — layout vista settimana (include 'roster')
       const layout = studioData?.weekly_view_layout;
       if (layout === "classic" || layout === "timeline" || layout === "pile" || layout === "grid" || layout === "roster") {
         setWeeklyViewLayout(layout);
       } else {
         setWeeklyViewLayout("classic");
+      }
+
+      // Multi-stanza (Fase Stanze): carica le stanze attive
+      if (roomsResult.error || !roomsResult.data) {
+        setStudioRooms([]);
+      } else {
+        setStudioRooms(roomsResult.data as Array<{ id: string; name: string; color: string | null }>);
       }
     })();
     return () => { cancelled = true; };
@@ -860,6 +907,8 @@ function CalendarPageInner() {
       setSelectedPatient(patientFromEvent);
       // Multi-op: copia operator_id dall'evento da duplicare (se presente)
       setCreateOperatorId(duplicateEvent.operator_id ?? null);
+      // Multi-stanza: copia room_id dall'evento
+      setCreateRoomId(duplicateEvent.room_id ?? null);
     } else {
       setDuplicateMode(false);
       setEventToDuplicate(null);
@@ -870,6 +919,8 @@ function CalendarPageInner() {
       // Multi-op: di default assegna all'utente loggato (Marco). L'utente
       // può poi cambiare in modal. Funziona anche in single-op (campo nascosto).
       setCreateOperatorId(userId ?? null);
+      // Multi-stanza: default nessuna stanza pre-selezionata
+      setCreateRoomId(null);
       setTreatmentType(treatmentCatalog[0]?.key ?? "seduta");
       // Default: Contanti (allineato allo state di partenza). L'utente può
       // sempre cliccare "Fatturato" se vuole. Evita l'alert spurio del metodo.
@@ -1080,8 +1131,19 @@ function CalendarPageInner() {
       }
     }
 
+    // Step 8: filtro stanza (Fase Stanze)
+    // Additivo (AND) col filtro operatore. Valore speciale "_no_room_"
+    // filtra solo eventi senza stanza.
+    if (roomFilter !== null) {
+      if (roomFilter === "_no_room_") {
+        result = result.filter(e => !e.room_id);
+      } else {
+        result = result.filter(e => e.room_id === roomFilter);
+      }
+    }
+
     return result;
-  }, [events, viewType, currentDate, statusFilter, filters, operatorFilter]);
+  }, [events, viewType, currentDate, statusFilter, filters, operatorFilter, roomFilter]);
 
   // weeklyReminderTemplate: ora in useReminderFlow.
 
@@ -1252,6 +1314,8 @@ function CalendarPageInner() {
     setEditPaymentMethod((event.payment_method as "cash" | "pos" | "bank_transfer" | null) || null);
     // Multi-op (Fase 4d.1): idrata operator_id dall'evento
     setEditOperatorId(event.operator_id ?? null);
+    // Multi-stanza (Fase Stanze): idrata room_id dall'evento
+    setEditRoomId(event.room_id ?? null);
     if (event.patient_id) loadPatientFromEvent(event.patient_id);
   }, [setSelectedEvent, setEditStatus, setEditNote, setEditAmount, setEditTreatmentType, setEditPriceType, setEditPaymentMethod, loadPatientFromEvent]);
 
@@ -1406,6 +1470,7 @@ function CalendarPageInner() {
       groupRecurringMode,
       selectedPackageId,
       createOperatorId,
+      createRoomId,
     },
     editForm: {
       editStatus,
@@ -1418,6 +1483,7 @@ function CalendarPageInner() {
       editStartTime,
       editDuration,
       editOperatorId,
+      editRoomId,
     },
     quickPatientForm: {
       quickPatientFirstName,
@@ -1877,6 +1943,18 @@ return (
             />
           )}
 
+          {/* Legenda stanze (Fase Stanze) — visibile se multi-stanza attivo
+              e ci sono stanze configurate. Indipendente dal multi-operatore.
+              Click su un chip filtra il calendario per quella stanza. */}
+          {multiRoomEnabled && studioRooms.length > 0 && (
+            <RoomLegend
+              rooms={studioRooms}
+              selectedRoomId={roomFilter}
+              onSelectRoomId={setRoomFilter}
+              showUnassigned={events.some(ev => !ev.room_id)}
+            />
+          )}
+
           {viewType === "week" ? (
             // ━━━ WEEK VIEW — branching multi-op layout (mig. 022) ━━━
             // Single-op (multi off OR <2 operatori) → sempre WeekView classica.
@@ -1939,6 +2017,7 @@ return (
                 onSelectEvent={handleSelectEventForModal}
                 onCycleStatus={cycleEventStatus}
                 onSendReminder={sendReminder}
+                roomColorMap={roomColorMap}
               />
             ) : (
             <WeekView
@@ -2017,6 +2096,7 @@ return (
               currentTime={currentTime}
               multiOperatorMode={multiOperatorEnabled && activeMembers.length >= 2}
               members={activeMembers}
+              roomColorMap={roomColorMap}
               unavailabilities={unavailabilities}
               timeSlots={timeSlots}
               dayLabels={dayLabels}
@@ -2167,6 +2247,10 @@ return (
           createOperatorId={createOperatorId}
           setCreateOperatorId={setCreateOperatorId}
           existingEvents={events}
+          multiRoomEnabled={multiRoomEnabled && studioRooms.length > 0}
+          rooms={studioRooms}
+          createRoomId={createRoomId}
+          setCreateRoomId={setCreateRoomId}
           creating={creating}
         />
       )}
@@ -2250,6 +2334,10 @@ return (
           members={activeMembers}
           editOperatorId={editOperatorId}
           setEditOperatorId={setEditOperatorId}
+          multiRoomEnabled={multiRoomEnabled && studioRooms.length > 0}
+          rooms={studioRooms}
+          editRoomId={editRoomId}
+          setEditRoomId={setEditRoomId}
         />
         );
       })()}

@@ -64,6 +64,11 @@ export type DayTimelineMultiProps = {
   /** Operatori attivi (ordinati). Min 2 per arrivare qui (vedi DayView). */
   members: StudioMember[];
 
+  /** Mappa room_id → color. Se passata e l'evento ha room_id valido, la card
+   *  prende il colore della stanza al posto del colore operatore. Mantiene
+   *  un piccolo pallino MGA per riconoscere comunque l'operatore (Fase Stanze). */
+  roomColorMap?: Map<string, string>;
+
   /** Indisponibilità del giorno corrente per tutti gli operatori dello studio. */
   unavailabilities?: OperatorUnavailabilitySlot[];
 
@@ -119,6 +124,7 @@ export default function DayTimelineMulti({
   dayEvents,
   currentTime,
   members,
+  roomColorMap,
   unavailabilities = [],
   timeSlots,
   TIME_COL,
@@ -475,6 +481,10 @@ export default function DayTimelineMulti({
 
                 // Bordo sx = colore operatore (caratteristica multi-op)
                 const opColor = col.isUnassigned ? UNASSIGNED_COLOR : col.color;
+                // Fase Stanze: se l'evento ha room_id e abbiamo la mappa,
+                // usiamo il colore stanza per il BACKGROUND della card.
+                // L'operatore resta visibile dal bordo sx 4px.
+                const roomColor = (event.room_id && roomColorMap?.get(event.room_id)) || null;
                 // Sede border (riusiamo logica esistente per i bordi sede)
                 const locStyle = getLocationCardStyle(event, studioLocations);
 
@@ -505,9 +515,14 @@ export default function DayTimelineMulti({
                       // Container query: permette al font dentro di scalare con
                       // la larghezza effettiva di QUESTA card (non della colonna).
                       containerType: "inline-size",
+                      // Background: se l'evento ha una stanza, prevale il colore
+                      // stanza con bilanciamento per leggibilità del testo.
+                      // Altrimenti usa statusBg (logica storica per stato).
                       background: event.is_group
                         ? "linear-gradient(135deg, #0d9488 0%, #06b6d4 100%)"
-                        : statusBg(event.status),
+                        : (roomColor && event.status !== "cancelled"
+                            ? roomColor
+                            : statusBg(event.status)),
                       color: "#fff",
                       borderRadius: 6,
                       borderLeft: `4px solid ${opColor}`,

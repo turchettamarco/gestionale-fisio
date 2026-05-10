@@ -126,6 +126,9 @@ export interface CreateFormState {
   // Multi-operatore (mig. 019/022, Fase 4d):
   // operatore selezionato. null = non assegnato. In single-op è ignorato.
   createOperatorId?: string | null;
+  // Multi-stanza (mig. 019, Fase Stanze):
+  // stanza selezionata. null = nessuna. Ignorato in single-room.
+  createRoomId?: string | null;
 }
 
 /** Stato del modale EDIT (form di modifica appuntamento esistente) */
@@ -141,6 +144,8 @@ export interface EditFormState {
   editDuration: "0.5" | "0.75" | "1" | "1.5" | "2";
   // Multi-operatore (mig. 019/022, Fase 4d.1):
   editOperatorId?: string | null;
+  // Multi-stanza (mig. 019, Fase Stanze):
+  editRoomId?: string | null;
 }
 
 /** Stato del modale "crea paziente rapido" */
@@ -705,6 +710,8 @@ export function useAppointmentMutations(
             studio_id: currentStudioId,
             // Multi-op (mig. 019/022): assegna operator_id se selezionato
             operator_id: createForm.createOperatorId ?? null,
+            // Multi-stanza (mig. 019, Fase Stanze)
+            room_id: createForm.createRoomId ?? null,
             // Campi gruppo (mig. 014)
             is_group: true,
             group_title: groupTitle.trim(),
@@ -749,6 +756,8 @@ export function useAppointmentMutations(
             studio_id: currentStudioId, // multi-tenancy
             // Multi-op (mig. 019/022): assegna operator_id se selezionato
             operator_id: createForm.createOperatorId ?? null,
+            // Multi-stanza (mig. 019, Fase Stanze): assegna room_id se selezionata
+            room_id: createForm.createRoomId ?? null,
             is_group: false,
           };
 
@@ -1062,15 +1071,17 @@ A presto${firma ? `,\n${firma}` : ""}`;
       end_at: newEndDate.toISOString(),
       // Multi-op (mig. 019/022, Fase 4d.1)
       operator_id: editForm.editOperatorId ?? null,
+      // Multi-stanza (mig. 019, Fase Stanze)
+      room_id: editForm.editRoomId ?? null,
     };
 
     // Rimuoviamo le proprietà undefined/null
-    // ECCEZIONE: payment_method, paid_at, operator_id devono poter essere
-    // settati a null (riassegnare a "non assegnato" è valido, idem per gli
-    // altri due come da mig. 010 e check constraint).
+    // ECCEZIONE: payment_method, paid_at, operator_id, room_id devono poter
+    // essere settati a null (riassegnare a "non assegnato/nessuna stanza" è
+    // valido, idem per gli altri come da mig. 010 e check constraint).
     const cleanedData = Object.fromEntries(
       Object.entries(updateData).filter(([k, v]) => {
-        if (k === "payment_method" || k === "paid_at" || k === "operator_id") return v !== undefined; // null è valido
+        if (k === "payment_method" || k === "paid_at" || k === "operator_id" || k === "room_id") return v !== undefined; // null è valido
         return v !== null && v !== undefined;
       })
     );

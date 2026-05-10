@@ -66,6 +66,11 @@ export type WeekViewRosterProps = {
 
   /** Invia promemoria WhatsApp; opzionale */
   onSendReminder?: (eventId: string, phone?: string, firstName?: string) => void;
+
+  /** Mappa room_id → color. Se l'evento ha room_id e la stanza ha colore,
+   *  usato come sfondo della card paziente (invece del colore operatore).
+   *  Vuoto/undefined → fallback su colore operatore. */
+  roomColorMap?: Map<string, string>;
 };
 
 // Helper: chiave membro stabile (pendenti hanno user_id null)
@@ -227,44 +232,120 @@ export default function WeekViewRoster(p: WeekViewRosterProps) {
             borderTop: `1.5px solid ${THEME.border}`,
           }}
         >
-          {/* Colonna ora (sticky left) */}
-          <div
-            style={{
-              padding: "8px 4px",
-              fontSize: 12,
-              fontWeight: 800,
-              color: THEME.muted,
-              textAlign: "center",
-              background: THEME.panelSoft,
-              position: "sticky",
-              left: 0,
-              zIndex: 5,
-              borderRight: `1px solid ${THEME.border}`,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            {h.toString().padStart(2, "0")}:00
-          </div>
+          {/* Colonna ora (sticky left). Se è l'ora corrente, mostriamo HH:MM
+              corrente in rosso al posto del HH:00 fisso. */}
+          {(() => {
+            const isCurrentHour = p.currentTime.getHours() === h;
+            const isAnyDayToday = p.weekDays.some(d => sameDay(d, p.currentTime));
+            const showRed = isCurrentHour && isAnyDayToday;
+            const labelText = showRed
+              ? `${h.toString().padStart(2, "0")}:${p.currentTime.getMinutes().toString().padStart(2, "0")}`
+              : `${h.toString().padStart(2, "0")}:00`;
+            return (
+              <div
+                style={{
+                  padding: "8px 4px",
+                  fontSize: 12,
+                  fontWeight: 800,
+                  color: showRed ? "#dc2626" : THEME.muted,
+                  textAlign: "center",
+                  background: THEME.panelSoft,
+                  position: "sticky",
+                  left: 0,
+                  zIndex: 5,
+                  borderRight: `1px solid ${THEME.border}`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {labelText}
+              </div>
+            );
+          })()}
 
           {/* Per ogni giorno della settimana */}
           {p.weekDays.map((day, dIdx) => {
             const dKey = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`;
             const isToday = sameDay(day, p.currentTime);
+
+            // Linea ora corrente: visibile solo se è oggi E l'ora corrente
+            // cade dentro questo slot ora. Posizione verticale = % minuti.
+            const showNowLine = isToday && p.currentTime.getHours() === h;
+            const nowLineTopPct = showNowLine
+              ? (p.currentTime.getMinutes() / 60) * 100
+              : 0;
+
             return (
               <div
                 key={dIdx}
                 style={{
                   borderLeft: `1px solid ${THEME.border}`,
-                  background: isToday ? "rgba(37,99,235,0.04)" : "transparent",
+                  // Sfondo: oggi blu chiaro, slot ora corrente leggero rosso
+                  background: showNowLine
+                    ? "rgba(220,38,38,0.06)"
+                    : isToday
+                    ? "rgba(37,99,235,0.04)"
+                    : "transparent",
                   display: "flex",
                   flexDirection: "column",
                   gap: 1,
                   padding: 2,
                   minHeight: 32,
+                  position: "relative",
                 }}
               >
+                {/* Linea ora corrente (rossa marcata) sopra alle sub-righe.
+                    Posizione verticale: % minuti correnti dentro lo slot ora.
+                    Più spessa e con outline bianco per leggibilità. */}
+                {showNowLine && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      right: 0,
+                      top: `calc(${nowLineTopPct}% + 2px)`,
+                      height: 3,
+                      background: "#dc2626",
+                      zIndex: 20,
+                      pointerEvents: "none",
+                      boxShadow: "0 0 0 1px rgba(255,255,255,0.6), 0 0 6px rgba(220,38,38,0.4)",
+                    }}
+                  >
+                    {/* Pallino sinistro */}
+                    <div
+                      style={{
+                        position: "absolute",
+                        left: -4,
+                        top: -3,
+                        width: 10,
+                        height: 10,
+                        borderRadius: "50%",
+                        background: "#dc2626",
+                        border: "1.5px solid #fff",
+                      }}
+                    />
+                    {/* Etichetta orario sulla destra */}
+                    <div
+                      style={{
+                        position: "absolute",
+                        right: 4,
+                        top: -10,
+                        fontSize: 9,
+                        fontWeight: 800,
+                        color: "#dc2626",
+                        background: "#fff",
+                        padding: "1px 5px",
+                        borderRadius: 3,
+                        border: "1px solid #dc2626",
+                        lineHeight: 1.2,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {p.currentTime.getHours().toString().padStart(2,"0")}:{p.currentTime.getMinutes().toString().padStart(2,"0")}
+                    </div>
+                  </div>
+                )}
                 {/* Per ogni operatore: 1 riga con 2 sub-colonne (op | paziente) */}
                 {opKeys.map(({ key, member }) => {
                   const ev = eventIndex.get(`${dKey}|${h}|${key}`);
@@ -315,8 +396,13 @@ export default function WeekViewRoster(p: WeekViewRosterProps) {
                       </div>
 
                       {/* Sub-col 2: paziente o "ASSEGNA" — visivamente "evento":
-                          sfondo colorato saturo + bordo, font normale */}
-                      {ev ? (
+                          sfondo colorato saturo + bordo, font normale.
+                          Colore: stanza se l'evento ha room_id e mappa fornita,
+                          altrimenti colore operatore (fallback). */}
+                      {ev ? (() => {
+                        const roomColor = ev.room_id && p.roomColorMap?.get(ev.room_id);
+                        const cardColor = roomColor || opColor;
+                        return (
                         <div
                           onClick={(e) => {
                             e.stopPropagation();
@@ -328,10 +414,9 @@ export default function WeekViewRoster(p: WeekViewRosterProps) {
                             fontWeight: 600,
                             color: "#0f172a",
                             padding: "3px 8px",
-                            // Sfondo colorato pieno (40 = ~25% opacity hex):
-                            // contrasto con etichetta operatore grigia.
-                            background: `${opColor}40`,
-                            border: `1px solid ${opColor}66`,
+                            // 40 = ~25% opacity hex
+                            background: `${cardColor}40`,
+                            border: `1px solid ${cardColor}66`,
                             borderRadius: 3,
                             cursor: "pointer",
                             overflow: "hidden",
@@ -437,7 +522,8 @@ export default function WeekViewRoster(p: WeekViewRosterProps) {
                             );
                           })()}
                         </div>
-                      ) : (
+                        );
+                      })() : (
                         <button
                           onClick={() => {
                             p.onCreateForOperatorAndSlot(day, h, member.user_id ?? null);

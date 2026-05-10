@@ -122,6 +122,16 @@ export type SelectedEventModalProps = {
   /** ID operatore correntemente selezionato per la modifica */
   editOperatorId?: string | null;
   setEditOperatorId?: (id: string | null) => void;
+
+  // ─── Multi-stanza (mig. 019, Fase Stanze) ──────────────
+  multiRoomEnabled?: boolean;
+  rooms?: Array<{
+    id: string;
+    name: string;
+    color: string | null;
+  }>;
+  editRoomId?: string | null;
+  setEditRoomId?: (id: string | null) => void;
 };
 
 export default function SelectedEventModal({
@@ -144,6 +154,10 @@ export default function SelectedEventModal({
   members,
   editOperatorId,
   setEditOperatorId,
+  multiRoomEnabled,
+  rooms,
+  editRoomId,
+  setEditRoomId,
 }: SelectedEventModalProps) {
 
   // Lookup evento corrente nei dati aggiornati
@@ -166,6 +180,33 @@ export default function SelectedEventModal({
     for (const ev of events) {
       if (ev.id === selectedEvent.id) continue;
       if (ev.operator_id !== editOperatorId) continue;
+      if (ev.status === "cancelled") continue;
+      const evStart = ev.start.getTime();
+      const evEnd = ev.end.getTime();
+      if (!(evEnd <= start || evStart >= end)) {
+        return {
+          patient: ev.patient_name,
+          time: `${ev.start.getHours().toString().padStart(2, "0")}:${ev.start.getMinutes().toString().padStart(2, "0")}`,
+        };
+      }
+    }
+    return null;
+  })();
+
+  // ─── Multi-stanza: conflict detection per stanza (Fase Stanze) ──
+  const roomConflict = (() => {
+    if (!multiRoomEnabled) return null;
+    if (!editRoomId) return null;
+    if (!editDate || !editStartTime) return null;
+    const startStr = `${editDate}T${editStartTime}:00`;
+    const start = new Date(startStr).getTime();
+    if (Number.isNaN(start)) return null;
+    const durHours = parseFloat(editDuration);
+    const end = start + durHours * 60 * 60000;
+
+    for (const ev of events) {
+      if (ev.id === selectedEvent.id) continue;
+      if (ev.room_id !== editRoomId) continue;
       if (ev.status === "cancelled") continue;
       const evStart = ev.start.getTime();
       const evEnd = ev.end.getTime();
@@ -464,6 +505,106 @@ export default function SelectedEventModal({
                 <span style={{ fontSize: 16 }}>⚠️</span>
                 <span>
                   Conflitto: questo operatore ha già <strong>{operatorConflict.patient}</strong> alle <strong>{operatorConflict.time}</strong>.
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── Stanza (Multi-stanza, Fase Stanze, mig. 019) ─── */}
+        {multiRoomEnabled && rooms && rooms.length > 0 && setEditRoomId && (
+          <div style={{ marginBottom: 20, border: `1.5px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft, marginBottom: 12 }}>
+              Stanza
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {rooms.map(r => {
+                const isSelected = editRoomId === r.id;
+                const color = r.color || "#94a3b8";
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => setEditRoomId(isSelected ? null : r.id)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "6px 14px",
+                      borderRadius: 99,
+                      background: isSelected ? color : "#fff",
+                      border: isSelected ? `2px solid ${color}` : `1.5px solid ${THEME.border}`,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 12,
+                        height: 12,
+                        borderRadius: "50%",
+                        background: isSelected ? "#fff" : color,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: isSelected ? "#fff" : THEME.text,
+                      }}
+                    >
+                      {r.name}
+                    </span>
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => setEditRoomId(null)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 14px",
+                  borderRadius: 99,
+                  background: editRoomId === null ? "#94a3b8" : "#fff",
+                  border: editRoomId === null ? "2px solid #94a3b8" : `1.5px solid ${THEME.border}`,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  transition: "all 0.15s",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: editRoomId === null ? "#fff" : THEME.text,
+                  }}
+                >
+                  Nessuna
+                </span>
+              </button>
+            </div>
+
+            {roomConflict && (
+              <div style={{
+                marginTop: 12,
+                padding: "10px 12px",
+                background: "rgba(245,158,11,0.08)",
+                border: "1px solid rgba(245,158,11,0.3)",
+                borderRadius: 8,
+                fontSize: 12,
+                color: "#92400e",
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}>
+                <span style={{ fontSize: 16 }}>⚠️</span>
+                <span>
+                  Conflitto: questa stanza è già occupata da <strong>{roomConflict.patient}</strong> alle <strong>{roomConflict.time}</strong>.
                 </span>
               </div>
             )}
