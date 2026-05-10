@@ -748,7 +748,7 @@ export default function TeamSection({
                   k: "pile" as const,
                   title: "Pile cronologiche",
                   desc: "Ogni giorno è una pila di card colorate per operatore.",
-                  status: "In arrivo",
+                  status: "Attiva",
                   preview: (
                     // 5 colonne giorno con pila verticale di card colori mescolati
                     <div style={{ display: "flex", gap: 2, height: 36, background: "#f8fafc", padding: 3, borderRadius: 6 }}>

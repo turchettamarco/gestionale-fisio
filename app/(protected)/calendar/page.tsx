@@ -87,6 +87,7 @@ import RightSidebar from "./components/panels/RightSidebar";
 import CalendarTopBar from "./components/panels/CalendarTopBar";
 import FiltersPopover from "./components/panels/FiltersPopover";
 import CalendarToolbar from "./components/panels/CalendarToolbar";
+import OperatorLegend from "./components/OperatorLegend";
 
 // ─── Views (B2.6, B2.7) ──────────────────────────────────────────────────────
 import MonthView from "./components/views/MonthView";
@@ -94,6 +95,7 @@ import DayView from "./components/views/DayView";
 import type { OperatorUnavailabilitySlot } from "./components/views/DayTimelineMulti";
 import WeekView from "./components/views/WeekView";
 import WeekViewTimeline from "./components/views/WeekViewTimeline";
+import WeekViewPile from "./components/views/WeekViewPile";
 
 // ─── Modals (B2.8) ───────────────────────────────────────────────────────────
 import WhatsAppConfirmDialog from "./components/modals/WhatsAppConfirmDialog";
@@ -1199,6 +1201,80 @@ function CalendarPageInner() {
     if (event.patient_id) loadPatientFromEvent(event.patient_id);
   }, [setSelectedEvent, setEditStatus, setEditNote, setEditAmount, setEditTreatmentType, setEditPriceType, setEditPaymentMethod, loadPatientFromEvent]);
 
+  // ── Tasto rapido stato/pagamento (Fase 4b.2b) ─────────────────────────
+  // Usato nelle viste multi-op (Pile, prossimamente Grid). Implementa il
+  // ciclo:
+  //   confirmed → done+paid → done+not_paid → confirmed → ...
+  //   booked → confirmed (primo click sblocca il ciclo)
+  //   cancelled → confirmed (riapre)
+  // Quando si segna pagato, il payment_method viene scelto in base a price_type:
+  //   - cash → 'cash'
+  //   - invoiced → 'pos' (default standard del modale)
+  // Eseguito (done+paid) include paid_at = NOW().
+  const cycleEventStatus = useCallback(async (event: CalendarEvent) => {
+    const isPaid = event.is_paid === true;
+    const status = event.status;
+
+    let payload: Record<string, unknown>;
+
+    if (status === "booked") {
+      // Sblocca: passa a confirmed
+      payload = { status: "confirmed" };
+    } else if (status === "cancelled") {
+      // Riapre cancellato
+      payload = { status: "confirmed", is_paid: false, paid_at: null, payment_method: null };
+    } else if (status === "confirmed") {
+      // Confirmed → done + paid
+      const method = event.price_type === "cash" ? "cash" : "pos";
+      payload = {
+        status: "done",
+        is_paid: true,
+        paid_at: new Date().toISOString(),
+        payment_method: method,
+      };
+    } else if (status === "done" && isPaid) {
+      // Done+paid → done+non pagato (lo "annulla pagamento")
+      payload = {
+        status: "done",
+        is_paid: false,
+        paid_at: null,
+        payment_method: null,
+      };
+    } else if (status === "done" && !isPaid) {
+      // Done+non pagato → confirmed (chiude il ciclo, riapre per modifiche)
+      payload = {
+        status: "confirmed",
+        is_paid: false,
+        paid_at: null,
+        payment_method: null,
+      };
+    } else if (status === "not_paid") {
+      // Stato legacy "da pagare": lo trattiamo come done+not_paid per il ciclo
+      payload = {
+        status: "confirmed",
+        is_paid: false,
+        paid_at: null,
+        payment_method: null,
+      };
+    } else {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("appointments")
+      .update(payload)
+      .eq("id", event.id);
+    if (error) {
+      console.error("cycleEventStatus error:", error);
+      alert("Errore aggiornamento: " + error.message);
+      return;
+    }
+    // Ricarica la settimana corrente per riflettere il nuovo stato
+    const startOfWeek = startOfISOWeekMonday(currentDate);
+    const endOfWeek = addDays(startOfWeek, 7);
+    await loadAppointments(startOfWeek, endOfWeek);
+  }, [currentDate, loadAppointments]);
+
   // Feature: Copia ultimo setting del paziente
   const loadLastPatientSettings = useCallback(async (patientId: string) => {
     const { data } = await supabase
@@ -1731,12 +1807,24 @@ return (
             showAllUpcoming={showAllUpcoming}
           />
 
+          {/* ── Legenda operatori (Fase 4b.2b) ─────────────────────────
+              Visibile in tutte le viste quando lo studio è multi-op,
+              così l'utente ha sempre presente il mapping colore→nome. */}
+          {multiOperatorEnabled && activeMembers.length >= 2 && (
+            <OperatorLegend
+              members={activeMembers}
+              operatorColorMap={operatorColorMap}
+              showUnassigned={filteredEvents.some(ev => !ev.operator_id)}
+            />
+          )}
+
           {viewType === "week" ? (
             // ━━━ WEEK VIEW — branching multi-op layout (mig. 022) ━━━
             // Single-op (multi off OR <2 operatori) → sempre WeekView classica.
             // Multi-op + layout 'timeline' → WeekViewTimeline (Approccio A).
-            // Multi-op + altri layout (pile, grid) → ancora WeekView classica
-            // come fallback finché non sono implementati (Fase 4b.2b/c).
+            // Multi-op + layout 'pile' → WeekViewPile (Approccio C).
+            // Multi-op + layout 'grid' → ancora WeekView classica come fallback
+            // finché non è implementato (Fase 4b.2c).
             (multiOperatorEnabled && activeMembers.length >= 2 && weeklyViewLayout === "timeline") ? (
               <WeekViewTimeline
                 weekDays={weekDays}
@@ -1751,6 +1839,20 @@ return (
                   handleSlotClick(date, date.getHours(), date.getMinutes());
                 }}
                 onSelectEvent={handleSelectEventForModal}
+              />
+            ) : (multiOperatorEnabled && activeMembers.length >= 2 && weeklyViewLayout === "pile") ? (
+              <WeekViewPile
+                weekDays={weekDays}
+                filteredEvents={filteredEvents}
+                currentTime={currentTime}
+                members={activeMembers}
+                operatorColorMap={operatorColorMap}
+                onCreateForDay={(date) => {
+                  // Quick-add alle 9:00 del giorno cliccato (default come MonthView)
+                  handleSlotClick(date, 9, 0);
+                }}
+                onSelectEvent={handleSelectEventForModal}
+                onCycleStatus={cycleEventStatus}
               />
             ) : (
             <WeekView
