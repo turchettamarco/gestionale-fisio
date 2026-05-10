@@ -112,6 +112,9 @@ export type StudioLocation = {
 // - un membro attivo: user_id valorizzato, fa parte del team
 // - un invito pendente: user_id NULL, email + invite_token valorizzati
 export type StudioMemberRow = {
+  /** ID del record in studio_members (NB: distinto da user_id). Aggiunto
+   *  per supportare le tabelle figlie come operator_treatment_rates. */
+  id: string;
   studio_id: string;
   user_id: string | null;       // NULL = invito pendente
   role: "owner" | "therapist" | "assistant";

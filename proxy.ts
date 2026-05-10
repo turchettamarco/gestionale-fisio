@@ -28,7 +28,7 @@ function isPhoneUserAgent(ua: string) {
   return isPhone;
 }
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
 
   // Escludi assets, Next internals, API

@@ -17,7 +17,8 @@
 
 "use client";
 
-import { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
+import { supabase } from "@/src/lib/supabaseClient";
 import { THEME, cardStyle, sectionHead, inputStyle, labelStyle } from "../shared/theme";
 import { BtnPrimary, BtnOutline } from "../shared/Buttons";
 import type { StudioMemberRow } from "../shared/types";
@@ -250,6 +251,7 @@ function MemberCard({
   isCurrentUser,
   onEdit,
   onDelete,
+  onRates,
   onCopyInvite,
   onResendInvite,
   inviteUrl,
@@ -259,6 +261,7 @@ function MemberCard({
   isCurrentUser: boolean;
   onEdit: () => void;
   onDelete: () => void;
+  onRates: () => void;
   onCopyInvite?: () => void;
   onResendInvite?: () => void;
   inviteUrl?: string;
@@ -365,6 +368,18 @@ function MemberCard({
       {/* Azioni */}
       <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
         <button
+          onClick={onRates}
+          title="Tariffe per trattamento"
+          style={{
+            padding: "6px 10px", fontSize: 13, fontWeight: 700,
+            background: "#fff", color: THEME.teal,
+            border: `1px solid ${THEME.border}`, borderRadius: 6,
+            cursor: "pointer",
+          }}
+        >
+          €
+        </button>
+        <button
           onClick={onEdit}
           title="Modifica"
           style={{
@@ -395,10 +410,224 @@ function MemberCard({
   );
 }
 
+// ── Form tariffe trattamento per operatore (Fase R1) ─────────────────────
+// Mostra una lista trattamenti × input €. Carica le tariffe esistenti dal DB
+// e fa upsert al salva. La durata standard del trattamento è mostrata accanto
+// per ricordare al proprietario che il compenso scala con la durata reale.
+function MemberRatesForm({
+  studioId,
+  memberId,
+  memberDisplayName,
+  treatments,
+  onClose,
+}: {
+  studioId: string;
+  memberId: string; // studio_members.id (NB: non user_id)
+  memberDisplayName: string;
+  treatments: Array<{ id: string; label: string; duration_min: number; color: string }>;
+  onClose: () => void;
+}) {
+  const [rates, setRates] = useState<Record<string, string>>({}); // treatment_type_id -> "12.50"
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [savedFlash, setSavedFlash] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data, error: fetchErr } = await supabase
+        .from("operator_treatment_rates")
+        .select("treatment_type_id, rate_per_session")
+        .eq("member_id", memberId);
+      if (cancelled) return;
+      if (fetchErr) {
+        setError("Errore caricamento tariffe: " + fetchErr.message);
+        setLoading(false);
+        return;
+      }
+      const map: Record<string, string> = {};
+      for (const r of data || []) {
+        map[r.treatment_type_id as string] = String(r.rate_per_session);
+      }
+      setRates(map);
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [memberId]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      // Upsert per ciascun trattamento con valore numerico valido (>=0).
+      // Valore vuoto = nessuna tariffa = DELETE riga (se esiste).
+      for (const t of treatments) {
+        const raw = (rates[t.id] || "").trim().replace(",", ".");
+        const isEmpty = raw === "";
+        const num = isEmpty ? null : Number(raw);
+        if (num !== null && (Number.isNaN(num) || num < 0)) {
+          throw new Error(`Tariffa non valida per "${t.label}": ${raw}`);
+        }
+        if (num === null) {
+          // Cancella eventuale riga esistente
+          await supabase
+            .from("operator_treatment_rates")
+            .delete()
+            .eq("member_id", memberId)
+            .eq("treatment_type_id", t.id);
+        } else {
+          // Upsert
+          const { error: upsertErr } = await supabase
+            .from("operator_treatment_rates")
+            .upsert(
+              {
+                studio_id: studioId,
+                member_id: memberId,
+                treatment_type_id: t.id,
+                rate_per_session: num,
+              },
+              { onConflict: "member_id,treatment_type_id" }
+            );
+          if (upsertErr) throw new Error(upsertErr.message);
+        }
+      }
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 2200);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Errore salvataggio");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{
+      background: "#f8fafc",
+      border: `1px dashed ${THEME.border}`,
+      borderRadius: 10,
+      padding: 14,
+      marginTop: -4,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: THEME.text }}>
+          Compensi per trattamento — <span style={{ color: THEME.teal }}>{memberDisplayName}</span>
+        </div>
+        <button
+          onClick={onClose}
+          style={{
+            background: "transparent", border: "none", cursor: "pointer",
+            fontSize: 16, color: THEME.muted, padding: "0 4px",
+          }}
+          title="Chiudi"
+        >
+          ×
+        </button>
+      </div>
+      <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 12, lineHeight: 1.5 }}>
+        Il compenso indicato è per una seduta alla durata standard del trattamento.
+        Per durate diverse il compenso reale si scala in proporzione (es. tariffa €25 a 60min → 30min = €12.50, 90min = €37.50).
+        Lascia vuoto per non assegnare una tariffa a un trattamento.
+      </div>
+
+      {loading ? (
+        <div style={{ fontSize: 12, color: THEME.muted, padding: "8px 0" }}>Caricamento…</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 110px 70px", gap: 8, alignItems: "center" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase" }}>Trattamento</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", textAlign: "right" }}>Compenso (€)</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", textAlign: "right" }}>Durata std</div>
+
+          {treatments.map(t => (
+            <React.Fragment key={t.id}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{
+                  width: 10, height: 10, borderRadius: "50%",
+                  background: t.color, flexShrink: 0,
+                }} />
+                <span style={{ fontSize: 13, color: THEME.text, fontWeight: 500 }}>{t.label}</span>
+              </div>
+              <input
+                type="text"
+                inputMode="decimal"
+                placeholder="0,00"
+                value={rates[t.id] ?? ""}
+                onChange={(e) => setRates(prev => ({ ...prev, [t.id]: e.target.value }))}
+                style={{
+                  padding: "6px 10px",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: "#0f172a",
+                  border: `1px solid ${THEME.border}`,
+                  borderRadius: 6,
+                  fontFamily: "inherit",
+                  textAlign: "right",
+                  background: "#fff",
+                }}
+              />
+              <div style={{ fontSize: 12, color: THEME.muted, textAlign: "right" }}>
+                {t.duration_min}min
+              </div>
+            </React.Fragment>
+          ))}
+        </div>
+      )}
+
+      {error && (
+        <div style={{
+          marginTop: 10, padding: "8px 10px",
+          background: "#fef2f2", border: "1px solid #fecaca",
+          color: "#991b1b", borderRadius: 6, fontSize: 12, fontWeight: 600,
+        }}>
+          {error}
+        </div>
+      )}
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+        {savedFlash && (
+          <span style={{
+            fontSize: 12, fontWeight: 700, color: THEME.green,
+            display: "inline-flex", alignItems: "center", padding: "0 8px",
+          }}>
+            ✓ Salvato
+          </span>
+        )}
+        <button
+          onClick={onClose}
+          style={{
+            padding: "8px 14px", fontSize: 12, fontWeight: 600,
+            background: "#fff", color: THEME.text,
+            border: `1px solid ${THEME.border}`, borderRadius: 6,
+            cursor: "pointer", fontFamily: "inherit",
+          }}
+        >
+          Chiudi
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={loading || saving}
+          style={{
+            padding: "8px 14px", fontSize: 12, fontWeight: 700,
+            background: THEME.teal, color: "#fff",
+            border: "none", borderRadius: 6,
+            cursor: (loading || saving) ? "not-allowed" : "pointer",
+            opacity: (loading || saving) ? 0.6 : 1,
+            fontFamily: "inherit",
+          }}
+        >
+          {saving ? "Salvataggio…" : "Salva tariffe"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Section principale ────────────────────────────────────────────────────
 export type TeamSectionProps = {
   show: boolean;
   onToggle: () => void;
+  /** ID dello studio corrente (Fase R1: usato per caricare tariffe e treatments). */
+  studioId: string;
   // Toggle globale
   multiOperatorEnabled: boolean;
   setMultiOperatorEnabled: (v: boolean) => void;
@@ -444,6 +673,7 @@ export type TeamSectionProps = {
 export default function TeamSection({
   show,
   onToggle,
+  studioId,
   multiOperatorEnabled,
   setMultiOperatorEnabled,
   savingMultiToggle,
@@ -467,6 +697,46 @@ export default function TeamSection({
   const [showNewForm, setShowNewForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null); // user_id o invite_token
   const [copyFlashId, setCopyFlashId] = useState<string | null>(null);
+
+  // Stato form tariffe (Fase R1): id studio_members del membro per cui è
+  // aperto il pannello tariffe. null = chiuso.
+  const [ratesMemberId, setRatesMemberId] = useState<string | null>(null);
+
+  // Catalogo trattamenti dello studio (per la matrice tariffe).
+  // Carico una volta al mount, refresh quando si apre la sezione tariffe.
+  const [treatmentsCatalog, setTreatmentsCatalog] = useState<Array<{
+    id: string;
+    label: string;
+    duration_min: number;
+    color: string;
+  }>>([]);
+  useEffect(() => {
+    if (!studioId) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("treatment_types")
+        .select("id, label, duration_min, color, is_active, sort_order")
+        .eq("studio_id", studioId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .order("label", { ascending: true });
+      if (cancelled) return;
+      if (error || !data) {
+        setTreatmentsCatalog([]);
+        return;
+      }
+      setTreatmentsCatalog(
+        data.map((r) => ({
+          id: r.id as string,
+          label: r.label as string,
+          duration_min: (r.duration_min as number) ?? 60,
+          color: (r.color as string) ?? "#94a3b8",
+        }))
+      );
+    })();
+    return () => { cancelled = true; };
+  }, [studioId]);
 
   // Ordinamento: owner prima, poi attivi, poi pending
   const sortedMembers = useMemo(() => {
@@ -686,16 +956,40 @@ export default function TeamSection({
               }
 
               return (
-                <MemberCard
-                  key={memberKey}
-                  member={member}
-                  isCurrentUser={isCurrentUser}
-                  inviteUrl={isPending && member.invite_token ? buildInviteUrl(member.invite_token) : undefined}
-                  copyFlash={copyFlashId === member.invite_token}
-                  onEdit={() => setEditingId(memberKey)}
-                  onDelete={() => handleDelete(member)}
-                  onCopyInvite={() => member.invite_token && handleCopyInvite(member.invite_token)}
-                />
+                <React.Fragment key={memberKey}>
+                  <MemberCard
+                    member={member}
+                    isCurrentUser={isCurrentUser}
+                    inviteUrl={isPending && member.invite_token ? buildInviteUrl(member.invite_token) : undefined}
+                    copyFlash={copyFlashId === member.invite_token}
+                    onEdit={() => setEditingId(memberKey)}
+                    onDelete={() => handleDelete(member)}
+                    onRates={() => setRatesMemberId(ratesMemberId === member.id ? null : member.id)}
+                    onCopyInvite={() => member.invite_token && handleCopyInvite(member.invite_token)}
+                  />
+                  {ratesMemberId === member.id && treatmentsCatalog.length > 0 && (
+                    <MemberRatesForm
+                      studioId={studioId}
+                      memberId={member.id}
+                      memberDisplayName={member.display_name || "—"}
+                      treatments={treatmentsCatalog}
+                      onClose={() => setRatesMemberId(null)}
+                    />
+                  )}
+                  {ratesMemberId === member.id && treatmentsCatalog.length === 0 && (
+                    <div style={{
+                      background: "#f8fafc",
+                      border: `1px dashed ${THEME.border}`,
+                      borderRadius: 10,
+                      padding: 14,
+                      fontSize: 12,
+                      color: THEME.muted,
+                      textAlign: "center",
+                    }}>
+                      Nessun trattamento configurato. Vai prima nella sezione "Trattamenti" per crearne almeno uno.
+                    </div>
+                  )}
+                </React.Fragment>
               );
             })}
           </div>

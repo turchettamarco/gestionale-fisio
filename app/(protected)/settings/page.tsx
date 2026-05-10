@@ -381,7 +381,7 @@ export default function SettingsPage() {
     try {
       const { data, error } = await supabase
         .from("studio_members")
-        .select("studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invite_token, invited_at")
+        .select("id, studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invite_token, invited_at")
         .eq("studio_id", studio.id)
         .eq("is_active", true)
         .order("role", { ascending: true })  // owner first
@@ -1726,6 +1726,7 @@ export default function SettingsPage() {
             <TeamSection
               show={showTeam}
               onToggle={() => setShowTeam(!showTeam)}
+              studioId={studio?.id ?? ""}
               multiOperatorEnabled={multiOperatorEnabled}
               setMultiOperatorEnabled={setMultiOperatorEnabled}
               savingMultiToggle={savingMultiOpToggle}
