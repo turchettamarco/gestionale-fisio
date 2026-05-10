@@ -24,6 +24,7 @@ import {
   type CalendarEvent,
 } from "../../utils";
 import type { MonthPopoverState } from "../popovers/MonthDayPopover";
+import type { StudioMember } from "@/src/contexts/StudioContext";
 
 const DAY_HEADERS = ["LUN", "MAR", "MER", "GIO", "VEN", "SAB", "DOM"];
 
@@ -48,6 +49,16 @@ export type MonthViewProps = {
   searchMatchIds: Set<string>;
   /** Multi-sede (mig. 014, fase 3) */
   studioLocations?: Array<{ id: string; name: string; address: string | null; is_primary: boolean; border_color: string | null }>;
+  /**
+   * Multi-operatore (Fase 4c, mig. 022).
+   * Quando true e members ha ≥2 elementi, ogni cella giorno mostra
+   * micro-bar per operatore invece della lista appuntamenti standard.
+   */
+  multiOperatorMode?: boolean;
+  /** Membri attivi del team (richiesto se multiOperatorMode = true) */
+  members?: StudioMember[];
+  /** Mappa operator_id → colore (chiave include "pending:..." per inviti) */
+  operatorColorMap?: Map<string, string>;
 };
 
 export default function MonthView({
@@ -56,7 +67,19 @@ export default function MonthView({
   onOpenCreateModal, onGoToDayView, onOpenMonthPopover,
   isSearchActive, searchMatchIds,
   studioLocations,
+  multiOperatorMode,
+  members,
+  operatorColorMap,
 }: MonthViewProps) {
+  // Decide se renderizzare in modalità multi-op (richiede ≥2 operatori).
+  const isMultiOp = !!multiOperatorMode && !!members && members.length >= 2;
+
+  // Helper memberKey (per operator_id matching coerente con altre viste)
+  const memberKey = (m: StudioMember): string | null => {
+    if (m.user_id) return m.user_id;
+    if (m.invite_token) return `pending:${m.invite_token}`;
+    return null;
+  };
 
   return (
     <div style={{
@@ -168,9 +191,186 @@ export default function MonthView({
                 )}
               </div>
 
-              {/* Lista eventi compatta */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                {dayEvents.slice(0, 10).map((ev, i) => {
+              {/* Lista eventi compatta (con branching multi-op, Fase 4c) */}
+              {isMultiOp ? (
+                // ━━━ MULTI-OP: micro-bar per operatore (variante A, mig. 022) ━━━
+                // Una riga per operatore con: iniziale + mini-barra proporzionale
+                // al carico relativo del giorno + count sedute. Aggiunge una
+                // riga "?" per gli eventi non assegnati se presenti.
+                (() => {
+                  // Conta eventi per operator key
+                  const counts = new Map<string, number>();
+                  let maxCount = 0;
+                  for (const ev of dayEvents) {
+                    const k = ev.operator_id || "_unassigned_";
+                    const next = (counts.get(k) || 0) + 1;
+                    counts.set(k, next);
+                    if (next > maxCount) maxCount = next;
+                  }
+                  const rows = (members ?? [])
+                    .map(m => ({ key: memberKey(m), member: m }))
+                    .filter((r): r is { key: string; member: StudioMember } => r.key !== null);
+                  const hasUnassigned = (counts.get("_unassigned_") || 0) > 0;
+
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 1 }}>
+                      {rows.map(({ key, member }) => {
+                        const color = operatorColorMap?.get(key) || "#94a3b8";
+                        const c = counts.get(key) || 0;
+                        const widthPct = maxCount > 0 && c > 0 ? Math.max(15, Math.round((c / maxCount) * 100)) : 0;
+                        const initial = (member.signature_short || member.display_name || "?").charAt(0).toUpperCase();
+                        return (
+                          <div
+                            key={key}
+                            onClick={(e) => {
+                              // Click sulla riga operatore = apri popover filtrato
+                              if (c === 0) return;
+                              e.stopPropagation();
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              onOpenMonthPopover({
+                                day,
+                                events: dayEvents.filter(ev => (ev.operator_id || "_unassigned_") === key),
+                                x: rect.right + 8,
+                                y: rect.top,
+                              });
+                            }}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 3,
+                              cursor: c > 0 ? "pointer" : "default",
+                              opacity: c === 0 ? 0.35 : 1,
+                            }}
+                            title={`${member.display_name || "—"}: ${c} ${c === 1 ? "seduta" : "sedute"}`}
+                          >
+                            <span
+                              style={{
+                                width: 11,
+                                height: 11,
+                                borderRadius: "50%",
+                                background: color,
+                                color: "#fff",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: 7,
+                                fontWeight: 800,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {initial}
+                            </span>
+                            <div
+                              style={{
+                                flex: 1,
+                                height: 6,
+                                background: "rgba(0,0,0,0.04)",
+                                borderRadius: 99,
+                                overflow: "hidden",
+                                position: "relative",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: `${widthPct}%`,
+                                  height: "100%",
+                                  background: color,
+                                  borderRadius: 99,
+                                  transition: "width 0.2s",
+                                }}
+                              />
+                            </div>
+                            <span
+                              style={{
+                                fontSize: 8,
+                                fontWeight: 700,
+                                color: c > 0 ? color : THEME.muted,
+                                minWidth: 12,
+                                textAlign: "right",
+                                fontVariantNumeric: "tabular-nums",
+                              }}
+                            >
+                              {c || "·"}
+                            </span>
+                          </div>
+                        );
+                      })}
+                      {hasUnassigned && (
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            onOpenMonthPopover({
+                              day,
+                              events: dayEvents.filter(ev => !ev.operator_id),
+                              x: rect.right + 8,
+                              y: rect.top,
+                            });
+                          }}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 3,
+                            cursor: "pointer",
+                          }}
+                          title={`Non assegnati: ${counts.get("_unassigned_")} sedute`}
+                        >
+                          <span
+                            style={{
+                              width: 11,
+                              height: 11,
+                              borderRadius: "50%",
+                              background: "#94a3b8",
+                              color: "#fff",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: 7,
+                              fontWeight: 800,
+                              flexShrink: 0,
+                            }}
+                          >
+                            ?
+                          </span>
+                          <div
+                            style={{
+                              flex: 1,
+                              height: 6,
+                              background: "rgba(0,0,0,0.04)",
+                              borderRadius: 99,
+                              overflow: "hidden",
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: `${maxCount > 0 ? Math.max(15, Math.round(((counts.get("_unassigned_") || 0) / maxCount) * 100)) : 0}%`,
+                                height: "100%",
+                                background: "#94a3b8",
+                                borderRadius: 99,
+                              }}
+                            />
+                          </div>
+                          <span
+                            style={{
+                              fontSize: 8,
+                              fontWeight: 700,
+                              color: "#475569",
+                              minWidth: 12,
+                              textAlign: "right",
+                              fontVariantNumeric: "tabular-nums",
+                            }}
+                          >
+                            {counts.get("_unassigned_")}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
+              ) : (
+                // ━━━ SINGLE-OP: lista classica chip ora+nome ━━━
+                <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                  {dayEvents.slice(0, 10).map((ev, i) => {
                   const isMatch = searchMatchIds.has(ev.id);
                   const isDimmed = isSearchActive && !isMatch;
                   // Multi-sede (mig. 014, fase 3)
@@ -245,6 +445,7 @@ export default function MonthView({
                   </span>
                 )}
               </div>
+              )}
             </div>
           );
         })}

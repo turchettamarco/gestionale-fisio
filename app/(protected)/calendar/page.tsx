@@ -96,6 +96,7 @@ import type { OperatorUnavailabilitySlot } from "./components/views/DayTimelineM
 import WeekView from "./components/views/WeekView";
 import WeekViewTimeline from "./components/views/WeekViewTimeline";
 import WeekViewPile from "./components/views/WeekViewPile";
+import WeekViewGrid from "./components/views/WeekViewGrid";
 
 // ─── Modals (B2.8) ───────────────────────────────────────────────────────────
 import WhatsAppConfirmDialog from "./components/modals/WhatsAppConfirmDialog";
@@ -126,6 +127,13 @@ function CalendarPageInner() {
   // Default 'classic' = WeekView con sub-colonne MGA (l'attuale 4b).
   // Senza effetto se single-op (multi off OR <2 operatori).
   const [weeklyViewLayout, setWeeklyViewLayout] = useState<"classic" | "timeline" | "pile" | "grid">("classic");
+
+  // Filtro operatore attivo (Fase 4b.2c). null = mostra tutti, altrimenti
+  // contiene la chiave operatore (user_id o "pending:<token>" o "_unassigned_").
+  // Pilotato dai chip della legenda OperatorLegend: click = attiva/disattiva.
+  // Funziona in TUTTE le viste calendario (Day/Week/Month) perché filtra
+  // direttamente filteredEvents.
+  const [operatorFilter, setOperatorFilter] = useState<string | null>(null);
 
   // Filtra solo i membri attivi. Includiamo anche gli inviti PENDENTI
   // (user_id NULL): li mostriamo come colonne nel calendario perché
@@ -1028,8 +1036,20 @@ function CalendarPageInner() {
       result = result.filter(e => (e.amount ?? 0) <= max);
     }
 
+    // Step 7: filtro operatore (Fase 4b.2c)
+    // Quando operatorFilter è valorizzato, mostra solo gli appuntamenti di
+    // quell'operatore. Il valore "_unassigned_" filtra gli eventi orfani
+    // (operator_id NULL). Funziona trasversalmente a tutte le viste.
+    if (operatorFilter !== null) {
+      if (operatorFilter === "_unassigned_") {
+        result = result.filter(e => !e.operator_id);
+      } else {
+        result = result.filter(e => e.operator_id === operatorFilter);
+      }
+    }
+
     return result;
-  }, [events, viewType, currentDate, statusFilter, filters]);
+  }, [events, viewType, currentDate, statusFilter, filters, operatorFilter]);
 
   // weeklyReminderTemplate: ora in useReminderFlow.
 
@@ -1807,14 +1827,17 @@ return (
             showAllUpcoming={showAllUpcoming}
           />
 
-          {/* ── Legenda operatori (Fase 4b.2b) ─────────────────────────
-              Visibile in tutte le viste quando lo studio è multi-op,
-              così l'utente ha sempre presente il mapping colore→nome. */}
+          {/* ── Legenda operatori (Fase 4b.2b/c) ──────────────────────
+              Visibile in tutte le viste quando lo studio è multi-op.
+              Da 4b.2c agisce anche da FILTRO interattivo: click su un
+              chip filtra il calendario per quell'operatore. */}
           {multiOperatorEnabled && activeMembers.length >= 2 && (
             <OperatorLegend
               members={activeMembers}
               operatorColorMap={operatorColorMap}
-              showUnassigned={filteredEvents.some(ev => !ev.operator_id)}
+              showUnassigned={events.some(ev => !ev.operator_id)}
+              selectedKey={operatorFilter}
+              onSelectKey={setOperatorFilter}
             />
           )}
 
@@ -1823,8 +1846,7 @@ return (
             // Single-op (multi off OR <2 operatori) → sempre WeekView classica.
             // Multi-op + layout 'timeline' → WeekViewTimeline (Approccio A).
             // Multi-op + layout 'pile' → WeekViewPile (Approccio C).
-            // Multi-op + layout 'grid' → ancora WeekView classica come fallback
-            // finché non è implementato (Fase 4b.2c).
+            // Multi-op + layout 'grid' → WeekViewGrid (Approccio D).
             (multiOperatorEnabled && activeMembers.length >= 2 && weeklyViewLayout === "timeline") ? (
               <WeekViewTimeline
                 weekDays={weekDays}
@@ -1833,9 +1855,6 @@ return (
                 members={activeMembers}
                 operatorColorMap={operatorColorMap}
                 onCreateForOperatorAndDay={(date) => {
-                  // Per ora ignoriamo l'operatorKey nel quick-add: il modale
-                  // ha già il selettore operatore. In Fase 4b.3 si potrà
-                  // pre-selezionare l'operatore passato.
                   handleSlotClick(date, date.getHours(), date.getMinutes());
                 }}
                 onSelectEvent={handleSelectEventForModal}
@@ -1848,11 +1867,22 @@ return (
                 members={activeMembers}
                 operatorColorMap={operatorColorMap}
                 onCreateForDay={(date) => {
-                  // Quick-add alle 9:00 del giorno cliccato (default come MonthView)
                   handleSlotClick(date, 9, 0);
                 }}
                 onSelectEvent={handleSelectEventForModal}
                 onCycleStatus={cycleEventStatus}
+              />
+            ) : (multiOperatorEnabled && activeMembers.length >= 2 && weeklyViewLayout === "grid") ? (
+              <WeekViewGrid
+                weekDays={weekDays}
+                filteredEvents={filteredEvents}
+                currentTime={currentTime}
+                gridStartHour={gridHourRange.start}
+                gridEndHour={gridHourRange.end}
+                members={activeMembers}
+                operatorColorMap={operatorColorMap}
+                onSlotClick={handleSlotClick}
+                onSelectEvent={handleSelectEventForModal}
               />
             ) : (
             <WeekView
@@ -1896,7 +1926,7 @@ return (
             />
             )
           ) : viewType === "month" ? (
-            /* ━━━ MONTH VIEW — COMPACT ━━━ */
+            /* ━━━ MONTH VIEW — COMPACT (multi-op variante A: micro-bar, Fase 4c) ━━━ */
             <MonthView
               monthDays={monthDays}
               monthEvents={monthEvents}
@@ -1908,6 +1938,9 @@ return (
               isSearchActive={isSearchActive}
               searchMatchIds={searchMatchIds}
               studioLocations={studioLocations}
+              multiOperatorMode={multiOperatorEnabled && activeMembers.length >= 2}
+              members={activeMembers}
+              operatorColorMap={operatorColorMap}
             />
           ) : (
             /* ━━━ DAY VIEW — timeline + sidebar ━━━ */

@@ -772,7 +772,7 @@ export default function TeamSection({
                   k: "grid" as const,
                   title: "Griglia + chip",
                   desc: "Griglia ora × giorno classica. Dentro ogni cella, chip colorati MGA.",
-                  status: "In arrivo",
+                  status: "Attiva",
                   preview: (
                     // 3 fasce orarie × 4 giorni, ogni cella ha 2-3 chip arrotondati
                     <div style={{ display: "flex", flexDirection: "column", gap: 1, height: 36, background: "#f8fafc", padding: 3, borderRadius: 6 }}>

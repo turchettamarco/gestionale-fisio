@@ -4,17 +4,16 @@
 // Legenda colori-operatori sticky, mostrata sopra il calendario quando lo
 // studio è in modalità multi-operatore (multi_operator_enabled=true +
 // activeMembers≥2). Aiuta l'utente a ricordare il mapping colore→nome
-// senza dover aprire le impostazioni o il footer.
+// e da Fase 4b.2c agisce anche da FILTRO interattivo.
 //
-// Mostrata in TUTTE le viste multi-op: Day (DayTimelineMulti), Week
-// (Classica/Timeline/Pile), Month (futura). È un "memo" persistente.
+// Comportamento click:
+//   - Click su un chip → filtra solo per quell'operatore
+//   - Click di nuovo sullo stesso chip → torna a "tutti"
+//   - Banner "Mostra tutti" visibile quando filtro attivo
 //
-// Render:
-//   • Riga compatta con avatar circolari colorati + nome di ogni membro
-//   • Indicatore "Non assegnati" alla fine se tra gli eventi della
-//     vista corrente ce ne sono senza operator_id
-//   • Sticky disabilitato di default: è un blocchetto inline sopra il
-//     calendario, non sticky in alto (per non sovrapporsi alla toolbar).
+// Mostrata in TUTTE le viste multi-op: Day, Week (Classica/Timeline/
+// Pile/Grid), Month (futura). La logica del filtro è nel padre
+// (calendar/page.tsx) — questo componente gestisce solo l'UI.
 // ═══════════════════════════════════════════════════════════════════════
 
 "use client";
@@ -28,6 +27,16 @@ export type OperatorLegendProps = {
   operatorColorMap: Map<string, string>;
   /** Se true, mostra anche il chip "Non assegnati" grigio in fondo */
   showUnassigned?: boolean;
+  /**
+   * Filtro attivo: chiave operatore selezionata. null = mostra tutti.
+   * Possibili valori: user_id, "pending:<token>", "_unassigned_".
+   */
+  selectedKey: string | null;
+  /**
+   * Callback al click su un chip. Il padre decide se attivare/disattivare
+   * il filtro (toggle) confrontando con `selectedKey` corrente.
+   */
+  onSelectKey: (key: string | null) => void;
 };
 
 function memberKey(m: StudioMember): string | null {
@@ -40,12 +49,25 @@ export default function OperatorLegend({
   members,
   operatorColorMap,
   showUnassigned = false,
+  selectedKey,
+  onSelectKey,
 }: OperatorLegendProps) {
   const rows = members
     .map(m => ({ key: memberKey(m), member: m }))
     .filter((r): r is { key: string; member: StudioMember } => r.key !== null);
 
   if (rows.length === 0) return null;
+
+  const filterActive = selectedKey !== null;
+
+  // Toggle: click sullo stesso → disattiva filtro, click su altro → switch
+  const handleClick = (key: string) => {
+    if (selectedKey === key) {
+      onSelectKey(null);
+    } else {
+      onSelectKey(key);
+    }
+  };
 
   return (
     <div
@@ -74,33 +96,41 @@ export default function OperatorLegend({
       >
         Operatori
       </span>
+
       {rows.map(({ key, member }) => {
         const color = operatorColorMap.get(key) || "#94a3b8";
         const isPending = !member.user_id;
+        const isSelected = selectedKey === key;
+        const isDimmed = filterActive && !isSelected;
         const initials = (member.signature_short || member.display_name || "?")
           .substring(0, 2)
           .toUpperCase();
         return (
-          <span
+          <button
             key={key}
+            onClick={() => handleClick(key)}
+            title={isSelected ? "Click per mostrare tutti" : `Click per filtrare solo ${member.display_name || "—"}`}
             style={{
               display: "inline-flex",
               alignItems: "center",
               gap: 6,
               padding: "3px 10px 3px 3px",
               borderRadius: 99,
-              background: `${color}14`,
-              border: `1px solid ${color}40`,
+              background: isSelected ? color : `${color}14`,
+              border: isSelected ? `2px solid ${color}` : `1px solid ${color}40`,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              opacity: isDimmed ? 0.4 : 1,
+              transition: "opacity 0.15s, background 0.15s, border-color 0.15s",
             }}
-            title={member.display_name || ""}
           >
             <span
               style={{
                 width: 22,
                 height: 22,
                 borderRadius: "50%",
-                background: color,
-                color: "#fff",
+                background: isSelected ? "#fff" : color,
+                color: isSelected ? color : "#fff",
                 display: "inline-flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -115,7 +145,7 @@ export default function OperatorLegend({
               style={{
                 fontSize: 12,
                 fontWeight: 600,
-                color: THEME.text,
+                color: isSelected ? "#fff" : THEME.text,
               }}
             >
               {member.display_name || "—"}
@@ -127,8 +157,8 @@ export default function OperatorLegend({
                   fontWeight: 700,
                   padding: "1px 5px",
                   borderRadius: 99,
-                  background: "#fef3c7",
-                  color: "#92400e",
+                  background: isSelected ? "rgba(255,255,255,0.3)" : "#fef3c7",
+                  color: isSelected ? "#fff" : "#92400e",
                   letterSpacing: 0.3,
                 }}
                 title="Invito non ancora accettato"
@@ -136,41 +166,77 @@ export default function OperatorLegend({
                 PEND
               </span>
             )}
-          </span>
+          </button>
         );
       })}
-      {showUnassigned && (
-        <span
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "3px 10px 3px 3px",
-            borderRadius: 99,
-            background: "#f1f5f9",
-            border: `1px solid #cbd5e1`,
-          }}
-        >
-          <span
+
+      {showUnassigned && (() => {
+        const isSelected = selectedKey === "_unassigned_";
+        const isDimmed = filterActive && !isSelected;
+        return (
+          <button
+            onClick={() => handleClick("_unassigned_")}
+            title={isSelected ? "Click per mostrare tutti" : "Click per filtrare solo non assegnati"}
             style={{
-              width: 22,
-              height: 22,
-              borderRadius: "50%",
-              background: "#94a3b8",
-              color: "#fff",
               display: "inline-flex",
               alignItems: "center",
-              justifyContent: "center",
-              fontSize: 11,
-              fontWeight: 700,
+              gap: 6,
+              padding: "3px 10px 3px 3px",
+              borderRadius: 99,
+              background: isSelected ? "#94a3b8" : "#f1f5f9",
+              border: isSelected ? `2px solid #94a3b8` : `1px solid #cbd5e1`,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              opacity: isDimmed ? 0.4 : 1,
+              transition: "opacity 0.15s, background 0.15s",
             }}
           >
-            ?
-          </span>
-          <span style={{ fontSize: 12, fontWeight: 600, color: THEME.muted }}>
-            Non assegnati
-          </span>
-        </span>
+            <span
+              style={{
+                width: 22,
+                height: 22,
+                borderRadius: "50%",
+                background: isSelected ? "#fff" : "#94a3b8",
+                color: isSelected ? "#475569" : "#fff",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 11,
+                fontWeight: 700,
+              }}
+            >
+              ?
+            </span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: isSelected ? "#fff" : THEME.muted }}>
+              Non assegnati
+            </span>
+          </button>
+        );
+      })()}
+
+      {/* Banner "Mostra tutti" visibile solo quando un filtro è attivo */}
+      {filterActive && (
+        <button
+          onClick={() => onSelectKey(null)}
+          style={{
+            marginLeft: "auto",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            padding: "4px 10px",
+            borderRadius: 6,
+            background: THEME.panelSoft,
+            border: `1px solid ${THEME.border}`,
+            cursor: "pointer",
+            fontFamily: "inherit",
+            fontSize: 11,
+            fontWeight: 600,
+            color: THEME.text,
+          }}
+          title="Rimuovi filtro operatore"
+        >
+          ✕ Mostra tutti
+        </button>
       )}
     </div>
   );
