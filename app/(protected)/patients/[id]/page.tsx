@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { getStudioBranding } from "@/src/lib/studioBranding";
 import { BuildInfo } from "@/src/components/BuildInfo";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -696,8 +697,9 @@ export default function PatientDetailPage({
 
   // Helper: costruisce la firma per i messaggi WA
   const buildFirma = useCallback((withTitle: boolean = true): string => {
-    const name = currentStudio?.signature_name;
-    const title = currentStudio?.signature_title;
+    const __branding = getStudioBranding(currentStudio);
+    const name = __branding.signatureName;
+    const title = __branding.signatureTitle;
     if (withTitle && name && title) return `${name}\n${title}`;
     if (name) return name;
     return "";
@@ -783,8 +785,9 @@ export default function PatientDetailPage({
   // Applica i placeholder al template (gestisce anche {firma} e {saluto})
   const applyTemplate = useCallback((tpl: string, vars: Record<string, string>): string => {
     let result = tpl;
-    // Firma dinamica
-    const firma = [currentStudio?.signature_name, currentStudio?.signature_title]
+    // Firma dinamica (usa branding multi-op se attivo)
+    const __branding3 = getStudioBranding(currentStudio);
+    const firma = [__branding3.signatureName, __branding3.signatureTitle]
       .filter(Boolean).join("\n");
     result = result.replace(/{firma}/g, firma);
     // Saluto dinamico (Buongiorno/Buonasera in base all'ora)
@@ -1460,8 +1463,8 @@ A presto,
 
   // Dati studio (dinamici da currentStudio + fallback ragionevoli)
   const STUDIO_DATA = {
-    nome:   currentStudio?.signature_name  || "—",
-    titolo: currentStudio?.signature_title || "Fisioterapista",
+    nome:   getStudioBranding(currentStudio).signatureName  || "—",
+    titolo: getStudioBranding(currentStudio).signatureTitle || "Fisioterapista",
     studio: currentStudio?.name            || "Studio",
     addr:   currentStudio?.address         || "—",
     piva:   "",  // P.IVA non in tabella studios al momento — campo opzionale per futuro
@@ -1959,7 +1962,7 @@ ${rows}
     <div class="firma-label">Data: ___________</div>
   </div>
   <div class="footer-info">
-    ${[currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join(" — ") || ""}<br>
+    ${(() => { const b = getStudioBranding(currentStudio); return [b.signatureName, b.signatureTitle].filter(Boolean).join(" — ") || ""; })()}<br>
     ${currentStudio?.address || ""}<br>
     Documento generato il ${oggi}
   </div>
@@ -2123,8 +2126,8 @@ ${rows}
                   <p style={{ marginBottom: 6 }}>
                     <strong>Titolare:</strong>{" "}
                     {[
-                      currentStudio?.signature_name,
-                      currentStudio?.signature_title,
+                      getStudioBranding(currentStudio).signatureName,
+                      getStudioBranding(currentStudio).signatureTitle,
                       currentStudio?.address,
                     ].filter(Boolean).join(", ") || currentStudio?.name || "—"}
                   </p>
@@ -2159,7 +2162,7 @@ ${rows}
                 </div>
                 <div style={{ padding: "12px 14px", maxHeight: 300, overflowY: "auto", fontSize: 10.5, lineHeight: 1.65, color: THEME.text }}>
                   <p style={{ marginBottom: 6 }}><strong>Paziente:</strong> {patient?.last_name} {patient?.first_name} · {ddmmyyyy(patient?.birth_date ?? null)} · {patient?.tax_code} · {patient?.residence_city} · {patient?.phone}</p>
-                  <p style={{ marginBottom: 4 }}>Il <strong>{currentStudio?.signature_name || "professionista"}</strong> mi ha illustrato: diagnosi, trattamento proposto (terapia manuale, esercizio, strumentale), benefici, rischi (dolore post-seduta, ecchimosi, aggravamento transitorio), alternative terapeutiche.</p>
+                  <p style={{ marginBottom: 4 }}>Il <strong>{getStudioBranding(currentStudio).signatureName || "professionista"}</strong> mi ha illustrato: diagnosi, trattamento proposto (terapia manuale, esercizio, strumentale), benefici, rischi (dolore post-seduta, ecchimosi, aggravamento transitorio), alternative terapeutiche.</p>
                   <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 5, padding: "6px 10px", margin: "6px 0", fontSize: 10 }}>
                     <strong>Controindicazioni:</strong> pace-maker, gravidanza, neoplasie attive, ferite aperte, flebiti in fase acuta.
                   </div>
@@ -3230,7 +3233,7 @@ ${rows}
                       📋 Copia
                     </button>
                     <button onClick={()=>{
-                        const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+                        const __b3 = getStudioBranding(currentStudio); const firma = [__b3.signatureName, __b3.signatureTitle].filter(Boolean).join("\n");
                         const msg = `Gentile ${lastName} ${firstName},\nEcco la sua scheda esercizi domiciliari:\n${pubLink}\n\nClicchi il link per vedere gli esercizi e i video dimostrativi.${firma ? `\n${firma}` : ""}`;
                         const url = "https://wa.me/?text=" + encodeURIComponent(msg);
                         const w = window.open(url, "_blank", "noopener,noreferrer"); if (!w) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
@@ -3570,8 +3573,8 @@ ${rows}
             status: a.status,
           }))}
           template={weeklyReminderTemplate}
-          signatureName={currentStudio?.signature_name}
-          signatureTitle={currentStudio?.signature_title}
+          signatureName={getStudioBranding(currentStudio).signatureName}
+          signatureTitle={getStudioBranding(currentStudio).signatureTitle}
         />
 
       </main>

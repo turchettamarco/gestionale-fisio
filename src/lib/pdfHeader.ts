@@ -33,6 +33,8 @@ export type StudioHeaderData = {
   signature_name?: string | null;
   signature_title?: string | null;
   logo_base64?: string | null;
+  /** Se true, in PDF la firma diventa solo nome studio (no signature_name) */
+  multi_operator_enabled?: boolean | null;
 } | null | undefined;
 
 export type PdfHeaderOptions = {
@@ -152,10 +154,17 @@ export function studioPdfHeader(
   if (studio?.email) metaParts.push(`<span>✉ ${esc(studio.email)}</span>`);
   const meta = metaParts.length ? `<div class="fh-header-meta">${metaParts.join("")}</div>` : "";
 
-  // Riga firma (su nuova riga sotto meta) — separata perché più "personale"
+  // Riga firma — usa logica branding multi-op (se attivo, niente nome
+  // personale del professionista, solo nome studio già visibile in alto).
   const firma: string[] = [];
-  if (studio?.signature_title) firma.push(esc(studio.signature_title));
-  if (studio?.signature_name) firma.push(esc(studio.signature_name));
+  if (studio?.multi_operator_enabled === true) {
+    // In multi-op il nome studio è già nell'header principale; non duplichiamo
+    // signature_name: lasciamo firma vuota (= solo "Studio Fisiobin" in alto).
+  } else {
+    // Single-op: comportamento storico
+    if (studio?.signature_title) firma.push(esc(studio.signature_title));
+    if (studio?.signature_name) firma.push(esc(studio.signature_name));
+  }
   const firmaHtml = firma.length
     ? `<div class="fh-header-meta" style="margin-top:2px;font-weight:600;color:#475569;">${firma.join(" ")}</div>`
     : "";

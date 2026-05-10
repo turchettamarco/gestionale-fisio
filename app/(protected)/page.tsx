@@ -17,6 +17,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { getStudioBranding } from "@/src/lib/studioBranding";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 
@@ -787,8 +788,8 @@ export default function HomePage() {
           forecastRevenue={forecastRevenue}
           noleggioExpiring={noleggioExpiring}
           noleggioWarningDays={noleggioWarningDays}
-          signatureName={currentStudio?.signature_name}
-          signatureTitle={currentStudio?.signature_title}
+          signatureName={getStudioBranding(currentStudio).signatureName}
+          signatureTitle={getStudioBranding(currentStudio).signatureTitle}
         />
 
         <BottomRowSection

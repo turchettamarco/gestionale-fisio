@@ -9,6 +9,7 @@
 "use client";
 
 import Link from "next/link";
+import { getStudioBranding } from "@/src/lib/studioBranding";
 import { THEME } from "./shared/theme";
 import { fmtDate, fmtPhone, openWA } from "./shared/utils";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter, type StudioHeaderData } from "@/src/lib/pdfHeader";
@@ -34,7 +35,7 @@ export type BottomRowSectionProps = {
 
 export default function BottomRowSection(p: BottomRowSectionProps) {
   // Helper per costruire il messaggio di sollecito
-  const firma     = [p.currentStudio?.signature_name, p.currentStudio?.signature_title].filter(Boolean).join("\n");
+  const __b = getStudioBranding(p.currentStudio); const firma = [__b.signatureName, __b.signatureTitle].filter(Boolean).join("\n");
   const firmaLine = firma ? `\n\nCordiali saluti,\n${firma}` : "\n\nCordiali saluti";
 
   function printOpenBalances() {

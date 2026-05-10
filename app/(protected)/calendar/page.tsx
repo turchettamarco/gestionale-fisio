@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { getStudioBranding } from "@/src/lib/studioBranding";
 import { BuildInfo } from "@/src/components/BuildInfo";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -2289,8 +2290,8 @@ return (
         patientPhone={weeklyReminderTarget?.patientPhone ?? null}
         appointments={weeklyReminderTarget?.appointments ?? []}
         template={weeklyReminderTemplate}
-        signatureName={currentStudio?.signature_name}
-        signatureTitle={currentStudio?.signature_title}
+        signatureName={getStudioBranding(currentStudio).signatureName}
+        signatureTitle={getStudioBranding(currentStudio).signatureTitle}
       />
     </div>
   );

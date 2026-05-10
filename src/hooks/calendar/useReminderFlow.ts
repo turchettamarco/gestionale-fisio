@@ -58,6 +58,7 @@ import {
   type SetStateAction,
 } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
+import { getStudioBranding } from "@/src/lib/studioBranding";
 import { translateError } from "@/src/lib/translateError";
 import {
   buildReminderMessage,
@@ -288,8 +289,8 @@ A presto,
           isConfirmation: !!isConfirmation,
           linkConferma,
           studioAddress: currentStudio?.address,
-          signatureName: currentStudio?.signature_name,
-          signatureTitle: currentStudio?.signature_title,
+          signatureName: getStudioBranding(currentStudio).signatureName,
+          signatureTitle: getStudioBranding(currentStudio).signatureTitle,
           // Multi-sede (mig. 014, fase 2): passa l'elenco sedi così il reminder
           // può lookup l'indirizzo della sede dell'appuntamento.
           studioLocations,
@@ -415,8 +416,8 @@ A presto,
         practiceSettings?.google_review_link ||
         GOOGLE_REVIEW_LINK_FALLBACK;
       const firma = [
-        currentStudio?.signature_name,
-        currentStudio?.signature_title,
+        getStudioBranding(currentStudio).signatureName,
+        getStudioBranding(currentStudio).signatureTitle,
       ]
         .filter(Boolean)
         .join("\n");

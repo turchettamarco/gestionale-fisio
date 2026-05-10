@@ -55,6 +55,7 @@ import {
   type SetStateAction,
 } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
+import { getStudioBranding } from "@/src/lib/studioBranding";
 import { translateError } from "@/src/lib/translateError";
 import {
   addDays,
@@ -825,8 +826,8 @@ export function useAppointmentMutations(
 
                 const nomePaziente = selectedPatient.first_name || "Cliente";
                 const firma = [
-                  currentStudio?.signature_name,
-                  currentStudio?.signature_title,
+                  getStudioBranding(currentStudio).signatureName,
+                  getStudioBranding(currentStudio).signatureTitle,
                 ]
                   .filter(Boolean)
                   .join("\n");

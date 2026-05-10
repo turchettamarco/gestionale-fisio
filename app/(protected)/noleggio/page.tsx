@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { getStudioBranding } from "@/src/lib/studioBranding";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { normalizePhoneForWA, openWhatsApp } from "@/src/lib/whatsapp";
@@ -272,7 +273,8 @@ export default function NoleggioPage() {
     if (!n.patient_phone) { alert("Nessun numero di telefono per questo paziente."); return; }
     const dr = getDaysRemaining(n.end_date);
     const scad = new Date(n.end_date+"T12:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"numeric"});
-    const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+    const __branding = getStudioBranding(currentStudio);
+    const firma = [__branding.signatureName, __branding.signatureTitle].filter(Boolean).join("\n");
     const firmaLine = firma ? `\nGrazie,\n${firma}` : "\nGrazie";
     let msg = "";
     if (dr < 0) {
@@ -331,7 +333,7 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
   <button onclick="window.print()" style="padding:10px 28px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">🖨️ Stampa / Salva PDF</button>
 </div>
 <div class="footer">
-  ${[currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join(" — ") || ""}<br>
+  ${(() => { const b = getStudioBranding(currentStudio); return [b.signatureName, b.signatureTitle].filter(Boolean).join(" — ") || ""; })()}<br>
   ${currentStudio?.address || ""}${currentStudio?.phone ? ` — Tel: ${currentStudio.phone}` : ""}<br>
   Documento generato il ${oggi}
 </div>
@@ -387,7 +389,7 @@ ${studioPdfHeader(currentStudio,{docTitle:"Contratto di Noleggio",docSubtitle:"M
 <div class="art"><strong>Art. 4 – Pagamento</strong>L'importo è dovuto secondo le modalità concordate al momento della consegna.</div>
 </div>
 <div class="firma">
-  <div class="firma-box"><div style="font-weight:700;margin-bottom:36px">Il locatore</div>${currentStudio?.signature_name || ""}${currentStudio?.signature_title ? `<br>${currentStudio.signature_title}` : ""}</div>
+  <div class="firma-box"><div style="font-weight:700;margin-bottom:36px">Il locatore</div>${(() => { const b = getStudioBranding(currentStudio); return `${b.signatureName || ""}${b.signatureTitle ? `<br>${b.signatureTitle}` : ""}`; })()}</div>
   <div class="firma-box"><div style="font-weight:700;margin-bottom:36px">Il locatario — firma per accettazione</div>${n.patient_name}</div>
 </div>
 <div style="text-align:center;margin-top:32px;"><button onclick="window.print()" style="padding:10px 28px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🖨️ Stampa / Salva PDF</button></div>

@@ -24,14 +24,20 @@ import {
   THEME, fmtTime, formatDateRelative,
   type PatientLite,
 } from "../../utils";
+import { getStudioBranding } from "@/src/lib/studioBranding";
 
 export type WhatsAppConfirmDialogProps = {
   /** Paziente selezionato (decide se mostrare il flusso telefono o meno) */
   selectedPatient: PatientLite | null;
   /** ISO start dell'appuntamento (per il messaggio) */
   createStartISO: string;
-  /** Studio corrente (per la firma) */
-  currentStudio: { signature_name?: string | null; signature_title?: string | null } | null;
+  /** Studio corrente (per la firma). In multi-op la firma diventa nome studio. */
+  currentStudio: {
+    name?: string | null;
+    signature_name?: string | null;
+    signature_title?: string | null;
+    multi_operator_enabled?: boolean | null;
+  } | null;
   /** Mostra scrollbar nella sidebar (passa la classe condizionale all'overlay) */
   showAllUpcoming: boolean;
   /** Click overlay → annulla (NON crea l'appuntamento) */
@@ -47,10 +53,11 @@ export default function WhatsAppConfirmDialog({
 
   const hasPhone = !!selectedPatient?.phone;
 
-  // Costruzione firma in calce al messaggio
+  // Costruzione firma in calce al messaggio (Fase branding multi-op)
+  const __branding = getStudioBranding(currentStudio);
   const signatureLines = [
-    currentStudio?.signature_name,
-    currentStudio?.signature_title,
+    __branding.signatureName,
+    __branding.signatureTitle,
   ].filter(Boolean).join("\n");
   const signatureBlock = signatureLines ? `,\n${signatureLines}` : "";
 

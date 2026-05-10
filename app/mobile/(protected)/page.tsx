@@ -27,6 +27,7 @@ function openWA(phone: string, message: string = ""): void {
 }
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getStudioBranding } from "@/src/lib/studioBranding";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
@@ -771,8 +772,8 @@ export default function MobileHomePage() {
       isConfirmation: false,
       linkConferma,
       studioAddress: currentStudio?.address,
-      signatureName: currentStudio?.signature_name,
-      signatureTitle: currentStudio?.signature_title,
+      signatureName: getStudioBranding(currentStudio).signatureName,
+      signatureTitle: getStudioBranding(currentStudio).signatureTitle,
       studioLocations,
     });
 
@@ -1158,7 +1159,7 @@ export default function MobileHomePage() {
     if (!waConfirmData) return;
     const { patientPhone, patientFirstName, startDate, time } = waConfirmData;
     const luogo = currentStudio?.address || "Studio";
-    const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+    const __b = getStudioBranding(currentStudio); const firma = [__b.signatureName, __b.signatureTitle].filter(Boolean).join("\n");
     const firmaLine = firma ? `Cordiali saluti,\n${firma}` : "Cordiali saluti";
     const confMsg =
       `Buongiorno ${patientFirstName},\n\n` +

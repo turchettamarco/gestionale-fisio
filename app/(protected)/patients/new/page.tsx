@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { getStudioBranding } from "@/src/lib/studioBranding";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
@@ -265,7 +266,7 @@ export default function NewPatientPage() {
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button type="button" onClick={() => {
                     const nome = savedName || "Paziente";
-                    const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+                    const __b = getStudioBranding(currentStudio); const firma = [__b.signatureName, __b.signatureTitle].filter(Boolean).join("\n");
 
                     let msg: string;
                     if (welcomeTpl?.trim()) {
@@ -275,7 +276,7 @@ export default function NewPatientPage() {
                         .replace(/{firma}/g, firma);
                     } else {
                       // Fallback: messaggio di default
-                      const nomeOpEntry = currentStudio?.signature_name || "nostro studio";
+                      const nomeOpEntry = getStudioBranding(currentStudio).signatureName || "nostro studio";
                       const firmaLine = firma ? `\n\n${firma}` : "";
                       msg = `Buongiorno ${nome},\n\nbenvenuto/a nello studio di ${nomeOpEntry}!\n\nSiamo lieti di averla come nuovo paziente. A presto!${firmaLine}`;
                     }

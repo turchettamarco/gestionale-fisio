@@ -26,6 +26,7 @@ function openWA(phone: string, message: string = ""): void {
 }
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getStudioBranding } from "@/src/lib/studioBranding";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
@@ -273,7 +274,7 @@ function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, fi
   ].filter(Boolean) as { label: string; icon: string; href: string; color: string }[];
 
   // Helper firma
-  const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+  const __b1 = getStudioBranding(currentStudio); const firma = [__b1.signatureName, __b1.signatureTitle].filter(Boolean).join("\n");
   const studioName = currentStudio?.name || "";
 
   return (
@@ -1528,8 +1529,8 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
           status: a.status,
         }))}
         template={weeklyReminderTemplate}
-        signatureName={currentStudio?.signature_name}
-        signatureTitle={currentStudio?.signature_title}
+        signatureName={getStudioBranding(currentStudio).signatureName}
+        signatureTitle={getStudioBranding(currentStudio).signatureTitle}
       />
     </div>
   );
@@ -1605,7 +1606,7 @@ function MobileEserciziTab({ patientId, patientName, currentStudio }: {
 
   function sendWA() {
     if (!pubLink) return;
-    const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+    const __b2 = getStudioBranding(currentStudio); const firma = [__b2.signatureName, __b2.signatureTitle].filter(Boolean).join("\n");
     const msg = `Gentile ${patientName},\nEcco la sua scheda esercizi domiciliari:\n${pubLink}${firma ? `\n\n${firma}` : ""}`;
     // Condivisione senza numero specifico (l'utente sceglie il destinatario)
     // Usa schema URI nativo whatsapp:// su mobile, web.whatsapp.com su desktop
@@ -1750,7 +1751,7 @@ function MobilePortalTab({ patient, currentStudio }: {
     const url = link || await generate();
     if(!url){ if(waWindow) waWindow.close(); return; }
     const nome = patient.first_name?.trim()||"Paziente";
-    const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+    const __b3 = getStudioBranding(currentStudio); const firma = [__b3.signatureName, __b3.signatureTitle].filter(Boolean).join("\n");
     const studioNameInline = currentStudio?.name ? ` ${currentStudio.name}` : "";
     const msg = "Gentile "+nome+",\n\nle ho attivato la sua area personale"+studioNameInline+" dove puo vedere:\n- i suoi prossimi appuntamenti\n- la scheda esercizi da casa\n- i contatti dello studio\n\nIl suo link personale (valido 6 mesi):\n"+url+(firma ? `\n\nCordiali saluti,\n${firma}` : "\n\nCordiali saluti");
     const clean = cleanPhone(patient.phone);

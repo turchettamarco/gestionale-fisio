@@ -26,6 +26,7 @@ function openWA(phone: string, message: string = ""): void {
 }
 
 import Link from "next/link";
+import { getStudioBranding } from "@/src/lib/studioBranding";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
@@ -301,8 +302,8 @@ export default function NewPatientPage() {
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 <button type="button" onClick={() => {
                   const nome = savedName || "Paziente";
-                  const nomeOpEntry = currentStudio?.signature_name || "nostro studio";
-                  const firma = [currentStudio?.signature_name, currentStudio?.signature_title].filter(Boolean).join("\n");
+                  const nomeOpEntry = getStudioBranding(currentStudio).signatureName || "nostro studio";
+                  const __b = getStudioBranding(currentStudio); const firma = [__b.signatureName, __b.signatureTitle].filter(Boolean).join("\n");
                   const firmaLine = firma ? `\n\n${firma}` : "";
                   const msg = "Buongiorno " + nome + ",\n\nbenvenuto/a nello studio di " + nomeOpEntry + "!\n\nSiamo lieti di averla come nuovo paziente. A presto!" + firmaLine;
                   openWA(savedPhone, msg);
