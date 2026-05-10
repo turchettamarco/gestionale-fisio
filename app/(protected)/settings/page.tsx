@@ -151,7 +151,7 @@ export default function SettingsPage() {
   const [savingMember, setSavingMember]                 = useState(false);
   const [currentUserId, setCurrentUserId]               = useState<string | null>(null);
   // Layout vista settimana multi-operatore (mig. 022)
-  const [weeklyViewLayout, setWeeklyViewLayout]         = useState<"classic" | "timeline" | "pile" | "grid">("classic");
+  const [weeklyViewLayout, setWeeklyViewLayout]         = useState<"classic" | "timeline" | "pile" | "grid" | "roster">("classic");
   const [savingWeeklyLayout, setSavingWeeklyLayout]     = useState(false);
   // Vista predefinita all'apertura calendario (mig. 023, Fase D)
   const [defaultCalendarView, setDefaultCalendarView]   = useState<"day" | "week" | "month">("week");
@@ -411,9 +411,9 @@ export default function SettingsPage() {
     if (studio?.id) {
       setMultiOperatorEnabled(Boolean(studio.multi_operator_enabled));
       setMultiRoomEnabled(Boolean(studio.multi_room_enabled));
-      // mig. 022 — hidrata layout vista settimana (default 'classic')
+      // mig. 022 + 024 — hidrata layout vista settimana (default 'classic')
       const layout = studio.weekly_view_layout;
-      if (layout === "classic" || layout === "timeline" || layout === "pile" || layout === "grid") {
+      if (layout === "classic" || layout === "timeline" || layout === "pile" || layout === "grid" || layout === "roster") {
         setWeeklyViewLayout(layout);
       } else {
         setWeeklyViewLayout("classic");

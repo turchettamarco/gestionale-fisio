@@ -98,6 +98,7 @@ import WeekView from "./components/views/WeekView";
 import WeekViewTimeline from "./components/views/WeekViewTimeline";
 import WeekViewPile from "./components/views/WeekViewPile";
 import WeekViewGrid from "./components/views/WeekViewGrid";
+import WeekViewRoster from "./components/views/WeekViewRoster";
 
 // ─── Modals (B2.8) ───────────────────────────────────────────────────────────
 import WhatsAppConfirmDialog from "./components/modals/WhatsAppConfirmDialog";
@@ -127,7 +128,7 @@ function CalendarPageInner() {
   // Layout della vista settimana scelto in Settings → Team (mig. 022).
   // Default 'classic' = WeekView con sub-colonne MGA (l'attuale 4b).
   // Senza effetto se single-op (multi off OR <2 operatori).
-  const [weeklyViewLayout, setWeeklyViewLayout] = useState<"classic" | "timeline" | "pile" | "grid">("classic");
+  const [weeklyViewLayout, setWeeklyViewLayout] = useState<"classic" | "timeline" | "pile" | "grid" | "roster">("classic");
 
   // Filtro operatore attivo (Fase 4b.2c). null = mostra tutti, altrimenti
   // contiene la chiave operatore (user_id o "pending:<token>" o "_unassigned_").
@@ -555,9 +556,9 @@ function CalendarPageInner() {
 
       const studioData = studioResult.data;
       setMultiOperatorEnabled(Boolean(studioData?.multi_operator_enabled));
-      // mig. 022 — layout vista settimana
+      // mig. 022 + 024 — layout vista settimana (include 'roster')
       const layout = studioData?.weekly_view_layout;
-      if (layout === "classic" || layout === "timeline" || layout === "pile" || layout === "grid") {
+      if (layout === "classic" || layout === "timeline" || layout === "pile" || layout === "grid" || layout === "roster") {
         setWeeklyViewLayout(layout);
       } else {
         setWeeklyViewLayout("classic");
@@ -1920,6 +1921,24 @@ return (
                 operatorColorMap={operatorColorMap}
                 onSlotClick={handleSlotClick}
                 onSelectEvent={handleSelectEventForModal}
+              />
+            ) : (multiOperatorEnabled && activeMembers.length >= 2 && weeklyViewLayout === "roster") ? (
+              <WeekViewRoster
+                weekDays={weekDays}
+                filteredEvents={filteredEvents}
+                currentTime={currentTime}
+                members={activeMembers}
+                operatorColorMap={operatorColorMap}
+                gridStartHour={gridHourRange.start}
+                gridEndHour={gridHourRange.end}
+                onCreateForOperatorAndSlot={(date, hour, opId) => {
+                  // Pre-set createOperatorId, poi delega a handleSlotClick
+                  setCreateOperatorId(opId);
+                  handleSlotClick(date, hour, 0);
+                }}
+                onSelectEvent={handleSelectEventForModal}
+                onCycleStatus={cycleEventStatus}
+                onSendReminder={sendReminder}
               />
             ) : (
             <WeekView

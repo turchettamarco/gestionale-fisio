@@ -429,8 +429,8 @@ export type TeamSectionProps = {
   onDeleteMember: (userIdOrToken: string, isToken: boolean) => Promise<void>;
   // Layout vista settimana multi-operatore (mig. 022)
   // Visibile solo se multi_operator_enabled = true
-  weeklyViewLayout: "classic" | "timeline" | "pile" | "grid";
-  setWeeklyViewLayout: (v: "classic" | "timeline" | "pile" | "grid") => void;
+  weeklyViewLayout: "classic" | "timeline" | "pile" | "grid" | "roster";
+  setWeeklyViewLayout: (v: "classic" | "timeline" | "pile" | "grid" | "roster") => void;
   savingWeeklyLayout: boolean;
   onSaveWeeklyLayout: () => void;
   // Vista calendario predefinita all'apertura (mig. 023, Fase D).
@@ -796,6 +796,47 @@ export default function TeamSection({
                             <div key={j} style={{ flex: 1, display: "flex", gap: 1, alignItems: "center", padding: "0 1px" }}>
                               {cell.map((c, k) => (
                                 <div key={k} style={{ flex: 1, height: 3, background: c, borderRadius: 99, opacity: 0.9 }} />
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  ),
+                },
+                {
+                  k: "roster" as const,
+                  title: "Roster",
+                  desc: "Griglia ora × giorno. Per ogni cella, lista verticale di tutti gli operatori con il paziente assegnato (o ASSEGNA in rosso se libero).",
+                  status: "Attiva",
+                  preview: (
+                    // 2 fasce orarie × 3 giorni × 3 operatori
+                    <div style={{ display: "flex", flexDirection: "column", gap: 1, height: 36, background: "#f8fafc", padding: 2, borderRadius: 6 }}>
+                      {[0, 1].map((row) => (
+                        <div key={row} style={{ flex: 1, display: "flex", gap: 1 }}>
+                          {[
+                            // Op M: paziente / ASSEGNA / paziente
+                            // Op G: ASSEGNA / paziente / paziente
+                            // Op A: paziente / paziente / ASSEGNA
+                            [
+                              [{c: "#0d9488", a: false}, {c: "#dc2626", a: true}, {c: "#0d9488", a: false}],
+                              [{c: "#dc2626", a: true}, {c: "#8b5cf6", a: false}, {c: "#8b5cf6", a: false}],
+                              [{c: "#ec4899", a: false}, {c: "#ec4899", a: false}, {c: "#dc2626", a: true}],
+                            ],
+                            [
+                              [{c: "#0d9488", a: false}, {c: "#0d9488", a: false}, {c: "#0d9488", a: false}],
+                              [{c: "#8b5cf6", a: false}, {c: "#dc2626", a: true}, {c: "#8b5cf6", a: false}],
+                              [{c: "#dc2626", a: true}, {c: "#ec4899", a: false}, {c: "#ec4899", a: false}],
+                            ],
+                          ][row].map((day, j) => (
+                            <div key={j} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 0.5 }}>
+                              {day.map((op, k) => (
+                                <div key={k} style={{
+                                  flex: 1,
+                                  background: op.c,
+                                  borderRadius: 1,
+                                  opacity: op.a ? 0.85 : 0.6,
+                                }} />
                               ))}
                             </div>
                           ))}

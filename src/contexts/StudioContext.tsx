@@ -46,7 +46,7 @@ export type Studio = {
   multi_room_enabled?: boolean;
   // Layout vista settimana in modalità multi-operatore (mig. 022)
   // Default 'classic' (sub-colonne MGA). Senza effetto in single-op.
-  weekly_view_layout?: "classic" | "timeline" | "pile" | "grid";
+  weekly_view_layout?: "classic" | "timeline" | "pile" | "grid" | "roster";
   /** Vista predefinita all'apertura calendario (mig. 023, Fase D) */
   default_calendar_view?: "day" | "week" | "month";
 };
