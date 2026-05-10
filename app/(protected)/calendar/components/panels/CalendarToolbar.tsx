@@ -62,6 +62,10 @@ export type CalendarToolbarProps = {
 
   // ─── Sidebar (mostra "Mostra all upcoming" condizionato) ─────
   showAllUpcoming: boolean;
+
+  // ─── Nuovo appuntamento (Fase Tasto +) ───────────────────────
+  /** Apre il modale di creazione con data/ora di default (oggi, 09:00). */
+  onCreateNew: () => void;
 };
 
 const navBtnStyle: React.CSSProperties = {
@@ -84,6 +88,7 @@ export default function CalendarToolbar({
   onPrintCalendar, onExportToPDF, onExportToGoogleCalendar,
   bulkMode, setBulkMode, bulkSelected, setBulkSelected, onBulkMarkPaid,
   showAllUpcoming,
+  onCreateNew,
 }: CalendarToolbarProps) {
 
   // Ref al bottone Azioni e posizione calcolata del dropdown.
@@ -366,35 +371,72 @@ export default function CalendarToolbar({
         )}
       </div>
 
-      {/* ─── DESTRA: view switcher ─────────────────────────────── */}
-      <div style={{ display: "flex", gap: 4 }}>
+      {/* ─── DESTRA: pulsante + Nuovo appuntamento e view switcher ─ */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <button
-          onClick={() => {
-            setViewType("day");
-            if (viewType !== "day") setCurrentDate(new Date());
+          onClick={onCreateNew}
+          title="Nuovo appuntamento"
+          aria-label="Nuovo appuntamento"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 32,
+            height: 32,
+            padding: 0,
+            borderRadius: 8,
+            border: "none",
+            background: "linear-gradient(135deg, #0d9488 0%, #2563eb 100%)",
+            color: "#fff",
+            cursor: "pointer",
+            fontWeight: 700,
+            fontSize: 18,
+            lineHeight: 1,
+            fontFamily: "inherit",
+            boxShadow: "0 1px 3px rgba(13,148,136,0.25)",
+            transition: "transform 0.1s, box-shadow 0.15s",
           }}
-          style={viewBtnStyle(viewType === "day", "left")}
-        >
-          Giorno
-        </button>
-        <button
-          onClick={() => {
-            setViewType("week");
-            if (viewType !== "week") setCurrentDate(new Date());
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = "translateY(-1px)";
+            e.currentTarget.style.boxShadow = "0 2px 6px rgba(13,148,136,0.35)";
           }}
-          style={viewBtnStyle(viewType === "week", "middle")}
-        >
-          Settimana
-        </button>
-        <button
-          onClick={() => {
-            setViewType("month");
-            if (viewType !== "month") setCurrentDate(new Date());
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = "translateY(0)";
+            e.currentTarget.style.boxShadow = "0 1px 3px rgba(13,148,136,0.25)";
           }}
-          style={viewBtnStyle(viewType === "month", "right")}
         >
-          Mese
+          +
         </button>
+
+        <div style={{ display: "flex", gap: 4 }}>
+          <button
+            onClick={() => {
+              setViewType("day");
+              if (viewType !== "day") setCurrentDate(new Date());
+            }}
+            style={viewBtnStyle(viewType === "day", "left")}
+          >
+            Giorno
+          </button>
+          <button
+            onClick={() => {
+              setViewType("week");
+              if (viewType !== "week") setCurrentDate(new Date());
+            }}
+            style={viewBtnStyle(viewType === "week", "middle")}
+          >
+            Settimana
+          </button>
+          <button
+            onClick={() => {
+              setViewType("month");
+              if (viewType !== "month") setCurrentDate(new Date());
+            }}
+            style={viewBtnStyle(viewType === "month", "right")}
+          >
+            Mese
+          </button>
+        </div>
       </div>
     </div>
   );

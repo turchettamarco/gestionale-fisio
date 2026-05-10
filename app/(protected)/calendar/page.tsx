@@ -1927,6 +1927,7 @@ return (
             setBulkSelected={setBulkSelected}
             onBulkMarkPaid={bulkMarkPaid}
             showAllUpcoming={showAllUpcoming}
+            onCreateNew={() => openCreateModal(new Date())}
           />
 
           {/* ── Legenda operatori (Fase 4b.2b/c) ──────────────────────
