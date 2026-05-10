@@ -412,7 +412,58 @@ export default function DayTimelineMulti({
               })}
 
               {/* ── Eventi della colonna ──────────────────────────────── */}
-              {colEvents.map(event => {
+              {/* Calcolo layout overlap: se 2+ eventi si sovrappongono nello
+                  stesso operatore, li affianchiamo equamente (50/50, 33/33/33).
+                  L'algoritmo: ordina per start_at, raggruppa cluster di eventi
+                  che si sovrappongono in catena, assegna a ognuno (col, totalCols).
+                  Cluster = insieme di eventi connessi da overlap (transitivo). */}
+              {(() => {
+                // Ordina per start_at (asc), tie-break per durata (più lungo prima)
+                const sorted = [...colEvents].sort((a, b) => {
+                  const t = a.start.getTime() - b.start.getTime();
+                  if (t !== 0) return t;
+                  return b.end.getTime() - a.end.getTime();
+                });
+                // layout[id] = { col, totalCols }
+                const layout = new Map<string, { col: number; totalCols: number }>();
+                let i = 0;
+                while (i < sorted.length) {
+                  // Trova cluster: parto da i, espando finché trovo overlap
+                  let clusterEnd = sorted[i].end.getTime();
+                  let j = i + 1;
+                  while (j < sorted.length && sorted[j].start.getTime() < clusterEnd) {
+                    clusterEnd = Math.max(clusterEnd, sorted[j].end.getTime());
+                    j++;
+                  }
+                  // Nel cluster sorted[i..j), assegna colonne con greedy
+                  // (ognuno prende la prima colonna libera in quel momento)
+                  const cluster = sorted.slice(i, j);
+                  const colEnds: number[] = []; // colEnds[c] = end time della colonna c
+                  for (const ev of cluster) {
+                    let placed = -1;
+                    for (let c = 0; c < colEnds.length; c++) {
+                      if (colEnds[c] <= ev.start.getTime()) {
+                        placed = c;
+                        colEnds[c] = ev.end.getTime();
+                        break;
+                      }
+                    }
+                    if (placed === -1) {
+                      placed = colEnds.length;
+                      colEnds.push(ev.end.getTime());
+                    }
+                    layout.set(ev.id, { col: placed, totalCols: 0 }); // totalCols sotto
+                  }
+                  // Calcola totalCols del cluster (numero massimo di colonne usate)
+                  const totalCols = colEnds.length;
+                  for (const ev of cluster) {
+                    const l = layout.get(ev.id);
+                    if (l) l.totalCols = totalCols;
+                  }
+                  i = j;
+                }
+
+                return colEvents.map(event => {
                 const { top, height } = getEventPosition(event);
                 if (top + height < 0 || top > gridContentHeight) return null;
 
@@ -427,6 +478,15 @@ export default function DayTimelineMulti({
                 // Sede border (riusiamo logica esistente per i bordi sede)
                 const locStyle = getLocationCardStyle(event, studioLocations);
 
+                // Layout overlap: se l'evento è in cluster con altri,
+                // lo dividiamo in colonne affiancate dentro la colonna operatore.
+                const lay = layout.get(event.id);
+                const colCount = lay?.totalCols ?? 1;
+                const colIdx = lay?.col ?? 0;
+                // Calcoliamo larghezza percentuale e left percentuale
+                const widthPct = 100 / colCount;
+                const leftPct = colIdx * widthPct;
+
                 return (
                   <div
                     key={event.id}
@@ -436,21 +496,26 @@ export default function DayTimelineMulti({
                     onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 1px 3px rgba(15,23,42,0.08)"; }}
                     style={{
                       position: "absolute",
-                      left: 4, right: 4,
+                      // Spazio: 4px ai bordi della colonna operatore, dentro
+                      // gli eventi sovrapposti si affiancano (gap 1px tra loro).
+                      left: `calc(4px + ${leftPct}% * (100% - 8px) / 100%)`,
+                      width: `calc(${widthPct}% * (100% - 8px) / 100% - ${colCount > 1 ? 1 : 0}px)`,
                       top: `${top + 1}px`,
                       height: `${height - 2}px`,
+                      // Container query: permette al font dentro di scalare con
+                      // la larghezza effettiva di QUESTA card (non della colonna).
+                      containerType: "inline-size",
                       background: event.is_group
                         ? "linear-gradient(135deg, #0d9488 0%, #06b6d4 100%)"
                         : statusBg(event.status),
                       color: "#fff",
                       borderRadius: 6,
                       borderLeft: `4px solid ${opColor}`,
-                      // Sede aggiunge un bordo extra solo a destra/top/bottom
                       borderTop: locStyle.borderColor ? `2px solid ${locStyle.borderColor}` : "none",
                       borderRight: locStyle.borderColor ? `2px solid ${locStyle.borderColor}` : "none",
                       borderBottom: locStyle.borderColor ? `2px solid ${locStyle.borderColor}` : "none",
                       boxSizing: "border-box",
-                      padding: "5px 8px",
+                      padding: "4px 6px",
                       cursor: "pointer",
                       overflow: "hidden",
                       display: "flex", flexDirection: "column", gap: 2,
@@ -463,146 +528,167 @@ export default function DayTimelineMulti({
                   >
                     {event.is_group ? (
                       <GroupEventCard event={event} cardH={Math.max(height - 2, 28)} />
-                    ) : height < 32 ? (
-                      // ─── COMPACT: 1 riga, niente bottoncini ───────────
-                      // Card più bassa di 32px: nome + orario in unica riga,
-                      // niente bottoni (sarebbero fuori scala).
-                      <div style={{
-                        display: "flex", alignItems: "center", gap: 4,
-                        overflow: "hidden", whiteSpace: "nowrap",
-                        height: "100%",
-                      }}>
-                        <span style={{ fontSize: 10, fontWeight: 800, opacity: 0.9, flexShrink: 0 }}>
-                          {fmtTime(event.start.toISOString())}
-                        </span>
-                        <span style={{
-                          fontSize: 11, fontWeight: 800,
-                          overflow: "hidden", textOverflow: "ellipsis", flex: 1,
-                        }}>
-                          {event.patient_name}
-                        </span>
-                        {isDomicile && <span style={{ fontSize: 10, flexShrink: 0 }}>🏠</span>}
-                      </div>
                     ) : (
-                      // ─── ESPANSO: orario + nome + (footer treatment se h>=70) ─
-                      // Bottoncini a destra del nome, in flusso flex, NON absolute.
-                      // Così non si sovrappongono mai al testo, indipendentemente
-                      // dalla larghezza della colonna.
+                      // ─── CARD MULTI-OP ─────────────────────────────────
+                      // Layout compatto, scalabile, 2 bottoni (✓ stato + 💬 WA).
+                      // Font usa cqi (container query inline-size) → scala con
+                      // la larghezza effettiva della card. Su card alte ≥45px
+                      // mostriamo orario sopra in piccolo, su card più basse
+                      // tutto in 1 riga inline.
+                      // Range font: 9.5px..12px in base alla larghezza card.
                       <>
-                        {/* Riga 1: orario + meta (domicilio/sede/pacchetto) */}
-                        <div style={{
-                          display: "flex", alignItems: "center", gap: 6,
-                          flexWrap: "nowrap", overflow: "hidden",
-                          fontSize: 11, fontWeight: 800,
-                        }}>
-                          <span style={{ flexShrink: 0 }}>
-                            {fmtTime(event.start.toISOString())}–{fmtTime(event.end.toISOString())}
-                          </span>
-                          {isDomicile && <span style={{ fontSize: 11, flexShrink: 0 }}>🏠</span>}
-                          {locStyle.initials && (
-                            <span style={{
-                              fontSize: 9, fontWeight: 800,
-                              background: locStyle.borderColor ?? undefined,
-                              padding: "1px 5px", borderRadius: 3,
-                              letterSpacing: 0.4, lineHeight: 1.1,
-                              flexShrink: 0,
-                            }}>{locStyle.initials}</span>
-                          )}
-                          {event.package_id && (
-                            <PackageBadge packageId={event.package_id} variant="compact-dark" />
-                          )}
-                        </div>
-
-                        {/* Riga 2: nome paziente + bottoncini (in flex, non absolute) */}
-                        <div style={{
-                          display: "flex", alignItems: "center", gap: 4,
-                          flex: 1, minHeight: 0,
-                        }}>
-                          <div style={{
-                            flex: 1, minWidth: 0,
-                            fontSize: 13, fontWeight: 800,
-                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                            lineHeight: 1.2,
-                          }}>
-                            {event.patient_name}
-                          </div>
-
-                          {/* Bottoncini stato in flusso (non sovrapposti al nome) */}
-                          {height >= 44 && (
+                        {height >= 45 ? (
+                          <>
+                            {/* Riga 1: orario range + meta sede/pacchetto/dom */}
                             <div style={{
-                              display: "flex", gap: 3, flexShrink: 0,
-                              alignSelf: "center",
+                              display: "flex", alignItems: "center", gap: 4,
+                              flexWrap: "nowrap", overflow: "hidden",
+                              fontSize: "clamp(9px, 3.2cqi, 11px)",
+                              fontWeight: 800, opacity: 0.92, lineHeight: 1.1,
+                              flexShrink: 0,
                             }}>
-                              {onUpdatePayment ? (
-                                <PaidIconButton
-                                  data={{
-                                    is_paid: isPaid,
-                                    paid_at: event.paid_at,
-                                    payment_method: event.payment_method,
-                                    price_type: event.price_type,
-                                  }}
-                                  onUpdate={async (next) => onUpdatePayment(event.id, next)}
-                                  tone="light"
-                                  size={14}
-                                />
-                              ) : null}
-                              <button
-                                onClick={e => {
-                                  e.stopPropagation();
-                                  onSendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined);
-                                }}
-                                title={waSent ? "WhatsApp già inviato" : "Invia WhatsApp"}
-                                style={{
-                                  width: 18, height: 18, borderRadius: 4,
-                                  border: "none",
-                                  background: waSent ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.85)",
-                                  color: waSent ? "rgba(255,255,255,0.9)" : "#16a34a",
-                                  cursor: "pointer", fontSize: 10, fontWeight: 800,
-                                  display: "flex", alignItems: "center", justifyContent: "center",
-                                  padding: 0,
+                              <span style={{ flexShrink: 0 }}>
+                                {fmtTime(event.start.toISOString())}–{fmtTime(event.end.toISOString())}
+                              </span>
+                              {isDomicile && <span style={{ flexShrink: 0 }}>🏠</span>}
+                              {locStyle.initials && (
+                                <span style={{
+                                  fontSize: "clamp(8px, 2.6cqi, 9px)",
+                                  fontWeight: 800,
+                                  background: locStyle.borderColor ?? undefined,
+                                  padding: "1px 4px", borderRadius: 3,
+                                  letterSpacing: 0.3, lineHeight: 1.1,
                                   flexShrink: 0,
-                                }}
-                              >
-                                {waSent ? "✓" : "💬"}
-                              </button>
-                              <button
-                                onClick={e => {
-                                  e.stopPropagation();
-                                  onToggleDone(event.id, event.status);
-                                }}
-                                title={isCompleted ? "Annulla completamento" : "Segna eseguito"}
-                                style={{
-                                  width: 18, height: 18, borderRadius: 4,
-                                  border: "none",
-                                  background: isCompleted ? "#16a34a" : "rgba(255,255,255,0.85)",
-                                  color: isCompleted ? "#fff" : "#0f172a",
-                                  cursor: "pointer", fontSize: 10, fontWeight: 800,
-                                  display: "flex", alignItems: "center", justifyContent: "center",
-                                  padding: 0,
-                                  flexShrink: 0,
-                                }}
-                              >
-                                {isCompleted ? "✓" : "○"}
-                              </button>
+                                }}>{locStyle.initials}</span>
+                              )}
+                              {event.package_id && (
+                                <PackageBadge packageId={event.package_id} variant="compact-dark" />
+                              )}
                             </div>
-                          )}
-                        </div>
 
-                        {/* Riga 3 opzionale: trattamento + importo (solo se card alta abbastanza) */}
-                        {height >= 70 && event.treatment_type && (
+                            {/* Riga 2: nome + bottoni */}
+                            <div style={{
+                              display: "flex", alignItems: "center", gap: 4,
+                              flex: 1, minHeight: 0,
+                            }}>
+                              <div style={{
+                                flex: 1, minWidth: 0,
+                                fontSize: "clamp(10px, 3.6cqi, 13px)",
+                                fontWeight: 800, lineHeight: 1.15,
+                                overflow: "hidden", textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}>
+                                {event.patient_name}
+                              </div>
+                              <div style={{
+                                display: "flex", gap: 3, flexShrink: 0,
+                                alignSelf: "center",
+                              }}>
+                                <button
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    onSendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined);
+                                  }}
+                                  title={waSent ? "WhatsApp già inviato" : "Invia WhatsApp"}
+                                  style={{
+                                    width: 16, height: 16, borderRadius: 4,
+                                    border: "none",
+                                    background: waSent ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.85)",
+                                    color: waSent ? "rgba(255,255,255,0.9)" : "#16a34a",
+                                    cursor: "pointer", fontSize: 9, fontWeight: 800,
+                                    display: "flex", alignItems: "center", justifyContent: "center",
+                                    padding: 0, flexShrink: 0,
+                                  }}
+                                >
+                                  {waSent ? "✓" : "💬"}
+                                </button>
+                                <button
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    onToggleDone(event.id, event.status);
+                                  }}
+                                  title={isCompleted ? "Annulla completamento" : "Segna eseguito"}
+                                  style={{
+                                    width: 16, height: 16, borderRadius: 4,
+                                    border: "none",
+                                    background: isCompleted ? "#16a34a" : "rgba(255,255,255,0.85)",
+                                    color: isCompleted ? "#fff" : "#0f172a",
+                                    cursor: "pointer", fontSize: 9, fontWeight: 800,
+                                    display: "flex", alignItems: "center", justifyContent: "center",
+                                    padding: 0, flexShrink: 0,
+                                  }}
+                                >
+                                  {isCompleted ? "✓" : "○"}
+                                </button>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          /* Card bassa (<45px): tutto in 1 riga compatta */
                           <div style={{
-                            fontSize: 10, fontWeight: 600, opacity: 0.85,
-                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                            display: "flex", alignItems: "center", gap: 4,
+                            height: "100%", overflow: "hidden",
                           }}>
-                            {getTreatmentLabel(event.treatment_type)}
-                            {event.amount != null && <> · €{event.amount}</>}
+                            <span style={{
+                              fontSize: "clamp(9px, 3cqi, 10px)",
+                              fontWeight: 800, opacity: 0.92, flexShrink: 0,
+                            }}>
+                              {fmtTime(event.start.toISOString())}
+                            </span>
+                            <span style={{
+                              flex: 1, minWidth: 0,
+                              fontSize: "clamp(10px, 3.4cqi, 12px)",
+                              fontWeight: 800, lineHeight: 1.15,
+                              overflow: "hidden", textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}>
+                              {event.patient_name}
+                            </span>
+                            {isDomicile && <span style={{ fontSize: 9, flexShrink: 0 }}>🏠</span>}
+                            <button
+                              onClick={e => {
+                                e.stopPropagation();
+                                onSendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined);
+                              }}
+                              title={waSent ? "WhatsApp già inviato" : "Invia WhatsApp"}
+                              style={{
+                                width: 14, height: 14, borderRadius: 3,
+                                border: "none",
+                                background: waSent ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.85)",
+                                color: waSent ? "rgba(255,255,255,0.9)" : "#16a34a",
+                                cursor: "pointer", fontSize: 8, fontWeight: 800,
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                padding: 0, flexShrink: 0,
+                              }}
+                            >
+                              {waSent ? "✓" : "💬"}
+                            </button>
+                            <button
+                              onClick={e => {
+                                e.stopPropagation();
+                                onToggleDone(event.id, event.status);
+                              }}
+                              title={isCompleted ? "Annulla completamento" : "Segna eseguito"}
+                              style={{
+                                width: 14, height: 14, borderRadius: 3,
+                                border: "none",
+                                background: isCompleted ? "#16a34a" : "rgba(255,255,255,0.85)",
+                                color: isCompleted ? "#fff" : "#0f172a",
+                                cursor: "pointer", fontSize: 8, fontWeight: 800,
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                padding: 0, flexShrink: 0,
+                              }}
+                            >
+                              {isCompleted ? "✓" : "○"}
+                            </button>
                           </div>
                         )}
                       </>
                     )}
                   </div>
                 );
-              })}
+              });
+              })()}
 
               {/* ── Linea "ora corrente" sopra a tutto, una per colonna ── */}
               {nowTopPx !== null && (

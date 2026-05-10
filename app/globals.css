@@ -262,3 +262,8 @@ body {
     box-sizing: border-box;
   }
 }
+
+/* Vista Mese multi-op (Fase C): WA visibile su hover della riga */
+.month-evt-row:hover .month-evt-wa {
+  opacity: 1 !important;
+}

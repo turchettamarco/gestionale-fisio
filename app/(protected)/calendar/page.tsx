@@ -425,6 +425,10 @@ function CalendarPageInner() {
   const [editStartTime, setEditStartTime] = useState<string>("09:00");
   const [editDuration, setEditDuration] = useState<"0.5" | "0.75" | "1" | "1.5" | "2">("1");
 
+  // Multi-operatore (mig. 019/022, Fase 4d.1): operator_id per il modale di
+  // modifica. Null = non assegnato. Idratato da liveEvent quando il modale apre.
+  const [editOperatorId, setEditOperatorId] = useState<string | null>(null);
+
   // createOpen, createStartISO, createEndISO: dichiarati più in alto.
   // q, searching, patientResults, selectedPatient: ora in useSearchAndFilters.
   const [creating, setCreating] = useState(false);
@@ -436,6 +440,12 @@ function CalendarPageInner() {
   // Multi-sede (mig. 014, fase 2): id della sede selezionata. null = sede principale
   // o multi-sede non attivo (in quel caso il salvataggio non scrive location_id).
   const [createLocationId, setCreateLocationId] = useState<string | null>(null);
+
+  // Multi-operatore (mig. 019/022, Fase 4d): id dell'operatore selezionato.
+  // null = non assegnato. Default null al mount; quando si apre il modale di
+  // creazione lo settiamo all'utente loggato come default ragionevole (vedi
+  // openCreateModal sotto).
+  const [createOperatorId, setCreateOperatorId] = useState<string | null>(null);
 
   // Sincronizza il default del campo "sede" con il nome dello studio corrente
   // (l'utente può comunque sovrascriverlo manualmente nel form di creazione).
@@ -555,13 +565,17 @@ function CalendarPageInner() {
     return () => { cancelled = true; };
   }, [currentStudioId]);
 
-  // ── Multi-operatore: caricamento indisponibilità (mig. 019, Fase 4a) ──
-  // Carichiamo le indisponibilità solo per il giorno corrente (vista day)
-  // perché in 4a non gestiamo settimana/mese multi-op.
+  // ── Multi-operatore: caricamento indisponibilità (mig. 019, Fase 5) ──
+  // Range adattivo:
+  //   • Vista day: 1 giorno (00:00 → 23:59 del giorno corrente)
+  //   • Vista week: 7 giorni della settimana corrente
+  //   • Vista month: 42 giorni della griglia mensile (mese + adiacenti)
+  // Le assenze sono usate da:
+  //   - DayTimelineMulti: striature grigie sulla colonna operatore
+  //   - MonthView: indicatore visivo nelle celle giorno (Fase 5)
   const [unavailabilities, setUnavailabilities] = useState<OperatorUnavailabilitySlot[]>([]);
 
   useEffect(() => {
-    // Carica solo se multi-op è attivo + ci sono ≥2 operatori (= scenario in cui DayTimelineMulti rende)
     if (!multiOperatorEnabled || activeMembers.length < 2) {
       setUnavailabilities([]);
       return;
@@ -570,24 +584,35 @@ function CalendarPageInner() {
 
     let cancelled = false;
     (async () => {
-      // Range del giorno: 00:00 → 23:59
-      const dayStart = new Date(currentDate);
-      dayStart.setHours(0, 0, 0, 0);
-      const dayEnd = new Date(currentDate);
-      dayEnd.setHours(23, 59, 59, 999);
+      // Calcola range in base alla vista corrente
+      let rangeStart: Date, rangeEnd: Date;
+      if (viewType === "week") {
+        rangeStart = startOfISOWeekMonday(currentDate);
+        rangeEnd = addDays(rangeStart, 7);
+      } else if (viewType === "month") {
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        const firstDay = new Date(year, month, 1);
+        const startOffset = firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1;
+        rangeStart = addDays(firstDay, -startOffset);
+        rangeEnd = addDays(rangeStart, 42);
+      } else {
+        // day view
+        rangeStart = new Date(currentDate);
+        rangeStart.setHours(0, 0, 0, 0);
+        rangeEnd = new Date(currentDate);
+        rangeEnd.setHours(23, 59, 59, 999);
+      }
 
       const { data, error } = await supabase
         .from("operator_unavailability")
         .select("id, operator_id, start_at, end_at, reason, all_day")
         .eq("studio_id", currentStudioId)
-        // Range overlap: tutto ciò che si sovrappone al giorno
-        .lt("start_at", dayEnd.toISOString())
-        .gt("end_at", dayStart.toISOString());
+        .lt("start_at", rangeEnd.toISOString())
+        .gt("end_at", rangeStart.toISOString());
 
       if (cancelled) return;
       if (error) {
-        // Se la tabella non esiste o RLS blocca, niente errori al utente:
-        // semplicemente nessuna ferie viene mostrata.
         setUnavailabilities([]);
         return;
       }
@@ -601,7 +626,7 @@ function CalendarPageInner() {
       })));
     })();
     return () => { cancelled = true; };
-  }, [multiOperatorEnabled, activeMembers.length, currentStudioId, currentDate]);
+  }, [multiOperatorEnabled, activeMembers.length, currentStudioId, currentDate, viewType]);
 
   // ── Gestione parametri URL da GlobalSearch (?date=YYYY-MM-DD&view=day) ─────
   useEffect(() => {
@@ -831,6 +856,8 @@ function CalendarPageInner() {
         phone: duplicateEvent.patient_phone || null,
       };
       setSelectedPatient(patientFromEvent);
+      // Multi-op: copia operator_id dall'evento da duplicare (se presente)
+      setCreateOperatorId(duplicateEvent.operator_id ?? null);
     } else {
       setDuplicateMode(false);
       setEventToDuplicate(null);
@@ -838,6 +865,9 @@ function CalendarPageInner() {
       setCreateLocation("studio");
       setCreateClinicSite(currentStudio?.name || "Studio");
       setCreateDomicileAddress("");
+      // Multi-op: di default assegna all'utente loggato (Marco). L'utente
+      // può poi cambiare in modal. Funziona anche in single-op (campo nascosto).
+      setCreateOperatorId(userId ?? null);
       setTreatmentType(treatmentCatalog[0]?.key ?? "seduta");
       // Default: Contanti (allineato allo state di partenza). L'utente può
       // sempre cliccare "Fatturato" se vuole. Evita l'alert spurio del metodo.
@@ -883,7 +913,7 @@ function CalendarPageInner() {
 
     setError("");
     setCreateOpen(true);
-  }, [selectedStartTime, selectedDuration, timeSelectSlots, patientResults, practiceSettings, currentStudio?.name, treatmentCatalog]);
+  }, [selectedStartTime, selectedDuration, timeSelectSlots, patientResults, practiceSettings, currentStudio?.name, treatmentCatalog, userId]);
 
   // Shortcut da tastiera - ORA le funzioni sono disponibili
   useEffect(() => {
@@ -1218,6 +1248,8 @@ function CalendarPageInner() {
     setEditTreatmentType((event.treatment_type as "seduta" | "macchinario") || "seduta");
     setEditPriceType((event.price_type as "invoiced" | "cash") || "invoiced");
     setEditPaymentMethod((event.payment_method as "cash" | "pos" | "bank_transfer" | null) || null);
+    // Multi-op (Fase 4d.1): idrata operator_id dall'evento
+    setEditOperatorId(event.operator_id ?? null);
     if (event.patient_id) loadPatientFromEvent(event.patient_id);
   }, [setSelectedEvent, setEditStatus, setEditNote, setEditAmount, setEditTreatmentType, setEditPriceType, setEditPaymentMethod, loadPatientFromEvent]);
 
@@ -1371,6 +1403,7 @@ function CalendarPageInner() {
       groupPricePerPerson,
       groupRecurringMode,
       selectedPackageId,
+      createOperatorId,
     },
     editForm: {
       editStatus,
@@ -1382,6 +1415,7 @@ function CalendarPageInner() {
       editDate,
       editStartTime,
       editDuration,
+      editOperatorId,
     },
     quickPatientForm: {
       quickPatientFirstName,
@@ -1858,6 +1892,7 @@ return (
                   handleSlotClick(date, date.getHours(), date.getMinutes());
                 }}
                 onSelectEvent={handleSelectEventForModal}
+                onSendReminder={sendReminder}
               />
             ) : (multiOperatorEnabled && activeMembers.length >= 2 && weeklyViewLayout === "pile") ? (
               <WeekViewPile
@@ -1871,6 +1906,7 @@ return (
                 }}
                 onSelectEvent={handleSelectEventForModal}
                 onCycleStatus={cycleEventStatus}
+                onSendReminder={sendReminder}
               />
             ) : (multiOperatorEnabled && activeMembers.length >= 2 && weeklyViewLayout === "grid") ? (
               <WeekViewGrid
@@ -1941,6 +1977,8 @@ return (
               multiOperatorMode={multiOperatorEnabled && activeMembers.length >= 2}
               members={activeMembers}
               operatorColorMap={operatorColorMap}
+              unavailabilities={unavailabilities}
+              onSendReminder={sendReminder}
             />
           ) : (
             /* ━━━ DAY VIEW — timeline + sidebar ━━━ */
@@ -2104,6 +2142,11 @@ return (
           createQuickPatientForGroup={createQuickPatientCore}
           selectedPackageId={selectedPackageId}
           setSelectedPackageId={setSelectedPackageId}
+          multiOperatorEnabled={multiOperatorEnabled && activeMembers.length >= 2}
+          members={activeMembers}
+          createOperatorId={createOperatorId}
+          setCreateOperatorId={setCreateOperatorId}
+          existingEvents={events}
           creating={creating}
         />
       )}
@@ -2183,6 +2226,10 @@ return (
             setSelectedEvent(null);
             openWeeklyReminder(patientId, firstName, phone);
           }}
+          multiOperatorEnabled={multiOperatorEnabled && activeMembers.length >= 2}
+          members={activeMembers}
+          editOperatorId={editOperatorId}
+          setEditOperatorId={setEditOperatorId}
         />
         );
       })()}

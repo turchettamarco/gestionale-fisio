@@ -433,6 +433,12 @@ export type TeamSectionProps = {
   setWeeklyViewLayout: (v: "classic" | "timeline" | "pile" | "grid") => void;
   savingWeeklyLayout: boolean;
   onSaveWeeklyLayout: () => void;
+  // Vista calendario predefinita all'apertura (mig. 023, Fase D).
+  // Visibile solo se multi_operator_enabled = true.
+  defaultCalendarView: "day" | "week" | "month";
+  setDefaultCalendarView: (v: "day" | "week" | "month") => void;
+  savingDefaultCalendarView: boolean;
+  onSaveDefaultCalendarView: () => void;
 };
 
 export default function TeamSection({
@@ -453,6 +459,10 @@ export default function TeamSection({
   setWeeklyViewLayout,
   savingWeeklyLayout,
   onSaveWeeklyLayout,
+  defaultCalendarView,
+  setDefaultCalendarView,
+  savingDefaultCalendarView,
+  onSaveDefaultCalendarView,
 }: TeamSectionProps) {
   const [showNewForm, setShowNewForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null); // user_id o invite_token
@@ -847,6 +857,152 @@ export default function TeamSection({
                 label={savingWeeklyLayout ? "Salvataggio…" : "Salva layout"}
                 onClick={onSaveWeeklyLayout}
                 disabled={savingWeeklyLayout}
+              />
+            </div>
+          </div>
+
+          {/* ── Layout vista mese (Fase 5b) — INFORMATIVO ───────────────────
+              In modalità multi-operatore la vista mese ha un solo layout fisso
+              (variante A: lista verticale con cognome paziente per ogni
+              appuntamento, colorato per operatore). Mostriamo solo l'anteprima
+              come riferimento, non è modificabile. */}
+          <div style={{ marginTop: 24, paddingTop: 18, borderTop: `1px dashed ${THEME.border}` }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: THEME.text, marginBottom: 4 }}>
+              Layout vista mese
+            </div>
+            <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 12, lineHeight: 1.5 }}>
+              In modalità multi-operatore la vista mese mostra tutti gli appuntamenti come righe colorate per operatore (cognome paziente + orario). La cella cresce in altezza con il numero di sedute. Layout non modificabile.
+            </div>
+
+            <div style={{
+              padding: "12px 14px",
+              borderRadius: 10,
+              border: `1.5px solid ${THEME.teal}`,
+              background: "rgba(13,148,136,0.04)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+            }}>
+              {/* Header anteprima */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontWeight: 800, fontSize: 13, color: THEME.teal }}>
+                  Anteprima cella giorno
+                </span>
+                <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "rgba(22,163,74,0.1)", color: "#15803d", letterSpacing: 0.3 }}>
+                  ATTIVO
+                </span>
+              </div>
+
+              {/* Anteprima SVG/HTML statica della cella mese multi-op */}
+              <div style={{
+                background: "#fff",
+                border: `1px solid ${THEME.border}`,
+                borderRadius: 6,
+                padding: "5px 6px",
+                width: 160,
+              }}>
+                {/* Header cella: numero + count */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: THEME.text }}>15</span>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: THEME.muted }}>6</span>
+                </div>
+                {/* Righe appuntamenti esempio */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  {[
+                    { time: "9", name: "Rossi M.", color: "#0d9488" },
+                    { time: "9:30", name: "Costa V.", color: "#8b5cf6" },
+                    { time: "10", name: "Verdi L.", color: "#0d9488" },
+                    { time: "11", name: "Galli S.", color: "#ec4899" },
+                    { time: "11:30", name: "De Luca", color: "#0d9488" },
+                    { time: "15", name: "Lombardi", color: "#8b5cf6" },
+                  ].map((row, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        fontSize: 9,
+                        lineHeight: 1.25,
+                        padding: "2px 5px",
+                        borderLeft: `2px solid ${row.color}`,
+                        background: `${row.color}1f`,
+                        borderRadius: 3,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        color: THEME.text,
+                      }}
+                    >
+                      <span style={{ fontWeight: 800, marginRight: 3 }}>{row.time}</span>
+                      {row.name}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Note tecniche */}
+              <div style={{ fontSize: 11, color: THEME.muted, lineHeight: 1.5 }}>
+                Le righe sono colorate in base all'operatore assegnato. Sono solo visualizzazione: per modificare un appuntamento, apri vista Giorno o Settimana. Il filtro operatore in alto al calendario funziona anche qui.
+              </div>
+            </div>
+          </div>
+
+          {/* ── Vista predefinita all'apertura calendario (Fase D, mig. 023) ─
+              Quale vista deve aprire l'utente quando entra nel calendario.
+              Vale per tutti gli operatori dello studio. La scelta nella sessione
+              non è persistita: vale solo come "vista iniziale". */}
+          <div style={{ marginTop: 24, paddingTop: 18, borderTop: `1px dashed ${THEME.border}` }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: THEME.text, marginBottom: 4 }}>
+              Vista predefinita calendario
+            </div>
+            <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 12, lineHeight: 1.5 }}>
+              Quale vista si apre per primo all'ingresso nel calendario. Vale per tutti i membri dello studio. L'utente può cambiare vista normalmente durante l'uso.
+            </div>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {([
+                { k: "day",   label: "Giorno",    desc: "Timeline operatori" },
+                { k: "week",  label: "Settimana", desc: "Layout settimanale" },
+                { k: "month", label: "Mese",      desc: "Panoramica mensile" },
+              ] as const).map(opt => {
+                const active = defaultCalendarView === opt.k;
+                return (
+                  <button
+                    key={opt.k}
+                    type="button"
+                    onClick={() => setDefaultCalendarView(opt.k)}
+                    style={{
+                      flex: "1 1 140px",
+                      minWidth: 140,
+                      padding: "12px 14px",
+                      border: `2px solid ${active ? THEME.teal : THEME.border}`,
+                      background: active ? "rgba(13,148,136,0.04)" : "#fff",
+                      borderRadius: 10,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      textAlign: "left",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    <div style={{
+                      fontSize: 13,
+                      fontWeight: 800,
+                      color: active ? THEME.teal : THEME.text,
+                      marginBottom: 3,
+                    }}>
+                      {opt.label}
+                    </div>
+                    <div style={{ fontSize: 11, color: THEME.muted, fontWeight: 500 }}>
+                      {opt.desc}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+              <BtnPrimary
+                label={savingDefaultCalendarView ? "Salvataggio…" : "Salva vista predefinita"}
+                onClick={onSaveDefaultCalendarView}
+                disabled={savingDefaultCalendarView}
               />
             </div>
           </div>

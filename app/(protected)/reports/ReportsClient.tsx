@@ -9,7 +9,7 @@ function openWADirect(phone: string, message: string = ""): void {
 }
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
-import { useCurrentStudio, useStudioLocations } from "@/src/contexts/StudioContext";
+import { useCurrentStudio, useStudioLocations, type StudioMember } from "@/src/contexts/StudioContext";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter, type StudioHeaderData } from "@/src/lib/pdfHeader";
 import AppNavbar from "@/src/components/AppNavbar";
 
@@ -206,6 +206,19 @@ export default function ReportsPage(){
   const[showAllPaid,setShowAllPaid]=useState(false);
   const[unpaidFilter,setUnpaidFilter]=useState("");
 
+  // ── Fase 4e: breakdown per operatore (sempre calcolato su periodo intero,
+  // indipendentemente dal filtro selezionato) ──
+  type OperatorMetric = {
+    operator_id: string | null; // null = "Non assegnati"
+    display_name: string;
+    color: string;
+    sedute_done: number;
+    sedute_not_paid: number;
+    sedute_total: number;
+    incasso: number;
+  };
+  const[operatorBreakdown, setOperatorBreakdown] = useState<OperatorMetric[]>([]);
+
   // ── Pazienti ──
   const[newPatients,    setNewPatients]    =useState(0);
   const[returnPatients, setReturnPatients] =useState(0);
@@ -248,6 +261,60 @@ export default function ReportsPage(){
   const [locMenuOpen, setLocMenuOpen] = useState(false);
   const locMenuRef = useRef<HTMLDivElement | null>(null);
 
+  // ── Fase 4e: multi-operatore (filtro + breakdown) ──
+  // Carica i membri attivi dello studio (per pattern coerente con calendar/page,
+  // query diretta invece del context per evitare race conditions).
+  const [allMembers, setAllMembers] = useState<StudioMember[]>([]);
+  const [multiOperatorEnabled, setMultiOperatorEnabled] = useState<boolean>(false);
+  const [selectedOperatorId, setSelectedOperatorId] = useState<string>("all");
+  const [opMenuOpen, setOpMenuOpen] = useState(false);
+  const opMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const activeMembers = useMemo(
+    () => allMembers.filter(m => m.is_active !== false && m.user_id != null),
+    [allMembers]
+  );
+
+  // Mappa user_id → membro (per breakdown sezione)
+  const memberById = useMemo(() => {
+    const m = new Map<string, StudioMember>();
+    for (const member of activeMembers) {
+      if (member.user_id) m.set(member.user_id, member);
+    }
+    return m;
+  }, [activeMembers]);
+
+  // Carica membri + flag multi_operator_enabled allo studio mount
+  useEffect(() => {
+    if (!currentStudio?.id) {
+      setAllMembers([]);
+      setMultiOperatorEnabled(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const [membersResult, studioResult] = await Promise.all([
+        supabase
+          .from("studio_members")
+          .select("studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invited_at, invite_token")
+          .eq("studio_id", currentStudio.id)
+          .order("sort_order", { ascending: true })
+          .order("display_name", { ascending: true }),
+        supabase
+          .from("studios")
+          .select("multi_operator_enabled")
+          .eq("id", currentStudio.id)
+          .maybeSingle(),
+      ]);
+      if (cancelled) return;
+      const data = membersResult.data;
+      if (!membersResult.error && data) setAllMembers(data as StudioMember[]);
+      else setAllMembers([]);
+      setMultiOperatorEnabled(Boolean(studioResult.data?.multi_operator_enabled));
+    })();
+    return () => { cancelled = true; };
+  }, [currentStudio?.id]);
+
   // ── Tappa 2: noleggi nel periodo ──
   const [rentals, setRentals] = useState<RentalRow[]>([]);
   const [rentalsModalOpen, setRentalsModalOpen] = useState(false);
@@ -266,6 +333,7 @@ export default function ReportsPage(){
       const t = e.target as Node;
       if (periodMenuOpen && periodMenuRef.current && !periodMenuRef.current.contains(t)) setPeriodMenuOpen(false);
       if (locMenuOpen && locMenuRef.current && !locMenuRef.current.contains(t)) setLocMenuOpen(false);
+      if (opMenuOpen && opMenuRef.current && !opMenuRef.current.contains(t)) setOpMenuOpen(false);
       if (actionsMenuOpen && actionsMenuRef.current && !actionsMenuRef.current.contains(t)) {
         setActionsMenuOpen(false);
         setUnpaidSubmenuOpen(false);
@@ -273,7 +341,7 @@ export default function ReportsPage(){
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
-  }, [periodMenuOpen, actionsMenuOpen, locMenuOpen]);
+  }, [periodMenuOpen, actionsMenuOpen, locMenuOpen, opMenuOpen]);
 
   // ref per annullare chiamate in corso se period/date cambiano prima che finiscano
   const loadIdRef = useRef(0);
@@ -310,16 +378,16 @@ export default function ReportsPage(){
       // Tappa 2: aggiungiamo location_id alle SELECT (filtro sede + dettaglio modal).
       // Filtro sede: applicato in JS dopo fetch (più semplice gestire "Tutte" + null).
       const[{data:done},{data:unp},{data:allA},,{data:groups},{data:rentalsRaw}]=await Promise.all([
-        supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id,price_type,payment_method,location_id").eq("status","done").gte("amount",0.01).gte("start_at",fs).lte("start_at",ts).order("start_at",{ascending:false}),
-        supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id,location_id").eq("status","not_paid").gte("start_at",fs).lte("start_at",ts).order("start_at",{ascending:false}),
-        supabase.from("appointments").select("status,start_at,patient_id,location_id").gte("start_at",fs).lte("start_at",ts),
-        supabase.from("appointments").select("status,start_at,location_id").eq("status","cancelled").gte("start_at",fs).lte("start_at",ts),
+        supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id,price_type,payment_method,location_id,operator_id").eq("status","done").gte("amount",0.01).gte("start_at",fs).lte("start_at",ts).order("start_at",{ascending:false}),
+        supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id,location_id,operator_id").eq("status","not_paid").gte("start_at",fs).lte("start_at",ts).order("start_at",{ascending:false}),
+        supabase.from("appointments").select("status,start_at,patient_id,location_id,operator_id").gte("start_at",fs).lte("start_at",ts),
+        supabase.from("appointments").select("status,start_at,location_id,operator_id").eq("status","cancelled").gte("start_at",fs).lte("start_at",ts),
         // ─── GRUPPI (mig. 014) ─────────────────────────────────────────────
         // Per ogni gruppo "done" nel periodo, prendiamo i partecipanti pagati con dati paziente.
         // I gruppi padre hanno amount=null quindi NON vengono presi dalla query "done" sopra.
         supabase.from("appointments")
           .select(`
-            id, start_at, group_title, location_id,
+            id, start_at, group_title, location_id, operator_id,
             appointment_participants (
               id, patient_id, price, payment_status, paid_at,
               attendance_status, payment_method,
@@ -334,8 +402,8 @@ export default function ReportsPage(){
         // ─── NOLEGGI (Tappa 2) ─────────────────────────────────────────────
         // Definizione: noleggi che si CONCLUDONO nel periodo (end_date in [from,to]).
         // Revenue effettivo = is_paid=true · da incassare = is_paid=false.
-        // Nota: tabella "noleggios" non ha (ancora) location_id, quindi il filtro sede
-        // non si applica ai noleggi — rimangono globali a tutto lo studio.
+        // Nota: tabella "noleggios" non ha (ancora) location_id né operator_id,
+        // quindi i filtri non si applicano ai noleggi — rimangono globali.
         supabase.from("noleggios")
           .select("id,patient_name,device_name,start_date,end_date,total_amount,is_paid")
           .gte("end_date", from.toISOString().slice(0,10))
@@ -351,10 +419,90 @@ export default function ReportsPage(){
         if (selectedLocId === "all") return arr;
         return arr.filter(r => r.location_id === selectedLocId);
       };
-      const doneFiltered = locFilter(done as any);
-      const unpFiltered = locFilter(unp as any);
-      const allFiltered = locFilter(allA as any);
-      const groupsFiltered = locFilter(groups as any);
+      // ── Filtro per operatore (Fase 4e) ──
+      // Se selectedOperatorId !== "all", tieni solo righe con quell'operator_id.
+      // "_unassigned_" filtra eventi orfani (operator_id NULL).
+      const opFilter = <T extends { operator_id?: string | null }>(arr: T[]): T[] => {
+        if (selectedOperatorId === "all") return arr;
+        if (selectedOperatorId === "_unassigned_") return arr.filter(r => !r.operator_id);
+        return arr.filter(r => r.operator_id === selectedOperatorId);
+      };
+      const doneFiltered = opFilter(locFilter(done as any) as any);
+      const unpFiltered = opFilter(locFilter(unp as any) as any);
+      const allFiltered = opFilter(locFilter(allA as any) as any);
+      const groupsFiltered = opFilter(locFilter(groups as any) as any);
+
+      // ── Fase 4e: calcolo breakdown per operatore (su dati locFilter, NON opFilter) ──
+      // Il breakdown deve mostrare le metriche di TUTTI gli operatori sempre,
+      // indipendentemente dal filtro selezionato. Filtra per sede però.
+      const doneByLoc = locFilter(done as any);
+      const unpByLoc = locFilter(unp as any);
+      const opMap = new Map<string, OperatorMetric>();
+      // Inizializza con tutti i membri attivi (così appaiono anche con 0 sedute)
+      for (const m of activeMembers) {
+        if (!m.user_id) continue;
+        opMap.set(m.user_id, {
+          operator_id: m.user_id,
+          display_name: m.display_name || "—",
+          color: m.display_color || "#94a3b8",
+          sedute_done: 0,
+          sedute_not_paid: 0,
+          sedute_total: 0,
+          incasso: 0,
+        });
+      }
+      // Aggrega i done
+      for (const r of doneByLoc) {
+        const opId = (r as any).operator_id || null;
+        const key = opId || "_unassigned_";
+        let entry = opMap.get(key);
+        if (!entry) {
+          entry = {
+            operator_id: opId,
+            display_name: opId ? "Sconosciuto" : "Non assegnati",
+            color: "#94a3b8",
+            sedute_done: 0,
+            sedute_not_paid: 0,
+            sedute_total: 0,
+            incasso: 0,
+          };
+          opMap.set(key, entry);
+        }
+        entry.sedute_done += 1;
+        entry.sedute_total += 1;
+        entry.incasso += parseFloat(String((r as any).amount)) || 0;
+      }
+      // Aggrega i not_paid
+      for (const r of unpByLoc) {
+        const opId = (r as any).operator_id || null;
+        const key = opId || "_unassigned_";
+        let entry = opMap.get(key);
+        if (!entry) {
+          entry = {
+            operator_id: opId,
+            display_name: opId ? "Sconosciuto" : "Non assegnati",
+            color: "#94a3b8",
+            sedute_done: 0,
+            sedute_not_paid: 0,
+            sedute_total: 0,
+            incasso: 0,
+          };
+          opMap.set(key, entry);
+        }
+        entry.sedute_not_paid += 1;
+        entry.sedute_total += 1;
+      }
+      // Ordina: prima i membri attivi (in ordine naturale), poi unassigned se presente
+      const breakdown = Array.from(opMap.values()).sort((a, b) => {
+        if (a.operator_id === null && b.operator_id !== null) return 1;
+        if (a.operator_id !== null && b.operator_id === null) return -1;
+        return b.sedute_total - a.sedute_total;
+      });
+      // Tieni solo righe con almeno 1 seduta o membri attivi (nascondi membri zero che non sono attivi)
+      const filteredBreakdown = breakdown.filter(b =>
+        b.sedute_total > 0 || (b.operator_id && memberById.has(b.operator_id))
+      );
+      setOperatorBreakdown(filteredBreakdown);
 
       const doneData=doneFiltered,unpData=unpFiltered,allData=allFiltered;
       const allIds=Array.from(new Set([...doneData,...unpData].map((r:any)=>r.patient_id).filter(Boolean)));
@@ -757,7 +905,7 @@ export default function ReportsPage(){
     finally{if(loadIdRef.current === currentId) setLoading(false);}
   }
 
-  useEffect(()=>{loadData();},[period,dateStr,selectedLocId]); // eslint-disable-line
+  useEffect(()=>{loadData();},[period,dateStr,selectedLocId,selectedOperatorId]); // eslint-disable-line
 
   // ─── Export completo per commercialista (apre in Excel con BOM UTF-8) ─────
   const [exporting, setExporting] = useState(false);
@@ -997,6 +1145,65 @@ export default function ReportsPage(){
                       {selectedLocId===loc.id && <span style={{fontSize:11,color:T.teal}}>✓</span>}
                     </button>
                   ))}
+                </div>
+              )}
+            </div>
+          )}
+          {/* Dropdown operatore (Fase 4e) — visibile solo se multi-op + ≥2 membri attivi */}
+          {multiOperatorEnabled && activeMembers.length >= 2 && (
+            <div ref={opMenuRef} style={{position:"relative",flexShrink:0}}>
+              {(() => {
+                const sel = activeMembers.find(m => m.user_id === selectedOperatorId);
+                const label = selectedOperatorId === "all"
+                  ? "Tutti gli operatori"
+                  : selectedOperatorId === "_unassigned_"
+                  ? "Non assegnati"
+                  : (sel?.display_name || "—");
+                const dot = selectedOperatorId !== "all" && selectedOperatorId !== "_unassigned_" && sel?.display_color
+                  ? sel.display_color
+                  : selectedOperatorId === "_unassigned_"
+                  ? "#94a3b8"
+                  : null;
+                return (
+                  <button
+                    onClick={()=>setOpMenuOpen(v=>!v)}
+                    title={`Filtro operatore: ${label}`}
+                    style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",border:`1px solid ${T.border}`,borderRadius:7,background:T.panelBg,color:T.text,cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap",maxWidth:170,overflow:"hidden",textOverflow:"ellipsis"}}
+                  >
+                    {dot && <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:dot,flexShrink:0}}/>}
+                    <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
+                    <span style={{fontSize:9,color:T.muted,flexShrink:0}}>{opMenuOpen?"▲":"▼"}</span>
+                  </button>
+                );
+              })()}
+              {opMenuOpen && (
+                <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,background:T.panelBg,border:`1px solid ${T.border}`,borderRadius:9,boxShadow:"0 6px 22px rgba(15,23,42,0.10)",overflow:"hidden",zIndex:55,minWidth:200,maxHeight:320,overflowY:"auto"}} className="sc">
+                  <button
+                    onClick={()=>{setSelectedOperatorId("all");setOpMenuOpen(false);}}
+                    style={{width:"100%",padding:"9px 14px",border:"none",background:selectedOperatorId==="all"?"rgba(13,148,136,0.08)":"transparent",color:selectedOperatorId==="all"?T.teal:T.text,cursor:"pointer",fontSize:12,fontWeight:selectedOperatorId==="all"?700:600,textAlign:"left",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${T.border}`}}
+                  >
+                    <span>Tutti gli operatori</span>
+                    {selectedOperatorId==="all" && <span style={{fontSize:11,color:T.teal}}>✓</span>}
+                  </button>
+                  {activeMembers.map(m => (
+                    <button
+                      key={`op-${m.user_id}`}
+                      onClick={()=>{setSelectedOperatorId(m.user_id!);setOpMenuOpen(false);}}
+                      style={{width:"100%",padding:"9px 14px",border:"none",background:selectedOperatorId===m.user_id?"rgba(13,148,136,0.08)":"transparent",color:selectedOperatorId===m.user_id?T.teal:T.text,cursor:"pointer",fontSize:12,fontWeight:selectedOperatorId===m.user_id?700:600,textAlign:"left",display:"flex",alignItems:"center",gap:8}}
+                    >
+                      <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:m.display_color||"#94a3b8",flexShrink:0}}/>
+                      <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis"}}>{m.display_name||"—"}</span>
+                      {selectedOperatorId===m.user_id && <span style={{fontSize:11,color:T.teal}}>✓</span>}
+                    </button>
+                  ))}
+                  <button
+                    onClick={()=>{setSelectedOperatorId("_unassigned_");setOpMenuOpen(false);}}
+                    style={{width:"100%",padding:"9px 14px",border:"none",borderTop:`1px solid ${T.border}`,background:selectedOperatorId==="_unassigned_"?"rgba(13,148,136,0.08)":"transparent",color:selectedOperatorId==="_unassigned_"?T.teal:T.text,cursor:"pointer",fontSize:12,fontWeight:selectedOperatorId==="_unassigned_"?700:600,textAlign:"left",display:"flex",alignItems:"center",gap:8}}
+                  >
+                    <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:"#94a3b8",flexShrink:0}}/>
+                    <span style={{flex:1}}>Non assegnati</span>
+                    {selectedOperatorId==="_unassigned_" && <span style={{fontSize:11,color:T.teal}}>✓</span>}
+                  </button>
                 </div>
               )}
             </div>
@@ -1424,6 +1631,83 @@ export default function ReportsPage(){
                     <span style={{color:T.blue}}>Nuovi: {newPatients} ({Math.round(newPatients/(newPatients+returnPatients)*100)}%)</span>
                     <span style={{color:T.teal}}>Ritorni: {returnPatients} ({Math.round(returnPatients/(newPatients+returnPatients)*100)}%)</span>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Fase 4e: Breakdown per operatore (solo multi-op) ──
+                Mostra metriche di TUTTI gli operatori nel periodo, anche se
+                un operatore è già selezionato come filtro nella toolbar.
+                Click sulla riga = filtra per quell'operatore (toggle). */}
+            {multiOperatorEnabled && activeMembers.length >= 2 && operatorBreakdown.length > 0 && (
+              <div style={{...card, marginBottom: 16}}>
+                <div style={cardH()}>
+                  <div style={{fontSize:13,fontWeight:700,color:T.text}}>Breakdown per operatore</div>
+                  <span style={{fontSize:11,color:T.muted}}>click su una riga per filtrare</span>
+                </div>
+                <div style={{padding:"4px 0"}}>
+                  {operatorBreakdown.map((b) => {
+                    const opKey = b.operator_id ?? "_unassigned_";
+                    const isSel = selectedOperatorId === opKey;
+                    const incassoAvg = b.sedute_done > 0 ? b.incasso / b.sedute_done : 0;
+                    return (
+                      <div
+                        key={`opb-${opKey}`}
+                        onClick={() => setSelectedOperatorId(isSel ? "all" : opKey)}
+                        style={{
+                          display:"flex",
+                          alignItems:"center",
+                          gap:14,
+                          padding:"12px 18px",
+                          cursor:"pointer",
+                          background: isSel ? `${b.color}10` : "transparent",
+                          borderLeft: isSel ? `3px solid ${b.color}` : "3px solid transparent",
+                          transition:"all 0.15s",
+                        }}
+                        onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = "rgba(0,0,0,0.02)"; }}
+                        onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = "transparent"; }}
+                      >
+                        <span
+                          style={{
+                            width:32,
+                            height:32,
+                            borderRadius:"50%",
+                            background:b.color,
+                            color:"#fff",
+                            display:"inline-flex",
+                            alignItems:"center",
+                            justifyContent:"center",
+                            fontSize:12,
+                            fontWeight:800,
+                            flexShrink:0,
+                          }}
+                        >
+                          {(b.display_name || "?").substring(0,2).toUpperCase()}
+                        </span>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13,fontWeight:700,color:T.text}}>{b.display_name}</div>
+                          <div style={{fontSize:11,color:T.muted,marginTop:2}}>
+                            {b.sedute_total} {b.sedute_total === 1 ? "seduta totale" : "sedute totali"}
+                            {b.sedute_not_paid > 0 && ` · ${b.sedute_not_paid} non pagat${b.sedute_not_paid === 1 ? "a" : "e"}`}
+                          </div>
+                        </div>
+                        <div style={{display:"flex",gap:18,alignItems:"center",flexShrink:0}}>
+                          <div style={{textAlign:"right"}}>
+                            <div style={{fontSize:10,color:T.muted,fontWeight:600,letterSpacing:0.3,textTransform:"uppercase"}}>Sedute</div>
+                            <div style={{fontSize:15,fontWeight:800,color:T.text}}>{b.sedute_done}</div>
+                          </div>
+                          <div style={{textAlign:"right"}}>
+                            <div style={{fontSize:10,color:T.muted,fontWeight:600,letterSpacing:0.3,textTransform:"uppercase"}}>Incasso</div>
+                            <div style={{fontSize:15,fontWeight:800,color:T.green}}>{euro.format(b.incasso)}</div>
+                          </div>
+                          <div style={{textAlign:"right"}}>
+                            <div style={{fontSize:10,color:T.muted,fontWeight:600,letterSpacing:0.3,textTransform:"uppercase"}}>Media</div>
+                            <div style={{fontSize:13,fontWeight:700,color:T.muted}}>{euro.format(incassoAvg)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

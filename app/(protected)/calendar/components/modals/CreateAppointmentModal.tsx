@@ -162,6 +162,34 @@ export type CreateAppointmentModalProps = {
   selectedPackageId: string | null;
   setSelectedPackageId: (id: string | null) => void;
 
+  // ─── Multi-operatore (mig. 019/022, Fase 4d) ──────────────
+  /** Toggle multi_operator_enabled — se false, il selettore non si vede */
+  multiOperatorEnabled?: boolean;
+  /** Membri attivi del team (richiesto se multiOperatorEnabled = true) */
+  members?: Array<{
+    user_id: string | null;
+    invite_token?: string | null;
+    display_name: string | null;
+    display_color?: string | null;
+    signature_short?: string | null;
+  }>;
+  /** ID operatore selezionato (UUID auth.users) o null = non assegnato */
+  createOperatorId?: string | null;
+  setCreateOperatorId?: (id: string | null) => void;
+  /**
+   * Eventi correnti caricati nel calendario, usati per detect dei conflitti
+   * di operatore. Quando l'utente cambia operatore o orario, controlliamo se
+   * c'è già un appuntamento per quell'operatore in quell'intervallo.
+   */
+  existingEvents?: Array<{
+    id: string;
+    start: Date;
+    end: Date;
+    operator_id?: string | null;
+    status: string;
+    patient_name: string;
+  }>;
+
   // ─── Submit ───────────────────────────────────────────────
   creating: boolean;
 };
@@ -204,6 +232,11 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
     searchPatientsForGroup,
     createQuickPatientForGroup,
     selectedPackageId, setSelectedPackageId,
+    multiOperatorEnabled,
+    members,
+    createOperatorId,
+    setCreateOperatorId,
+    existingEvents,
     creating,
   } = props;
 
@@ -211,6 +244,43 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
   const overlapMode = practiceSettings?.overlap_mode ?? "warn";
   const isBlock = overlapMode === "block";
   const isVisualOverlap = overlapMode === "visual";
+
+  // ─── Multi-operatore: conflict detection (Fase 4d, mig. 022) ─────
+  // Quando lo studio è multi-op e c'è un operatore selezionato, calcoliamo
+  // se l'orario di inizio/fine si sovrappone a un appuntamento esistente
+  // per lo stesso operatore. Mostriamo un warning sopra al footer del modale.
+  const operatorConflict = useMemo(() => {
+    if (!multiOperatorEnabled) return null;
+    if (!createOperatorId) return null;
+    if (!existingEvents || existingEvents.length === 0) return null;
+
+    // Calcola orario corrente (rispetta duplicateMode)
+    const startISO = duplicateMode && duplicateDate && duplicateTime
+      ? new Date(`${duplicateDate}T${duplicateTime}:00`).toISOString()
+      : createStartISO;
+    const endISO = createEndISO;
+    if (!startISO || !endISO) return null;
+
+    const start = new Date(startISO).getTime();
+    const end = new Date(endISO).getTime();
+    if (Number.isNaN(start) || Number.isNaN(end)) return null;
+
+    // Cerca primo conflitto
+    for (const ev of existingEvents) {
+      if (ev.operator_id !== createOperatorId) continue;
+      if (ev.status === "cancelled") continue;
+      const evStart = ev.start.getTime();
+      const evEnd = ev.end.getTime();
+      // Sovrapposizione classica: NOT (evEnd <= start || evStart >= end)
+      if (!(evEnd <= start || evStart >= end)) {
+        return {
+          patient: ev.patient_name,
+          time: `${ev.start.getHours().toString().padStart(2, "0")}:${ev.start.getMinutes().toString().padStart(2, "0")}`,
+        };
+      }
+    }
+    return null;
+  }, [multiOperatorEnabled, createOperatorId, existingEvents, createStartISO, createEndISO, duplicateMode, duplicateDate, duplicateTime]);
 
   // ─── Search partecipanti iniziali (mig. 014, step 6.1) ────────
   const [participantsSearchQ, setParticipantsSearchQ] = useState("");
@@ -967,6 +1037,139 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
                 <div style={{ fontSize: 10, color: THEME.muted, marginTop: 6, fontStyle: "italic" }}>
                   Nota: la replica automatica dei pazienti su tutte le occorrenze (modalità chiuso) sarà attiva nel prossimo aggiornamento.
                 </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── Operatore (Multi-op, Fase 4d, mig. 019/022) ─────────────────────
+            Visibile solo se multi_operator_enabled = true. Permette di scegliere
+            chi svolge la seduta tra i membri attivi del team. Sotto, eventuale
+            warning se l'orario è in conflitto con un altro appuntamento dello
+            stesso operatore. */}
+        {multiOperatorEnabled && members && members.length > 0 && setCreateOperatorId && (
+          <div style={{ marginBottom: 20, border: `1.5px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft, marginBottom: 12 }}>
+              Operatore
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {members
+                .filter(m => m.user_id != null)
+                .map(m => {
+                  const id = m.user_id as string;
+                  const isSelected = createOperatorId === id;
+                  const color = m.display_color || "#94a3b8";
+                  const initials = (m.signature_short || m.display_name || "?").substring(0, 2).toUpperCase();
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setCreateOperatorId(isSelected ? null : id)}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "6px 12px 6px 6px",
+                        borderRadius: 99,
+                        background: isSelected ? color : "#fff",
+                        border: isSelected ? `2px solid ${color}` : `1.5px solid ${THEME.border}`,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 26,
+                          height: 26,
+                          borderRadius: "50%",
+                          background: isSelected ? "#fff" : color,
+                          color: isSelected ? color : "#fff",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: 10,
+                          fontWeight: 800,
+                        }}
+                      >
+                        {initials}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: isSelected ? "#fff" : THEME.text,
+                        }}
+                      >
+                        {m.display_name || "—"}
+                      </span>
+                    </button>
+                  );
+                })}
+              {/* Bottone "Nessuno" per assegnare a nessuno */}
+              <button
+                type="button"
+                onClick={() => setCreateOperatorId(null)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 12px 6px 6px",
+                  borderRadius: 99,
+                  background: createOperatorId === null ? "#94a3b8" : "#fff",
+                  border: createOperatorId === null ? "2px solid #94a3b8" : `1.5px solid ${THEME.border}`,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  transition: "all 0.15s",
+                }}
+              >
+                <span
+                  style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: "50%",
+                    background: createOperatorId === null ? "#fff" : "#94a3b8",
+                    color: createOperatorId === null ? "#475569" : "#fff",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 12,
+                    fontWeight: 800,
+                  }}
+                >
+                  ?
+                </span>
+                <span
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: createOperatorId === null ? "#fff" : THEME.muted,
+                  }}
+                >
+                  Non assegnato
+                </span>
+              </button>
+            </div>
+
+            {/* Warning conflitto orario per operatore */}
+            {operatorConflict && (
+              <div style={{
+                marginTop: 12,
+                padding: "10px 12px",
+                background: "rgba(245,158,11,0.08)",
+                border: "1px solid rgba(245,158,11,0.3)",
+                borderRadius: 8,
+                fontSize: 12,
+                color: "#92400e",
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}>
+                <span style={{ fontSize: 16 }}>⚠️</span>
+                <span>
+                  Conflitto: questo operatore ha già <strong>{operatorConflict.patient}</strong> alle <strong>{operatorConflict.time}</strong>. Puoi comunque salvare ma verifica.
+                </span>
               </div>
             )}
           </div>

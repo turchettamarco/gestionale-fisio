@@ -51,6 +51,8 @@ export type WeekViewTimelineProps = {
   onCreateForOperatorAndDay: (date: Date, operatorKey: string) => void;
   /** Click su evento: apre modale dettaglio (parent fa setup completo) */
   onSelectEvent: (event: CalendarEvent) => void;
+  /** WhatsApp: invia promemoria al paziente (Fase B) */
+  onSendReminder?: (eventId: string, phone?: string, firstName?: string) => void;
 };
 
 // Helper: ottiene la "chiave operatore" da un membro.
@@ -356,6 +358,26 @@ export default function WeekViewTimeline(p: WeekViewTimelineProps) {
                       >
                         {lastNameOf(ev)}
                       </span>
+                      {/* WA inline chip (Fase B) — visibile solo se la cella è
+                          larga abbastanza, comunque non blocca: stopPropagation */}
+                      {p.onSendReminder && ev.status !== "cancelled" && ev.patient_phone && (
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            p.onSendReminder!(ev.id, ev.patient_phone ?? undefined, ev.patient_first_name ?? undefined);
+                          }}
+                          title={ev.whatsapp_sent_at ? "WhatsApp già inviato" : "Invia WhatsApp"}
+                          style={{
+                            fontSize: 10,
+                            opacity: ev.whatsapp_sent_at ? 0.4 : 1,
+                            flexShrink: 0,
+                            cursor: "pointer",
+                            padding: "0 2px",
+                          }}
+                        >
+                          {ev.whatsapp_sent_at ? "✓" : "💬"}
+                        </span>
+                      )}
                     </button>
                   ))}
                   {hidden > 0 && (

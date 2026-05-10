@@ -53,6 +53,7 @@ import ManagementSection from "./components/sections/ManagementSection";
 import PasswordSection from "./components/sections/PasswordSection";
 import IntegrationsSection from "./components/sections/IntegrationsSection";
 import TeamSection from "./components/sections/TeamSection";
+import OperatorAbsencesSection from "./components/sections/OperatorAbsencesSection";
 import RoomsSection from "./components/sections/RoomsSection";
 import SettingsTabs, { type SettingsTab } from "./components/SettingsTabs";
 
@@ -89,6 +90,7 @@ export default function SettingsPage() {
   // Tab "Team" (mig. 019/020)
   const [showTeam,      setShowTeam]      = useState(true);
   const [showRooms,     setShowRooms]     = useState(true);
+  const [showAbsences,  setShowAbsences]  = useState(false);
 
   // ── Preferenza tab in localStorage ────────────────────────────────────────
   useEffect(() => {
@@ -151,6 +153,9 @@ export default function SettingsPage() {
   // Layout vista settimana multi-operatore (mig. 022)
   const [weeklyViewLayout, setWeeklyViewLayout]         = useState<"classic" | "timeline" | "pile" | "grid">("classic");
   const [savingWeeklyLayout, setSavingWeeklyLayout]     = useState(false);
+  // Vista predefinita all'apertura calendario (mig. 023, Fase D)
+  const [defaultCalendarView, setDefaultCalendarView]   = useState<"day" | "week" | "month">("week");
+  const [savingDefaultCalendarView, setSavingDefaultCalendarView] = useState(false);
 
   // ── Multi-stanza (mig. 019 + 020) ────────────────────────────────────
   const [multiRoomEnabled, setMultiRoomEnabled]         = useState(false);
@@ -413,9 +418,16 @@ export default function SettingsPage() {
       } else {
         setWeeklyViewLayout("classic");
       }
+      // mig. 023 — hidrata vista predefinita calendario (default 'week')
+      const dv = studio.default_calendar_view;
+      if (dv === "day" || dv === "week" || dv === "month") {
+        setDefaultCalendarView(dv);
+      } else {
+        setDefaultCalendarView("week");
+      }
       void loadMembers();
     }
-  }, [studio?.id, studio?.multi_operator_enabled, studio?.multi_room_enabled, studio?.weekly_view_layout, loadMembers]);
+  }, [studio?.id, studio?.multi_operator_enabled, studio?.multi_room_enabled, studio?.weekly_view_layout, studio?.default_calendar_view, loadMembers]);
 
   const saveMultiOperatorToggle = useCallback(async () => {
     if (!studio?.id) { alert("Studio non disponibile"); return; }
@@ -457,6 +469,28 @@ export default function SettingsPage() {
       setSavingWeeklyLayout(false);
     }
   }, [studio?.id, weeklyViewLayout, refreshStudio]);
+
+  // Salva la vista predefinita calendario (mig. 023, Fase D). Vive su
+  // `studios.default_calendar_view`. Studio-wide: vale per tutti i membri.
+  const saveDefaultCalendarView = useCallback(async () => {
+    if (!studio?.id) { alert("Studio non disponibile"); return; }
+    setSavingDefaultCalendarView(true);
+    try {
+      const { error } = await supabase
+        .from("studios")
+        .update({ default_calendar_view: defaultCalendarView })
+        .eq("id", studio.id);
+      if (error) {
+        alert("Errore salvataggio vista predefinita: " + error.message);
+        return;
+      }
+      await refreshStudio();
+      const labelMap = { day: "Giorno", week: "Settimana", month: "Mese" };
+      flashSuccess(`Vista predefinita aggiornata: ${labelMap[defaultCalendarView]}.`);
+    } finally {
+      setSavingDefaultCalendarView(false);
+    }
+  }, [studio?.id, defaultCalendarView, refreshStudio]);
 
   // Genera un nuovo invito (placeholder con user_id = NULL, invite_token = uuid).
   // Restituisce il token così la UI può mostrare subito il link da copiare.
@@ -1707,6 +1741,10 @@ export default function SettingsPage() {
               setWeeklyViewLayout={setWeeklyViewLayout}
               savingWeeklyLayout={savingWeeklyLayout}
               onSaveWeeklyLayout={() => void saveWeeklyLayout()}
+              defaultCalendarView={defaultCalendarView}
+              setDefaultCalendarView={setDefaultCalendarView}
+              savingDefaultCalendarView={savingDefaultCalendarView}
+              onSaveDefaultCalendarView={() => void saveDefaultCalendarView()}
             />
 
             <RoomsSection
@@ -1725,6 +1763,17 @@ export default function SettingsPage() {
               onUpdate={updateRoom}
               onDelete={deleteRoom}
             />
+
+            {/* Sezione assenze operatori (Fase 5). Visibile solo se multi-op
+                attivo e ≥2 membri. Le assenze appariranno nel calendario. */}
+            {multiOperatorEnabled && members.filter(m => m.is_active !== false).length >= 2 && studio?.id && (
+              <OperatorAbsencesSection
+                show={showAbsences}
+                onToggle={() => setShowAbsences(!showAbsences)}
+                studioId={studio.id}
+                members={members.filter(m => m.is_active !== false)}
+              />
+            )}
           </>
         )}
 

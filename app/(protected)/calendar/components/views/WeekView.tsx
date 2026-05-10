@@ -542,13 +542,13 @@ export default function WeekView({
             // Multi-sede (mig. 014, fase 3)
             const locStyle = getLocationCardStyle(event, studioLocations);
 
-            const cardH = Math.max(height - 2, 28);
+            const cardH = Math.max(height - 2, 22);
             // 3 livelli di rendering in base all'altezza:
-            //   • isShort  (≤30min, < 38px) → 1 riga: orario + nome
-            //   • isMedium (45min,  38–55px) → 2 righe: orario+icone / nome+tipo+prezzo+stato
-            //   • full     (≥60min, ≥ 56px)  → 3 righe come prima
-            const isShort  = cardH < 38;
-            const isMedium = !isShort && cardH < 56;
+            //   • isShort  (≤30min, < 34px) → 1 riga: orario + nome
+            //   • isMedium (45min,  34–50px) → 2 righe: orario+icone / nome+tipo+prezzo+stato
+            //   • full     (≥60min, ≥ 51px)  → 3 righe come prima
+            const isShort  = cardH < 34;
+            const isMedium = !isShort && cardH < 51;
 
             return (
               <div
@@ -580,6 +580,9 @@ export default function WeekView({
                   top: `${top + 1}px`,
                   width: `calc(((100% - ${TIME_COL}px) / 6 - 8px) / ${totalLanes} - ${totalLanes > 1 ? 2 : 0}px)`,
                   height: `${cardH}px`,
+                  // Container query: il font dentro scala con la larghezza
+                  // effettiva di QUESTA card (settimane piene con più lane = più stretta)
+                  containerType: "inline-size",
                   background: isMatch ? "#f59e0b" : event.is_group ? "linear-gradient(135deg, #0d9488 0%, #06b6d4 100%)" : statusBg(event.status),
                   color: "#fff",
                   borderRadius: 6,
@@ -676,28 +679,26 @@ export default function WeekView({
                         )}
                       </span>
                       <div style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0 }}>
-                        {/* Pagato — micro icon button con popover */}
-                        {onUpdatePayment ? (
-                          <PaidIconButton
-                            data={{
-                              is_paid: isPaid,
-                              paid_at: event.paid_at,
-                              payment_method: event.payment_method,
-                              price_type: event.price_type,
-                            }}
-                            onUpdate={async (next) => onUpdatePayment(event.id, next)}
-                            tone="light"
-                            size={14}
-                          />
-                        ) : (
+                        {/* WhatsApp (Fase B) */}
+                        {event.status !== "cancelled" && event.patient_phone && (
                           <button
-                            onClick={e => { e.preventDefault(); e.stopPropagation(); onTogglePaid(event.id, isPaid); }}
-                            title={isPaid ? "Pagato — clicca per annullare" : "Segna pagato"}
-                            style={{
-                              background: "none", border: "none", cursor: "pointer", padding: 0,
-                              fontSize: 11, lineHeight: 1, opacity: isPaid ? 1 : 0.5,
+                            onClick={e => {
+                              e.preventDefault(); e.stopPropagation();
+                              onSendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined);
                             }}
-                          >🪙</button>
+                            title={waSent ? "WhatsApp già inviato" : "Invia WhatsApp"}
+                            style={{
+                              width: 14, height: 14, borderRadius: 3,
+                              border: "none",
+                              background: waSent ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.85)",
+                              color: waSent ? "rgba(255,255,255,0.9)" : "#16a34a",
+                              cursor: "pointer", fontSize: 8, fontWeight: 800,
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              padding: 0, flexShrink: 0,
+                            }}
+                          >
+                            {waSent ? "✓" : "💬"}
+                          </button>
                         )}
                         {/* Eseguito */}
                         <button
@@ -778,45 +779,25 @@ export default function WeekView({
                         )}
                       </span>
                       <div className="cal-evt-actions" style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0 }}>
-                        {/* Pagato — micro icon button con popover */}
-                        {onUpdatePayment ? (
-                          <PaidIconButton
-                            data={{
-                              is_paid: isPaid,
-                              paid_at: event.paid_at,
-                              payment_method: event.payment_method,
-                              price_type: event.price_type,
-                            }}
-                            onUpdate={async (next) => onUpdatePayment(event.id, next)}
-                            tone="light"
-                            size={18}
-                          />
-                        ) : (
-                          <button
-                            onClick={e => { e.preventDefault(); e.stopPropagation(); onTogglePaid(event.id, isPaid); }}
-                            title={isPaid ? "Pagato — clicca per annullare" : "Segna pagato"}
-                            style={{
-                              background: isPaid ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.15)",
-                              border: `1px solid ${isPaid ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.3)"}`,
-                              borderRadius: 4, cursor: "pointer", padding: "0 5px",
-                              fontSize: 13, lineHeight: "18px",
-                              display: "flex", alignItems: "center", gap: 2, height: 18,
-                            }}
-                          >
-                            🪙{isPaid && <span style={{ fontSize: 10, fontWeight: 800, color: "#fff" }}>✓</span>}
-                          </button>
-                        )}
-                        {/* WA promemoria */}
+                        {/* WhatsApp (Fase B) */}
                         {event.status !== "cancelled" && event.patient_phone && (
                           <button
                             onClick={e => {
                               e.preventDefault(); e.stopPropagation();
                               onSendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined);
                             }}
-                            title={waSent ? "Reinvia promemoria" : "Invia promemoria"}
-                            style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: 13, lineHeight: 1, opacity: waSent ? 1 : 0.5 }}
+                            title={waSent ? "WhatsApp già inviato" : "Invia WhatsApp"}
+                            style={{
+                              width: 16, height: 16, borderRadius: 4,
+                              border: "none",
+                              background: waSent ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.85)",
+                              color: waSent ? "rgba(255,255,255,0.9)" : "#16a34a",
+                              cursor: "pointer", fontSize: 9, fontWeight: 800,
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              padding: 0, flexShrink: 0,
+                            }}
                           >
-                            {waSent ? "🔕" : "🔔"}
+                            {waSent ? "✓" : "💬"}
                           </button>
                         )}
                         {/* Eseguito */}
@@ -842,7 +823,10 @@ export default function WeekView({
 
                     {/* Riga 2: nome paziente */}
                     <div style={{
-                      fontWeight: 700, fontSize: autoNameFontSize(event.patient_name),
+                      fontWeight: 700,
+                      // Font scalabile: clamp tra 10 e 13px in base alla larghezza
+                      // della card (cqi = container query inline-size %)
+                      fontSize: "clamp(10px, 3.6cqi, 13px)",
                       color: "#fff", lineHeight: 1.2,
                       overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                     }}>

@@ -42,6 +42,8 @@ export type WeekViewPileProps = {
   onSelectEvent: (event: CalendarEvent) => void;
   /** Tasto rapido: avanza il ciclo stato/pagamento dell'evento */
   onCycleStatus: (event: CalendarEvent) => void;
+  /** WhatsApp: invia promemoria al paziente (Fase B) */
+  onSendReminder?: (eventId: string, phone?: string, firstName?: string) => void;
 };
 
 function memberKey(m: StudioMember): string | null {
@@ -349,31 +351,56 @@ export default function WeekViewPile(p: WeekViewPileProps) {
                         </div>
                       )}
 
-                      {/* Riga 4: tasto rapido stato/pagamento */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          p.onCycleStatus(ev);
-                        }}
-                        style={{
-                          marginTop: 2,
-                          background: action.bg,
-                          color: action.color,
-                          border: "none",
-                          borderRadius: 6,
-                          padding: "4px 8px",
-                          fontSize: 10,
-                          fontWeight: 700,
-                          fontFamily: "inherit",
-                          cursor: "pointer",
-                          letterSpacing: 0.2,
-                          textAlign: "center",
-                          width: "100%",
-                        }}
-                        title={action.title}
-                      >
-                        {action.label}
-                      </button>
+                      {/* Riga 4: WA + tasto rapido stato/pagamento (Fase B) */}
+                      <div style={{ display: "flex", gap: 4, marginTop: 2 }}>
+                        {p.onSendReminder && ev.status !== "cancelled" && ev.patient_phone && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              p.onSendReminder!(ev.id, ev.patient_phone ?? undefined, ev.patient_first_name ?? undefined);
+                            }}
+                            title={ev.whatsapp_sent_at ? "WhatsApp già inviato" : "Invia WhatsApp"}
+                            style={{
+                              background: ev.whatsapp_sent_at ? "#e2e8f0" : "#dcfce7",
+                              color: ev.whatsapp_sent_at ? "#475569" : "#16a34a",
+                              border: "none",
+                              borderRadius: 6,
+                              padding: "4px 8px",
+                              fontSize: 11,
+                              fontWeight: 700,
+                              fontFamily: "inherit",
+                              cursor: "pointer",
+                              flexShrink: 0,
+                              minWidth: 30,
+                            }}
+                          >
+                            {ev.whatsapp_sent_at ? "✓" : "💬"}
+                          </button>
+                        )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            p.onCycleStatus(ev);
+                          }}
+                          style={{
+                            background: action.bg,
+                            color: action.color,
+                            border: "none",
+                            borderRadius: 6,
+                            padding: "4px 8px",
+                            fontSize: 10,
+                            fontWeight: 700,
+                            fontFamily: "inherit",
+                            cursor: "pointer",
+                            letterSpacing: 0.2,
+                            textAlign: "center",
+                            flex: 1,
+                          }}
+                          title={action.title}
+                        >
+                          {action.label}
+                        </button>
+                      </div>
                     </div>
                   );
                 })

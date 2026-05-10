@@ -107,6 +107,21 @@ export type SelectedEventModalProps = {
   onSendGoogleReview: (phone?: string, firstName?: string) => void;
   /** Apre il dialog "Promemoria settimana" per il paziente di questo appuntamento */
   onSendWeeklyReminder: (patientId: string, firstName: string, phone: string | null) => void;
+
+  // ─── Multi-operatore (mig. 019/022, Fase 4d.1) ──────────────
+  /** Toggle multi_operator_enabled — se false, il selettore non si vede */
+  multiOperatorEnabled?: boolean;
+  /** Membri attivi del team (richiesto se multiOperatorEnabled = true) */
+  members?: Array<{
+    user_id: string | null;
+    invite_token?: string | null;
+    display_name: string | null;
+    display_color?: string | null;
+    signature_short?: string | null;
+  }>;
+  /** ID operatore correntemente selezionato per la modifica */
+  editOperatorId?: string | null;
+  setEditOperatorId?: (id: string | null) => void;
 };
 
 export default function SelectedEventModal({
@@ -125,11 +140,44 @@ export default function SelectedEventModal({
   getEventColor, getDefaultAmount,
   onClose, onDuplicate, onSave, onDelete,
   onSendReminder, onSendGoogleReview, onSendWeeklyReminder,
+  multiOperatorEnabled,
+  members,
+  editOperatorId,
+  setEditOperatorId,
 }: SelectedEventModalProps) {
 
   // Lookup evento corrente nei dati aggiornati
   const liveEvent = events.find(e => e.id === selectedEvent.id) || null;
   const hasPhone = !!liveEvent?.patient_phone;
+
+  // ─── Multi-op: conflict detection per operatore selezionato (Fase 4d.1) ──
+  // Se l'operatore + orario di modifica collidono con un altro appuntamento
+  // (escluso questo stesso evento), mostriamo warning ambra sopra al footer.
+  const operatorConflict = (() => {
+    if (!multiOperatorEnabled) return null;
+    if (!editOperatorId) return null;
+    if (!editDate || !editStartTime) return null;
+    const startStr = `${editDate}T${editStartTime}:00`;
+    const start = new Date(startStr).getTime();
+    if (Number.isNaN(start)) return null;
+    const durHours = parseFloat(editDuration);
+    const end = start + durHours * 60 * 60000;
+
+    for (const ev of events) {
+      if (ev.id === selectedEvent.id) continue;
+      if (ev.operator_id !== editOperatorId) continue;
+      if (ev.status === "cancelled") continue;
+      const evStart = ev.start.getTime();
+      const evEnd = ev.end.getTime();
+      if (!(evEnd <= start || evStart >= end)) {
+        return {
+          patient: ev.patient_name,
+          time: `${ev.start.getHours().toString().padStart(2, "0")}:${ev.start.getMinutes().toString().padStart(2, "0")}`,
+        };
+      }
+    }
+    return null;
+  })();
 
   // Color picker iniziale: custom (per paziente) → fallback colore stato/trattamento
   const colorPickerValue =
@@ -292,6 +340,135 @@ export default function SelectedEventModal({
               : "Seleziona data e orario"}
           </div>
         </div>
+
+        {/* ─── Operatore (Multi-op, Fase 4d.1) ────────────────────────────
+            Visibile solo se multi_operator_enabled = true. Permette di cambiare
+            l'operatore assegnato. Conflict detection sotto. */}
+        {multiOperatorEnabled && members && members.length > 0 && setEditOperatorId && (
+          <div style={{ marginBottom: 20, border: `1.5px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft, marginBottom: 12 }}>
+              Operatore
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {members
+                .filter(m => m.user_id != null)
+                .map(m => {
+                  const id = m.user_id as string;
+                  const isSelected = editOperatorId === id;
+                  const color = m.display_color || "#94a3b8";
+                  const initials = (m.signature_short || m.display_name || "?").substring(0, 2).toUpperCase();
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setEditOperatorId(isSelected ? null : id)}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "6px 12px 6px 6px",
+                        borderRadius: 99,
+                        background: isSelected ? color : "#fff",
+                        border: isSelected ? `2px solid ${color}` : `1.5px solid ${THEME.border}`,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 26,
+                          height: 26,
+                          borderRadius: "50%",
+                          background: isSelected ? "#fff" : color,
+                          color: isSelected ? color : "#fff",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: 10,
+                          fontWeight: 800,
+                        }}
+                      >
+                        {initials}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: isSelected ? "#fff" : THEME.text,
+                        }}
+                      >
+                        {m.display_name || "—"}
+                      </span>
+                    </button>
+                  );
+                })}
+              <button
+                type="button"
+                onClick={() => setEditOperatorId(null)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 12px 6px 6px",
+                  borderRadius: 99,
+                  background: editOperatorId === null ? "#94a3b8" : "#fff",
+                  border: editOperatorId === null ? "2px solid #94a3b8" : `1.5px solid ${THEME.border}`,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  transition: "all 0.15s",
+                }}
+              >
+                <span
+                  style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: "50%",
+                    background: editOperatorId === null ? "#fff" : "#94a3b8",
+                    color: editOperatorId === null ? "#475569" : "#fff",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 12,
+                    fontWeight: 800,
+                  }}
+                >
+                  ?
+                </span>
+                <span
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: editOperatorId === null ? "#fff" : THEME.muted,
+                  }}
+                >
+                  Non assegnato
+                </span>
+              </button>
+            </div>
+
+            {operatorConflict && (
+              <div style={{
+                marginTop: 12,
+                padding: "10px 12px",
+                background: "rgba(245,158,11,0.08)",
+                border: "1px solid rgba(245,158,11,0.3)",
+                borderRadius: 8,
+                fontSize: 12,
+                color: "#92400e",
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}>
+                <span style={{ fontSize: 16 }}>⚠️</span>
+                <span>
+                  Conflitto: questo operatore ha già <strong>{operatorConflict.patient}</strong> alle <strong>{operatorConflict.time}</strong>.
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ─── Trattamento e Prezzo ────────────────────────── */}
         <div style={{ marginBottom: 20, border: `1.5px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>

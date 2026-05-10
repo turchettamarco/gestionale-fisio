@@ -59,6 +59,20 @@ export type MonthViewProps = {
   members?: StudioMember[];
   /** Mappa operator_id → colore (chiave include "pending:..." per inviti) */
   operatorColorMap?: Map<string, string>;
+  /**
+   * Assenze/indisponibilità operatori (Fase 5, mig. 019).
+   * Usate per mostrare un indicatore "ferie/malattia" nella cella del giorno.
+   */
+  unavailabilities?: Array<{
+    id: string;
+    operator_id: string;
+    start_at: Date;
+    end_at: Date;
+    reason: string | null;
+    all_day: boolean;
+  }>;
+  /** WhatsApp: invia promemoria al paziente (Fase C) */
+  onSendReminder?: (eventId: string, phone?: string, firstName?: string) => void;
 };
 
 export default function MonthView({
@@ -70,6 +84,8 @@ export default function MonthView({
   multiOperatorMode,
   members,
   operatorColorMap,
+  unavailabilities,
+  onSendReminder,
 }: MonthViewProps) {
   // Decide se renderizzare in modalità multi-op (richiede ≥2 operatori).
   const isMultiOp = !!multiOperatorMode && !!members && members.length >= 2;
@@ -79,6 +95,34 @@ export default function MonthView({
     if (m.user_id) return m.user_id;
     if (m.invite_token) return `pending:${m.invite_token}`;
     return null;
+  };
+
+  // Helper: ritorna le assenze attive per un certo giorno (Fase 5)
+  // L'assenza è "attiva" se il suo intervallo si sovrappone al giorno
+  const absencesForDay = (day: Date): Array<{
+    operator_id: string;
+    reason: string | null;
+    color: string;
+    initial: string;
+  }> => {
+    if (!unavailabilities || unavailabilities.length === 0) return [];
+    if (!members || members.length === 0) return [];
+    const dayStart = new Date(day);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(day);
+    dayEnd.setHours(23, 59, 59, 999);
+    const result: Array<{ operator_id: string; reason: string | null; color: string; initial: string }> = [];
+    for (const u of unavailabilities) {
+      // Sovrapposizione classica: !(end <= dayStart || start >= dayEnd)
+      if (u.end_at <= dayStart || u.start_at >= dayEnd) continue;
+      // Trova il membro per colore + iniziale
+      const m = members.find(mm => mm.user_id === u.operator_id);
+      if (!m) continue;
+      const color = m.display_color || "#94a3b8";
+      const initial = (m.signature_short || m.display_name || "?").charAt(0).toUpperCase();
+      result.push({ operator_id: u.operator_id, reason: u.reason, color, initial });
+    }
+    return result;
   };
 
   return (
@@ -144,7 +188,9 @@ export default function MonthView({
                 onGoToDayView(day);
               }}
               style={{
-                minHeight: 130,
+                // In multi-op le celle crescono dinamicamente con il numero
+                // di appuntamenti. minHeight più alto per leggibilità (variante A).
+                minHeight: isMultiOp ? 160 : 130,
                 padding: "3px 4px",
                 borderRight: `1px solid ${THEME.borderSoft}`,
                 borderBottom: `1px solid ${THEME.borderSoft}`,
@@ -191,179 +237,148 @@ export default function MonthView({
                 )}
               </div>
 
+              {/* ── Indicatore assenze operatori (Fase 5) ─────────────────────
+                  Visibile solo in multi-op: pallini colorati con iniziale per
+                  ogni operatore in ferie/malattia/permesso quel giorno. */}
+              {isMultiOp && (() => {
+                const absences = absencesForDay(day);
+                if (absences.length === 0) return null;
+                return (
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 2,
+                      flexWrap: "wrap",
+                      marginBottom: 3,
+                      padding: "2px 4px",
+                      background: "rgba(245,158,11,0.08)",
+                      border: "1px solid rgba(245,158,11,0.25)",
+                      borderRadius: 4,
+                    }}
+                    title={absences.map(a => a.reason || "Indisponibile").join(", ")}
+                  >
+                    {absences.map((a, i) => (
+                      <span
+                        key={i}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 2,
+                          fontSize: 8,
+                          fontWeight: 700,
+                          color: a.color,
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: "50%",
+                            background: a.color,
+                            display: "inline-block",
+                          }}
+                        />
+                        <span style={{ color: "#92400e" }}>{a.initial}</span>
+                      </span>
+                    ))}
+                  </div>
+                );
+              })()}
+
               {/* Lista eventi compatta (con branching multi-op, Fase 4c) */}
               {isMultiOp ? (
-                // ━━━ MULTI-OP: micro-bar per operatore (variante A, mig. 022) ━━━
-                // Una riga per operatore con: iniziale + mini-barra proporzionale
-                // al carico relativo del giorno + count sedute. Aggiunge una
-                // riga "?" per gli eventi non assegnati se presenti.
+                // ━━━ MULTI-OP: lista verticale Variante A (Fase 5b) ━━━
+                // Tutti gli appuntamenti del giorno in righe colorate per
+                // operatore. NON cliccabili (sola visualizzazione: per
+                // dettaglio passare alle viste Day/Week). La cella cresce
+                // dinamicamente in altezza con il numero di appuntamenti.
                 (() => {
-                  // Conta eventi per operator key
-                  const counts = new Map<string, number>();
-                  let maxCount = 0;
-                  for (const ev of dayEvents) {
-                    const k = ev.operator_id || "_unassigned_";
-                    const next = (counts.get(k) || 0) + 1;
-                    counts.set(k, next);
-                    if (next > maxCount) maxCount = next;
-                  }
-                  const rows = (members ?? [])
-                    .map(m => ({ key: memberKey(m), member: m }))
-                    .filter((r): r is { key: string; member: StudioMember } => r.key !== null);
-                  const hasUnassigned = (counts.get("_unassigned_") || 0) > 0;
+                  // Ordina cronologicamente
+                  const sortedEvents = [...dayEvents].sort(
+                    (a, b) => a.start.getTime() - b.start.getTime()
+                  );
+
+                  // Helper: cognome + nome (full)
+                  const fullNameOf = (ev: typeof sortedEvents[number]): string => {
+                    const last = (ev.patient_last_name || "").trim();
+                    const first = (ev.patient_first_name || "").trim();
+                    if (last && first) return `${last} ${first}`;
+                    if (last) return last;
+                    if (first) return first;
+                    return ev.patient_name || "—";
+                  };
+
+                  // Helper: orario sempre HH:MM (zero-padded)
+                  const fmtHHMM = (d: Date): string => {
+                    const h = d.getHours().toString().padStart(2, "0");
+                    const m = d.getMinutes().toString().padStart(2, "0");
+                    return `${h}:${m}`;
+                  };
 
                   return (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 1 }}>
-                      {rows.map(({ key, member }) => {
-                        const color = operatorColorMap?.get(key) || "#94a3b8";
-                        const c = counts.get(key) || 0;
-                        const widthPct = maxCount > 0 && c > 0 ? Math.max(15, Math.round((c / maxCount) * 100)) : 0;
-                        const initial = (member.signature_short || member.display_name || "?").charAt(0).toUpperCase();
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 2 }}>
+                      {sortedEvents.map((ev) => {
+                        const opKey = ev.operator_id || "_unassigned_";
+                        const color = operatorColorMap?.get(opKey) || "#94a3b8";
+                        const waSent = !!ev.whatsapp_sent_at;
+                        const canShowWA = onSendReminder && ev.status !== "cancelled" && ev.patient_phone;
                         return (
                           <div
-                            key={key}
-                            onClick={(e) => {
-                              // Click sulla riga operatore = apri popover filtrato
-                              if (c === 0) return;
-                              e.stopPropagation();
-                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                              onOpenMonthPopover({
-                                day,
-                                events: dayEvents.filter(ev => (ev.operator_id || "_unassigned_") === key),
-                                x: rect.right + 8,
-                                y: rect.top,
-                              });
-                            }}
+                            key={ev.id}
+                            className="month-evt-row"
+                            title={`${ev.patient_name} · ${fmtHHMM(ev.start)}`}
                             style={{
+                              fontSize: 9,
+                              lineHeight: 1.25,
+                              padding: "2px 5px",
+                              borderLeft: `2px solid ${color}`,
+                              background: `${color}1f`,
+                              borderRadius: 3,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              color: THEME.text,
                               display: "flex",
                               alignItems: "center",
-                              gap: 3,
-                              cursor: c > 0 ? "pointer" : "default",
-                              opacity: c === 0 ? 0.35 : 1,
+                              gap: 4,
+                              position: "relative",
                             }}
-                            title={`${member.display_name || "—"}: ${c} ${c === 1 ? "seduta" : "sedute"}`}
                           >
-                            <span
-                              style={{
-                                width: 11,
-                                height: 11,
-                                borderRadius: "50%",
-                                background: color,
-                                color: "#fff",
-                                display: "inline-flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                fontSize: 7,
-                                fontWeight: 800,
-                                flexShrink: 0,
-                              }}
-                            >
-                              {initial}
+                            <span style={{ fontWeight: 800, color: THEME.text, flexShrink: 0 }}>
+                              {fmtHHMM(ev.start)}
                             </span>
-                            <div
-                              style={{
-                                flex: 1,
-                                height: 6,
-                                background: "rgba(0,0,0,0.04)",
-                                borderRadius: 99,
-                                overflow: "hidden",
-                                position: "relative",
-                              }}
-                            >
-                              <div
-                                style={{
-                                  width: `${widthPct}%`,
-                                  height: "100%",
-                                  background: color,
-                                  borderRadius: 99,
-                                  transition: "width 0.2s",
+                            <span style={{
+                              flex: 1,
+                              minWidth: 0,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}>
+                              {fullNameOf(ev)}
+                            </span>
+                            {canShowWA && (
+                              <span
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onSendReminder!(ev.id, ev.patient_phone ?? undefined, ev.patient_first_name ?? undefined);
                                 }}
-                              />
-                            </div>
-                            <span
-                              style={{
-                                fontSize: 8,
-                                fontWeight: 700,
-                                color: c > 0 ? color : THEME.muted,
-                                minWidth: 12,
-                                textAlign: "right",
-                                fontVariantNumeric: "tabular-nums",
-                              }}
-                            >
-                              {c || "·"}
-                            </span>
+                                title={waSent ? "WhatsApp già inviato" : "Invia WhatsApp"}
+                                className="month-evt-wa"
+                                style={{
+                                  fontSize: 9,
+                                  flexShrink: 0,
+                                  cursor: "pointer",
+                                  opacity: waSent ? 0.4 : 0,
+                                  transition: "opacity 0.12s",
+                                  padding: "0 2px",
+                                  // Visibile sempre se già inviato (✓), altrimenti solo on hover
+                                }}
+                              >
+                                {waSent ? "✓" : "💬"}
+                              </span>
+                            )}
                           </div>
                         );
                       })}
-                      {hasUnassigned && (
-                        <div
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                            onOpenMonthPopover({
-                              day,
-                              events: dayEvents.filter(ev => !ev.operator_id),
-                              x: rect.right + 8,
-                              y: rect.top,
-                            });
-                          }}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 3,
-                            cursor: "pointer",
-                          }}
-                          title={`Non assegnati: ${counts.get("_unassigned_")} sedute`}
-                        >
-                          <span
-                            style={{
-                              width: 11,
-                              height: 11,
-                              borderRadius: "50%",
-                              background: "#94a3b8",
-                              color: "#fff",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              fontSize: 7,
-                              fontWeight: 800,
-                              flexShrink: 0,
-                            }}
-                          >
-                            ?
-                          </span>
-                          <div
-                            style={{
-                              flex: 1,
-                              height: 6,
-                              background: "rgba(0,0,0,0.04)",
-                              borderRadius: 99,
-                              overflow: "hidden",
-                            }}
-                          >
-                            <div
-                              style={{
-                                width: `${maxCount > 0 ? Math.max(15, Math.round(((counts.get("_unassigned_") || 0) / maxCount) * 100)) : 0}%`,
-                                height: "100%",
-                                background: "#94a3b8",
-                                borderRadius: 99,
-                              }}
-                            />
-                          </div>
-                          <span
-                            style={{
-                              fontSize: 8,
-                              fontWeight: 700,
-                              color: "#475569",
-                              minWidth: 12,
-                              textAlign: "right",
-                              fontVariantNumeric: "tabular-nums",
-                            }}
-                          >
-                            {counts.get("_unassigned_")}
-                          </span>
-                        </div>
-                      )}
                     </div>
                   );
                 })()

@@ -122,6 +122,9 @@ export interface CreateFormState {
   // se valorizzato, l'appuntamento scala una seduta dal pacchetto e
   // l'incasso non viene gestito sulla seduta singola
   selectedPackageId?: string | null;
+  // Multi-operatore (mig. 019/022, Fase 4d):
+  // operatore selezionato. null = non assegnato. In single-op è ignorato.
+  createOperatorId?: string | null;
 }
 
 /** Stato del modale EDIT (form di modifica appuntamento esistente) */
@@ -135,6 +138,8 @@ export interface EditFormState {
   editDate: string;
   editStartTime: string;
   editDuration: "0.5" | "0.75" | "1" | "1.5" | "2";
+  // Multi-operatore (mig. 019/022, Fase 4d.1):
+  editOperatorId?: string | null;
 }
 
 /** Stato del modale "crea paziente rapido" */
@@ -697,6 +702,8 @@ export function useAppointmentMutations(
             payment_method: null,
             amount: null,
             studio_id: currentStudioId,
+            // Multi-op (mig. 019/022): assegna operator_id se selezionato
+            operator_id: createForm.createOperatorId ?? null,
             // Campi gruppo (mig. 014)
             is_group: true,
             group_title: groupTitle.trim(),
@@ -739,6 +746,8 @@ export function useAppointmentMutations(
             // dal pacchetto. I report incassano dai versamenti pacchetto.)
             package_id: createForm.selectedPackageId ?? null,
             studio_id: currentStudioId, // multi-tenancy
+            // Multi-op (mig. 019/022): assegna operator_id se selezionato
+            operator_id: createForm.createOperatorId ?? null,
             is_group: false,
           };
 
@@ -1050,15 +1059,17 @@ A presto${firma ? `,\n${firma}` : ""}`;
         editPriceType === "invoiced" ? effectiveEditPaymentMethod : null,
       start_at: newStartDate.toISOString(),
       end_at: newEndDate.toISOString(),
+      // Multi-op (mig. 019/022, Fase 4d.1)
+      operator_id: editForm.editOperatorId ?? null,
     };
 
     // Rimuoviamo le proprietà undefined/null
-    // ECCEZIONE: payment_method e paid_at devono poter essere settati a null
-    // (quando passi da "fatturato" a "contanti", devi cancellare il metodo;
-    //  quando l'appuntamento non è più done, paid_at va azzerato per il CHECK)
+    // ECCEZIONE: payment_method, paid_at, operator_id devono poter essere
+    // settati a null (riassegnare a "non assegnato" è valido, idem per gli
+    // altri due come da mig. 010 e check constraint).
     const cleanedData = Object.fromEntries(
       Object.entries(updateData).filter(([k, v]) => {
-        if (k === "payment_method" || k === "paid_at") return v !== undefined; // null è valido
+        if (k === "payment_method" || k === "paid_at" || k === "operator_id") return v !== undefined; // null è valido
         return v !== null && v !== undefined;
       })
     );

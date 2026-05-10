@@ -76,7 +76,12 @@ import type { WorkingHourRow } from "./useCalendarBootstrap";
 export interface UseCalendarEventsOptions {
   clientReady: boolean;
   workingHours: WorkingHourRow[];
-  currentStudio: { id: string; name: string | null } | null;
+  currentStudio: {
+    id: string;
+    name: string | null;
+    /** Vista calendario predefinita all'apertura (mig. 023, Fase D) */
+    default_calendar_view?: "day" | "week" | "month";
+  } | null;
   currentStudioId: string | null;
 }
 
@@ -180,6 +185,21 @@ export function useCalendarEvents(
   useEffect(() => {
     setCurrentDate(new Date());
   }, []);
+
+  // Applica la vista predefinita dello studio (mig. 023, Fase D).
+  // Una volta per studio: se l'utente cambia studio, applichiamo il suo default.
+  // Non sovrascriviamo se l'utente ha già cambiato vista in questa sessione
+  // (lo deduciamo dal fatto che l'effect parte solo quando lo studio cambia).
+  const lastAppliedStudioId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!currentStudio?.id) return;
+    if (lastAppliedStudioId.current === currentStudio.id) return;
+    lastAppliedStudioId.current = currentStudio.id;
+    const def = currentStudio.default_calendar_view;
+    if (def === "day" || def === "week" || def === "month") {
+      setViewType(def);
+    }
+  }, [currentStudio?.id, currentStudio?.default_calendar_view]);
 
   /* ─── loadAppointments ─── */
   const loadRequestId = useRef(0);
