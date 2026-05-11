@@ -1417,7 +1417,10 @@ export default function ReportsPage(){
 
             {/* ── Fase R3: Sedute, ore, compensi per terapista ────────── */}
             {multiOperatorEnabled && currentStudio?.id && (
-              <OperatorEarningsReport studioId={currentStudio.id} />
+              <OperatorEarningsReport
+                studioId={currentStudio.id}
+                studio={currentStudio as unknown as StudioHeaderData}
+              />
             )}
 
             {/* Trend + KPI secondari */}
