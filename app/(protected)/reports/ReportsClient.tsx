@@ -12,6 +12,7 @@ import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio, useStudioLocations, type StudioMember } from "@/src/contexts/StudioContext";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter, type StudioHeaderData } from "@/src/lib/pdfHeader";
 import AppNavbar from "@/src/components/AppNavbar";
+import OperatorEarningsReport from "./components/OperatorEarningsReport";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const T = {
@@ -1413,6 +1414,11 @@ export default function ReportsPage(){
                 )}
               </div>
             </div>
+
+            {/* ── Fase R3: Sedute, ore, compensi per terapista ────────── */}
+            {multiOperatorEnabled && currentStudio?.id && (
+              <OperatorEarningsReport studioId={currentStudio.id} />
+            )}
 
             {/* Trend + KPI secondari */}
             <div className="rep-trend-row" style={{display:"grid",gridTemplateColumns:"1fr 140px 140px 140px 140px",gap:14}}>

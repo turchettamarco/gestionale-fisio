@@ -252,6 +252,7 @@ function MemberCard({
   onEdit,
   onDelete,
   onRates,
+  onSchedule,
   onCopyInvite,
   onResendInvite,
   inviteUrl,
@@ -262,6 +263,7 @@ function MemberCard({
   onEdit: () => void;
   onDelete: () => void;
   onRates: () => void;
+  onSchedule: () => void;
   onCopyInvite?: () => void;
   onResendInvite?: () => void;
   inviteUrl?: string;
@@ -367,6 +369,18 @@ function MemberCard({
 
       {/* Azioni */}
       <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+        <button
+          onClick={onSchedule}
+          title="Turni di lavoro"
+          style={{
+            padding: "6px 10px", fontSize: 13, fontWeight: 700,
+            background: "#fff", color: THEME.blue,
+            border: `1px solid ${THEME.border}`, borderRadius: 6,
+            cursor: "pointer",
+          }}
+        >
+          🕐
+        </button>
         <button
           onClick={onRates}
           title="Tariffe per trattamento"
@@ -622,6 +636,253 @@ function MemberRatesForm({
   );
 }
 
+// ── Form turni operatore (Fase R2) ──────────────────────────────────────
+// Griglia settimanale 7 giorni. Ogni giorno può contenere N fasce orarie.
+// Salvataggio: cancella tutte le righe del membro e re-INSERT (più semplice
+// che diff puntuali; tabella piccola, costo trascurabile).
+const DOW_LABELS = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
+const DOW_ORDER = [1, 2, 3, 4, 5, 6, 0]; // ordine lun-dom (lun primo)
+
+type ScheduleSlot = { start: string; end: string }; // "HH:MM"
+
+function MemberSchedulesForm({
+  studioId,
+  memberId,
+  memberDisplayName,
+  onClose,
+}: {
+  studioId: string;
+  memberId: string;
+  memberDisplayName: string;
+  onClose: () => void;
+}) {
+  const [slots, setSlots] = useState<Record<number, ScheduleSlot[]>>({
+    0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [],
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [savedFlash, setSavedFlash] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data, error: fetchErr } = await supabase
+        .from("operator_schedules")
+        .select("day_of_week, start_time, end_time")
+        .eq("member_id", memberId)
+        .order("day_of_week")
+        .order("start_time");
+      if (cancelled) return;
+      if (fetchErr) {
+        setError("Errore caricamento turni: " + fetchErr.message);
+        setLoading(false);
+        return;
+      }
+      const next: Record<number, ScheduleSlot[]> = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
+      for (const r of data || []) {
+        const dow = r.day_of_week as number;
+        // start_time arriva come "HH:MM:SS"
+        const start = String(r.start_time).slice(0, 5);
+        const end = String(r.end_time).slice(0, 5);
+        next[dow].push({ start, end });
+      }
+      setSlots(next);
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [memberId]);
+
+  const addSlot = (dow: number) => {
+    setSlots(prev => ({
+      ...prev,
+      [dow]: [...prev[dow], { start: "09:00", end: "13:00" }],
+    }));
+  };
+
+  const removeSlot = (dow: number, idx: number) => {
+    setSlots(prev => ({
+      ...prev,
+      [dow]: prev[dow].filter((_, i) => i !== idx),
+    }));
+  };
+
+  const updateSlot = (dow: number, idx: number, field: "start" | "end", value: string) => {
+    setSlots(prev => ({
+      ...prev,
+      [dow]: prev[dow].map((s, i) => i === idx ? { ...s, [field]: value } : s),
+    }));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      // Validation: end > start per ogni fascia
+      for (const dow of [0, 1, 2, 3, 4, 5, 6]) {
+        for (const s of slots[dow]) {
+          if (s.end <= s.start) {
+            throw new Error(`${DOW_LABELS[dow]}: l'ora fine (${s.end}) deve essere dopo l'ora inizio (${s.start})`);
+          }
+        }
+      }
+      // DELETE all + re-INSERT (più semplice di diff)
+      const { error: delErr } = await supabase
+        .from("operator_schedules")
+        .delete()
+        .eq("member_id", memberId);
+      if (delErr) throw new Error("Errore cancellazione: " + delErr.message);
+
+      const rows: Array<{ studio_id: string; member_id: string; day_of_week: number; start_time: string; end_time: string }> = [];
+      for (const dow of [0, 1, 2, 3, 4, 5, 6]) {
+        for (const s of slots[dow]) {
+          rows.push({
+            studio_id: studioId,
+            member_id: memberId,
+            day_of_week: dow,
+            start_time: s.start + ":00",
+            end_time: s.end + ":00",
+          });
+        }
+      }
+      if (rows.length > 0) {
+        const { error: insErr } = await supabase
+          .from("operator_schedules")
+          .insert(rows);
+        if (insErr) throw new Error("Errore salvataggio: " + insErr.message);
+      }
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 2200);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Errore");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{
+      background: "#f8fafc",
+      border: `1px dashed ${THEME.border}`,
+      borderRadius: 10,
+      padding: 14,
+      marginTop: -4,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: THEME.text }}>
+          Turni di lavoro — <span style={{ color: THEME.blue }}>{memberDisplayName}</span>
+        </div>
+        <button
+          onClick={onClose}
+          style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: 16, color: THEME.muted, padding: "0 4px" }}
+          title="Chiudi"
+        >×</button>
+      </div>
+      <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 12, lineHeight: 1.5 }}>
+        Per ogni giorno della settimana puoi aggiungere una o più fasce orarie (es. mattina 09:00–13:00 + pomeriggio 15:00–19:00). Giorni senza fasce = non lavora.
+      </div>
+
+      {loading ? (
+        <div style={{ fontSize: 12, color: THEME.muted, padding: "8px 0" }}>Caricamento…</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {DOW_ORDER.map(dow => (
+            <div key={dow} style={{
+              display: "grid",
+              gridTemplateColumns: "100px 1fr 32px",
+              gap: 8,
+              alignItems: "center",
+              padding: "8px 10px",
+              background: "#fff",
+              borderRadius: 6,
+              border: `1px solid ${THEME.border}`,
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: THEME.text }}>
+                {DOW_LABELS[dow]}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {slots[dow].length === 0 ? (
+                  <span style={{ fontSize: 11, color: THEME.muted, fontStyle: "italic" }}>Riposo</span>
+                ) : (
+                  slots[dow].map((s, i) => (
+                    <div key={i} style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "3px 6px",
+                      background: "#f1f5f9",
+                      borderRadius: 6,
+                      border: `1px solid ${THEME.border}`,
+                    }}>
+                      <input
+                        type="time"
+                        value={s.start}
+                        onChange={(e) => updateSlot(dow, i, "start", e.target.value)}
+                        style={{ padding: "3px 4px", fontSize: 12, fontWeight: 600, color: "#0f172a", border: `1px solid ${THEME.border}`, borderRadius: 4, fontFamily: "inherit", width: 84 }}
+                      />
+                      <span style={{ fontSize: 11, color: THEME.muted }}>–</span>
+                      <input
+                        type="time"
+                        value={s.end}
+                        onChange={(e) => updateSlot(dow, i, "end", e.target.value)}
+                        style={{ padding: "3px 4px", fontSize: 12, fontWeight: 600, color: "#0f172a", border: `1px solid ${THEME.border}`, borderRadius: 4, fontFamily: "inherit", width: 84 }}
+                      />
+                      <button
+                        onClick={() => removeSlot(dow, i)}
+                        title="Rimuovi fascia"
+                        style={{ background: "transparent", border: "none", color: THEME.red, cursor: "pointer", fontSize: 14, padding: "0 4px" }}
+                      >×</button>
+                    </div>
+                  ))
+                )}
+              </div>
+              <button
+                onClick={() => addSlot(dow)}
+                title="Aggiungi fascia"
+                style={{
+                  width: 28, height: 28, borderRadius: 6,
+                  border: `1px solid ${THEME.border}`,
+                  background: "#fff", color: THEME.teal,
+                  cursor: "pointer", fontSize: 16, fontWeight: 700,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontFamily: "inherit",
+                }}
+              >+</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {error && (
+        <div style={{
+          marginTop: 10, padding: "8px 10px",
+          background: "#fef2f2", border: "1px solid #fecaca",
+          color: "#991b1b", borderRadius: 6, fontSize: 12, fontWeight: 600,
+        }}>{error}</div>
+      )}
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+        {savedFlash && (
+          <span style={{ fontSize: 12, fontWeight: 700, color: THEME.green, display: "inline-flex", alignItems: "center", padding: "0 8px" }}>
+            ✓ Salvato
+          </span>
+        )}
+        <button
+          onClick={onClose}
+          style={{ padding: "8px 14px", fontSize: 12, fontWeight: 600, background: "#fff", color: THEME.text, border: `1px solid ${THEME.border}`, borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}
+        >Chiudi</button>
+        <button
+          onClick={handleSave}
+          disabled={loading || saving}
+          style={{ padding: "8px 14px", fontSize: 12, fontWeight: 700, background: THEME.blue, color: "#fff", border: "none", borderRadius: 6, cursor: (loading || saving) ? "not-allowed" : "pointer", opacity: (loading || saving) ? 0.6 : 1, fontFamily: "inherit" }}
+        >
+          {saving ? "Salvataggio…" : "Salva turni"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Section principale ────────────────────────────────────────────────────
 export type TeamSectionProps = {
   show: boolean;
@@ -701,6 +962,9 @@ export default function TeamSection({
   // Stato form tariffe (Fase R1): id studio_members del membro per cui è
   // aperto il pannello tariffe. null = chiuso.
   const [ratesMemberId, setRatesMemberId] = useState<string | null>(null);
+
+  // Stato form turni (Fase R2)
+  const [scheduleMemberId, setScheduleMemberId] = useState<string | null>(null);
 
   // Catalogo trattamenti dello studio (per la matrice tariffe).
   // Carico una volta al mount, refresh quando si apre la sezione tariffe.
@@ -964,7 +1228,14 @@ export default function TeamSection({
                     copyFlash={copyFlashId === member.invite_token}
                     onEdit={() => setEditingId(memberKey)}
                     onDelete={() => handleDelete(member)}
-                    onRates={() => setRatesMemberId(ratesMemberId === member.id ? null : member.id)}
+                    onRates={() => {
+                      setScheduleMemberId(null);
+                      setRatesMemberId(ratesMemberId === member.id ? null : member.id);
+                    }}
+                    onSchedule={() => {
+                      setRatesMemberId(null);
+                      setScheduleMemberId(scheduleMemberId === member.id ? null : member.id);
+                    }}
                     onCopyInvite={() => member.invite_token && handleCopyInvite(member.invite_token)}
                   />
                   {ratesMemberId === member.id && treatmentsCatalog.length > 0 && (
@@ -988,6 +1259,14 @@ export default function TeamSection({
                     }}>
                       Nessun trattamento configurato. Vai prima nella sezione "Trattamenti" per crearne almeno uno.
                     </div>
+                  )}
+                  {scheduleMemberId === member.id && (
+                    <MemberSchedulesForm
+                      studioId={studioId}
+                      memberId={member.id}
+                      memberDisplayName={member.display_name || "—"}
+                      onClose={() => setScheduleMemberId(null)}
+                    />
                   )}
                 </React.Fragment>
               );
