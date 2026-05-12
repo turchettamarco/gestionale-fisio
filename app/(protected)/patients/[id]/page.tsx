@@ -13,6 +13,7 @@ import PatientSidebar, {
   DEFAULT_PATIENT_SECTION,
 } from "@/src/components/patient/PatientSidebar";
 import PatientSummaryPanel from "@/src/components/patient/PatientSummaryPanel";
+import StructuredAnamnesis from "@/src/components/patient/clinical/StructuredAnamnesis";
 import { translateError } from "@/src/lib/translateError";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter } from "@/src/lib/pdfHeader";
@@ -716,11 +717,13 @@ export default function PatientDetailPage({
   const [userEmail, setUserEmail]     = useState<string | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getUser();
       setUserEmail(data?.user?.email ?? null);
+      setUserId(data?.user?.id ?? null);
     })();
   }, []);
 
@@ -2886,11 +2889,28 @@ ${rows}
               activeGoals={activeGoals}
             />
 
-            <div style={{ background: THEME.panelSoft, border: `1.5px solid ${THEME.border}`, borderRadius: 10, padding: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>🧩 Anamnesi</div>
-              <textarea value={anamnesis} onChange={e => setAnamnesis(e.target.value)} rows={8} style={{ ...textareaStyle, marginTop: 0 }} placeholder="Storia del problema, red flags, farmaci, obiettivi…" />
+            {/* ── Tappa 5: ANAMNESI STRUTTURATA ──────────────────────── */}
+            {patient && currentStudio && userId && (
+              <StructuredAnamnesis
+                patientId={patient.id}
+                studioId={currentStudio.id}
+                ownerId={userId}
+              />
+            )}
+
+            {/* Note libere aggiuntive (textarea originale, ora come fallback) */}
+            <div style={{ marginTop: 18 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                <span>📝</span>
+                <span>Note libere aggiuntive (anamnesi)</span>
+              </div>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 6, fontWeight: 500 }}>
+                Tutto quello che non sta nei campi strutturati sopra
+              </div>
+              <textarea value={anamnesis} onChange={e => setAnamnesis(e.target.value)} rows={4} style={{ ...textareaStyle, marginTop: 0 }} placeholder="Note aggiuntive di anamnesi: farmaci, allergie, dettagli specifici, contesto…" />
             </div>
-            <div style={{ background: THEME.panelSoft, border: `1.5px solid ${THEME.border}`, borderRadius: 10, padding: 14 }}>
+
+            <div style={{ background: THEME.panelSoft, border: `1.5px solid ${THEME.border}`, borderRadius: 10, padding: 14, marginTop: 18 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>🧠 Diagnosi / ipotesi clinica</div>
               <textarea value={diagnosis} onChange={e => setDiagnosis(e.target.value)} rows={8} style={{ ...textareaStyle, marginTop: 0 }} placeholder="Diagnosi medica, ragionamento clinico, test positivi/negativi…" />
             </div>
