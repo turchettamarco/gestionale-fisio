@@ -154,7 +154,16 @@ async function main() {
       console.log(`${C.green}OK${C.reset} ${C.dim}(${duration_ms}ms)${C.reset}`);
       applied++;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      // Gli errori Supabase NON sono instanceof Error: sono oggetti
+      // { message, code, details, hint }. Per stamparli leggibili dobbiamo
+      // gestire entrambi i casi.
+      const e = err as any;
+      const message =
+        err instanceof Error
+          ? err.message
+          : e?.message
+              ? `${e.message}${e.code ? ` [${e.code}]` : ""}${e.details ? `\n   Details: ${e.details}` : ""}${e.hint ? `\n   Hint: ${e.hint}` : ""}`
+              : JSON.stringify(err, null, 2);
       console.log(`${C.red}KO${C.reset}\n`);
       console.error(`${C.red}❌ Migration ${m.name} fallita:${C.reset}`);
       console.error(`   ${message}\n`);
