@@ -5,7 +5,13 @@ import { getStudioBranding } from "@/src/lib/studioBranding";
 import { BuildInfo } from "@/src/components/BuildInfo";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
+import PatientSidebar, {
+  type PatientSectionId,
+  PATIENT_SECTION_IDS,
+  DEFAULT_PATIENT_SECTION,
+} from "@/src/components/patient/PatientSidebar";
 import { translateError } from "@/src/lib/translateError";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter } from "@/src/lib/pdfHeader";
@@ -818,20 +824,66 @@ export default function PatientDetailPage({
   const [showV2Clinical,    setShowV2Clinical]    = useState(true);
   const [showV2Business,    setShowV2Business]    = useState(true);
 
-  // Sezioni collassabili — tutte chiuse di default tranne anagrafica
-  const [secClinica,      setSecClinica]      = useState(false);
-  const [secBodyChart,    setSecBodyChart]    = useState(false);
-  const [secDocClinici,   setSecDocClinici]   = useState(false);
-  const [secPacchetti,    setSecPacchetti]    = useState(false);
-  const [secTerapie,      setSecTerapie]      = useState(false);
-  const [secDiarioSOAP,   setSecDiarioSOAP]   = useState(false);
+  // ── Sezione attiva (Tappa 1 refactor UX) ──────────────────────────
+  // Memorizzata in query string ?section=xxx per back/forward browser e link condivisibili.
+  const searchParams = useSearchParams();
+  const router       = useRouter();
+  const pathname     = usePathname();
+
+  const initialSection: PatientSectionId = (() => {
+    const raw = searchParams?.get("section");
+    if (raw && (PATIENT_SECTION_IDS as string[]).includes(raw)) return raw as PatientSectionId;
+    return DEFAULT_PATIENT_SECTION;
+  })();
+  const [activeSection, setActiveSectionState] = useState<PatientSectionId>(initialSection);
+  const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false);
+
+  // ── Menu kebab azioni paziente (Tappa 2) ──────────────────────────
+  // Apre/chiude il dropdown con le azioni meno frequenti.
+  const [kebabOpen, setKebabOpen] = useState(false);
+  const kebabRef = useRef<HTMLDivElement | null>(null);
+
+  // Chiusura kebab al click fuori e con tasto Escape
+  useEffect(() => {
+    if (!kebabOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (kebabRef.current && !kebabRef.current.contains(e.target as Node)) {
+        setKebabOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setKebabOpen(false); };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [kebabOpen]);
+
+  // Sincronizzo lo stato con la query string (aggiorna URL senza ricaricare la pagina)
+  const setActiveSection = useCallback((s: PatientSectionId) => {
+    setActiveSectionState(s);
+    const sp = new URLSearchParams(searchParams?.toString() || "");
+    sp.set("section", s);
+    router.replace(`${pathname}?${sp.toString()}`, { scroll: false });
+  }, [router, pathname, searchParams]);
+
+  // Sezioni collassabili — nel nuovo layout sidebar la sezione attiva è
+  // sempre l'unica renderizzata, quindi parte sempre aperta. Lo stato
+  // secXxx resta per compatibilità con SecHeader.
+  const [secClinica,      setSecClinica]      = useState(true);
+  const [secBodyChart,    setSecBodyChart]    = useState(true);
+  const [secDocClinici,   setSecDocClinici]   = useState(true);
+  const [secPacchetti,    setSecPacchetti]    = useState(true);
+  const [secTerapie,      setSecTerapie]      = useState(true);
+  const [secDiarioSOAP,   setSecDiarioSOAP]   = useState(true);
   const [soapNotes,       setSoapNotes]       = useState<any[]>([]);
   const [loadingSOAP,     setLoadingSOAP]     = useState(false);
-  const [secScales,       setSecScales]       = useState(false);
-  const [secPhotos,       setSecPhotos]       = useState(false);
-  const [secGDPR,         setSecGDPR]         = useState(false);
-  const [secTimeline,     setSecTimeline]     = useState(false);
-  const [secEsercizi,     setSecEsercizi]     = useState(false);
+  const [secScales,       setSecScales]       = useState(true);
+  const [secPhotos,       setSecPhotos]       = useState(true);
+  const [secGDPR,         setSecGDPR]         = useState(true);
+  const [secTimeline,     setSecTimeline]     = useState(true);
+  const [secEsercizi,     setSecEsercizi]     = useState(true);
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [consentSaving, setConsentSaving] = useState(false);
   const [consentSaved,  setConsentSaved]  = useState(false);
@@ -1351,6 +1403,40 @@ A presto,
     display: "flex", justifyContent: "space-between",
     alignItems: "flex-start", gap: 12, marginBottom: 20,
   };
+
+  // ── Voce di menu kebab (Tappa 2) ─────────────────────────────────────
+  // Usata nel menu "⋮ Altre azioni" dell'header paziente.
+  const KebabItem = ({ icon, label, onClick, disabled, danger, keepOpen }: {
+    icon: string;
+    label: string;
+    onClick: () => void;
+    disabled?: boolean;
+    danger?: boolean;
+    /** Se true, il menu NON si chiude dopo il click (utile per "Copia link"). */
+    keepOpen?: boolean;
+  }) => (
+    <button
+      role="menuitem"
+      onClick={() => { if (!disabled) { onClick(); if (!keepOpen) setKebabOpen(false); } }}
+      disabled={disabled}
+      style={{
+        display: "flex", alignItems: "center", gap: 10,
+        width: "100%", padding: "10px 12px",
+        border: "none", background: "transparent",
+        color: danger ? THEME.red : THEME.textSoft,
+        fontWeight: 700, fontSize: 13, fontFamily: "inherit",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.5 : 1,
+        borderRadius: 7, textAlign: "left",
+        transition: "background .1s",
+      }}
+      onMouseEnter={e => { if (!disabled) e.currentTarget.style.background = danger ? "rgba(220,38,38,0.08)" : "#f1f5f9"; }}
+      onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+    >
+      <span style={{ width: 18, textAlign: "center", fontSize: 14, lineHeight: 1 }}>{icon}</span>
+      <span style={{ flex: 1 }}>{label}</span>
+    </button>
+  );
 
   const SecHeader = ({ icon, title, subtitle, open, onToggle, extra, badge }: {
     icon:string; title:string; subtitle:string; open:boolean; onToggle:()=>void; extra?:React.ReactNode; badge?:React.ReactNode;
@@ -2223,6 +2309,15 @@ ${rows}
             font-size: 12px !important; padding: 8px 12px !important;
           }
         }
+        /* ── Layout sidebar paziente (Tappa 1) ─────────────────────── */
+        @media (max-width: 1023px) {
+          .patient-layout {
+            grid-template-columns: 1fr !important;
+          }
+          .patient-sidebar-hamburger {
+            display: inline-flex !important;
+          }
+        }
       `}</style>
 
       {/* ━━━ NAVBAR ━━━ */}
@@ -2334,81 +2429,117 @@ ${rows}
             </div>
           </div>
 
-          <div className="patient-header-btns" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <Link href="/patients" style={{
-              padding: "9px 16px", borderRadius: 8, border: `1.5px solid ${THEME.border}`,
-              background: THEME.panelBg, color: THEME.textSoft, fontWeight: 700,
-              textDecoration: "none", fontSize: 13, display: "inline-flex", alignItems: "center",
-            }}>← Lista</Link>
-            <Link href="/calendar" style={{
-              padding: "9px 16px", borderRadius: 8, border: `1.5px solid ${THEME.border}`,
-              background: THEME.panelBg, color: THEME.blue, fontWeight: 700,
-              textDecoration: "none", fontSize: 13, display: "inline-flex", alignItems: "center",
-            }}>📅 Calendario</Link>
-            {patient.phone && (
-              <button
-                onClick={() => setWeeklyReminderOpen(true)}
-                title="Invia un solo messaggio WhatsApp con tutti gli appuntamenti della settimana"
-                style={{
-                  padding: "9px 16px", borderRadius: 8,
-                  border: `1.5px solid ${THEME.green}`,
-                  background: THEME.panelBg, color: THEME.green, fontWeight: 700,
-                  cursor: "pointer", fontSize: 13,
-                  display: "inline-flex", alignItems: "center", gap: 4,
-                }}
-              >
-                📲 Promemoria settimana
-              </button>
-            )}
-            <button onClick={deletePatient} disabled={deletingPatient} style={{
-              padding: "9px 16px", borderRadius: 8, border: `1.5px solid ${THEME.red}`,
-              background: "rgba(220,38,38,0.06)", color: THEME.red, fontWeight: 700,
-              fontSize: 13, cursor: deletingPatient ? "not-allowed" : "pointer",
-              opacity: deletingPatient ? 0.6 : 1,
-            }}>
-              {deletingPatient ? "Elimino…" : "Elimina paziente"}
-            </button>
-            <button onClick={() => setShowConsentModal(true)} style={{
-              padding: "9px 16px", borderRadius: 8, border: "none",
-              background: "linear-gradient(135deg, #0d9488, #2563eb)",
-              color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer",
-            }}>🔏 Genera consensi</button>
+          <div className="patient-header-btns" style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+
+            {/* ── BOTTONI PRIMARI (sempre visibili) ─────────────────────── */}
             <button onClick={exportPazientePDF} style={{
-              padding: "9px 16px", borderRadius: 8, border: `1.5px solid ${THEME.blue}`,
-              background: "rgba(37,99,235,0.06)", color: THEME.blue, fontWeight: 700,
-              fontSize: 13, cursor: "pointer",
-            }}>📄 Esporta PDF</button>
-            <button onClick={sendSatisfactionSurvey} style={{
-              padding: "9px 16px", borderRadius: 8, border: `1.5px solid #f59e0b`,
-              background: "rgba(245,158,11,0.06)", color: "#b45309", fontWeight: 700,
-              fontSize: 13, cursor: "pointer",
-            }}>⭐ Questionario</button>
-            <button onClick={sendPortalLink} disabled={portalLinkLoading} style={{
-              padding: "9px 16px", borderRadius: 8, border: `1.5px solid #7c3aed`,
-              background: "rgba(124,58,237,0.06)", color: "#7c3aed", fontWeight: 700,
-              fontSize: 13, cursor: "pointer", opacity: portalLinkLoading ? 0.6 : 1,
-            }}>{portalLinkLoading ? "⏳…" : "🔑 Area riservata"}</button>
-            <button onClick={copyPortalLink} disabled={portalLinkLoading} style={{
-              padding: "9px 16px", borderRadius: 8, border: `1.5px solid ${THEME.border}`,
-              background: THEME.panelSoft, color: portalLinkCopied ? THEME.green : THEME.muted, fontWeight: 700,
-              fontSize: 13, cursor: "pointer",
-            }}>{portalLinkCopied ? "✓ Copiato!" : "📋 Copia link"}</button>
-            {/* Compleanno — solo se ha data di nascita */}
-            {birthDate && phone && (
-              <button onClick={sendBirthdayMsg} title={`Auguri di compleanno a ${firstName}`} style={{
-                padding: "9px 16px", borderRadius: 8, border: `1.5px solid #f59e0b`,
-                background: "rgba(245,158,11,0.06)", color: "#b45309", fontWeight: 700,
-                fontSize: 13, cursor: "pointer",
-              }}>🎂 Auguri</button>
-            )}
-            {/* Saldo — solo se ha importo non pagato */}
+              padding: "6px 12px", borderRadius: 7, border: `1px solid ${THEME.border}`,
+              background: THEME.panelBg, color: THEME.textSoft, fontWeight: 600,
+              fontSize: 12, cursor: "pointer", height: 30,
+              display: "inline-flex", alignItems: "center", gap: 5,
+              fontFamily: "inherit",
+            }}>📄 PDF</button>
+
+            <button onClick={() => setShowConsentModal(true)} style={{
+              padding: "6px 12px", borderRadius: 7, border: "none",
+              background: "linear-gradient(135deg, #0d9488, #2563eb)",
+              color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer", height: 30,
+              display: "inline-flex", alignItems: "center", gap: 5,
+              fontFamily: "inherit",
+            }}>🔏 Consensi</button>
+
+            {/* ── SALDO APERTO (visibile solo se >0) ─────────────────────── */}
             {unpaidAmount > 0 && phone && (
               <button onClick={sendPaymentMsg} title={`Saldo aperto: €${unpaidAmount.toFixed(2)}`} style={{
-                padding: "9px 16px", borderRadius: 8, border: `1.5px solid #dc2626`,
-                background: "rgba(220,38,38,0.06)", color: "#dc2626", fontWeight: 700,
-                fontSize: 13, cursor: "pointer",
+                padding: "6px 12px", borderRadius: 7,
+                border: `1px solid rgba(220,38,38,0.25)`,
+                background: "rgba(220,38,38,0.05)", color: "#dc2626", fontWeight: 700,
+                fontSize: 12, cursor: "pointer", height: 30,
+                display: "inline-flex", alignItems: "center", gap: 5,
+                fontFamily: "inherit",
               }}>💶 Saldo €{unpaidAmount % 1 === 0 ? unpaidAmount.toFixed(0) : unpaidAmount.toFixed(2)}</button>
             )}
+
+            {/* ── MENU KEBAB (azioni secondarie) ─────────────────────────── */}
+            <div ref={kebabRef} style={{ position: "relative" }}>
+              <button
+                onClick={() => setKebabOpen(o => !o)}
+                aria-label="Altre azioni"
+                aria-expanded={kebabOpen}
+                title="Altre azioni"
+                style={{
+                  width: 30, height: 30, padding: 0, borderRadius: 7,
+                  border: `1px solid ${THEME.border}`,
+                  background: kebabOpen ? "#f1f5f9" : THEME.panelBg,
+                  color: THEME.textSoft, fontWeight: 700, fontSize: 16, cursor: "pointer",
+                  lineHeight: 1, display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  fontFamily: "inherit",
+                }}
+              >⋮</button>
+
+              {kebabOpen && (
+                <div role="menu" style={{
+                  position: "absolute", top: "calc(100% + 6px)", right: 0,
+                  width: 240,
+                  background: THEME.panelBg,
+                  border: `1px solid ${THEME.border}`,
+                  borderRadius: 10,
+                  boxShadow: "0 10px 30px rgba(15,23,42,0.18), 0 2px 8px rgba(15,23,42,0.08)",
+                  padding: 6,
+                  zIndex: 50,
+                }}>
+                  <KebabItem icon="←" label="Lista pazienti" onClick={() => { setKebabOpen(false); router.push("/patients"); }} />
+
+                  {patient.phone && (
+                    <KebabItem
+                      icon="📲"
+                      label="Promemoria settimana"
+                      onClick={() => { setKebabOpen(false); setWeeklyReminderOpen(true); }}
+                    />
+                  )}
+
+                  <KebabItem
+                    icon="⭐"
+                    label="Questionario soddisfazione"
+                    onClick={() => { setKebabOpen(false); sendSatisfactionSurvey(); }}
+                  />
+
+                  <KebabItem
+                    icon="🔑"
+                    label={portalLinkLoading ? "Caricamento…" : "Invia area riservata"}
+                    onClick={() => { setKebabOpen(false); sendPortalLink(); }}
+                    disabled={portalLinkLoading}
+                  />
+                  <KebabItem
+                    icon={portalLinkCopied ? "✓" : "📋"}
+                    label={portalLinkCopied ? "Link copiato!" : "Copia link area riservata"}
+                    onClick={() => { copyPortalLink(); }}
+                    disabled={portalLinkLoading}
+                    keepOpen
+                  />
+
+                  {birthDate && phone && (
+                    <KebabItem
+                      icon="🎂"
+                      label="Auguri di compleanno"
+                      onClick={() => { setKebabOpen(false); sendBirthdayMsg(); }}
+                    />
+                  )}
+
+                  {/* Separatore */}
+                  <div style={{ height: 1, background: THEME.border, margin: "6px 4px" }} />
+
+                  <KebabItem
+                    icon="🗑"
+                    label={deletingPatient ? "Elimino…" : "Elimina paziente"}
+                    onClick={() => { setKebabOpen(false); deletePatient(); }}
+                    disabled={deletingPatient}
+                    danger
+                  />
+                </div>
+              )}
+            </div>
+
           </div>
         </div>
 
@@ -2475,7 +2606,45 @@ ${rows}
           )}
         </div>
 
+        {/* ── Hamburger per iPad/mobile (apre drawer sidebar) ───────────── */}
+        <button
+          onClick={() => setSidebarMobileOpen(true)}
+          className="patient-sidebar-hamburger"
+          aria-label="Apri menu sezioni"
+          style={{
+            display: "none",
+            padding: "9px 14px", borderRadius: 8,
+            border: `1.5px solid ${THEME.border}`, background: THEME.panelBg,
+            color: THEME.textSoft, fontWeight: 700, fontSize: 13,
+            cursor: "pointer", marginBottom: 12,
+            alignItems: "center", gap: 8,
+          }}
+        >
+          ☰ <span>Sezioni</span>
+        </button>
+
+        {/* ── LAYOUT 2-COLONNE: sidebar + contenuto sezione attiva ──────── */}
+        <div className="patient-layout" style={{
+          display: "grid",
+          gridTemplateColumns: "220px 1fr",
+          gap: 20,
+          alignItems: "start",
+        }}>
+          <PatientSidebar
+            activeSection={activeSection}
+            onChange={setActiveSection}
+            badges={{
+              terapie:   therapiesCount > 0 ? (therapiesCount - paidCount > 0 ? therapiesCount - paidCount : undefined) : undefined,
+            }}
+            mobileOpen={sidebarMobileOpen}
+            onCloseMobile={() => setSidebarMobileOpen(false)}
+          />
+
+          {/* Colonna contenuto: renderizza SOLO la sezione attiva */}
+          <div style={{ minWidth: 0 }}>
+
         {/* ── ANAGRAFICA ───────────────────────────────────────────────────── */}
+        {activeSection === "anagrafica" && (
         <section style={cardStyle}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"14px 22px", borderBottom:`1px solid ${THEME.border}`, background:"#fff" }}>
             <div style={{ display:"flex", alignItems:"center", gap:12 }}>
@@ -2654,8 +2823,10 @@ ${rows}
           </div>
           </div>
         </section>
+        )}
 
         {/* ── CLINICA ──────────────────────────────────────────────────────── */}
+        {activeSection === "clinica" && (
         <section style={cardStyle}>
           <SecHeader icon="🩺" title="Clinica" subtitle="Anamnesi · Diagnosi · Trattamento" open={secClinica} onToggle={()=>setSecClinica(s=>!s)}
             extra={<div style={{display:"flex",gap:8}} onClick={e=>e.stopPropagation()}>{btnOutline("Ripristina",resetClinical,THEME.muted,!clinicalDirty)}{btnPrimary(savingClinical?"Salvataggio…":"Salva",saveClinical,savingClinical||!clinicalDirty)}</div>}
@@ -2744,8 +2915,10 @@ ${rows}
           </div>
           )}
         </section>
+        )}
 
         {/* ── BODY CHART ───────────────────────────────────────────────────── */}
+        {activeSection === "mappa-dolore" && (
         <section style={cardStyle}>
           <SecHeader icon="🗺" title="Body Chart — Mappa del Dolore" subtitle="Dipingi le zone dolorose · irradiazioni · referto PDF" open={secBodyChart} onToggle={()=>setSecBodyChart(s=>!s)}/>
           {secBodyChart && (
@@ -2754,8 +2927,10 @@ ${rows}
             </div>
           )}
         </section>
+        )}
 
         {/* ── DOCUMENTI CLINICI ─────────────────────────────────────────────── */}
+        {activeSection === "documenti-clinici" && (
         <section style={cardStyle}>
           <SecHeader icon="📋" title="Documenti Clinici" subtitle={`${clinicalDocs.length} documenti · immagini e PDF`} open={secDocClinici} onToggle={()=>setSecDocClinici(s=>!s)}
             badge={clinicalDocs.length>0?<span style={{fontSize:11,fontWeight:700,color:THEME.blue,background:"rgba(37,99,235,0.1)",padding:"2px 8px",borderRadius:99}}>{clinicalDocs.length}</span>:undefined}
@@ -2828,8 +3003,10 @@ ${rows}
           </div>
           )}
         </section>
+        )}
 
         {/* ── PACCHETTI SEDUTE ──────────────────────────────────────────────── */}
+        {activeSection === "pacchetti" && (
         <section style={{ ...cardStyle }}>
           <SecHeader
             icon="📦"
@@ -2844,8 +3021,10 @@ ${rows}
             </div>
           )}
         </section>
+        )}
 
         {/* ── TERAPIE + PAGAMENTO ───────────────────────────────────────────── */}
+        {activeSection === "terapie" && (
         <section style={{ ...cardStyle }}>
           <SecHeader
             icon="📅"
@@ -2953,8 +3132,10 @@ ${rows}
           </div>
           )}
         </section>
+        )}
 
         {/* ── DIARIO CLINICO (SOAP) ────────────────────────────────────────── */}
+        {activeSection === "diario" && (
         <section style={{ ...cardStyle }}>
           <SecHeader
             icon="📝"
@@ -3083,8 +3264,10 @@ ${rows}
             </div>
           )}
         </section>
+        )}
 
         {/* ── SCALE DI VALUTAZIONE ──────────────────────────────────────────── */}
+        {activeSection === "scale" && (
         <section style={{ ...cardStyle }}>
           <SecHeader
             icon="📊"
@@ -3099,8 +3282,10 @@ ${rows}
             </div>
           )}
         </section>
+        )}
 
         {/* ── FOTO POSTURALI PRE/POST ─────────────────────────────────────── */}
+        {activeSection === "foto" && (
         <section style={{ ...cardStyle }}>
           <SecHeader
             icon="📷"
@@ -3115,8 +3300,10 @@ ${rows}
             </div>
           )}
         </section>
+        )}
 
         {/* ── SCHEDA ESERCIZI ──────────────────────────────────────────────── */}
+        {activeSection === "esercizi" && (
         <section style={{ ...cardStyle }}>
           <SecHeader
             icon="🏋️"
@@ -3345,8 +3532,10 @@ ${rows}
             </div>
           )}
         </section>
+        )}
 
         {/* ── TIMELINE PAZIENTE ────────────────────────────────────────────── */}
+        {activeSection === "timeline" && (
         <section style={{ ...cardStyle }}>
           <SecHeader
             icon="📈"
@@ -3452,8 +3641,10 @@ ${rows}
             </div>
           )}
         </section>
+        )}
 
         {/* ── GDPR ──────────────────────────────────────────────────────────── */}
+        {activeSection === "gdpr" && (
         <section style={{ ...cardStyle }}>
           <SecHeader
             icon="🔏"
@@ -3559,6 +3750,12 @@ ${rows}
           </div>
           )}
         </section>
+        )}
+
+          </div>
+          {/* fine colonna contenuto */}
+        </div>
+        {/* fine .patient-layout */}
 
         <WeeklyReminderDialog
           open={weeklyReminderOpen}
