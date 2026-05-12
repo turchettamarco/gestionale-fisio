@@ -12,6 +12,7 @@ import PatientSidebar, {
   PATIENT_SECTION_IDS,
   DEFAULT_PATIENT_SECTION,
 } from "@/src/components/patient/PatientSidebar";
+import PatientSummaryPanel from "@/src/components/patient/PatientSummaryPanel";
 import { translateError } from "@/src/lib/translateError";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter } from "@/src/lib/pdfHeader";
@@ -879,6 +880,13 @@ export default function PatientDetailPage({
   const [secDiarioSOAP,   setSecDiarioSOAP]   = useState(true);
   const [soapNotes,       setSoapNotes]       = useState<any[]>([]);
   const [loadingSOAP,     setLoadingSOAP]     = useState(false);
+
+  // ── Dati per PatientSummaryPanel (Tappa 4) ────────────────────────
+  // Carichiamo SOAP notes (limitate) e clinical_goals attivi sempre,
+  // a prescindere se la sezione "Diario" è aperta, perché servono per
+  // mostrare gli indicatori del pannello riassunto in cima a "Clinica".
+  const [summarySoapNotes, setSummarySoapNotes] = useState<any[]>([]);
+  const [activeGoals,      setActiveGoals]      = useState<Array<{description:string; sort_order?:number}>>([]);
   const [secScales,       setSecScales]       = useState(true);
   const [secPhotos,       setSecPhotos]       = useState(true);
   const [secGDPR,         setSecGDPR]         = useState(true);
@@ -1088,6 +1096,41 @@ export default function PatientDetailPage({
     loadAppointments();
     loadDocs();
     loadClinicalDocs();
+  }, [patientId]);
+
+  // ── Tappa 4: dati per PatientSummaryPanel ───────────────────────
+  // Carichiamo SOAP notes (limit 50) e clinical_goals attivi del paziente.
+  // Servono per il pannello "Riassunto clinico" mostrato in cima alla
+  // sezione "Clinica". Indipendenti dal "Diario clinico" che ha il suo
+  // load on-demand per non rallentare l'apertura della pagina.
+  useEffect(() => {
+    if (!patientId) return;
+    let cancelled = false;
+
+    (async () => {
+      // Note SOAP per il trend VAS e l'ultima nota
+      const { data: notes } = await supabase
+        .from("session_notes")
+        .select("vas_before, vas_after, quick_note, soap_s, created_at")
+        .eq("patient_id", patientId)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (cancelled) return;
+      setSummarySoapNotes(notes || []);
+
+      // Obiettivi attivi
+      const { data: goals } = await supabase
+        .from("clinical_goals")
+        .select("description, sort_order")
+        .eq("patient_id", patientId)
+        .eq("status", "active")
+        .order("sort_order", { ascending: true })
+        .limit(10);
+      if (cancelled) return;
+      setActiveGoals(goals || []);
+    })();
+
+    return () => { cancelled = true; };
   }, [patientId]);
 
   // Carica il template del promemoria settimanale dalle impostazioni studio.
@@ -2833,6 +2876,16 @@ ${rows}
           />
           {secClinica && (
           <div style={cardBody}>
+
+            {/* ── Tappa 4: Pannello Riassunto Clinico ──────────────── */}
+            <PatientSummaryPanel
+              diagnosis={diagnosis}
+              soapNotes={summarySoapNotes}
+              therapiesCount={therapiesCount}
+              doneCount={doneCount}
+              activeGoals={activeGoals}
+            />
+
             <div style={{ background: THEME.panelSoft, border: `1.5px solid ${THEME.border}`, borderRadius: 10, padding: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>🧩 Anamnesi</div>
               <textarea value={anamnesis} onChange={e => setAnamnesis(e.target.value)} rows={8} style={{ ...textareaStyle, marginTop: 0 }} placeholder="Storia del problema, red flags, farmaci, obiettivi…" />
