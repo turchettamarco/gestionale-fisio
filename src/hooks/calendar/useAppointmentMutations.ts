@@ -773,7 +773,7 @@ export function useAppointmentMutations(
 
           const { data, error: insErr } = await supabase
             .from("appointments")
-            .insert(payload)
+            .insert(payload as any)
             .select()
             .single();
           if (insErr) throw new Error(insErr.message);

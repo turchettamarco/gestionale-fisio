@@ -109,6 +109,10 @@ export default function DayView({
       border: `2px solid ${THEME.border}`,
       borderRadius: 12,
       minHeight: 600,
+      // maxWidth solo per single-operatore. In multi-operatore la timeline
+      // ha N colonne dinamiche e necessita di tutta la larghezza disponibile.
+      maxWidth: useMulti ? undefined : 1480,
+      margin: useMulti ? undefined : "0 auto",
       overflow: "clip",
       boxShadow: "0 2px 12px rgba(30,64,175,0.06)",
     }}>

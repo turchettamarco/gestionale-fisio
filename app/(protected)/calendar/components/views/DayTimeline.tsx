@@ -141,7 +141,7 @@ export default function DayTimeline({
   const dayHeader = `${dayLabels[dayLabelIdx].label} • ${formatDMY(currentDate)}`;
 
   return (
-    <div style={{ flex: 1, minWidth: 0, position: "relative", borderRight: `2px solid ${THEME.border}` }}>
+    <div style={{ flex: 1, minWidth: 0, maxWidth: 1100, position: "relative", borderRight: `2px solid ${THEME.border}` }}>
 
       {/* ─── Header gradient ─────────────────────────────────── */}
       <div style={{
@@ -404,6 +404,104 @@ export default function DayTimeline({
                   </span>
                   {event.package_id && <PackageBadge packageId={event.package_id} variant="compact-dark" />}
                   {isDomicile && <span style={{ fontSize: 9, flexShrink: 0 }}>🏠</span>}
+                </div>
+              ) : h < 36 ? (
+                /* 22-36px (≈30 min): layout SINGLE ROW compatto - bottoni e nome in linea */
+                <div style={{ display: "flex", alignItems: "center", gap: 5, width: "100%", height: "100%", minWidth: 0, padding: "0 2px" }}>
+                  {/* Bottoni piccoli a sinistra in linea */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
+                    {onUpdatePayment ? (
+                      <PaidIconButton
+                        data={{
+                          is_paid: isPaid,
+                          paid_at: event.paid_at,
+                          payment_method: event.payment_method,
+                          price_type: event.price_type,
+                        }}
+                        onUpdate={async (next) => onUpdatePayment(event.id, next)}
+                        tone="light"
+                        size={14}
+                        compact
+                      />
+                    ) : (
+                      <button
+                        title={isPaid ? "Pagato" : "Segna pagato"}
+                        onClick={e => { e.preventDefault(); e.stopPropagation(); onTogglePaid(event.id, isPaid); }}
+                        style={{
+                          width: 14, height: 14, borderRadius: 3,
+                          border: `1px solid ${isPaid ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.35)"}`,
+                          background: isPaid ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.1)",
+                          cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: 9, padding: 0, flexShrink: 0,
+                        }}
+                      >🪙</button>
+                    )}
+                    <button
+                      title={isDone ? "Annulla" : "Eseguita"}
+                      onClick={e => {
+                        e.preventDefault(); e.stopPropagation();
+                        if (bulkMode) onToggleBulkSelect(event.id);
+                        else onToggleDone(event.id, event.status);
+                      }}
+                      style={{
+                        width: 14, height: 14, borderRadius: 99,
+                        border: `1.5px solid ${isDone ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.5)"}`,
+                        background: isDone ? "rgba(255,255,255,0.9)" : "transparent",
+                        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                        color: statusBg(event.status), fontSize: 9, fontWeight: 900,
+                        padding: 0, flexShrink: 0,
+                      }}
+                    >
+                      {isDone || bulkSelected.has(event.id) ? "✓" : ""}
+                    </button>
+                  </div>
+
+                  {/* Testo: orario + nome + extra */}
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.9)", flexShrink: 0 }}>
+                    {fmtTime(event.start.toISOString())}
+                  </span>
+                  {locStyle.initials && (
+                    <span title={locStyle.locationName ?? undefined} style={{
+                      fontSize: 8, fontWeight: 800, color: "#fff",
+                      background: locStyle.borderColor ?? undefined,
+                      padding: "1px 4px", borderRadius: 3,
+                      letterSpacing: 0.3, lineHeight: 1.1,
+                      flexShrink: 0,
+                    }}>{locStyle.initials}</span>
+                  )}
+                  <span
+                    title={event.patient_name}
+                    style={{
+                      fontSize: 12, fontWeight: 800, color: "#fff",
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      flex: 1, minWidth: 0,
+                    }}
+                  >
+                    {event.patient_name}
+                  </span>
+                  {event.package_id && <PackageBadge packageId={event.package_id} variant="compact-dark" />}
+                  {isDomicile && <span style={{ fontSize: 10, flexShrink: 0 }}>🏠</span>}
+                  {event.amount && (
+                    <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.85)", flexShrink: 0 }}>
+                      €{event.amount}
+                    </span>
+                  )}
+                  {/* WA */}
+                  <button
+                    title={waSent ? "Reinvia WA" : "Invia WA"}
+                    onClick={e => {
+                      e.preventDefault(); e.stopPropagation();
+                      onSendReminder(event.id, event.patient_phone ?? undefined, event.patient_first_name ?? undefined);
+                    }}
+                    style={{
+                      width: 14, height: 14, background: "none", border: "none",
+                      cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 11, opacity: event.patient_phone ? (waSent ? 1 : 0.55) : 0.2,
+                      padding: 0, flexShrink: 0,
+                    }}
+                  >
+                    {waSent ? "🔕" : "🔔"}
+                  </button>
                 </div>
               ) : (
                 /* Sopra 22px: layout 2 colonne (bottoni sinistra + testo destra) */

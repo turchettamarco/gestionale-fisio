@@ -76,7 +76,7 @@ export default function DaySidebar({
   const dayLabel = `${GG[currentDate.getDay()]} ${currentDate.getDate()} ${MESI[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
 
   return (
-    <div style={{ width: 280, flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden", color: THEME.text }}>
+    <div style={{ width: 360, flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden", color: THEME.text }}>
 
       {/* Header sidebar */}
       <div style={{ background: "linear-gradient(135deg, #0d9488, #2563eb)", padding: "14px 16px" }}>

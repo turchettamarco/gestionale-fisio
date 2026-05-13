@@ -724,7 +724,7 @@ export default function WeekView({
                     {/* Riga 2: nome (priorità alta) + tipo+prezzo+stato (si nascondono se stretto) */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 5, minWidth: 0 }}>
                       <span style={{
-                        fontWeight: 700, fontSize: 12, color: "#fff", lineHeight: 1.15,
+                        fontWeight: 700, fontSize: 13, color: "#fff", lineHeight: 1.15,
                         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                         flex: 1, minWidth: 0,
                       }}>
@@ -824,9 +824,9 @@ export default function WeekView({
                     {/* Riga 2: nome paziente */}
                     <div style={{
                       fontWeight: 700,
-                      // Font scalabile: clamp tra 10 e 13px in base alla larghezza
+                      // Font scalabile: clamp tra 12 e 15px in base alla larghezza
                       // della card (cqi = container query inline-size %)
-                      fontSize: "clamp(10px, 3.6cqi, 13px)",
+                      fontSize: "clamp(12px, 4.2cqi, 15px)",
                       color: "#fff", lineHeight: 1.2,
                       overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                     }}>
