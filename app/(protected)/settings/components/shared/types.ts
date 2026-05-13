@@ -143,3 +143,25 @@ export type StudioRoomRow = {
   created_at: string;
   updated_at?: string;
 };
+
+// ── Professionisti ospiti (mig. 029) ──────────────────────────────────────
+// Tabella guest_practitioners. Professionisti esterni (ortopedico, nutrizio-
+// nista, podologo, psicologo, ecc.) che frequentano lo studio occasional-
+// mente. NON sono membri del team, NON hanno login. Servono solo per
+// categorizzare appuntamenti e dare loro una colonna nel calendario nei
+// giorni in cui il professionista è in studio.
+// I loro appuntamenti NON entrano nei conteggi incassi del titolare.
+export type GuestPractitionerRow = {
+  id: string;
+  studio_id: string;
+  first_name: string;
+  last_name: string;
+  specialty: string;
+  display_color: string | null;
+  default_room_id: string | null;
+  is_active: boolean;
+  sort_order: number;
+  notes: string | null;
+  created_at: string;
+  updated_at?: string;
+};

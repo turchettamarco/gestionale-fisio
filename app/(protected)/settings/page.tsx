@@ -34,6 +34,7 @@ import {
   type StudioLocation,
   type StudioMemberRow,
   type StudioRoomRow,
+  type GuestPractitionerRow,
   DAY_LABELS,
 } from "./components/shared/types";
 
@@ -55,6 +56,7 @@ import IntegrationsSection from "./components/sections/IntegrationsSection";
 import TeamSection from "./components/sections/TeamSection";
 import OperatorAbsencesSection from "./components/sections/OperatorAbsencesSection";
 import RoomsSection from "./components/sections/RoomsSection";
+import GuestPractitionersSection from "./components/sections/GuestPractitionersSection";
 import SettingsTabs, { type SettingsTab } from "./components/SettingsTabs";
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -91,6 +93,7 @@ export default function SettingsPage() {
   const [showTeam,      setShowTeam]      = useState(true);
   const [showRooms,     setShowRooms]     = useState(true);
   const [showAbsences,  setShowAbsences]  = useState(false);
+  const [showGuests,    setShowGuests]    = useState(false); // mig. 029
 
   // ── Preferenza tab in localStorage ────────────────────────────────────────
   useEffect(() => {
@@ -163,6 +166,13 @@ export default function SettingsPage() {
   const [rooms, setRooms]                               = useState<StudioRoomRow[]>([]);
   const [loadingRooms, setLoadingRooms]                 = useState(true);
   const [savingRoom, setSavingRoom]                     = useState(false);
+
+  // ── Professionisti ospiti (mig. 029) ─────────────────────────────────
+  const [guestEnabled, setGuestEnabled]                 = useState(false);
+  const [savingGuestToggle, setSavingGuestToggle]       = useState(false);
+  const [guests, setGuests]                             = useState<GuestPractitionerRow[]>([]);
+  const [loadingGuests, setLoadingGuests]               = useState(true);
+  const [savingGuest, setSavingGuest]                   = useState(false);
 
   // ── Trattamenti (per la RoomsSection) ─────────────────────────────────
   // Caricati separatamente perché la RoomsSection ha bisogno della lista
@@ -771,6 +781,134 @@ export default function SettingsPage() {
       setSavingRoom(false);
     }
   }, [studio?.id, loadRooms]);
+
+
+  // ── Professionisti ospiti (mig. 029) ─────────────────────────────────
+  // Caricamento e CRUD. Stesso pattern delle stanze: Supabase JS diretto,
+  // niente API REST. Soft-delete via is_active=FALSE per preservare gli
+  // appuntamenti già creati.
+  const loadGuests = useCallback(async () => {
+    if (!studio?.id) return;
+    setLoadingGuests(true);
+    try {
+      const { data, error } = await supabase
+        .from("guest_practitioners")
+        .select("*")
+        .eq("studio_id", studio.id)
+        .order("sort_order", { ascending: true })
+        .order("last_name", { ascending: true });
+      if (error) {
+        console.error("Errore loadGuests:", error);
+        setGuests([]);
+        return;
+      }
+      setGuests((data || []) as GuestPractitionerRow[]);
+    } finally {
+      setLoadingGuests(false);
+    }
+  }, [studio?.id]);
+
+  // Carico il flag guest_practitioners_enabled dal record studio e gli ospiti
+  useEffect(() => {
+    if (!studio?.id) return;
+    setGuestEnabled(Boolean((studio as { guest_practitioners_enabled?: boolean }).guest_practitioners_enabled));
+    void loadGuests();
+  }, [studio?.id, loadGuests]);
+
+  const saveGuestToggle = useCallback(async () => {
+    if (!studio?.id) return;
+    setSavingGuestToggle(true);
+    try {
+      const { error } = await supabase
+        .from("studios")
+        .update({ guest_practitioners_enabled: guestEnabled })
+        .eq("id", studio.id);
+      if (error) { alert("Errore salvataggio: " + error.message); return; }
+      await refreshStudio();
+      flashSuccess(guestEnabled ? "Professionisti ospiti attivati." : "Professionisti ospiti disattivati.");
+    } finally {
+      setSavingGuestToggle(false);
+    }
+  }, [studio?.id, guestEnabled, refreshStudio]);
+
+  const createGuest = useCallback(async (payload: {
+    first_name: string;
+    last_name: string;
+    specialty: string;
+    display_color: string | null;
+    default_room_id: string | null;
+    notes: string | null;
+  }) => {
+    if (!studio?.id) return;
+    setSavingGuest(true);
+    try {
+      const maxSort = guests.reduce((m, g) => Math.max(m, g.sort_order ?? 0), 0);
+      const { error } = await supabase.from("guest_practitioners").insert({
+        studio_id: studio.id,
+        first_name: payload.first_name,
+        last_name: payload.last_name,
+        specialty: payload.specialty,
+        display_color: payload.display_color,
+        default_room_id: payload.default_room_id,
+        notes: payload.notes,
+        is_active: true,
+        sort_order: maxSort + 1,
+      });
+      if (error) { alert("Errore creazione: " + error.message); return; }
+      await loadGuests();
+      flashSuccess("Professionista aggiunto.");
+    } finally {
+      setSavingGuest(false);
+    }
+  }, [studio?.id, guests, loadGuests]);
+
+  const updateGuest = useCallback(async (id: string, payload: Partial<{
+    first_name: string;
+    last_name: string;
+    specialty: string;
+    display_color: string | null;
+    default_room_id: string | null;
+    notes: string | null;
+  }>) => {
+    if (!studio?.id) return;
+    setSavingGuest(true);
+    try {
+      const upd: Record<string, unknown> = {};
+      if (payload.first_name !== undefined) upd.first_name = payload.first_name;
+      if (payload.last_name !== undefined) upd.last_name = payload.last_name;
+      if (payload.specialty !== undefined) upd.specialty = payload.specialty;
+      if (payload.display_color !== undefined) upd.display_color = payload.display_color;
+      if (payload.default_room_id !== undefined) upd.default_room_id = payload.default_room_id;
+      if (payload.notes !== undefined) upd.notes = payload.notes;
+
+      const { error } = await supabase
+        .from("guest_practitioners")
+        .update(upd)
+        .eq("id", id);
+      if (error) { alert("Errore aggiornamento: " + error.message); return; }
+      await loadGuests();
+      flashSuccess("Professionista aggiornato.");
+    } finally {
+      setSavingGuest(false);
+    }
+  }, [studio?.id, loadGuests]);
+
+  const deleteGuest = useCallback(async (id: string) => {
+    if (!studio?.id) return;
+    setSavingGuest(true);
+    try {
+      // Soft-delete: gli appuntamenti già creati restano in DB
+      const { error } = await supabase
+        .from("guest_practitioners")
+        .update({ is_active: false })
+        .eq("id", id);
+      if (error) { alert("Errore disattivazione: " + error.message); return; }
+      await loadGuests();
+      flashSuccess("Professionista disattivato.");
+    } finally {
+      setSavingGuest(false);
+    }
+  }, [studio?.id, loadGuests]);
 
 
   // ── Calendar feed token ──────────────────────────────────────────────────
@@ -1763,6 +1901,24 @@ export default function SettingsPage() {
               onCreate={createRoom}
               onUpdate={updateRoom}
               onDelete={deleteRoom}
+            />
+
+            {/* Sezione Professionisti ospiti (mig. 029). Sempre visibile nella
+                tab Team. Il toggle interno alla sezione governa la feature. */}
+            <GuestPractitionersSection
+              show={showGuests}
+              onToggle={() => setShowGuests(!showGuests)}
+              guestEnabled={guestEnabled}
+              setGuestEnabled={setGuestEnabled}
+              savingGuestToggle={savingGuestToggle}
+              onSaveGuestToggle={() => void saveGuestToggle()}
+              guests={guests}
+              rooms={rooms}
+              loadingGuests={loadingGuests}
+              savingGuest={savingGuest}
+              onCreate={createGuest}
+              onUpdate={updateGuest}
+              onDelete={deleteGuest}
             />
 
             {/* Sezione assenze operatori (Fase 5). Visibile solo se multi-op
