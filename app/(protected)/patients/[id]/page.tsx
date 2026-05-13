@@ -15,6 +15,7 @@ import PatientSidebar, {
 import PatientSummaryPanel from "@/src/components/patient/PatientSummaryPanel";
 import StructuredAnamnesis from "@/src/components/patient/clinical/StructuredAnamnesis";
 import StructuredDiagnosis from "@/src/components/patient/clinical/StructuredDiagnosis";
+import StructuredTreatmentPlan from "@/src/components/patient/clinical/StructuredTreatmentPlan";
 import { translateError } from "@/src/lib/translateError";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter } from "@/src/lib/pdfHeader";
@@ -2996,12 +2997,27 @@ ${rows}
             </div>
           )}
 
-          {/* Piano trattamento */}
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
-              📌 Piano trattamento (generale)
+          {/* Piano trattamento — STRUTTURATO (Tappa 7) */}
+          <div style={{ marginTop: 18 }}>
+            {patient && currentStudio && userId && (
+              <StructuredTreatmentPlan
+                patientId={patient.id}
+                studioId={currentStudio.id}
+                ownerId={userId}
+              />
+            )}
+          </div>
+
+          {/* Note libere Piano (textarea originale come fallback) */}
+          <div style={{ marginTop: 18 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+              <span>📝</span>
+              <span>Note libere aggiuntive (piano)</span>
             </div>
-            <textarea value={treatment} onChange={e => setTreatment(e.target.value)} rows={5} style={textareaStyle} placeholder="Il piano generale: frequenza, progressione, obiettivi a 2-4 settimane…" />
+            <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 6, fontWeight: 500 }}>
+              Considerazioni, progressioni, dettagli che non stanno nei campi sopra
+            </div>
+            <textarea value={treatment} onChange={e => setTreatment(e.target.value)} rows={4} style={{ ...textareaStyle, marginTop: 0 }} placeholder="Note libere…" />
           </div>
           </div>
           )}
