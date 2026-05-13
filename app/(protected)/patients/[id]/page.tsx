@@ -14,6 +14,7 @@ import PatientSidebar, {
 } from "@/src/components/patient/PatientSidebar";
 import PatientSummaryPanel from "@/src/components/patient/PatientSummaryPanel";
 import StructuredAnamnesis from "@/src/components/patient/clinical/StructuredAnamnesis";
+import StructuredDiagnosis from "@/src/components/patient/clinical/StructuredDiagnosis";
 import { translateError } from "@/src/lib/translateError";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter } from "@/src/lib/pdfHeader";
@@ -2910,9 +2911,26 @@ ${rows}
               <textarea value={anamnesis} onChange={e => setAnamnesis(e.target.value)} rows={4} style={{ ...textareaStyle, marginTop: 0 }} placeholder="Note aggiuntive di anamnesi: farmaci, allergie, dettagli specifici, contesto…" />
             </div>
 
-            <div style={{ background: THEME.panelSoft, border: `1.5px solid ${THEME.border}`, borderRadius: 10, padding: 14, marginTop: 18 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>🧠 Diagnosi / ipotesi clinica</div>
-              <textarea value={diagnosis} onChange={e => setDiagnosis(e.target.value)} rows={8} style={{ ...textareaStyle, marginTop: 0 }} placeholder="Diagnosi medica, ragionamento clinico, test positivi/negativi…" />
+            <div style={{ marginTop: 18 }}>
+              {patient && currentStudio && userId && (
+                <StructuredDiagnosis
+                  patientId={patient.id}
+                  studioId={currentStudio.id}
+                  ownerId={userId}
+                />
+              )}
+            </div>
+
+            {/* Note libere diagnosi (textarea originale come fallback) */}
+            <div style={{ marginTop: 18 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                <span>📝</span>
+                <span>Note libere aggiuntive (diagnosi)</span>
+              </div>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 6, fontWeight: 500 }}>
+                Ragionamento clinico, considerazioni, dettagli che non stanno nei campi sopra
+              </div>
+              <textarea value={diagnosis} onChange={e => setDiagnosis(e.target.value)} rows={4} style={{ ...textareaStyle, marginTop: 0 }} placeholder="Note libere…" />
             </div>
 
           {/* Diario sedute */}
