@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { buildPatientContext, callClinicalAI } from "@/src/lib/clinical/buildPatientContext";
 
 const THEME = {
   teal: "#0d9488", blue: "#2563eb", text: "#0f172a",
@@ -28,6 +29,38 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [expandedMode, setExpandedMode] = useState<"quick" | "soap">("quick");
+
+  // ── AI: espansione SOAP da nota rapida (Tappa 11) ──
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  async function expandWithAI() {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const ctx = await buildPatientContext({
+        patientId,
+        sections: ["patient", "anamnesis", "diagnosis", "plan", "tests", "sessions"],
+        maxSessions: 5,
+      });
+      ctx.quick_note = note.quick_note || "";
+      const result = await callClinicalAI("soap", ctx);
+      if (!result) throw new Error("Risposta AI vuota");
+      setNote(n => ({
+        ...n,
+        soap_s: result.S || n.soap_s,
+        soap_o: result.O || n.soap_o,
+        soap_a: result.A || n.soap_a,
+        soap_p: result.P || n.soap_p,
+      }));
+      // Passa automaticamente alla vista SOAP per mostrare il risultato
+      setExpandedMode("soap");
+    } catch (e: any) {
+      setAiError(e?.message || "Errore AI");
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -89,21 +122,66 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
 
   return (
     <div style={{ padding: "14px 18px", background: THEME.panelSoft, borderRadius: 10, border: `1px solid ${THEME.border}` }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8, flexWrap: "wrap" }}>
         <div style={{ fontSize: 13, fontWeight: 800, color: THEME.text }}>📝 Note di seduta</div>
-        <div style={{ display: "flex", gap: 4, background: "#fff", borderRadius: 7, padding: 2, border: `1px solid ${THEME.border}` }}>
-          <button onClick={() => setExpandedMode("quick")} style={{
-            padding: "4px 10px", borderRadius: 5, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer",
-            background: expandedMode === "quick" ? THEME.teal : "transparent",
-            color: expandedMode === "quick" ? "#fff" : THEME.muted,
-          }}>Rapida</button>
-          <button onClick={() => setExpandedMode("soap")} style={{
-            padding: "4px 10px", borderRadius: 5, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer",
-            background: expandedMode === "soap" ? THEME.teal : "transparent",
-            color: expandedMode === "soap" ? "#fff" : THEME.muted,
-          }}>SOAP completa</button>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={expandWithAI}
+            disabled={aiLoading}
+            title="Genera S/O/A/P automatici dalla nota rapida + contesto paziente"
+            style={{
+              padding: "5px 11px", borderRadius: 6, border: "none",
+              background: aiLoading
+                ? "#e2e8f0"
+                : "linear-gradient(135deg, #7c3aed, #2563eb)",
+              color: aiLoading ? THEME.muted : "#fff",
+              fontWeight: 700, fontSize: 11,
+              cursor: aiLoading ? "wait" : "pointer",
+              fontFamily: "inherit",
+              display: "inline-flex", alignItems: "center", gap: 4,
+            }}
+          >
+            {aiLoading ? (
+              <>
+                <span style={{
+                  display: "inline-block", width: 10, height: 10,
+                  border: "2px solid rgba(255,255,255,0.4)",
+                  borderTopColor: "transparent",
+                  borderRadius: "50%",
+                  animation: "soapai-spin 0.7s linear infinite",
+                }} />
+                Elaboro…
+              </>
+            ) : (
+              <>✨ Espandi con AI</>
+            )}
+            <style>{`@keyframes soapai-spin { to { transform: rotate(360deg); } }`}</style>
+          </button>
+          <div style={{ display: "flex", gap: 4, background: "#fff", borderRadius: 7, padding: 2, border: `1px solid ${THEME.border}` }}>
+            <button onClick={() => setExpandedMode("quick")} style={{
+              padding: "4px 10px", borderRadius: 5, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer",
+              background: expandedMode === "quick" ? THEME.teal : "transparent",
+              color: expandedMode === "quick" ? "#fff" : THEME.muted,
+            }}>Rapida</button>
+            <button onClick={() => setExpandedMode("soap")} style={{
+              padding: "4px 10px", borderRadius: 5, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer",
+              background: expandedMode === "soap" ? THEME.teal : "transparent",
+              color: expandedMode === "soap" ? "#fff" : THEME.muted,
+            }}>SOAP completa</button>
+          </div>
         </div>
       </div>
+
+      {aiError && (
+        <div style={{
+          padding: "6px 10px", marginBottom: 10,
+          background: "rgba(220,38,38,0.05)",
+          border: "1px solid rgba(220,38,38,0.2)",
+          borderRadius: 6,
+          fontSize: 11, color: THEME.red, fontWeight: 600,
+        }}>⚠ {aiError}</div>
+      )}
 
       {expandedMode === "quick" ? (
         <div>

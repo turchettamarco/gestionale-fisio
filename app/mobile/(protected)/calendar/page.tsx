@@ -10,6 +10,7 @@ import { buildReminderMessage } from "@/app/(protected)/calendar/utils/reminderM
 import { assignLanes } from "@/app/(protected)/calendar/utils/laneAssignment";
 import { getLocationCardStyle } from "@/app/(protected)/calendar/utils/locationHelpers";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
+import { SOAPNotesEditor } from "@/app/(protected)/calendar/components/SOAPNotes";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 import PackagePickerSection from "@/src/components/packages/PackagePickerSection";
 import PackageBadge from "@/src/components/packages/PackageBadge";
@@ -2566,6 +2567,15 @@ function CalendarPageInner() {
               <textarea value={editNote} onChange={e=>setEditNote(e.target.value)}
                 style={{...inputS(),minHeight:80,resize:"vertical"}} />
             </FG>
+
+            {/* SOAP + VAS — collapsabile (Tappa 11) */}
+            {selectedEvent.patient_id && (
+              <MobileSoapCollapse
+                appointmentId={selectedEvent.id}
+                patientId={selectedEvent.patient_id}
+              />
+            )}
+
             <FG label="Importo">
               <input value={editAmount} onChange={e=>setEditAmount(e.target.value)}
                 style={inputS()} placeholder="Es. 40" inputMode="decimal" />
@@ -3699,5 +3709,58 @@ function CreateModal(props:CreateModalProps) {
         </div>
       </div>
     </LightModal>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// MobileSoapCollapse — wrapper collapsabile per il SOAPNotesEditor (Tappa 11)
+// ═══════════════════════════════════════════════════════════════════════
+
+function MobileSoapCollapse({
+  appointmentId, patientId,
+}: { appointmentId: string; patientId: string }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div style={{
+      marginBottom: 14,
+      border: `1px solid ${THEME.border}`,
+      borderRadius: 8,
+      overflow: "hidden",
+      background: THEME.panelBg,
+    }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: "100%",
+          padding: "10px 12px",
+          background: open ? THEME.panelSoft : THEME.panelBg,
+          border: "none",
+          cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          gap: 8, fontFamily: "inherit", textAlign: "left",
+          borderBottom: open ? `1px solid ${THEME.border}` : "none",
+        }}
+      >
+        <span style={{ fontSize: 13, fontWeight: 800, color: THEME.text }}>
+          📋 SOAP & VAS
+        </span>
+        <span style={{
+          color: THEME.muted, fontSize: 14,
+          transform: open ? "rotate(90deg)" : "rotate(0deg)",
+          transition: "transform 0.15s",
+        }}>›</span>
+      </button>
+
+      {open && (
+        <div style={{ padding: "8px 8px 10px" }}>
+          <SOAPNotesEditor
+            appointmentId={appointmentId}
+            patientId={patientId}
+          />
+        </div>
+      )}
+    </div>
   );
 }

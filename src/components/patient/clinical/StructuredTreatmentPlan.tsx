@@ -33,6 +33,8 @@ import {
   type TechniqueCategory,
 } from "@/src/lib/clinical/treatmentTechniques";
 import ClinicalGoalsModal from "./ClinicalGoalsModal";
+import AISuggestionModal from "./AISuggestionModal";
+import { buildPatientContext, callClinicalAI } from "@/src/lib/clinical/buildPatientContext";
 
 const T = {
   panelBg:     "#ffffff",
@@ -88,6 +90,72 @@ export default function StructuredTreatmentPlan({ patientId, studioId, ownerId }
 
   const [goalsModalOpen, setGoalsModalOpen] = useState(false);
   const [goalsCounts, setGoalsCounts] = useState({ total: 0, active: 0, achieved: 0 });
+
+  // ── AI Suggerimento piano (Tappa 10) ─────────────────────────
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<{
+    frequency_per_week: number;
+    duration_weeks: number;
+    techniques: string[];
+    reasoning: string;
+  } | null>(null);
+
+  async function suggestPlanWithAI() {
+    setAiModalOpen(true);
+    setAiLoading(true);
+    setAiError(null);
+    setAiResult(null);
+    try {
+      const ctx = await buildPatientContext({
+        patientId,
+        sections: ["patient", "anamnesis", "redflags", "diagnosis", "tests"],
+      });
+      const result = await callClinicalAI("plan", ctx);
+      if (!result?.frequency_per_week || !result?.duration_weeks) {
+        throw new Error("Risposta AI incompleta");
+      }
+      setAiResult({
+        frequency_per_week: Number(result.frequency_per_week) || 2,
+        duration_weeks: Number(result.duration_weeks) || 6,
+        techniques: Array.isArray(result.techniques) ? result.techniques : [],
+        reasoning: result.reasoning || "",
+      });
+    } catch (e: any) {
+      setAiError(e?.message || "Errore");
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  function applyAIPlanSuggestion() {
+    if (!aiResult) return;
+
+    // Mappa le label AI ai code interni (cerca tra TREATMENT_TECHNIQUES)
+    const mappedCodes: string[] = [];
+    for (const techLabel of aiResult.techniques) {
+      // Match esatto su label
+      const found = TREATMENT_TECHNIQUES.find(t =>
+        t.label.toLowerCase() === techLabel.toLowerCase()
+      );
+      if (found) {
+        mappedCodes.push(found.code);
+      } else {
+        // Aggiunge come custom (testo libero)
+        mappedCodes.push(techLabel);
+      }
+    }
+
+    setData(d => ({
+      ...d,
+      planned_frequency_per_week: aiResult.frequency_per_week,
+      planned_duration_weeks: aiResult.duration_weeks,
+      planned_techniques: mappedCodes,
+    }));
+    setAiModalOpen(false);
+    setAiResult(null);
+  }
 
   // ── Carica i dati esistenti ──
   useEffect(() => {
@@ -247,7 +315,21 @@ export default function StructuredTreatmentPlan({ patientId, studioId, ownerId }
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <button
+            onClick={suggestPlanWithAI}
+            disabled={saving}
+            title="Suggerisce frequenza, durata e tecniche basate sulla diagnosi"
+            style={{
+              padding: "6px 12px", borderRadius: 7, border: "none",
+              background: "linear-gradient(135deg, #7c3aed, #2563eb)",
+              color: "#fff", fontWeight: 700, fontSize: 11,
+              cursor: saving ? "not-allowed" : "pointer",
+              opacity: saving ? 0.5 : 1,
+              fontFamily: "inherit",
+              display: "inline-flex", alignItems: "center", gap: 4,
+            }}
+          >✨ Suggerisci con AI</button>
           <button
             onClick={reset}
             disabled={!dirty || saving}
@@ -359,6 +441,106 @@ export default function StructuredTreatmentPlan({ patientId, studioId, ownerId }
         onClose={() => setGoalsModalOpen(false)}
         onChange={c => setGoalsCounts(c)}
       />
+
+      {/* Modale AI suggerimento piano (Tappa 10) */}
+      <AISuggestionModal
+        open={aiModalOpen}
+        title="📋 Piano di trattamento suggerito"
+        loading={aiLoading}
+        error={aiError}
+        onClose={() => { setAiModalOpen(false); setAiResult(null); setAiError(null); }}
+        onApply={applyAIPlanSuggestion}
+        applyLabel="Applica piano"
+        applyDisabled={!aiResult}
+      >
+        {aiResult && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 140 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: "#475569", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5 }}>
+                  Frequenza
+                </div>
+                <input
+                  type="number"
+                  step={0.5}
+                  min={0.5}
+                  value={aiResult.frequency_per_week}
+                  onChange={e => setAiResult({ ...aiResult, frequency_per_week: parseFloat(e.target.value) || 0 })}
+                  style={{
+                    width: "100%", padding: "8px 10px",
+                    border: "1.5px solid #7c3aed", borderRadius: 8,
+                    fontSize: 14, fontFamily: "inherit", color: "#0f172a",
+                    fontWeight: 700, outline: "none",
+                  }}
+                />
+                <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 3 }}>sedute/settimana</div>
+              </div>
+
+              <div style={{ flex: 1, minWidth: 140 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: "#475569", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5 }}>
+                  Durata
+                </div>
+                <input
+                  type="number"
+                  step={1}
+                  min={1}
+                  value={aiResult.duration_weeks}
+                  onChange={e => setAiResult({ ...aiResult, duration_weeks: parseInt(e.target.value) || 0 })}
+                  style={{
+                    width: "100%", padding: "8px 10px",
+                    border: "1.5px solid #7c3aed", borderRadius: 8,
+                    fontSize: 14, fontFamily: "inherit", color: "#0f172a",
+                    fontWeight: 700, outline: "none",
+                  }}
+                />
+                <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 3 }}>settimane</div>
+              </div>
+            </div>
+
+            {aiResult.techniques.length > 0 && (
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 800, color: "#475569", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5 }}>
+                  Tecniche pianificate ({aiResult.techniques.length})
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                  {aiResult.techniques.map((t, i) => (
+                    <span key={i} style={{
+                      padding: "5px 11px", borderRadius: 99,
+                      background: "#0f172a", color: "#fff",
+                      fontWeight: 700, fontSize: 11,
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                    }}>
+                      {t}
+                      <span
+                        onClick={() => setAiResult({
+                          ...aiResult,
+                          techniques: aiResult.techniques.filter((_, j) => j !== i)
+                        })}
+                        style={{ opacity: 0.6, cursor: "pointer" }}
+                      >×</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {aiResult.reasoning && (
+              <div style={{
+                padding: 12, borderRadius: 8,
+                background: "rgba(124,58,237,0.05)",
+                borderLeft: "3px solid #7c3aed",
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: "#7c3aed", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+                  Razionale
+                </div>
+                <div style={{ fontSize: 12, color: "#1e293b", lineHeight: 1.5 }}>
+                  {aiResult.reasoning}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </AISuggestionModal>
     </div>
   );
 }

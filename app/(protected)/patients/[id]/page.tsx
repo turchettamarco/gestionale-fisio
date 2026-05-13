@@ -2884,6 +2884,7 @@ ${rows}
               therapiesCount={therapiesCount}
               doneCount={doneCount}
               activeGoals={activeGoals}
+              patientId={patient?.id}
             />
 
             {/* ── Tappa 5: ANAMNESI STRUTTURATA ──────────────────────── */}
@@ -3185,7 +3186,11 @@ ${rows}
           />
           {secDiarioSOAP && (
             <div style={cardBody}>
-              <ClinicalDiarySection patientId={patient.id} />
+              <ClinicalDiarySection
+                patientId={patient.id}
+                studioId={currentStudio?.id}
+                ownerId={userId || undefined}
+              />
             </div>
           )}
         </section>

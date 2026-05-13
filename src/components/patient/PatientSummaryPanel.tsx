@@ -37,7 +37,8 @@
 
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
+import { buildPatientContext, callClinicalAI } from "@/src/lib/clinical/buildPatientContext";
 
 // ─── Tipi pubblici ──────────────────────────────────────────────────────
 
@@ -62,7 +63,10 @@ export type PatientSummaryData = {
   activeGoals?: Array<{ description: string; sort_order?: number }>;
 };
 
-export type PatientSummaryPanelProps = PatientSummaryData;
+export type PatientSummaryPanelProps = PatientSummaryData & {
+  /** ID del paziente — necessario solo se vuoi abilitare il bottone "Riassumi con AI" (Tappa 10). */
+  patientId?: string;
+};
 
 // ─── Theme locale ───────────────────────────────────────────────────────
 
@@ -232,7 +236,7 @@ function MetricCard({
 // ─── Componente principale ──────────────────────────────────────────────
 
 export default function PatientSummaryPanel({
-  diagnosis, soapNotes, therapiesCount, doneCount, activeGoals,
+  diagnosis, soapNotes, therapiesCount, doneCount, activeGoals, patientId,
 }: PatientSummaryPanelProps) {
 
   const diagnosisSnippet = firstSentence(diagnosis, 90);
@@ -248,13 +252,122 @@ export default function PatientSummaryPanel({
 
   const last = lastSessionSnippet(soapNotes);
 
+  // ── AI Riassunto (Tappa 10) ───────────────────────────────
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  async function generateSummary() {
+    if (!patientId) return;
+    setAiLoading(true); setAiError(null);
+    try {
+      const ctx = await buildPatientContext({
+        patientId,
+        sections: ["patient", "anamnesis", "redflags", "diagnosis", "tests", "sessions"],
+        maxSessions: 5,
+      });
+      const result = await callClinicalAI("summary", ctx);
+      setAiSummary(result?.summary || "Nessun riassunto disponibile");
+    } catch (e: any) {
+      setAiError(e?.message || "Errore");
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
   return (
-    <div className="patient-summary-panel" style={{
-      display: "grid",
-      gridTemplateColumns: "repeat(5, 1fr)",
-      gap: 10,
-      marginBottom: 18,
-    }}>
+    <div style={{ marginBottom: 18 }}>
+
+      {/* ── BANNER AI RIASSUNTO ─────────────────────────────────────── */}
+      {patientId && (
+        <div style={{
+          marginBottom: 10,
+          background: aiSummary
+            ? "linear-gradient(135deg, rgba(124,58,237,0.04), rgba(37,99,235,0.04))"
+            : T.panelSoft,
+          border: `1px solid ${aiSummary ? "rgba(124,58,237,0.2)" : T.border}`,
+          borderRadius: 10, padding: aiSummary ? "12px 14px" : "8px 12px",
+          display: "flex", alignItems: aiSummary ? "flex-start" : "center",
+          gap: 10, flexWrap: "wrap",
+        }}>
+          {aiSummary ? (
+            <>
+              <span style={{ fontSize: 16, lineHeight: 1.4 }}>✨</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontSize: 9, fontWeight: 800, color: "#7c3aed",
+                  textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3,
+                }}>Riassunto AI</div>
+                <div style={{ fontSize: 13, color: T.text, lineHeight: 1.5 }}>
+                  {aiSummary}
+                </div>
+              </div>
+              <button
+                onClick={() => { setAiSummary(null); setAiError(null); }}
+                style={{
+                  background: "transparent", border: "none", cursor: "pointer",
+                  color: T.muted, fontSize: 11, fontWeight: 700, fontFamily: "inherit",
+                  flexShrink: 0,
+                }}
+              >Nascondi</button>
+            </>
+          ) : aiError ? (
+            <>
+              <span style={{ fontSize: 14 }}>⚠</span>
+              <span style={{ flex: 1, fontSize: 12, color: T.red, fontWeight: 600 }}>{aiError}</span>
+              <button
+                onClick={() => setAiError(null)}
+                style={{
+                  background: "transparent", border: "none", cursor: "pointer",
+                  color: T.muted, fontSize: 11, fontWeight: 700, fontFamily: "inherit",
+                }}
+              >×</button>
+            </>
+          ) : (
+            <>
+              <span style={{ flex: 1, fontSize: 11, color: T.muted, fontWeight: 600 }}>
+                Vuoi un riassunto AI del paziente prima della seduta?
+              </span>
+              <button
+                onClick={generateSummary}
+                disabled={aiLoading}
+                style={{
+                  padding: "6px 14px", borderRadius: 7, border: "none",
+                  background: aiLoading
+                    ? T.borderSoft
+                    : "linear-gradient(135deg, #7c3aed, #2563eb)",
+                  color: aiLoading ? T.muted : "#fff",
+                  fontWeight: 800, fontSize: 11, cursor: aiLoading ? "wait" : "pointer",
+                  fontFamily: "inherit",
+                  display: "inline-flex", alignItems: "center", gap: 5,
+                }}
+              >
+                {aiLoading ? (
+                  <>
+                    <span style={{
+                      display: "inline-block", width: 10, height: 10,
+                      border: `2px solid ${T.mutedSoft}`,
+                      borderTopColor: "transparent",
+                      borderRadius: "50%", animation: "psp-spin 0.7s linear infinite",
+                    }} />
+                    Elaboro…
+                  </>
+                ) : (
+                  <>✨ Riassumi con AI</>
+                )}
+                <style>{`@keyframes psp-spin { to { transform: rotate(360deg); } }`}</style>
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── GRIGLIA 5 INDICATORI ─────────────────────────────────────── */}
+      <div className="patient-summary-panel" style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(5, 1fr)",
+        gap: 10,
+      }}>
 
       {/* ── 1. DIAGNOSI ───────────────────────────────────────────────── */}
       <MetricCard icon="🩺" label="Diagnosi" accent={T.teal}>
@@ -409,6 +522,7 @@ export default function PatientSummaryPanel({
           }
         }
       `}</style>
+      </div>
     </div>
   );
 }

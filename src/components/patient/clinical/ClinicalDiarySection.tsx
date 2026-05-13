@@ -36,6 +36,8 @@
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
+import AISuggestionModal from "./AISuggestionModal";
+import { buildPatientContext, callClinicalAI } from "@/src/lib/clinical/buildPatientContext";
 
 // ─── Theme ──────────────────────────────────────────────────────
 
@@ -111,11 +113,13 @@ function vasColor(v: number | null | undefined): string {
 
 export type ClinicalDiarySectionProps = {
   patientId: string;
+  studioId?: string;
+  ownerId?: string;
 };
 
 // ─── Componente principale ──────────────────────────────────────
 
-export default function ClinicalDiarySection({ patientId }: ClinicalDiarySectionProps) {
+export default function ClinicalDiarySection({ patientId, studioId, ownerId }: ClinicalDiarySectionProps) {
 
   const [notes, setNotes] = useState<SessionNote[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -273,11 +277,15 @@ export default function ClinicalDiarySection({ patientId }: ClinicalDiarySection
           {filtered.map(({ appointment, note }) => (
             <DiarySessionCard
               key={appointment.id}
+              patientId={patientId}
+              studioId={studioId}
+              ownerId={ownerId}
               appointment={appointment}
               note={note}
               expanded={expandedAppt === appointment.id}
               onToggle={() => setExpandedAppt(expandedAppt === appointment.id ? null : appointment.id)}
               onSaveQuickNote={(text) => saveQuickNote(appointment.id, text)}
+              onSOAPCreated={() => load()}
             />
           ))}
         </div>
@@ -529,13 +537,17 @@ function VasChart({ data }: { data: any[] }) {
 // ═══════════════════════════════════════════════════════════════════
 
 function DiarySessionCard({
-  appointment, note, expanded, onToggle, onSaveQuickNote,
+  patientId, studioId, ownerId, appointment, note, expanded, onToggle, onSaveQuickNote, onSOAPCreated,
 }: {
+  patientId: string;
+  studioId?: string;
+  ownerId?: string;
   appointment: Appointment;
   note: SessionNote | null;
   expanded: boolean;
   onToggle: () => void;
   onSaveQuickNote: (text: string) => void;
+  onSOAPCreated: () => void;
 }) {
   const apptDate = new Date(appointment.start_at);
   const hasSOAP = note && (note.soap_s || note.soap_o || note.soap_a || note.soap_p);
@@ -543,6 +555,113 @@ function DiarySessionCard({
 
   const [editingNote, setEditingNote] = useState(false);
   const [draftNote, setDraftNote] = useState("");
+
+  // ── AI SOAP generation (Tappa 10) ───────────────────────────
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<{ S: string; O: string; A: string; P: string } | null>(null);
+
+  async function generateSOAPWithAI() {
+    setAiModalOpen(true);
+    setAiLoading(true);
+    setAiError(null);
+    setAiResult(null);
+    try {
+      const ctx = await buildPatientContext({
+        patientId,
+        sections: ["patient", "anamnesis", "diagnosis", "plan", "tests", "sessions"],
+        maxSessions: 5,
+      });
+      ctx.quick_note = quickNote || "";
+      ctx.session_date = appointment.start_at;
+      const result = await callClinicalAI("soap", ctx);
+      if (!result) throw new Error("Risposta AI vuota");
+      setAiResult({
+        S: result.S || "",
+        O: result.O || "",
+        A: result.A || "",
+        P: result.P || "",
+      });
+    } catch (e: any) {
+      setAiError(e?.message || "Errore");
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  async function applySOAP() {
+    if (!aiResult) return;
+    try {
+      // Se la nota esiste, UPDATE. Altrimenti INSERT.
+      if (note?.id) {
+        const { error } = await supabase
+          .from("session_notes")
+          .update({
+            soap_s: aiResult.S || null,
+            soap_o: aiResult.O || null,
+            soap_a: aiResult.A || null,
+            soap_p: aiResult.P || null,
+          })
+          .eq("id", note.id);
+        if (error) throw error;
+      } else {
+        // INSERT: serve studio_id e owner_id per RLS.
+        // Se non li abbiamo come prop, proviamo a leggerli da un'altra session_note
+        // dello stesso paziente, altrimenti da appointments.
+        let resolvedStudioId = studioId;
+        let resolvedOwnerId = ownerId;
+
+        if (!resolvedStudioId || !resolvedOwnerId) {
+          const { data: anyNote } = await supabase
+            .from("session_notes")
+            .select("studio_id, owner_id")
+            .eq("patient_id", patientId)
+            .limit(1)
+            .maybeSingle();
+          if (anyNote) {
+            resolvedStudioId = resolvedStudioId || (anyNote as any).studio_id;
+            resolvedOwnerId = resolvedOwnerId || (anyNote as any).owner_id;
+          }
+        }
+        if (!resolvedStudioId || !resolvedOwnerId) {
+          // Ultimo fallback: leggiamo da appointments
+          const { data: appt } = await supabase
+            .from("appointments")
+            .select("studio_id, owner_id")
+            .eq("id", appointment.id)
+            .maybeSingle();
+          if (appt) {
+            resolvedStudioId = resolvedStudioId || (appt as any).studio_id;
+            resolvedOwnerId = resolvedOwnerId || (appt as any).owner_id;
+          }
+        }
+
+        if (!resolvedStudioId || !resolvedOwnerId) {
+          throw new Error("Impossibile determinare studio_id/owner_id per la nuova nota");
+        }
+
+        const { error } = await supabase
+          .from("session_notes")
+          .insert({
+            studio_id: resolvedStudioId,
+            owner_id: resolvedOwnerId,
+            patient_id: patientId,
+            appointment_id: appointment.id,
+            soap_s: aiResult.S || null,
+            soap_o: aiResult.O || null,
+            soap_a: aiResult.A || null,
+            soap_p: aiResult.P || null,
+          });
+        if (error) throw error;
+      }
+      setAiModalOpen(false);
+      setAiResult(null);
+      onSOAPCreated();
+    } catch (e: any) {
+      setAiError("Errore salvataggio: " + (e?.message || "ignoto"));
+    }
+  }
 
   function startEditNote() {
     setDraftNote(appointment.calendar_note || "");
@@ -740,19 +859,81 @@ function DiarySessionCard({
             </div>
           )}
 
-          {/* Hint apri appuntamento */}
+          {/* Hint apri appuntamento + AI SOAP (Tappa 10) */}
           {!hasSOAP && (
             <div style={{
-              marginTop: 10, padding: "8px 10px",
+              marginTop: 10, padding: "10px 12px",
               background: "rgba(13,148,136,0.06)", borderRadius: 6,
-              fontSize: 11, color: T.muted,
               borderLeft: `3px solid ${T.teal}`,
+              display: "flex", flexDirection: "column", gap: 8,
             }}>
-              💡 Per aggiungere SOAP completo e VAS, apri questo appuntamento dal calendario.
+              <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.4 }}>
+                💡 Per aggiungere SOAP completo e VAS, apri questo appuntamento dal calendario.
+              </div>
+              {quickNote && (
+                <button
+                  onClick={generateSOAPWithAI}
+                  style={{
+                    alignSelf: "flex-start",
+                    padding: "6px 12px", borderRadius: 7, border: "none",
+                    background: "linear-gradient(135deg, #7c3aed, #2563eb)",
+                    color: "#fff", fontWeight: 700, fontSize: 11,
+                    cursor: "pointer", fontFamily: "inherit",
+                  }}
+                >✨ Espandi nota in SOAP con AI</button>
+              )}
             </div>
           )}
         </div>
       )}
+
+      {/* Modale AI SOAP (Tappa 10) */}
+      <AISuggestionModal
+        open={aiModalOpen}
+        title="📋 SOAP suggerito"
+        loading={aiLoading}
+        error={aiError}
+        onClose={() => { setAiModalOpen(false); setAiResult(null); setAiError(null); }}
+        onApply={applySOAP}
+        applyLabel="Salva SOAP"
+        applyDisabled={!aiResult}
+      >
+        {aiResult && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {([
+              { k: "S", label: "S - Soggettivo", color: "#2563eb" },
+              { k: "O", label: "O - Oggettivo",  color: "#0d9488" },
+              { k: "A", label: "A - Assessment", color: "#7c3aed" },
+              { k: "P", label: "P - Plan",       color: "#16a34a" },
+            ] as const).map(f => (
+              <div key={f.k}>
+                <div style={{
+                  fontSize: 10, fontWeight: 800, color: f.color,
+                  textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5,
+                }}>
+                  {f.label}
+                </div>
+                <textarea
+                  value={(aiResult as any)[f.k] || ""}
+                  onChange={e => setAiResult({ ...aiResult, [f.k]: e.target.value } as any)}
+                  rows={2}
+                  style={{
+                    width: "100%", padding: "8px 10px",
+                    border: `1.5px solid ${f.color}40`, borderRadius: 7,
+                    borderLeft: `3px solid ${f.color}`,
+                    fontSize: 12, fontFamily: "inherit", color: "#0f172a",
+                    background: "#fff", resize: "vertical", outline: "none",
+                    lineHeight: 1.5,
+                  }}
+                />
+              </div>
+            ))}
+            <div style={{ fontSize: 10, color: "#94a3b8", fontStyle: "italic" }}>
+              Puoi modificare il testo delle 4 sezioni prima di salvare. Salvando, il SOAP verrà associato a questa seduta.
+            </div>
+          </div>
+        )}
+      </AISuggestionModal>
 
       <style jsx>{`
         @media (max-width: 700px) {
