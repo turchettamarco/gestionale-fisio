@@ -17,6 +17,7 @@ import StructuredAnamnesis from "@/src/components/patient/clinical/StructuredAna
 import StructuredDiagnosis from "@/src/components/patient/clinical/StructuredDiagnosis";
 import StructuredTreatmentPlan from "@/src/components/patient/clinical/StructuredTreatmentPlan";
 import ClinicalDiarySection from "@/src/components/patient/clinical/ClinicalDiarySection";
+import PatientPageTour from "@/src/components/patient/PatientPageTour";
 import { translateError } from "@/src/lib/translateError";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter } from "@/src/lib/pdfHeader";
@@ -884,8 +885,6 @@ export default function PatientDetailPage({
   const [secPacchetti,    setSecPacchetti]    = useState(true);
   const [secTerapie,      setSecTerapie]      = useState(true);
   const [secDiarioSOAP,   setSecDiarioSOAP]   = useState(true);
-  const [soapNotes,       setSoapNotes]       = useState<any[]>([]);
-  const [loadingSOAP,     setLoadingSOAP]     = useState(false);
 
   // ── Dati per PatientSummaryPanel (Tappa 4) ────────────────────────
   // Carichiamo SOAP notes (limitate) e clinical_goals attivi sempre,
@@ -899,6 +898,8 @@ export default function PatientDetailPage({
   const [secTimeline,     setSecTimeline]     = useState(true);
   const [secEsercizi,     setSecEsercizi]     = useState(true);
   const [showConsentModal, setShowConsentModal] = useState(false);
+  // Tappa 9 — Tour onboarding scheda paziente (force re-open dal kebab)
+  const [tourForceShow, setTourForceShow] = useState(false);
   const [consentSaving, setConsentSaving] = useState(false);
   const [consentSaved,  setConsentSaved]  = useState(false);
   const [consentError,  setConsentError]  = useState("");
@@ -945,7 +946,6 @@ export default function PatientDetailPage({
   const [showStorico,    setShowStorico]    = useState(false);
   const [savingScheda,   setSavingScheda]   = useState(false);
   const [savingClinical,  setSavingClinical]  = useState(false);
-  const [showTreatmentDiary, setShowTreatmentDiary] = useState(true);
 
   // ── Documenti clinici ─────────────────────────────────────────────────────
   const [clinicalDocs,       setClinicalDocs]       = useState<ClinicalDocument[]>([]);
@@ -959,8 +959,6 @@ export default function PatientDetailPage({
   const [appointments, setAppointments] = useState<AppointmentRow[]>([]);
   const [loadingAppts, setLoadingAppts] = useState(false);
   const [rowBusy,      setRowBusy]      = useState<Record<string, boolean>>({});
-  const [notesByApptId,    setNotesByApptId]    = useState<Record<string, string>>({});
-  const [noteBusyByApptId, setNoteBusyByApptId] = useState<Record<string, boolean>>({});
 
   // ── Promemoria settimanale ────────────────────────────────────────────────
   const [weeklyReminderOpen, setWeeklyReminderOpen] = useState(false);
@@ -1078,9 +1076,6 @@ export default function PatientDetailPage({
       .order("start_at", { ascending: false });
     if (res.error) { setError(translateError(res.error)); setAppointments([]); setLoadingAppts(false); return; }
     setAppointments((res.data ?? []) as AppointmentRow[]);
-    const map: Record<string, string> = {};
-    (res.data ?? []).forEach((r: any) => { map[r.id] = (r.calendar_note ?? "") as string; });
-    setNotesByApptId(map);
     setLoadingAppts(false);
   }
 
@@ -1292,20 +1287,6 @@ A presto,
       if (delObj.error) setError(`Record eliminato, ma file non rimosso: ${translateError(delObj.error)}`);
     }
     await loadClinicalDocs();
-  }
-
-  async function saveAppointmentNote(apptId: string) {
-    setError("");
-    setNoteBusyByApptId(m => ({ ...m, [apptId]: true }));
-    const note = (notesByApptId[apptId] ?? "").trim();
-    const res = await supabase.from("appointments").update({ calendar_note: note || null }).eq("id", apptId);
-    setNoteBusyByApptId(m => ({ ...m, [apptId]: false }));
-    if (res.error) setError(translateError(res.error));
-  }
-
-  function applyNoteTemplate(apptId: string) {
-    const tpl = "🎯 Obiettivo: \n👐 Tecniche/Trattamento: \n🏋️ Esercizi: \n📌 Note / risposta del paziente: \n";
-    setNotesByApptId(m => ({ ...m, [apptId]: (m[apptId] ?? "") || tpl }));
   }
 
   async function updateTherapyStatus(apptId: string, status: Status) {
@@ -2232,6 +2213,12 @@ ${rows}
   return (
     <div style={{ minHeight: "100vh", background: THEME.appBg, fontFamily: "'Outfit', 'Segoe UI', system-ui, sans-serif" }}>
 
+      {/* ━━━ TOUR ONBOARDING (Tappa 9) ━━━ */}
+      <PatientPageTour
+        forceShow={tourForceShow}
+        onClose={() => setTourForceShow(false)}
+      />
+
       {/* ━━━ MODAL CONSENSI ━━━ */}
       {showConsentModal && (
         <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "20px 16px", overflowY: "auto" }}>
@@ -2577,6 +2564,13 @@ ${rows}
 
                   {/* Separatore */}
                   <div style={{ height: 1, background: THEME.border, margin: "6px 4px" }} />
+
+                  {/* Tappa 9 — Riapertura tour onboarding */}
+                  <KebabItem
+                    icon="ℹ"
+                    label="Tour guidato (riapri)"
+                    onClick={() => { setKebabOpen(false); setTourForceShow(true); }}
+                  />
 
                   <KebabItem
                     icon="🗑"
