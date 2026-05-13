@@ -16,6 +16,7 @@ import PatientSummaryPanel from "@/src/components/patient/PatientSummaryPanel";
 import StructuredAnamnesis from "@/src/components/patient/clinical/StructuredAnamnesis";
 import StructuredDiagnosis from "@/src/components/patient/clinical/StructuredDiagnosis";
 import StructuredTreatmentPlan from "@/src/components/patient/clinical/StructuredTreatmentPlan";
+import ClinicalDiarySection from "@/src/components/patient/clinical/ClinicalDiarySection";
 import { translateError } from "@/src/lib/translateError";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter } from "@/src/lib/pdfHeader";
@@ -2934,69 +2935,6 @@ ${rows}
               <textarea value={diagnosis} onChange={e => setDiagnosis(e.target.value)} rows={4} style={{ ...textareaStyle, marginTop: 0 }} placeholder="Note libere…" />
             </div>
 
-          {/* Diario sedute */}
-          <button type="button" onClick={() => setShowTreatmentDiary(s => !s)} style={{
-            width: "100%", textAlign: "left",
-            background: THEME.panelBg, border: `1.5px solid ${THEME.border}`,
-            padding: "12px 16px", borderRadius: 8, cursor: "pointer",
-            display: "flex", alignItems: "center", justifyContent: "space-between",
-            fontWeight: 700, fontSize: 13, color: THEME.text, marginBottom: 12,
-          }}>
-            <span>🗂️ Trattamento & Diario sedute</span>
-            <span style={{ color: THEME.blue }}>{showTreatmentDiary ? "−" : "+"}</span>
-          </button>
-
-          {showTreatmentDiary && (
-            <div style={{ border: `1.5px solid ${THEME.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 12 }}>
-              <div style={{ padding: "10px 16px", background: THEME.panelSoft, borderBottom: `1.5px solid ${THEME.border}` }}>
-                <p style={{ margin: 0, fontSize: 12, color: THEME.muted, fontWeight: 600 }}>
-                  Note per singola seduta. Salvate in <code>appointments.calendar_note</code>.
-                </p>
-              </div>
-              {appointments.length === 0 ? (
-                <div style={{ padding: 20, color: THEME.muted, fontWeight: 600, fontSize: 13 }}>
-                  Nessuna seduta trovata. Le note appariranno non appena inizi a registrare appuntamenti.
-                </div>
-              ) : (
-                <div style={{ padding: 14, display: "grid", gap: 12 }}>
-                  {appointments.map(a => {
-                    const busy = !!noteBusyByApptId[a.id];
-                    const c   = statusColors(a.status);
-                    const val = notesByApptId[a.id] ?? "";
-                    return (
-                      <div key={a.id} style={{ border: `1.5px solid ${THEME.border}`, borderRadius: 8, padding: 14 }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                            <span style={{ fontWeight: 700, color: THEME.text, fontSize: 13 }}>{formatDateTimeIT(a.start_at)}</span>
-                            <span style={{
-                              display: "inline-flex", alignItems: "center",
-                              padding: "4px 10px", borderRadius: 6,
-                              background: c.bg, border: `1px solid ${c.bd}`,
-                              color: c.fg, fontWeight: 700, fontSize: 11,
-                            }}>{statusLabel(a.status)}</span>
-                          </div>
-                          <div style={{ display: "flex", gap: 8 }}>
-                            <button type="button" onClick={() => applyNoteTemplate(a.id)} style={{
-                              padding: "7px 12px", borderRadius: 6, border: `1.5px solid ${THEME.border}`,
-                              background: THEME.panelBg, color: THEME.blue, fontWeight: 700, cursor: "pointer", fontSize: 12,
-                            }}>Usa template</button>
-                            <button type="button" onClick={() => saveAppointmentNote(a.id)} disabled={busy} style={{
-                              padding: "7px 12px", borderRadius: 6, border: "none",
-                              background: busy ? THEME.gray : THEME.teal,
-                              color: "#fff", fontWeight: 700, cursor: busy ? "not-allowed" : "pointer", fontSize: 12,
-                              opacity: busy ? 0.65 : 1,
-                            }}>{busy ? "Salvo…" : "Salva nota"}</button>
-                          </div>
-                        </div>
-                        <textarea value={val} onChange={e => setNotesByApptId(m => ({ ...m, [a.id]: e.target.value }))} rows={4} style={{ ...textareaStyle, marginTop: 0 }} placeholder="Cosa hai fatto oggi? Tecniche, esercizi, progressioni, risposta del paziente…" />
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Piano trattamento — STRUTTURATO (Tappa 7) */}
           <div style={{ marginTop: 18 }}>
             {patient && currentStudio && userId && (
@@ -3242,132 +3180,18 @@ ${rows}
         )}
 
         {/* ── DIARIO CLINICO (SOAP) ────────────────────────────────────────── */}
-        {activeSection === "diario" && (
+        {activeSection === "diario" && patient && (
         <section style={{ ...cardStyle }}>
           <SecHeader
             icon="📝"
             title="Diario clinico"
-            subtitle="Note SOAP e punteggi VAS seduta per seduta"
+            subtitle="Cronologia sedute · note rapide · SOAP · trend VAS"
             open={secDiarioSOAP}
-            onToggle={() => {
-              setSecDiarioSOAP(s => {
-                if (!s && patient) {
-                  setLoadingSOAP(true);
-                  supabase.from("session_notes")
-                    .select("*, appointments(start_at,status)")
-                    .eq("patient_id", patient.id)
-                    .order("created_at", { ascending: false })
-                    .then(({ data }) => {
-                      setSoapNotes(data || []);
-                      setLoadingSOAP(false);
-                    });
-                }
-                return !s;
-              });
-            }}
-            badge={!secDiarioSOAP && soapNotes.length > 0
-              ? <span style={{ background:"rgba(124,58,237,0.1)", color:"#7c3aed", fontWeight:800, fontSize:12, borderRadius:99, padding:"2px 10px", border:"1px solid rgba(124,58,237,0.2)" }}>
-                  {soapNotes.length} note
-                </span>
-              : undefined}
+            onToggle={() => setSecDiarioSOAP(s => !s)}
           />
           {secDiarioSOAP && (
             <div style={cardBody}>
-              {loadingSOAP ? (
-                <div style={{ textAlign:"center", padding:24, color:THEME.muted, fontSize:13 }}>Caricamento note…</div>
-              ) : soapNotes.length === 0 ? (
-                <div style={{ textAlign:"center", padding:24, color:THEME.muted, fontSize:13 }}>
-                  Nessuna nota clinica ancora. Apri un appuntamento dal calendario per aggiungerle.
-                </div>
-              ) : (
-                <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-                  {/* Grafico VAS temporale se ci sono almeno 2 note con VAS */}
-                  {(() => {
-                    const vasData = soapNotes
-                      .filter(n => n.vas_before != null || n.vas_after != null)
-                      .slice()
-                      .reverse();
-                    if (vasData.length < 2) return null;
-                    const maxY = 10;
-                    return (
-                      <div style={{ background:"rgba(13,148,136,0.04)", border:`1px solid ${THEME.border}`, borderRadius:10, padding:"14px 18px" }}>
-                        <div style={{ fontSize:12, fontWeight:800, color:THEME.text, marginBottom:10 }}>📉 Andamento VAS nel tempo</div>
-                        <div style={{ display:"flex", alignItems:"flex-end", gap:6, height:70, paddingBottom:4, borderBottom:`1px solid ${THEME.border}` }}>
-                          {vasData.map((n, i) => {
-                            const v = n.vas_after ?? n.vas_before;
-                            const h = v == null ? 0 : (v / maxY) * 100;
-                            const color = v == null ? THEME.muted : v <= 3 ? THEME.green : v <= 6 ? "#f59e0b" : THEME.red;
-                            return (
-                              <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
-                                <div style={{ fontSize:10, fontWeight:700, color }}>{v ?? "-"}</div>
-                                <div style={{ width:"100%", height:`${h}%`, background:color, borderRadius:"3px 3px 0 0", minHeight:2 }}/>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <div style={{ display:"flex", justifyContent:"space-between", marginTop:4, fontSize:9, color:THEME.muted }}>
-                          <span>prima seduta</span>
-                          <span>ultima</span>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* Lista note */}
-                  {soapNotes.map((n, i) => {
-                    const apptDate = n.appointments?.start_at ? new Date(n.appointments.start_at) : new Date(n.created_at);
-                    const hasSOAP = n.soap_s || n.soap_o || n.soap_a || n.soap_p;
-                    return (
-                      <div key={n.id} style={{ background:"#fff", border:`1px solid ${THEME.border}`, borderRadius:10, padding:"14px 16px" }}>
-                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10, gap:8 }}>
-                          <div>
-                            <div style={{ fontSize:13, fontWeight:800, color:THEME.text }}>
-                              {apptDate.toLocaleDateString("it-IT", { weekday:"long", day:"2-digit", month:"long", year:"numeric" })}
-                            </div>
-                            <div style={{ fontSize:11, color:THEME.muted, marginTop:1 }}>
-                              {apptDate.toLocaleTimeString("it-IT", { hour:"2-digit", minute:"2-digit" })}
-                            </div>
-                          </div>
-                          {(n.vas_before != null || n.vas_after != null) && (
-                            <div style={{ display:"flex", gap:6, alignItems:"center", flexShrink:0 }}>
-                              {n.vas_before != null && (
-                                <div style={{ padding:"3px 8px", borderRadius:5, background:"rgba(100,116,139,0.08)", fontSize:11, fontWeight:700, color:THEME.muted }}>
-                                  prima: <span style={{ color:n.vas_before<=3?THEME.green:n.vas_before<=6?"#f59e0b":THEME.red }}>{n.vas_before}</span>
-                                </div>
-                              )}
-                              {n.vas_after != null && (
-                                <div style={{ padding:"3px 8px", borderRadius:5, background:"rgba(100,116,139,0.08)", fontSize:11, fontWeight:700, color:THEME.muted }}>
-                                  dopo: <span style={{ color:n.vas_after<=3?THEME.green:n.vas_after<=6?"#f59e0b":THEME.red }}>{n.vas_after}</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        {n.quick_note && (
-                          <div style={{ fontSize:13, color:THEME.text, whiteSpace:"pre-wrap", padding:"10px 12px", background:THEME.panelSoft, borderRadius:7, marginBottom:hasSOAP?10:0 }}>
-                            {n.quick_note}
-                          </div>
-                        )}
-                        {hasSOAP && (
-                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-                            {([
-                              { k:"soap_s", l:"S", color:THEME.blue },
-                              { k:"soap_o", l:"O", color:THEME.teal },
-                              { k:"soap_a", l:"A", color:"#7c3aed" },
-                              { k:"soap_p", l:"P", color:THEME.green },
-                            ] as const).map(f => n[f.k] && (
-                              <div key={f.k} style={{ background:THEME.panelSoft, borderRadius:7, padding:"8px 10px", borderLeft:`3px solid ${f.color}` }}>
-                                <div style={{ fontSize:10, fontWeight:800, color:f.color, textTransform:"uppercase", letterSpacing:0.4, marginBottom:3 }}>{f.l}</div>
-                                <div style={{ fontSize:12, color:THEME.text, whiteSpace:"pre-wrap" }}>{n[f.k]}</div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <ClinicalDiarySection patientId={patient.id} />
             </div>
           )}
         </section>
