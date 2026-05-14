@@ -29,6 +29,7 @@ import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { Printer, Download, Eye, ChevronLeft, ChevronRight, ArrowLeft } from "lucide-react";
+import { previewAgendaInBrowser, printAgenda, downloadAgendaPDF, type GuestAgendaData } from "./utils/exportGuestAgenda";
 
 // ── Palette brand FisioHub ──────────────────────────────────────────────
 const T = {
@@ -254,9 +255,80 @@ export default function AgendaOspiteClient() {
     const m: Record<string, boolean> = {}; for (const g of groupedByDay) m[g.key] = false; setSelectedDays(m);
   }, [groupedByDay]);
 
-  const handlePdfDownload = useCallback(() => alert("PDF — Step 5f in arrivo"), []);
-  const handlePrint = useCallback(() => alert("Stampa — Step 5f in arrivo"), []);
-  const handlePreview = useCallback(() => alert("Anteprima — Step 5f in arrivo"), []);
+  // Builder dati comune per export (solo giorni selezionati)
+  const buildExportData = useCallback((onlyDayKey?: string): GuestAgendaData => {
+    if (!guest) throw new Error("Guest non disponibile");
+    const localFields = guest.pdf_print_fields || {};
+    const periodLabel = filterMode === "month"
+      ? fmtMonthYear(currentMonth)
+      : `dal ${new Date(rangeStart).toLocaleDateString("it-IT")} al ${new Date(rangeEnd).toLocaleDateString("it-IT")}`;
+
+    // Se onlyDayKey è specificato → solo quel giorno; altrimenti i giorni selezionati
+    const filteredGroups = onlyDayKey
+      ? groupedByDay.filter(g => g.key === onlyDayKey)
+      : groupedByDay.filter(g => selectedDays[g.key] !== false);
+
+    return {
+      guest: {
+        first_name: guest.first_name,
+        last_name: guest.last_name,
+        specialty: guest.specialty,
+        display_color: guest.display_color,
+      },
+      periodLabel: onlyDayKey
+        ? (filteredGroups[0]
+            ? filteredGroups[0].date.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).replace(/^./, c => c.toUpperCase())
+            : periodLabel)
+        : periodLabel,
+      groups: filteredGroups.map(g => ({
+        date: g.date,
+        events: g.events.map(ev => ({
+          start_at: ev.start_at,
+          end_at: ev.end_at,
+          calendar_note: ev.calendar_note,
+          patient: ev.patient,
+        })),
+      })),
+      fields: {
+        telefono: localFields.telefono !== false,
+        durata:   localFields.durata !== false,
+        diagnosi: localFields.diagnosi !== false,
+        note:     localFields.note !== false,
+      },
+      studio: studio as {
+        name?: string | null; address?: string | null;
+        phone?: string | null; email?: string | null;
+        logo_base64?: string | null;
+        signature_name?: string | null;
+        signature_title?: string | null;
+      } | null,
+    };
+  }, [guest, filterMode, currentMonth, rangeStart, rangeEnd, groupedByDay, selectedDays, studio]);
+
+  const handlePdfDownload = useCallback(async () => {
+    if (!guest) return;
+    try {
+      await downloadAgendaPDF(buildExportData());
+    } catch (e) {
+      console.error("Errore PDF:", e);
+      alert("Errore nella generazione del PDF. Riprova.");
+    }
+  }, [guest, buildExportData]);
+
+  const handlePrint = useCallback(() => {
+    if (!guest) return;
+    printAgenda(buildExportData());
+  }, [guest, buildExportData]);
+
+  const handlePreview = useCallback(() => {
+    if (!guest) return;
+    previewAgendaInBrowser(buildExportData());
+  }, [guest, buildExportData]);
+
+  const handlePrintSingleDay = useCallback((dayKeyToPrint: string) => {
+    if (!guest) return;
+    printAgenda(buildExportData(dayKeyToPrint));
+  }, [guest, buildExportData]);
 
   // ── States ───────────────────────────────────────────────────────────
   if (loading) {
@@ -675,7 +747,7 @@ export default function AgendaOspiteClient() {
                       </div>
                     </div>
                     <button
-                      onClick={() => alert(`Stampa solo ${fullDayLabel(group.date)} — Step 5f`)}
+                      onClick={() => handlePrintSingleDay(group.key)}
                       style={{
                         padding: "6px 12px", borderRadius: 8,
                         border: `1px solid ${T.border}`, background: T.white,

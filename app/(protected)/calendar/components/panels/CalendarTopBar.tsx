@@ -19,7 +19,7 @@
 
 "use client";
 
-import { type RefObject } from "react";
+import { useState, type RefObject } from "react";
 import Link from "next/link";
 import { BuildInfo } from "@/src/components/BuildInfo";
 import NotificationsBell from "@/src/components/NotificationsBell";
@@ -42,6 +42,18 @@ export type CalendarTopBarProps = {
   userMenuRef: RefObject<HTMLDivElement | null>;
   userInitials: string;
   onLogout: () => void;
+
+  // ─── Agenda Ospiti (mig. 029, Step 5g) ────────────────────────
+  /** Lista degli ospiti attivi dello studio per la voce "Agenda Ospiti".
+   *  Se la feature è disattiva o non ci sono ospiti, omettere/array vuoto:
+   *  la voce non viene renderizzata. */
+  guestPractitionersForMenu?: Array<{
+    id: string;
+    first_name: string;
+    last_name: string;
+    specialty: string;
+    display_color: string | null;
+  }>;
 };
 
 const NAV_ITEMS = [
@@ -60,6 +72,7 @@ export default function CalendarTopBar({
   onNotificationAppointmentClick,
   userMenuOpen, setUserMenuOpen, userMenuRef,
   userInitials, onLogout,
+  guestPractitionersForMenu,
 }: CalendarTopBarProps) {
 
   // Handler ricerca globale (simula Cmd+K)
@@ -67,6 +80,17 @@ export default function CalendarTopBar({
     const event = new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true });
     window.dispatchEvent(event);
   };
+
+  // Voce "Agenda Ospiti" smart (mig. 029, Step 5g):
+  //   - 0 ospiti  → voce non renderizzata
+  //   - 1 ospite  → click → /ospiti/{id} (diretto)
+  //   - 2+ ospiti → click → expand inline con sotto-lista ospiti
+  const hasGuests = !!guestPractitionersForMenu && guestPractitionersForMenu.length > 0;
+  const singleGuest = guestPractitionersForMenu && guestPractitionersForMenu.length === 1
+    ? guestPractitionersForMenu[0] : null;
+  const multipleGuests = guestPractitionersForMenu && guestPractitionersForMenu.length > 1
+    ? guestPractitionersForMenu : null;
+  const [guestSubmenuOpen, setGuestSubmenuOpen] = useState(false);
 
   return (
     <header className="no-print cal-header" style={{
@@ -161,6 +185,68 @@ export default function CalendarTopBar({
               borderRadius: 12, boxShadow: "0 12px 32px rgba(30,64,175,0.15)",
               overflow: "hidden", zIndex: 60,
             }}>
+              {/* Voce Agenda Ospiti (mig. 029, Step 5g) - smart */}
+              {hasGuests && singleGuest && (
+                <Link
+                  href={`/ospiti/${singleGuest.id}`}
+                  onClick={() => setUserMenuOpen(false)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8, padding: "12px 16px",
+                    color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
+                    borderBottom: `1.5px solid ${THEME.border}`,
+                  }}
+                >
+                  📋 Agenda {singleGuest.first_name}
+                </Link>
+              )}
+              {hasGuests && multipleGuests && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setGuestSubmenuOpen(o => !o)}
+                    style={{
+                      width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+                      gap: 8, padding: "12px 16px",
+                      background: "transparent", border: "none", cursor: "pointer",
+                      color: THEME.text, fontSize: 13, fontWeight: 600,
+                      borderBottom: `1.5px solid ${THEME.border}`,
+                      textAlign: "left",
+                    }}
+                  >
+                    <span>📋 Agenda Ospiti</span>
+                    <span style={{ fontSize: 11, color: THEME.muted }}>
+                      {guestSubmenuOpen ? "▾" : "▸"}
+                    </span>
+                  </button>
+                  {guestSubmenuOpen && (
+                    <div style={{ borderBottom: `1.5px solid ${THEME.border}` }}>
+                      {multipleGuests.map(g => (
+                        <Link
+                          key={g.id}
+                          href={`/ospiti/${g.id}`}
+                          onClick={() => setUserMenuOpen(false)}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 8,
+                            padding: "10px 16px 10px 32px",
+                            color: THEME.text, textDecoration: "none",
+                            fontSize: 12, fontWeight: 600,
+                            background: THEME.panelSoft,
+                          }}
+                        >
+                          <span style={{
+                            width: 8, height: 8, borderRadius: "50%",
+                            background: g.display_color || "#DB2777",
+                            flexShrink: 0,
+                          }} />
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {g.first_name} {g.last_name}
+                          </span>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
               <Link
                 href="/settings"
                 onClick={() => setUserMenuOpen(false)}

@@ -45,6 +45,46 @@ export default function AppNavbar({ active, onRefresh }: AppNavbarProps) {
   const { studio: currentStudio } = useCurrentStudio();
   const bellEnabled = (currentStudio as any)?.notify_bell_enabled !== false;
 
+  // ── Agenda Ospiti (mig. 029, Step 5g) ────────────────────────────────
+  // Carichiamo gli ospiti attivi solo se la feature è ON a livello studio.
+  // Logica della voce nel menu:
+  //   - 0 ospiti  → voce non renderizzata
+  //   - 1 ospite  → click → /ospiti/{id} (diretto)
+  //   - 2+ ospiti → click → expand inline con sotto-lista nominativa
+  const guestEnabled = (currentStudio as any)?.guest_practitioners_enabled === true;
+  const [guestList, setGuestList] = useState<Array<{
+    id: string; first_name: string; last_name: string;
+    specialty: string; display_color: string | null;
+  }>>([]);
+  const [guestSubmenuOpen, setGuestSubmenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!guestEnabled || !currentStudio?.id) {
+      setGuestList([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("guest_practitioners")
+        .select("id, first_name, last_name, specialty, display_color")
+        .eq("studio_id", currentStudio.id)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true });
+      if (cancelled) return;
+      if (error) { console.error("Errore caricamento ospiti per navbar:", error); return; }
+      setGuestList((data ?? []) as Array<{
+        id: string; first_name: string; last_name: string;
+        specialty: string; display_color: string | null;
+      }>);
+    })();
+    return () => { cancelled = true; };
+  }, [guestEnabled, currentStudio?.id]);
+
+  const hasGuests = guestList.length > 0;
+  const singleGuest = guestList.length === 1 ? guestList[0] : null;
+  const multipleGuests = guestList.length > 1 ? guestList : null;
+
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getUser();
@@ -179,6 +219,59 @@ export default function AppNavbar({ active, onRefresh }: AppNavbarProps) {
             {userMenuOpen && (
               <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", width: 200, background: "#fff", border: `1px solid ${COL.border}`, borderRadius: 10, boxShadow: "0 8px 28px rgba(15,23,42,0.12)", overflow: "hidden", zIndex: 60 }}>
                 <div style={{ padding: "10px 15px", borderBottom: `1px solid ${COL.border}`, fontSize: 12, color: COL.muted, overflow: "hidden", textOverflow: "ellipsis" }}>{userEmail}</div>
+                {hasGuests && singleGuest && (
+                  <Link
+                    href={`/ospiti/${singleGuest.id}`}
+                    onClick={() => setUserMenuOpen(false)}
+                    style={{ display: "block", padding: "10px 15px", color: COL.text, fontSize: 13, fontWeight: 600, borderBottom: `1px solid ${COL.border}` }}
+                  >
+                    📋 Agenda {singleGuest.first_name}
+                  </Link>
+                )}
+                {hasGuests && multipleGuests && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setGuestSubmenuOpen(o => !o)}
+                      style={{
+                        width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+                        padding: "10px 15px", background: "transparent", border: "none",
+                        cursor: "pointer", color: COL.text, fontSize: 13, fontWeight: 600,
+                        borderBottom: `1px solid ${COL.border}`, textAlign: "left",
+                      }}
+                    >
+                      <span>📋 Agenda Ospiti</span>
+                      <span style={{ fontSize: 10, color: COL.muted }}>
+                        {guestSubmenuOpen ? "▾" : "▸"}
+                      </span>
+                    </button>
+                    {guestSubmenuOpen && (
+                      <div style={{ borderBottom: `1px solid ${COL.border}` }}>
+                        {multipleGuests.map(g => (
+                          <Link
+                            key={g.id}
+                            href={`/ospiti/${g.id}`}
+                            onClick={() => setUserMenuOpen(false)}
+                            style={{
+                              display: "flex", alignItems: "center", gap: 8,
+                              padding: "8px 15px 8px 32px",
+                              color: COL.text, fontSize: 12, fontWeight: 600,
+                              background: "#f8fafc", textDecoration: "none",
+                            }}
+                          >
+                            <span style={{
+                              width: 8, height: 8, borderRadius: "50%",
+                              background: g.display_color || "#DB2777", flexShrink: 0,
+                            }} />
+                            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {g.first_name} {g.last_name}
+                            </span>
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
                 <Link href="/settings" onClick={() => setUserMenuOpen(false)} style={{ display: "block", padding: "10px 15px", color: COL.text, fontSize: 13, fontWeight: 600, borderBottom: `1px solid ${COL.border}` }}>Impostazioni</Link>
                 <Link href="/piano" onClick={() => setUserMenuOpen(false)} style={{ display: "block", padding: "10px 15px", color: COL.text, fontSize: 13, fontWeight: 600, borderBottom: `1px solid ${COL.border}`, textDecoration: "none" }}>💎 Piano</Link>
                 <button onClick={handleLogout} style={{ width: "100%", padding: "10px 15px", background: "transparent", border: "none", cursor: "pointer", color: COL.red, fontWeight: 600, fontSize: 13, textAlign: "left" }}>Logout</button>

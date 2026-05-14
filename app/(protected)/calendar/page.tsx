@@ -1844,6 +1844,17 @@ return (
         userMenuRef={userMenuRef}
         userInitials={userInitials}
         onLogout={handleLogout}
+        guestPractitionersForMenu={
+          guestPractitionersEnabled && studioGuests.length > 0
+            ? studioGuests.map(g => ({
+                id: g.id,
+                first_name: g.first_name,
+                last_name: g.last_name,
+                specialty: g.specialty,
+                display_color: g.display_color,
+              }))
+            : undefined
+        }
       />
 
       {/* ━━━ PANNELLO PRENOTAZIONI DAL SITO ━━━ */}
