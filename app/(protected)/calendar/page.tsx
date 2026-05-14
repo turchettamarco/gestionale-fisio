@@ -1855,6 +1855,7 @@ return (
               }))
             : undefined
         }
+        useGuestIndexPage={(currentStudio as { use_guest_index_page?: boolean })?.use_guest_index_page === true}
       />
 
       {/* ━━━ PANNELLO PRENOTAZIONI DAL SITO ━━━ */}

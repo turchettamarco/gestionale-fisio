@@ -82,8 +82,13 @@ export default function AppNavbar({ active, onRefresh }: AppNavbarProps) {
   }, [guestEnabled, currentStudio?.id]);
 
   const hasGuests = guestList.length > 0;
+  // mig. 031 — Se il toggle è ON e ci sono 2+ ospiti, mostriamo voce unica
+  // "Agenda Ospiti" che porta alla pagina indice /ospiti. Altrimenti comportamento
+  // smart: 1=link diretto, 2+=submenu collassabile.
+  const useGuestIndex = (currentStudio as { use_guest_index_page?: boolean })?.use_guest_index_page === true;
   const singleGuest = guestList.length === 1 ? guestList[0] : null;
   const multipleGuests = guestList.length > 1 ? guestList : null;
+  const showIndexLink = useGuestIndex && guestList.length >= 2;
 
   useEffect(() => {
     (async () => {
@@ -219,7 +224,16 @@ export default function AppNavbar({ active, onRefresh }: AppNavbarProps) {
             {userMenuOpen && (
               <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", width: 200, background: "#fff", border: `1px solid ${COL.border}`, borderRadius: 10, boxShadow: "0 8px 28px rgba(15,23,42,0.12)", overflow: "hidden", zIndex: 60 }}>
                 <div style={{ padding: "10px 15px", borderBottom: `1px solid ${COL.border}`, fontSize: 12, color: COL.muted, overflow: "hidden", textOverflow: "ellipsis" }}>{userEmail}</div>
-                {hasGuests && singleGuest && (
+                {hasGuests && showIndexLink && (
+                  <Link
+                    href="/ospiti"
+                    onClick={() => setUserMenuOpen(false)}
+                    style={{ display: "block", padding: "10px 15px", color: COL.text, fontSize: 13, fontWeight: 600, borderBottom: `1px solid ${COL.border}` }}
+                  >
+                    📋 Agenda Ospiti
+                  </Link>
+                )}
+                {hasGuests && !showIndexLink && singleGuest && (
                   <Link
                     href={`/ospiti/${singleGuest.id}`}
                     onClick={() => setUserMenuOpen(false)}
@@ -228,7 +242,7 @@ export default function AppNavbar({ active, onRefresh }: AppNavbarProps) {
                     📋 Agenda {singleGuest.first_name}
                   </Link>
                 )}
-                {hasGuests && multipleGuests && (
+                {hasGuests && !showIndexLink && multipleGuests && (
                   <>
                     <button
                       type="button"

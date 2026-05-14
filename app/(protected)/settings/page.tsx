@@ -170,6 +170,9 @@ export default function SettingsPage() {
   // ── Professionisti ospiti (mig. 029) ─────────────────────────────────
   const [guestEnabled, setGuestEnabled]                 = useState(false);
   const [savingGuestToggle, setSavingGuestToggle]       = useState(false);
+  // mig. 031 — Toggle pagina indice ospiti
+  const [useGuestIndex, setUseGuestIndex]               = useState(false);
+  const [savingGuestIndexToggle, setSavingGuestIndexToggle] = useState(false);
   const [guests, setGuests]                             = useState<GuestPractitionerRow[]>([]);
   const [loadingGuests, setLoadingGuests]               = useState(true);
   const [savingGuest, setSavingGuest]                   = useState(false);
@@ -812,6 +815,8 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!studio?.id) return;
     setGuestEnabled(Boolean((studio as { guest_practitioners_enabled?: boolean }).guest_practitioners_enabled));
+    // mig. 031 — flag pagina indice
+    setUseGuestIndex(Boolean((studio as { use_guest_index_page?: boolean }).use_guest_index_page));
     void loadGuests();
   }, [studio?.id, loadGuests]);
 
@@ -830,6 +835,23 @@ export default function SettingsPage() {
       setSavingGuestToggle(false);
     }
   }, [studio?.id, guestEnabled, refreshStudio]);
+
+  // mig. 031 — saver toggle pagina indice
+  const saveGuestIndexToggle = useCallback(async () => {
+    if (!studio?.id) return;
+    setSavingGuestIndexToggle(true);
+    try {
+      const { error } = await supabase
+        .from("studios")
+        .update({ use_guest_index_page: useGuestIndex })
+        .eq("id", studio.id);
+      if (error) { alert("Errore salvataggio: " + error.message); return; }
+      await refreshStudio();
+      flashSuccess(useGuestIndex ? "Pagina indice ospiti attivata." : "Pagina indice ospiti disattivata.");
+    } finally {
+      setSavingGuestIndexToggle(false);
+    }
+  }, [studio?.id, useGuestIndex, refreshStudio]);
 
   const createGuest = useCallback(async (payload: {
     first_name: string;
@@ -1935,6 +1957,10 @@ export default function SettingsPage() {
               onCreate={createGuest}
               onUpdate={updateGuest}
               onDelete={deleteGuest}
+              useGuestIndex={useGuestIndex}
+              setUseGuestIndex={setUseGuestIndex}
+              savingGuestIndexToggle={savingGuestIndexToggle}
+              onSaveGuestIndexToggle={saveGuestIndexToggle}
             />
 
             {/* Sezione assenze operatori (Fase 5). Visibile solo se multi-op

@@ -49,6 +49,10 @@ export type Studio = {
   weekly_view_layout?: "classic" | "timeline" | "pile" | "grid" | "roster";
   /** Vista predefinita all'apertura calendario (mig. 023, Fase D) */
   default_calendar_view?: "day" | "week" | "month";
+  /** Toggle pagina indice ospiti (mig. 031): se TRUE la voce "Agenda Ospiti"
+   *  nel menu utente porta alla pagina /ospiti (utile con 3+ ospiti).
+   *  Se FALSE (default), comportamento smart: 1=link diretto, 2+=submenu. */
+  use_guest_index_page?: boolean;
 };
 
 export type StudioLocationLite = {

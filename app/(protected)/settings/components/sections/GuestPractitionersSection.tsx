@@ -421,6 +421,11 @@ export type GuestPractitionersSectionProps = {
     };
   }>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  // mig. 031 — Toggle pagina indice ospiti
+  useGuestIndex?: boolean;
+  setUseGuestIndex?: (v: boolean) => void;
+  savingGuestIndexToggle?: boolean;
+  onSaveGuestIndexToggle?: () => void;
 };
 
 export default function GuestPractitionersSection({
@@ -437,6 +442,10 @@ export default function GuestPractitionersSection({
   onCreate,
   onUpdate,
   onDelete,
+  useGuestIndex,
+  setUseGuestIndex,
+  savingGuestIndexToggle,
+  onSaveGuestIndexToggle,
 }: GuestPractitionersSectionProps) {
   const [showNewForm, setShowNewForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -609,6 +618,66 @@ export default function GuestPractitionersSection({
                       onDelete={() => void handleDelete(g)}
                     />
                   ))}
+                </div>
+              )}
+
+              {/* ── Toggle pagina indice ospiti (mig. 031) ──────────────
+                  Visibile solo se ci sono almeno 2 ospiti registrati.
+                  Con 1 solo ospite non avrebbe senso (la pagina conterrebbe
+                  un'unica card). Permette di scegliere fra:
+                    - OFF (default, smart): voce menu = link diretto/submenu
+                    - ON: voce menu = "Agenda Ospiti" → pagina indice /ospiti */}
+              {sortedGuests.length >= 2 && setUseGuestIndex && onSaveGuestIndexToggle && (
+                <div style={{
+                  marginTop: 20, padding: 16,
+                  background: "#fff", border: `1px solid ${THEME.border}`,
+                  borderRadius: 10,
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                    <div style={{ flex: 1, minWidth: 200 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: THEME.text, marginBottom: 4 }}>
+                        Pagina indice ospiti
+                      </div>
+                      <div style={{ fontSize: 11.5, color: THEME.muted, lineHeight: 1.5 }}>
+                        Quando hai più di un ospite, la voce <strong>&quot;Agenda Ospiti&quot;</strong> nel menu utente
+                        si trasforma in un piccolo elenco a tendina. Se preferisci, attivando questa opzione
+                        la voce porta invece a una <strong>pagina dedicata</strong> con tutte le card degli ospiti
+                        e i loro dati di sintesi. Utile quando hai 3 o più ospiti.
+                      </div>
+                    </div>
+                    <label style={{
+                      display: "inline-flex", alignItems: "center",
+                      cursor: "pointer", userSelect: "none", flexShrink: 0,
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={!!useGuestIndex}
+                        onChange={e => setUseGuestIndex(e.target.checked)}
+                        style={{ display: "none" }}
+                      />
+                      <div style={{
+                        position: "relative", width: 48, height: 24,
+                        borderRadius: 99,
+                        background: useGuestIndex
+                          ? "linear-gradient(135deg, #0d9488, #2563eb)"
+                          : THEME.border,
+                        transition: "all 0.2s",
+                      }}>
+                        <div style={{
+                          position: "absolute",
+                          height: 20, width: 20, left: useGuestIndex ? 25 : 3,
+                          top: 2, background: "#fff", borderRadius: "50%",
+                          transition: "all 0.2s",
+                          boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                        }} />
+                      </div>
+                    </label>
+                    <BtnPrimary
+                      label={savingGuestIndexToggle ? "Salvataggio..." : "Salva"}
+                      onClick={onSaveGuestIndexToggle}
+                      disabled={!!savingGuestIndexToggle}
+                    />
+                  </div>
                 </div>
               )}
             </>

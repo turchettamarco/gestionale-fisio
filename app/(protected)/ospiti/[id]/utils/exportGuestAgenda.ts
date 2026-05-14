@@ -320,10 +320,10 @@ export function printAgenda(data: GuestAgendaData): void {
 // ════════════════════════════════════════════════════════════════════════
 
 export async function downloadAgendaPDF(data: GuestAgendaData): Promise<void> {
-  // Import dinamico per evitare di gonfiare il bundle iniziale
+  // Import dinamico per evitare di gonfiare il bundle iniziale.
+  // jspdf-autotable v5+ esporta `autoTable` come named export.
   const { jsPDF } = await import("jspdf");
-  const autoTableModule = await import("jspdf-autotable");
-  const autoTable = autoTableModule.default;
+  const { autoTable } = await import("jspdf-autotable");
 
   const { guest, periodLabel, groups, fields, studio } = data;
   const guestColor = guest.display_color || "#DB2777";

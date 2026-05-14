@@ -54,6 +54,9 @@ export type CalendarTopBarProps = {
     specialty: string;
     display_color: string | null;
   }>;
+  /** mig. 031 — Se true e 2+ ospiti, la voce nel menu diventa link unico
+   *  alla pagina indice /ospiti invece del submenu collassabile. */
+  useGuestIndexPage?: boolean;
 };
 
 const NAV_ITEMS = [
@@ -73,6 +76,7 @@ export default function CalendarTopBar({
   userMenuOpen, setUserMenuOpen, userMenuRef,
   userInitials, onLogout,
   guestPractitionersForMenu,
+  useGuestIndexPage,
 }: CalendarTopBarProps) {
 
   // Handler ricerca globale (simula Cmd+K)
@@ -81,15 +85,19 @@ export default function CalendarTopBar({
     window.dispatchEvent(event);
   };
 
-  // Voce "Agenda Ospiti" smart (mig. 029, Step 5g):
-  //   - 0 ospiti  → voce non renderizzata
-  //   - 1 ospite  → click → /ospiti/{id} (diretto)
-  //   - 2+ ospiti → click → expand inline con sotto-lista ospiti
+  // Voce "Agenda Ospiti" smart (mig. 029, Step 5g + mig. 031, Step 5e):
+  //   - 0 ospiti        → voce non renderizzata
+  //   - 1 ospite        → click → /ospiti/{id} (diretto)
+  //   - 2+ ospiti + flag OFF → expand inline con sotto-lista ospiti
+  //   - 2+ ospiti + flag ON  → click → /ospiti (pagina indice)
   const hasGuests = !!guestPractitionersForMenu && guestPractitionersForMenu.length > 0;
   const singleGuest = guestPractitionersForMenu && guestPractitionersForMenu.length === 1
     ? guestPractitionersForMenu[0] : null;
   const multipleGuests = guestPractitionersForMenu && guestPractitionersForMenu.length > 1
     ? guestPractitionersForMenu : null;
+  const showIndexLink = useGuestIndexPage === true
+    && !!guestPractitionersForMenu
+    && guestPractitionersForMenu.length >= 2;
   const [guestSubmenuOpen, setGuestSubmenuOpen] = useState(false);
 
   return (
@@ -185,8 +193,21 @@ export default function CalendarTopBar({
               borderRadius: 12, boxShadow: "0 12px 32px rgba(30,64,175,0.15)",
               overflow: "hidden", zIndex: 60,
             }}>
-              {/* Voce Agenda Ospiti (mig. 029, Step 5g) - smart */}
-              {hasGuests && singleGuest && (
+              {/* Voce Agenda Ospiti (mig. 029, Step 5g + mig. 031 5e) */}
+              {hasGuests && showIndexLink && (
+                <Link
+                  href="/ospiti"
+                  onClick={() => setUserMenuOpen(false)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8, padding: "12px 16px",
+                    color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
+                    borderBottom: `1.5px solid ${THEME.border}`,
+                  }}
+                >
+                  📋 Agenda Ospiti
+                </Link>
+              )}
+              {hasGuests && !showIndexLink && singleGuest && (
                 <Link
                   href={`/ospiti/${singleGuest.id}`}
                   onClick={() => setUserMenuOpen(false)}
@@ -199,7 +220,7 @@ export default function CalendarTopBar({
                   📋 Agenda {singleGuest.first_name}
                 </Link>
               )}
-              {hasGuests && multipleGuests && (
+              {hasGuests && !showIndexLink && multipleGuests && (
                 <>
                   <button
                     type="button"
