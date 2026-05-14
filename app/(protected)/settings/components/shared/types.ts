@@ -171,6 +171,10 @@ export type GuestPractitionerRow = {
     diagnosi?: boolean;
     note?: boolean;
   };
+  // mig. 032 — Portale ospite pubblico (link senza login)
+  access_token?: string | null;
+  token_created_at?: string | null;
+  last_access_at?: string | null;
   created_at: string;
   updated_at?: string;
 };

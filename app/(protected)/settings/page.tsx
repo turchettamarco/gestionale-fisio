@@ -948,6 +948,50 @@ export default function SettingsPage() {
     }
   }, [studio?.id, loadGuests]);
 
+  // mig. 032 — Portale pubblico ospite: genera / revoca token UUID
+  const [savingGuestToken, setSavingGuestToken] = useState<string | null>(null);
+
+  const generateGuestToken = useCallback(async (id: string) => {
+    if (!studio?.id) return;
+    setSavingGuestToken(id);
+    try {
+      // Genera UUID v4 client-side (più semplice di chiamare gen_random_uuid)
+      const newToken = crypto.randomUUID();
+      const { error } = await supabase
+        .from("guest_practitioners")
+        .update({
+          access_token: newToken,
+          token_created_at: new Date().toISOString(),
+          last_access_at: null,
+        })
+        .eq("id", id);
+      if (error) { alert("Errore generazione link: " + error.message); return; }
+      await loadGuests();
+      flashSuccess("Link generato con successo. Ora puoi copiarlo e inviarlo.");
+    } finally {
+      setSavingGuestToken(null);
+    }
+  }, [studio?.id, loadGuests]);
+
+  const revokeGuestToken = useCallback(async (id: string) => {
+    if (!studio?.id) return;
+    setSavingGuestToken(id);
+    try {
+      const { error } = await supabase
+        .from("guest_practitioners")
+        .update({
+          access_token: null,
+          token_created_at: null,
+          last_access_at: null,
+        })
+        .eq("id", id);
+      if (error) { alert("Errore revoca: " + error.message); return; }
+      await loadGuests();
+      flashSuccess("Link revocato. Il vecchio link non funziona più.");
+    } finally {
+      setSavingGuestToken(null);
+    }
+  }, [studio?.id, loadGuests]);
 
   // ── Calendar feed token ──────────────────────────────────────────────────
   const [calendarToken, setCalendarToken]                 = useState<string | null>(null);
@@ -1961,6 +2005,9 @@ export default function SettingsPage() {
               setUseGuestIndex={setUseGuestIndex}
               savingGuestIndexToggle={savingGuestIndexToggle}
               onSaveGuestIndexToggle={saveGuestIndexToggle}
+              onGenerateGuestToken={generateGuestToken}
+              onRevokeGuestToken={revokeGuestToken}
+              savingGuestToken={savingGuestToken}
             />
 
             {/* Sezione assenze operatori (Fase 5). Visibile solo se multi-op

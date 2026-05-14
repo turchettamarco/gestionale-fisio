@@ -66,6 +66,9 @@ function GuestForm({
   onSubmit,
   saving,
   isEdit = false,
+  onGenerateToken,
+  onRevokeToken,
+  savingToken,
 }: {
   initial?: Partial<GuestPractitionerRow>;
   rooms: StudioRoomRow[];
@@ -86,6 +89,10 @@ function GuestForm({
   }) => void;
   saving: boolean;
   isEdit?: boolean;
+  // mig. 032 — Portale pubblico (solo in edit)
+  onGenerateToken?: () => Promise<void>;
+  onRevokeToken?: () => Promise<void>;
+  savingToken?: boolean;
 }) {
   const [firstName, setFirstName] = useState(initial?.first_name ?? "");
   const [lastName, setLastName] = useState(initial?.last_name ?? "");
@@ -218,6 +225,131 @@ function GuestForm({
           </div>
         </div>
       </div>
+
+      {/* ── Portale pubblico (mig. 032) ──────────────────────────────────
+          Visibile solo in modalità modifica (in creazione l'ospite non
+          esiste ancora). Permette di generare un link unico che il
+          professionista può aprire senza login per vedere la sua agenda. */}
+      {isEdit && onGenerateToken && onRevokeToken && (
+        <div style={{
+          marginBottom: 12,
+          padding: 14,
+          background: initial?.access_token ? "#ecfdf5" : "#fff",
+          border: `1px solid ${initial?.access_token ? "#86efac" : THEME.border}`,
+          borderRadius: 8,
+        }}>
+          <div style={{ ...labelStyle, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+            🔗 Portale pubblico
+            {initial?.access_token && (
+              <span style={{
+                fontSize: 9, fontWeight: 800, color: "#fff",
+                background: "#16a34a", padding: "2px 8px",
+                borderRadius: 99, letterSpacing: 0.4, textTransform: "uppercase",
+              }}>
+                Attivo
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 10, lineHeight: 1.5 }}>
+            Genera un link sicuro da inviare al professionista ospite via WhatsApp o email.
+            Aprendolo vedrà solo la sua agenda, sempre aggiornata, senza poter modificare nulla.
+            Quando revochi, il link smette di funzionare immediatamente.
+          </div>
+
+          {initial?.access_token ? (
+            <>
+              {/* Link e bottone copia */}
+              <div style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "8px 10px", background: "#fff",
+                border: `1px solid ${THEME.border}`, borderRadius: 6,
+                marginBottom: 8,
+              }}>
+                <code style={{
+                  flex: 1, minWidth: 0, fontSize: 11,
+                  color: THEME.text, fontFamily: "ui-monospace, monospace",
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>
+                  {typeof window !== "undefined" ? `${window.location.origin}/agenda/${initial.access_token}` : ""}
+                </code>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const url = `${window.location.origin}/agenda/${initial.access_token}`;
+                    try {
+                      await navigator.clipboard.writeText(url);
+                      alert("Link copiato negli appunti!");
+                    } catch {
+                      // fallback: select+copy
+                      const ta = document.createElement("textarea");
+                      ta.value = url;
+                      document.body.appendChild(ta);
+                      ta.select();
+                      document.execCommand("copy");
+                      document.body.removeChild(ta);
+                      alert("Link copiato!");
+                    }
+                  }}
+                  style={{
+                    padding: "5px 10px", borderRadius: 5,
+                    border: "none", background: THEME.teal, color: "#fff",
+                    fontSize: 11, fontWeight: 700, cursor: "pointer",
+                    whiteSpace: "nowrap", flexShrink: 0,
+                  }}
+                >
+                  📋 Copia
+                </button>
+              </div>
+
+              {/* Info data generazione + bottone revoca */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <div style={{ fontSize: 10, color: THEME.muted }}>
+                  {initial?.token_created_at && (
+                    <>Generato il {new Date(initial.token_created_at).toLocaleDateString("it-IT", { day: "numeric", month: "short", year: "numeric" })}</>
+                  )}
+                  {initial?.last_access_at && (
+                    <> · Ultimo accesso: {new Date(initial.last_access_at).toLocaleDateString("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  disabled={savingToken}
+                  onClick={async () => {
+                    if (!confirm("Revocare il link? Il professionista non potrà più aprirlo. Puoi generarne uno nuovo in qualsiasi momento.")) return;
+                    await onRevokeToken();
+                  }}
+                  style={{
+                    padding: "6px 12px", borderRadius: 6,
+                    border: `1px solid ${THEME.red}`, background: "#fff",
+                    color: THEME.red, fontSize: 11, fontWeight: 700,
+                    cursor: savingToken ? "not-allowed" : "pointer",
+                    opacity: savingToken ? 0.5 : 1,
+                  }}
+                >
+                  Revoca link
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              type="button"
+              disabled={savingToken}
+              onClick={onGenerateToken}
+              style={{
+                padding: "9px 16px", borderRadius: 8,
+                border: "none",
+                background: "linear-gradient(135deg, #0d9488, #2563eb)",
+                color: "#fff", fontSize: 13, fontWeight: 800,
+                cursor: savingToken ? "not-allowed" : "pointer",
+                opacity: savingToken ? 0.6 : 1,
+                display: "inline-flex", alignItems: "center", gap: 6,
+              }}
+            >
+              {savingToken ? "Generazione..." : "🔗 Genera link agenda"}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ── Configurazione campi PDF (mig. 030) ─────────────────────────
           Quali colonne mostrare nel PDF stampato dell'agenda di questo
@@ -426,6 +558,10 @@ export type GuestPractitionersSectionProps = {
   setUseGuestIndex?: (v: boolean) => void;
   savingGuestIndexToggle?: boolean;
   onSaveGuestIndexToggle?: () => void;
+  // mig. 032 — Portale pubblico ospite
+  onGenerateGuestToken?: (id: string) => Promise<void>;
+  onRevokeGuestToken?: (id: string) => Promise<void>;
+  savingGuestToken?: string | null;  // id ospite in corso di salvataggio
 };
 
 export default function GuestPractitionersSection({
@@ -446,6 +582,9 @@ export default function GuestPractitionersSection({
   setUseGuestIndex,
   savingGuestIndexToggle,
   onSaveGuestIndexToggle,
+  onGenerateGuestToken,
+  onRevokeGuestToken,
+  savingGuestToken,
 }: GuestPractitionersSectionProps) {
   const [showNewForm, setShowNewForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -608,6 +747,13 @@ export default function GuestPractitionersSection({
                         await onUpdate(g.id, payload);
                         setEditingId(null);
                       }}
+                      onGenerateToken={onGenerateGuestToken ? async () => {
+                        await onGenerateGuestToken(g.id);
+                      } : undefined}
+                      onRevokeToken={onRevokeGuestToken ? async () => {
+                        await onRevokeGuestToken(g.id);
+                      } : undefined}
+                      savingToken={savingGuestToken === g.id}
                     />
                   ) : (
                     <GuestCard
