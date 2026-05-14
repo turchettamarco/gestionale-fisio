@@ -145,4 +145,11 @@ export type CalendarEvent = {
   /** Stanza in cui si svolge la seduta (mig. 019). NULL = non assegnata
    *  (es. domiciliare, oppure studio in modalità single-room). */
   room_id?: string | null;
+  /** Professionista ospite (mig. 029). Quando valorizzato, l'appuntamento è
+   *  di un esterno (ortopedico, nutrizionista, ecc.) e NON entra negli
+   *  incassi del titolare. Mutualmente esclusivo con operator_id (constraint
+   *  appointments_operator_xor_guest). Nella vista giornaliera, se almeno
+   *  un evento del giorno ha guest_practitioner_id valorizzato, il calendario
+   *  si splitta in due corsie: titolare a sinistra, ospite a destra. */
+  guest_practitioner_id?: string | null;
 };

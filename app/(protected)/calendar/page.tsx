@@ -130,6 +130,16 @@ function CalendarPageInner() {
   const [multiRoomEnabled, setMultiRoomEnabled] = useState<boolean>(false);
   const [studioRooms, setStudioRooms] = useState<Array<{ id: string; name: string; color: string | null }>>([]);
   const [allMembers, setAllMembers] = useState<StudioMember[]>([]);
+
+  // Professionisti ospiti (mig. 029): toggle del flag + elenco ospiti attivi.
+  // Niente login, niente RLS complessa: sono solo etichette per gli appuntamenti.
+  // Nella vista giornaliera, se un ospite ha appuntamenti nel giorno corrente,
+  // la timeline si splitta in due corsie (titolare + ospite).
+  const [guestPractitionersEnabled, setGuestPractitionersEnabled] = useState<boolean>(false);
+  const [studioGuests, setStudioGuests] = useState<Array<{
+    id: string; first_name: string; last_name: string; specialty: string;
+    display_color: string | null; default_room_id: string | null;
+  }>>([]);
   // Layout della vista settimana scelto in Settings → Team (mig. 022).
   // Default 'classic' = WeekView con sub-colonne MGA (l'attuale 4b).
   // Senza effetto se single-op (multi off OR <2 operatori).
@@ -557,12 +567,14 @@ function CalendarPageInner() {
       setMultiOperatorEnabled(false);
       setMultiRoomEnabled(false);
       setStudioRooms([]);
+      setGuestPractitionersEnabled(false);
+      setStudioGuests([]);
       return;
     }
     let cancelled = false;
     (async () => {
-      // Query parallele: membri + flag studio + stanze
-      const [membersResult, studioResult, roomsResult] = await Promise.all([
+      // Query parallele: membri + flag studio + stanze + ospiti
+      const [membersResult, studioResult, roomsResult, guestsResult] = await Promise.all([
         supabase
           .from("studio_members")
           .select("studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invited_at, invite_token")
@@ -571,7 +583,7 @@ function CalendarPageInner() {
           .order("display_name", { ascending: true }),
         supabase
           .from("studios")
-          .select("multi_operator_enabled, multi_room_enabled, weekly_view_layout")
+          .select("multi_operator_enabled, multi_room_enabled, weekly_view_layout, guest_practitioners_enabled")
           .eq("id", currentStudioId)
           .maybeSingle(),
         supabase
@@ -581,6 +593,13 @@ function CalendarPageInner() {
           .eq("is_active", true)
           .order("sort_order", { ascending: true })
           .order("name", { ascending: true }),
+        supabase
+          .from("guest_practitioners")
+          .select("id, first_name, last_name, specialty, display_color, default_room_id, is_active, sort_order")
+          .eq("studio_id", currentStudioId)
+          .eq("is_active", true)
+          .order("sort_order", { ascending: true })
+          .order("last_name", { ascending: true }),
       ]);
 
       if (cancelled) return;
@@ -596,6 +615,7 @@ function CalendarPageInner() {
       const studioData = studioResult.data;
       setMultiOperatorEnabled(Boolean(studioData?.multi_operator_enabled));
       setMultiRoomEnabled(Boolean(studioData?.multi_room_enabled));
+      setGuestPractitionersEnabled(Boolean(studioData?.guest_practitioners_enabled));
       // mig. 022 + 024 — layout vista settimana (include 'roster')
       const layout = studioData?.weekly_view_layout;
       if (layout === "classic" || layout === "timeline" || layout === "pile" || layout === "grid" || layout === "roster") {
@@ -609,6 +629,16 @@ function CalendarPageInner() {
         setStudioRooms([]);
       } else {
         setStudioRooms(roomsResult.data as Array<{ id: string; name: string; color: string | null }>);
+      }
+
+      // Professionisti ospiti (mig. 029): carica solo gli attivi
+      if (guestsResult.error || !guestsResult.data) {
+        setStudioGuests([]);
+      } else {
+        setStudioGuests(guestsResult.data as Array<{
+          id: string; first_name: string; last_name: string; specialty: string;
+          display_color: string | null; default_room_id: string | null;
+        }>);
       }
     })();
     return () => { cancelled = true; };
@@ -1142,8 +1172,29 @@ function CalendarPageInner() {
       }
     }
 
+    // Step 9: ESCLUDI appuntamenti dei professionisti ospiti (mig. 029)
+    // Gli appt ospite NON entrano in filteredEvents. Quindi non figurano
+    // nella vista settimana, mese, sidebar destra, conteggi €/non pagati,
+    // banner statistiche. Vengono trattati a parte SOLO nella vista giorno
+    // (vedi dayGuestEvents qui sotto) e mostrati nella colonna split destra.
+    result = result.filter(e => !e.guest_practitioner_id);
+
     return result;
   }, [events, viewType, currentDate, statusFilter, filters, operatorFilter, roomFilter]);
+
+  // dayGuestEvents (mig. 029): SOLO gli appt ospite del giorno corrente.
+  // Usati esclusivamente per popolare la colonna destra dello split in vista
+  // giorno. Non sono soggetti ai filtri (statusFilter, location, treatment,
+  // ecc.) perché sono "appt di Gerardi" e i filtri sono pensati per i tuoi.
+  const dayGuestEvents = useMemo(() => {
+    if (viewType !== "day") return [];
+    return events.filter(e =>
+      !!e.guest_practitioner_id &&
+      e.start.getDate() === currentDate.getDate() &&
+      e.start.getMonth() === currentDate.getMonth() &&
+      e.start.getFullYear() === currentDate.getFullYear()
+    );
+  }, [events, viewType, currentDate]);
 
   // weeklyReminderTemplate: ora in useReminderFlow.
 
@@ -2094,11 +2145,17 @@ return (
                   .filter(ev => ev.status !== "cancelled")
                   .sort((a, b) => a.start.getTime() - b.start.getTime())
               }
+              dayGuestEvents={
+                dayGuestEvents
+                  .filter(ev => ev.status !== "cancelled")
+                  .sort((a, b) => a.start.getTime() - b.start.getTime())
+              }
               currentTime={currentTime}
               multiOperatorMode={multiOperatorEnabled && activeMembers.length >= 2}
               members={activeMembers}
               roomColorMap={roomColorMap}
               unavailabilities={unavailabilities}
+              guestPractitioners={guestPractitionersEnabled ? studioGuests : undefined}
               timeSlots={timeSlots}
               dayLabels={dayLabels}
               TIME_COL={TIME_COL}

@@ -129,6 +129,13 @@ export interface CreateFormState {
   // Multi-stanza (mig. 019, Fase Stanze):
   // stanza selezionata. null = nessuna. Ignorato in single-room.
   createRoomId?: string | null;
+  // Professionisti ospiti (mig. 029):
+  // se valorizzato, l'appuntamento è di un professionista esterno
+  // (ortopedico, nutrizionista...). NON entra negli incassi del titolare,
+  // operator_id viene forzato a null, e i campi prezzo/pagamento non si
+  // applicano. Mutualmente esclusivo con operator_id (constraint
+  // appointments_operator_xor_guest a livello DB).
+  createGuestPractitionerId?: string | null;
 }
 
 /** Stato del modale EDIT (form di modifica appuntamento esistente) */

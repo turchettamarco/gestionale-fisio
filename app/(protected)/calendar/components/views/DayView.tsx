@@ -17,14 +17,22 @@
 import { THEME, type CalendarEvent } from "../../utils";
 import DayTimeline, { type DayTimelineProps } from "./DayTimeline";
 import DayTimelineMulti, { type OperatorUnavailabilitySlot } from "./DayTimelineMulti";
+import DayTimelineSplit from "./DayTimelineSplit";
 import DaySidebar, { type DaySidebarProps } from "./DaySidebar";
 import type { StudioMember } from "@/src/contexts/StudioContext";
 
 export type DayViewProps = {
   // Sezione comune
   currentDate: Date;
-  /** Eventi del giorno (filtrati e ordinati dal parent, esclusi i cancellati) */
+  /** Eventi del giorno (filtrati e ordinati dal parent, esclusi i cancellati).
+   *  ATTENZIONE: dal parent arrivano SOLO gli appuntamenti del titolare —
+   *  quelli dei professionisti ospiti sono già stati esclusi via filteredEvents.
+   *  Gli appt ospite arrivano separati in dayGuestEvents (vedi sotto). */
   dayEvents: CalendarEvent[];
+  /** Eventi del giorno dei professionisti ospiti (mig. 029). Già filtrati per
+   *  data corrente, esclusi i cancellati. Usati SOLO per popolare la colonna
+   *  destra dello split. Quando vuoti, il calendario è in vista normale. */
+  dayGuestEvents?: CalendarEvent[];
   /** Tempo corrente (per linea "now") */
   currentTime: Date;
 
@@ -43,6 +51,20 @@ export type DayViewProps = {
    *  Lette dal page.tsx con una query semplice; in Fase 4a la creazione
    *  delle indisponibilità non è prevista (sarà Fase 5). */
   unavailabilities?: OperatorUnavailabilitySlot[];
+
+  /** Professionisti ospiti attivi dello studio (mig. 029). Se nella giornata
+   *  corrente c'è almeno un appuntamento di un ospite, la vista si splitta
+   *  in due colonne: titolare a sinistra, ospite a destra. La modalità split
+   *  ha PRIORITÀ su quella multi-operatore: se entrambe sarebbero attivabili,
+   *  vince la split (multi-op presuppone un setup molto diverso). */
+  guestPractitioners?: Array<{
+    id: string;
+    first_name: string;
+    last_name: string;
+    specialty: string;
+    display_color: string | null;
+    default_room_id: string | null;
+  }>;
 
   // Per timeline (single-op)
   timeSlots: DayTimelineProps["timeSlots"];
@@ -83,8 +105,9 @@ export type DayViewProps = {
 };
 
 export default function DayView({
-  currentDate, dayEvents, currentTime,
+  currentDate, dayEvents, dayGuestEvents, currentTime,
   multiOperatorMode, members, roomColorMap, unavailabilities,
+  guestPractitioners,
   timeSlots, dayLabels, TIME_COL,
   gridStartHour,
   studioLocations,
@@ -98,23 +121,56 @@ export default function DayView({
   onCreateNew,
 }: DayViewProps) {
   // Decide quale timeline renderizzare. La condizione è qui (non in page.tsx)
-  // perché DayView è il componente "switch" per le due varianti.
+  // perché DayView è il componente "switch" per le varianti.
   const useMulti = !!multiOperatorMode && members && members.length >= 2;
+
+  // ── Rilevamento ospiti presenti nel giorno (mig. 029) ──────────────────
+  // dayGuestEvents arriva già filtrato per giorno corrente dal parent. Se è
+  // valorizzato e contiene eventi, attiviamo la modalità split. Prendiamo
+  // il primo guest_practitioner_id che troviamo (multi-ospite = step
+  // successivo). Gli appt ospite NON sono in dayEvents (sono filtrati via).
+  const guestIdInDay: string | null = (() => {
+    if (!dayGuestEvents || dayGuestEvents.length === 0) return null;
+    if (!guestPractitioners || guestPractitioners.length === 0) return null;
+    for (const ev of dayGuestEvents) {
+      if (ev.guest_practitioner_id) return ev.guest_practitioner_id;
+    }
+    return null;
+  })();
+  const guestInDay = guestIdInDay
+    ? guestPractitioners?.find(g => g.id === guestIdInDay) ?? null
+    : null;
+  const useSplit = !!guestInDay && !useMulti;
+
+  // Eventi divisi per le due colonne. In split mode:
+  //   - colonna sinistra = dayEvents (già SOLO appt titolare, filtrati dal parent)
+  //   - colonna destra = dayGuestEvents filtrati per il guest selezionato
+  const guestEvents = useSplit && dayGuestEvents
+    ? dayGuestEvents.filter(e => e.guest_practitioner_id === guestInDay!.id)
+    : [];
+
+  // Il "separateBoxes" è il pattern visuale "due rettangoli autonomi con gap"
+  // (calendario a sinistra, sidebar a destra). Lo usiamo sia in split mode
+  // (mig. 029) sia in single-operatore: in entrambi i casi calendario e
+  // sidebar sono concettualmente cose distinte. Solo nella multi-operator
+  // view manteniamo il container unico (perché la timeline multi è "estesa"
+  // e non ha una sidebar fissa accanto).
+  const separateBoxes = useSplit || (!useMulti);
 
   return (
     <div style={{
       display: "flex",
-      gap: 0,
-      background: THEME.panelBg,
-      border: `2px solid ${THEME.border}`,
-      borderRadius: 12,
+      gap: separateBoxes ? 16 : 0,
+      background: separateBoxes ? "transparent" : THEME.panelBg,
+      border: separateBoxes ? "none" : `2px solid ${THEME.border}`,
+      borderRadius: separateBoxes ? 0 : 12,
       minHeight: 600,
-      // maxWidth solo per single-operatore. In multi-operatore la timeline
-      // ha N colonne dinamiche e necessita di tutta la larghezza disponibile.
-      maxWidth: useMulti ? undefined : 1480,
-      margin: useMulti ? undefined : "0 auto",
-      overflow: "clip",
-      boxShadow: "0 2px 12px rgba(30,64,175,0.06)",
+      // maxWidth solo per single-operatore non-split (limita a ~1480px per
+      // leggibilità). In split e multi useremo tutta la larghezza disponibile.
+      maxWidth: useMulti || useSplit ? undefined : 1480,
+      margin: useMulti || useSplit ? undefined : "0 auto",
+      overflow: separateBoxes ? "visible" : "clip",
+      boxShadow: separateBoxes ? "none" : "0 2px 12px rgba(30,64,175,0.06)",
     }}>
       {useMulti ? (
         <DayTimelineMulti
@@ -137,50 +193,122 @@ export default function DayView({
           onUpdatePayment={onUpdatePayment}
           onSendReminder={onSendReminder}
         />
-      ) : (
-        <DayTimeline
+      ) : useSplit ? (
+        // ─── Vista SPLIT (titolare + ospite) — mig. 029 ──────────────
+        // Usa un componente dedicato (DayTimelineSplit) che condivide grid
+        // a 3 colonne: orari | studio | ospite. Allineamenti perfetti,
+        // header unico, righe orarie continue. NON è la DayTimeline normale
+        // chiamata 2 volte — è un componente proprio.
+        <DayTimelineSplit
           currentDate={currentDate}
-          dayEvents={dayEvents}
+          ownerEvents={dayEvents}
+          guestEvents={guestEvents}
+          guest={{
+            id: guestInDay!.id,
+            first_name: guestInDay!.first_name,
+            last_name: guestInDay!.last_name,
+            specialty: guestInDay!.specialty,
+            display_color: guestInDay!.display_color,
+          }}
           currentTime={currentTime}
           timeSlots={timeSlots}
           dayLabels={dayLabels}
           TIME_COL={TIME_COL}
           gridStartHour={gridStartHour}
-          studioLocations={studioLocations}
-          draggingOver={draggingOver}
-          showAvailableOnly={showAvailableOnly}
-          bulkMode={bulkMode}
-          bulkSelected={bulkSelected}
-          searchMatchIds={searchMatchIds}
-          onSlotClick={onSlotClick}
-          onContextMenu={onContextMenu}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={onDrop}
-          draggingEventId={draggingEventId}
-          getDayEventPosition={getDayEventPosition}
-          getFreeWindows={getFreeWindows}
-          getEventColor={getEventColor}
+          onSlotClick={(date, hour, minute, _side) => {
+            // _side ("owner"|"guest") sarà usato nello Step 4a per
+            // pre-selezionare il campo "Per chi?" del modale di creazione.
+            // Per ora ignoriamo e deleghiamo al normale onSlotClick.
+            onSlotClick(date, hour, minute);
+          }}
           onSelectEvent={onSelectEvent}
-          onToggleBulkSelect={onToggleBulkSelect}
+        />
+      ) : (
+        // ─── Vista SINGLE-OPERATOR ──────────────────────────────────────
+        // DayTimeline classico avvolto in un box autonomo (bordo+radius+
+        // ombra). Insieme alla sidebar wrappata sotto, dà l'aspetto "due
+        // riquadri separati con gap" della modalità split.
+        <div style={{
+          flex: 1,
+          minWidth: 0,
+          background: THEME.panelBg,
+          border: `2px solid ${THEME.border}`,
+          borderRadius: 12,
+          overflow: "hidden",
+          boxShadow: "0 2px 12px rgba(30,64,175,0.06)",
+          display: "flex",
+        }}>
+          <DayTimeline
+            currentDate={currentDate}
+            dayEvents={dayEvents}
+            currentTime={currentTime}
+            timeSlots={timeSlots}
+            dayLabels={dayLabels}
+            TIME_COL={TIME_COL}
+            gridStartHour={gridStartHour}
+            studioLocations={studioLocations}
+            draggingOver={draggingOver}
+            showAvailableOnly={showAvailableOnly}
+            bulkMode={bulkMode}
+            bulkSelected={bulkSelected}
+            searchMatchIds={searchMatchIds}
+            onSlotClick={onSlotClick}
+            onContextMenu={onContextMenu}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
+            draggingEventId={draggingEventId}
+            getDayEventPosition={getDayEventPosition}
+            getFreeWindows={getFreeWindows}
+            getEventColor={getEventColor}
+            onSelectEvent={onSelectEvent}
+            onToggleBulkSelect={onToggleBulkSelect}
+            onToggleDone={onToggleDone}
+            onTogglePaid={onTogglePaid}
+            onUpdatePayment={onUpdatePayment}
+            onSendReminder={onSendReminder}
+          />
+        </div>
+      )}
+      {/* DaySidebar: in modalità "separateBoxes" (split mode mig. 029 e
+          single-operator) la avvolgiamo in un wrapper che le aggiunge bordo,
+          radius e ombra per renderla visivamente autonoma dal calendario
+          (col gap 16 c'è aria in mezzo). In multi-operator nessun wrapper. */}
+      {separateBoxes ? (
+        <div style={{
+          background: THEME.panelBg,
+          border: `2px solid ${THEME.border}`,
+          borderRadius: 12,
+          overflow: "hidden",
+          boxShadow: "0 2px 12px rgba(30,64,175,0.06)",
+          display: "flex",
+          flexShrink: 0,
+        }}>
+          <DaySidebar
+            currentDate={currentDate}
+            dayEvents={dayEvents}
+            onSelectEvent={onSelectEvent}
+            onCreateNew={onCreateNew}
+            onToggleDone={onToggleDone}
+            onTogglePaid={onTogglePaid}
+            onUpdatePayment={onUpdatePayment}
+            onSendReminder={onSendReminder}
+          />
+        </div>
+      ) : (
+        <DaySidebar
+          currentDate={currentDate}
+          dayEvents={dayEvents}
+          onSelectEvent={onSelectEvent}
+          onCreateNew={onCreateNew}
           onToggleDone={onToggleDone}
           onTogglePaid={onTogglePaid}
           onUpdatePayment={onUpdatePayment}
           onSendReminder={onSendReminder}
         />
       )}
-      <DaySidebar
-        currentDate={currentDate}
-        dayEvents={dayEvents}
-        onSelectEvent={onSelectEvent}
-        onCreateNew={onCreateNew}
-        onToggleDone={onToggleDone}
-        onTogglePaid={onTogglePaid}
-        onUpdatePayment={onUpdatePayment}
-        onSendReminder={onSendReminder}
-      />
     </div>
   );
 }

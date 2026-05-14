@@ -34,13 +34,15 @@ import { BtnPrimary, BtnOutline } from "../shared/Buttons";
 import type { GuestPractitionerRow, StudioRoomRow } from "../shared/types";
 
 // ── Palette di colori per ospiti ─────────────────────────────────────────
-// Distinta dalle altre palette dello studio: tonalità calde per "esterni".
+// Tonalità calde/sature, leggibili sia come fondo card (testo bianco sopra)
+// che come accento header. Magenta è il default suggerito perché non collide
+// né col verde-blu del brand né col rosso usato per status danger.
 export const GUEST_COLOR_PRESETS: Array<{ value: string; label: string }> = [
-  { value: "#BA7517", label: "Arancio bruciato" },
-  { value: "#7c3aed", label: "Viola" },
-  { value: "#be185d", label: "Magenta" },
-  { value: "#0891b2", label: "Ciano" },
-  { value: "#65a30d", label: "Lime" },
+  { value: "#DB2777", label: "Magenta" },
+  { value: "#7C3AED", label: "Viola" },
+  { value: "#0891B2", label: "Ciano" },
+  { value: "#EA580C", label: "Arancione" },
+  { value: "#65A30D", label: "Lime" },
   { value: "#475569", label: "Grigio scuro" },
 ];
 
