@@ -517,7 +517,10 @@ export function useCalendarEvents(
           .from("appointments")
           .select("amount, expected_price, status, start_at")
           .gte("start_at", periodStart.toISOString())
-          .lt("start_at", periodEnd.toISOString());
+          .lt("start_at", periodEnd.toISOString())
+          // mig. 029: esclude appuntamenti dei professionisti ospiti dai
+          // conteggi incassi del titolare (l'ospite incassa direttamente).
+          .is("guest_practitioner_id", null);
 
         if (error) throw error;
 

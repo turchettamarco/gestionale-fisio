@@ -153,6 +153,9 @@ export interface EditFormState {
   editOperatorId?: string | null;
   // Multi-stanza (mig. 019, Fase Stanze):
   editRoomId?: string | null;
+  // Professionisti ospiti (mig. 029): se valorizzato, l'appuntamento in
+  // modifica è di un ospite. La validazione metodo pagamento viene saltata.
+  editGuestPractitionerId?: string | null;
 }
 
 /** Stato del modale "crea paziente rapido" */
@@ -1025,6 +1028,7 @@ A presto${firma ? `,\n${firma}` : ""}`;
       editDate,
       editStartTime,
       editDuration,
+      editGuestPractitionerId,
     } = editForm;
 
     setError("");
@@ -1076,8 +1080,11 @@ A presto${firma ? `,\n${firma}` : ""}`;
     }
 
     // Validazione: se fatturato, payment_method è obbligatorio SOLO se bloccante.
+    // (skip per appt ospite mig. 029: l'ospite incassa direttamente, niente
+    // priceType/paymentMethod del titolare)
+    const isEditingGuestAppt = !!editGuestPractitionerId;
     let effectiveEditPaymentMethod = editPaymentMethod;
-    if (editPriceType === "invoiced" && !editPaymentMethod) {
+    if (!isEditingGuestAppt && editPriceType === "invoiced" && !editPaymentMethod) {
       const required = practiceSettings?.payment_method_required ?? true;
       if (required) {
         alert("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");

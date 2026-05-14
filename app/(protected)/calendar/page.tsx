@@ -467,6 +467,12 @@ function CalendarPageInner() {
   // Null = nessuna stanza. Idratato da liveEvent quando il modale apre.
   const [editRoomId, setEditRoomId] = useState<string | null>(null);
 
+  // Professionisti ospiti (mig. 029): guest_practitioner_id per il modale di
+  // modifica. Idratato da liveEvent quando il modale apre. Se valorizzato,
+  // l'appuntamento in modifica è di un ospite e la validazione del metodo
+  // di pagamento viene saltata.
+  const [editGuestPractitionerId, setEditGuestPractitionerId] = useState<string | null>(null);
+
   // createOpen, createStartISO, createEndISO: dichiarati più in alto.
   // q, searching, patientResults, selectedPatient: ora in useSearchAndFilters.
   const [creating, setCreating] = useState(false);
@@ -1378,6 +1384,8 @@ function CalendarPageInner() {
     setEditOperatorId(event.operator_id ?? null);
     // Multi-stanza (Fase Stanze): idrata room_id dall'evento
     setEditRoomId(event.room_id ?? null);
+    // Ospiti (mig. 029): idrata guest_practitioner_id dall'evento
+    setEditGuestPractitionerId(event.guest_practitioner_id ?? null);
     if (event.patient_id) loadPatientFromEvent(event.patient_id);
   }, [setSelectedEvent, setEditStatus, setEditNote, setEditAmount, setEditTreatmentType, setEditPriceType, setEditPaymentMethod, loadPatientFromEvent]);
 
@@ -1547,6 +1555,7 @@ function CalendarPageInner() {
       editDuration,
       editOperatorId,
       editRoomId,
+      editGuestPractitionerId,
     },
     quickPatientForm: {
       quickPatientFirstName,

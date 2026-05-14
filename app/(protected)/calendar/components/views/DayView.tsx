@@ -14,6 +14,7 @@
 
 "use client";
 
+import { useState, useMemo, useEffect } from "react";
 import { THEME, type CalendarEvent } from "../../utils";
 import DayTimeline, { type DayTimelineProps } from "./DayTimeline";
 import DayTimelineMulti, { type OperatorUnavailabilitySlot } from "./DayTimelineMulti";
@@ -129,27 +130,67 @@ export default function DayView({
   // perché DayView è il componente "switch" per le varianti.
   const useMulti = !!multiOperatorMode && members && members.length >= 2;
 
-  // ── Rilevamento ospiti presenti nel giorno (mig. 029) ──────────────────
-  // dayGuestEvents arriva già filtrato per giorno corrente dal parent. Se è
-  // valorizzato e contiene eventi, attiviamo la modalità split. Prendiamo
-  // il primo guest_practitioner_id che troviamo (multi-ospite = step
-  // successivo). Gli appt ospite NON sono in dayEvents (sono filtrati via).
-  const guestIdInDay: string | null = (() => {
-    if (!dayGuestEvents || dayGuestEvents.length === 0) return null;
-    if (!guestPractitioners || guestPractitioners.length === 0) return null;
+  // ── Rilevamento ospiti presenti nel giorno (mig. 029 + switcher 5c) ────
+  // dayGuestEvents arriva già filtrato per giorno corrente dal parent.
+  // Raccogliamo TUTTI gli ospiti distinti che hanno appuntamenti nel giorno
+  // (multi-ospite), ordinati per orario del primo appuntamento. Ogni voce
+  // contiene anche il count di appuntamenti per il dropdown.
+  const guestsInDay = useMemo(() => {
+    if (!dayGuestEvents || dayGuestEvents.length === 0) return [];
+    if (!guestPractitioners || guestPractitioners.length === 0) return [];
+    // Conta + traccia primo orario per ospite
+    const map = new Map<string, { firstStart: number; count: number }>();
     for (const ev of dayGuestEvents) {
-      if (ev.guest_practitioner_id) return ev.guest_practitioner_id;
+      if (!ev.guest_practitioner_id) continue;
+      const existing = map.get(ev.guest_practitioner_id);
+      if (existing) {
+        existing.count++;
+        if (ev.start.getTime() < existing.firstStart) {
+          existing.firstStart = ev.start.getTime();
+        }
+      } else {
+        map.set(ev.guest_practitioner_id, { firstStart: ev.start.getTime(), count: 1 });
+      }
     }
-    return null;
-  })();
-  const guestInDay = guestIdInDay
-    ? guestPractitioners?.find(g => g.id === guestIdInDay) ?? null
+    // Risolvi i guest_practitioner_id contro la lista guestPractitioners,
+    // ordinati per primo orario (ASC) → prima l'ospite del mattino, ecc.
+    return Array.from(map.entries())
+      .map(([id, info]) => {
+        const g = guestPractitioners.find(gp => gp.id === id);
+        if (!g) return null;
+        return { ...g, appointmentCount: info.count, firstStart: info.firstStart };
+      })
+      .filter((g): g is NonNullable<typeof g> => g !== null)
+      .sort((a, b) => a.firstStart - b.firstStart);
+  }, [dayGuestEvents, guestPractitioners]);
+
+  // State: ospite selezionato per la visualizzazione. Default = primo ospite
+  // della lista (quello col primo appuntamento del giorno). Quando cambia
+  // il giorno o la lista, ri-inizializziamo.
+  const [selectedGuestId, setSelectedGuestId] = useState<string | null>(
+    guestsInDay[0]?.id ?? null
+  );
+  useEffect(() => {
+    // Se l'ospite selezionato non è più nella lista del giorno corrente
+    // (cambio giorno o ospite disattivato), seleziona il primo.
+    if (guestsInDay.length === 0) {
+      setSelectedGuestId(null);
+      return;
+    }
+    if (!selectedGuestId || !guestsInDay.find(g => g.id === selectedGuestId)) {
+      setSelectedGuestId(guestsInDay[0].id);
+    }
+  }, [guestsInDay, selectedGuestId]);
+
+  // L'ospite attualmente visualizzato (oggetto completo)
+  const guestInDay = selectedGuestId
+    ? guestsInDay.find(g => g.id === selectedGuestId) ?? null
     : null;
   const useSplit = !!guestInDay && !useMulti;
 
   // Eventi divisi per le due colonne. In split mode:
   //   - colonna sinistra = dayEvents (già SOLO appt titolare, filtrati dal parent)
-  //   - colonna destra = dayGuestEvents filtrati per il guest selezionato
+  //   - colonna destra = dayGuestEvents filtrati per il guest SELEZIONATO
   const guestEvents = useSplit && dayGuestEvents
     ? dayGuestEvents.filter(e => e.guest_practitioner_id === guestInDay!.id)
     : [];
@@ -215,6 +256,15 @@ export default function DayView({
             specialty: guestInDay!.specialty,
             display_color: guestInDay!.display_color,
           }}
+          allGuestsInDay={guestsInDay.map(g => ({
+            id: g.id,
+            first_name: g.first_name,
+            last_name: g.last_name,
+            specialty: g.specialty,
+            display_color: g.display_color,
+            appointmentCount: g.appointmentCount,
+          }))}
+          onSwitchGuest={(guestId) => setSelectedGuestId(guestId)}
           currentTime={currentTime}
           timeSlots={timeSlots}
           dayLabels={dayLabels}

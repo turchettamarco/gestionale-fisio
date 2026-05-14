@@ -43,8 +43,8 @@
 
 "use client";
 
-import type { CSSProperties } from "react";
-import { Stethoscope } from "lucide-react";
+import { useState, useEffect, useRef, type CSSProperties } from "react";
+import { Stethoscope, ChevronDown } from "lucide-react";
 import type { CalendarEvent } from "../../utils/types";
 import { THEME, fmtTime, formatDMY, statusBg, statusLabel, getTreatmentLabel } from "../../utils";
 
@@ -108,6 +108,20 @@ export type DayTimelineSplitProps = {
   /** Click su una card. Riceve l'intero evento (stessa firma del DayTimeline
    *  normale, così il dispatching nel parent è identico). */
   onSelectEvent: (event: CalendarEvent) => void;
+  /** Tutti gli ospiti che hanno appuntamenti nel giorno corrente (mig. 029 + 5c).
+   *  Quando length > 1, l'header della colonna destra mostra un dropdown
+   *  per cambiare ospite. Ordinati per orario del primo appuntamento. */
+  allGuestsInDay?: Array<{
+    id: string;
+    first_name: string;
+    last_name: string;
+    specialty: string;
+    display_color: string | null;
+    appointmentCount: number;
+  }>;
+  /** Callback chiamato quando l'utente seleziona un altro ospite dal
+   *  dropdown. Riceve l'id del nuovo ospite. */
+  onSwitchGuest?: (guestId: string) => void;
 };
 
 export default function DayTimelineSplit({
@@ -122,6 +136,8 @@ export default function DayTimelineSplit({
   gridStartHour = 7,
   onSlotClick,
   onSelectEvent,
+  allGuestsInDay,
+  onSwitchGuest,
 }: DayTimelineSplitProps) {
 
   // ── Header data ────────────────────────────────────────────────────────
@@ -139,6 +155,25 @@ export default function DayTimelineSplit({
   const guestColorSoft = hexToRgba(guestColor, 0.12);
   // Versione più scura per il testo, ricavata abbassando la luminosità.
   const guestColorDark = darkenHex(guestColor, 0.4);
+
+  // ── Switcher ospiti (mig. 029 + 5c) ────────────────────────────────────
+  // Quando ci sono 2+ ospiti nello stesso giorno, l'header della colonna
+  // destra diventa cliccabile e apre un dropdown per cambiare ospite.
+  const hasMultipleGuests = !!allGuestsInDay && allGuestsInDay.length > 1;
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const switcherRef = useRef<HTMLDivElement>(null);
+
+  // Chiusura dropdown al click fuori
+  useEffect(() => {
+    if (!switcherOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (switcherRef.current && !switcherRef.current.contains(e.target as Node)) {
+        setSwitcherOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [switcherOpen]);
 
   // ── Linea "now" ────────────────────────────────────────────────────────
   const today = new Date();
@@ -241,31 +276,170 @@ export default function DayTimelineSplit({
             Studio
           </span>
         </div>
-        {/* Cella OSPITE */}
-        <div style={{
-          padding: "8px 14px",
-          fontSize: 13,
-          fontWeight: 800,
-          color: "#412402",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          boxSizing: "border-box",
-          minWidth: 0,
-        }}>
+        {/* Cella OSPITE (con dropdown switcher se 2+ ospiti, mig. 5c) */}
+        <div
+          ref={switcherRef}
+          style={{
+            padding: "8px 14px",
+            fontSize: 13,
+            fontWeight: 800,
+            color: "#412402",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            boxSizing: "border-box",
+            minWidth: 0,
+            cursor: hasMultipleGuests ? "pointer" : "default",
+            position: "relative",
+            transition: "background 0.15s",
+            background: switcherOpen ? guestColorSoft : "transparent",
+            borderRadius: 6,
+          }}
+          onClick={() => {
+            if (hasMultipleGuests) setSwitcherOpen(o => !o);
+          }}
+          onMouseEnter={e => {
+            if (hasMultipleGuests) {
+              (e.currentTarget as HTMLDivElement).style.background = guestColorSoft;
+            }
+          }}
+          onMouseLeave={e => {
+            if (hasMultipleGuests && !switcherOpen) {
+              (e.currentTarget as HTMLDivElement).style.background = "transparent";
+            }
+          }}
+        >
           <span style={{
             width: 8, height: 8, borderRadius: "50%",
             background: guestColor, flexShrink: 0,
           }} />
           <span style={{
             whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-            minWidth: 0,
+            minWidth: 0, flex: 1,
           }}>
             {guest.first_name} {guest.last_name}
             <span style={{ fontWeight: 500, color: THEME.muted, marginLeft: 6, fontSize: 12 }}>
               · {guest.specialty}
             </span>
           </span>
+          {hasMultipleGuests && (
+            <>
+              {/* Badge "2 di N" */}
+              <span style={{
+                fontSize: 10, fontWeight: 700,
+                background: guestColor, color: "#fff",
+                padding: "2px 7px", borderRadius: 99,
+                letterSpacing: 0.3,
+                flexShrink: 0,
+              }}>
+                {(allGuestsInDay!.findIndex(g => g.id === guest.id) + 1)} di {allGuestsInDay!.length}
+              </span>
+              <ChevronDown
+                size={14}
+                style={{
+                  flexShrink: 0,
+                  transition: "transform 0.15s",
+                  transform: switcherOpen ? "rotate(180deg)" : "rotate(0deg)",
+                  color: THEME.muted,
+                }}
+              />
+            </>
+          )}
+
+          {/* Dropdown con lista ospiti del giorno */}
+          {hasMultipleGuests && switcherOpen && (
+            <div style={{
+              position: "absolute",
+              top: "calc(100% + 4px)",
+              right: 0,
+              minWidth: 280,
+              background: "#fff",
+              border: `1px solid ${THEME.border}`,
+              borderRadius: 10,
+              boxShadow: "0 8px 32px rgba(15,23,42,0.18)",
+              zIndex: 50,
+              overflow: "hidden",
+              padding: 4,
+            }}>
+              <div style={{
+                fontSize: 10, fontWeight: 700, color: THEME.muted,
+                padding: "8px 12px 4px", letterSpacing: 0.5,
+                textTransform: "uppercase",
+              }}>
+                Ospiti del giorno
+              </div>
+              {allGuestsInDay!.map(g => {
+                const isActive = g.id === guest.id;
+                const gColor = g.display_color || "#DB2777";
+                return (
+                  <button
+                    key={g.id}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSwitcherOpen(false);
+                      if (onSwitchGuest && g.id !== guest.id) {
+                        onSwitchGuest(g.id);
+                      }
+                    }}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "10px 12px",
+                      background: isActive ? hexToRgba(gColor, 0.12) : "transparent",
+                      border: "none",
+                      borderRadius: 6,
+                      cursor: "pointer",
+                      textAlign: "left",
+                      fontFamily: "inherit",
+                      transition: "background 0.1s",
+                    }}
+                    onMouseEnter={e => {
+                      if (!isActive) {
+                        (e.currentTarget as HTMLButtonElement).style.background = THEME.panelSoft;
+                      }
+                    }}
+                    onMouseLeave={e => {
+                      if (!isActive) {
+                        (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+                      }
+                    }}
+                  >
+                    <span style={{
+                      width: 10, height: 10, borderRadius: "50%",
+                      background: gColor, flexShrink: 0,
+                    }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: 13, fontWeight: 700, color: THEME.text,
+                        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                      }}>
+                        {g.first_name} {g.last_name}
+                      </div>
+                      <div style={{
+                        fontSize: 11, color: THEME.muted, marginTop: 1,
+                        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                      }}>
+                        {g.specialty} · {g.appointmentCount} appuntament{g.appointmentCount === 1 ? "o" : "i"}
+                      </div>
+                    </div>
+                    {isActive && (
+                      <span style={{
+                        fontSize: 10, fontWeight: 700,
+                        background: gColor, color: "#fff",
+                        padding: "2px 7px", borderRadius: 99,
+                        letterSpacing: 0.3, flexShrink: 0,
+                      }}>
+                        Attivo
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
