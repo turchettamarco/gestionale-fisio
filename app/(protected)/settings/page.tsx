@@ -838,6 +838,12 @@ export default function SettingsPage() {
     display_color: string | null;
     default_room_id: string | null;
     notes: string | null;
+    pdf_print_fields: {
+      telefono: boolean;
+      durata: boolean;
+      diagnosi: boolean;
+      note: boolean;
+    };
   }) => {
     if (!studio?.id) return;
     setSavingGuest(true);
@@ -853,6 +859,8 @@ export default function SettingsPage() {
         notes: payload.notes,
         is_active: true,
         sort_order: maxSort + 1,
+        // mig. 030 — configurazione campi PDF (default tutto true)
+        pdf_print_fields: payload.pdf_print_fields,
       });
       if (error) { alert("Errore creazione: " + error.message); return; }
       await loadGuests();
@@ -869,6 +877,12 @@ export default function SettingsPage() {
     display_color: string | null;
     default_room_id: string | null;
     notes: string | null;
+    pdf_print_fields: {
+      telefono: boolean;
+      durata: boolean;
+      diagnosi: boolean;
+      note: boolean;
+    };
   }>) => {
     if (!studio?.id) return;
     setSavingGuest(true);
@@ -880,6 +894,8 @@ export default function SettingsPage() {
       if (payload.display_color !== undefined) upd.display_color = payload.display_color;
       if (payload.default_room_id !== undefined) upd.default_room_id = payload.default_room_id;
       if (payload.notes !== undefined) upd.notes = payload.notes;
+      // mig. 030 — campi PDF
+      if (payload.pdf_print_fields !== undefined) upd.pdf_print_fields = payload.pdf_print_fields;
 
       const { error } = await supabase
         .from("guest_practitioners")

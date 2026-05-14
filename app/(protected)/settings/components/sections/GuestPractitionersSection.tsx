@@ -77,6 +77,12 @@ function GuestForm({
     display_color: string | null;
     default_room_id: string | null;
     notes: string | null;
+    pdf_print_fields: {
+      telefono: boolean;
+      durata: boolean;
+      diagnosi: boolean;
+      note: boolean;
+    };
   }) => void;
   saving: boolean;
   isEdit?: boolean;
@@ -89,6 +95,19 @@ function GuestForm({
   );
   const [roomId, setRoomId] = useState<string | null>(initial?.default_room_id ?? null);
   const [notes, setNotes] = useState(initial?.notes ?? "");
+  // Mig. 030 — Configurazione campi PDF. Default: tutti true.
+  const [pdfTelefono, setPdfTelefono] = useState<boolean>(
+    initial?.pdf_print_fields?.telefono ?? true
+  );
+  const [pdfDurata, setPdfDurata] = useState<boolean>(
+    initial?.pdf_print_fields?.durata ?? true
+  );
+  const [pdfDiagnosi, setPdfDiagnosi] = useState<boolean>(
+    initial?.pdf_print_fields?.diagnosi ?? true
+  );
+  const [pdfNote, setPdfNote] = useState<boolean>(
+    initial?.pdf_print_fields?.note ?? true
+  );
 
   const submit = () => {
     if (!firstName.trim() || !lastName.trim() || !specialty.trim()) {
@@ -102,6 +121,12 @@ function GuestForm({
       display_color: color,
       default_room_id: roomId,
       notes: notes.trim() || null,
+      pdf_print_fields: {
+        telefono: pdfTelefono,
+        durata: pdfDurata,
+        diagnosi: pdfDiagnosi,
+        note: pdfNote,
+      },
     });
   };
 
@@ -191,6 +216,54 @@ function GuestForm({
           <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>
             Verrà preselezionata in fase di creazione appuntamento.
           </div>
+        </div>
+      </div>
+
+      {/* ── Configurazione campi PDF (mig. 030) ─────────────────────────
+          Quali colonne mostrare nel PDF stampato dell'agenda di questo
+          ospite. Data/ora/paziente sono sempre presenti per definizione. */}
+      <div style={{
+        marginBottom: 12,
+        padding: 12,
+        background: "#fff",
+        border: `1px solid ${THEME.border}`,
+        borderRadius: 8,
+      }}>
+        <div style={{ ...labelStyle, marginBottom: 8 }}>
+          Cosa mostrare nel PDF stampato
+        </div>
+        <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 10, lineHeight: 1.5 }}>
+          Le colonne data, ora e nome paziente sono sempre presenti. Spunta
+          le colonne aggiuntive che vuoi vedere nella tabella stampata.
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          {[
+            { key: "telefono", label: "Telefono paziente", value: pdfTelefono, setter: setPdfTelefono },
+            { key: "durata",   label: "Durata appuntamento", value: pdfDurata, setter: setPdfDurata },
+            { key: "diagnosi", label: "Diagnosi paziente",   value: pdfDiagnosi, setter: setPdfDiagnosi },
+            { key: "note",     label: "Note appuntamento",   value: pdfNote, setter: setPdfNote },
+          ].map(field => (
+            <label
+              key={field.key}
+              style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "8px 10px", borderRadius: 6,
+                background: field.value ? THEME.panelSoft : "transparent",
+                border: `1px solid ${field.value ? THEME.border : "transparent"}`,
+                cursor: "pointer", fontSize: 12, fontWeight: 600,
+                color: field.value ? THEME.text : THEME.muted,
+                transition: "all 0.15s",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={field.value}
+                onChange={e => field.setter(e.target.checked)}
+                style={{ width: 16, height: 16, cursor: "pointer", accentColor: THEME.teal }}
+              />
+              {field.label}
+            </label>
+          ))}
         </div>
       </div>
 
@@ -326,6 +399,12 @@ export type GuestPractitionersSectionProps = {
     display_color: string | null;
     default_room_id: string | null;
     notes: string | null;
+    pdf_print_fields: {
+      telefono: boolean;
+      durata: boolean;
+      diagnosi: boolean;
+      note: boolean;
+    };
   }) => Promise<void>;
   onUpdate: (id: string, payload: Partial<{
     first_name: string;
@@ -334,6 +413,12 @@ export type GuestPractitionersSectionProps = {
     display_color: string | null;
     default_room_id: string | null;
     notes: string | null;
+    pdf_print_fields: {
+      telefono: boolean;
+      durata: boolean;
+      diagnosi: boolean;
+      note: boolean;
+    };
   }>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 };

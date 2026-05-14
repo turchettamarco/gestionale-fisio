@@ -162,6 +162,15 @@ export type GuestPractitionerRow = {
   is_active: boolean;
   sort_order: number;
   notes: string | null;
+  // mig. 030 — Campi configurabili per il PDF stampato dell'agenda
+  // del professionista ospite. Defaults tutti true. I campi
+  // data/ora/paziente sono sempre presenti e non configurabili.
+  pdf_print_fields?: {
+    telefono?: boolean;
+    durata?: boolean;
+    diagnosi?: boolean;
+    note?: boolean;
+  };
   created_at: string;
   updated_at?: string;
 };
