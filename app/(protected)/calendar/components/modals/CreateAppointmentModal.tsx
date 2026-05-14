@@ -204,6 +204,29 @@ export type CreateAppointmentModalProps = {
   createRoomId?: string | null;
   setCreateRoomId?: (id: string | null) => void;
 
+  // ─── Professionisti ospiti (mig. 029) ─────────────────────
+  /** Toggle guest_practitioners_enabled — se false, il selettore non si vede.
+   *  Quando true E ci sono ospiti registrati, in cima al modale compare
+   *  il selettore "Per chi?" (Studio / nome ospite). */
+  guestPractitionersEnabled?: boolean;
+  /** Ospiti attivi dello studio */
+  guestPractitioners?: Array<{
+    id: string;
+    first_name: string;
+    last_name: string;
+    specialty: string;
+    display_color: string | null;
+    default_room_id: string | null;
+  }>;
+  /** ID ospite selezionato (UUID guest_practitioners). null = appuntamento
+   *  del titolare (default). Quando valorizzato:
+   *   - operator_id forzato a null
+   *   - sezione "Trattamento e Prezzo" nascosta (l'ospite incassa direttamente)
+   *   - selettore operatore nascosto
+   *   - stanza preselezionata da guest.default_room_id se configurata */
+  createGuestPractitionerId?: string | null;
+  setCreateGuestPractitionerId?: (id: string | null) => void;
+
   // ─── Submit ───────────────────────────────────────────────
   creating: boolean;
 };
@@ -255,6 +278,10 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
     rooms,
     createRoomId,
     setCreateRoomId,
+    guestPractitionersEnabled,
+    guestPractitioners,
+    createGuestPractitionerId,
+    setCreateGuestPractitionerId,
     creating,
   } = props;
 
@@ -262,6 +289,32 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
   const overlapMode = practiceSettings?.overlap_mode ?? "warn";
   const isBlock = overlapMode === "block";
   const isVisualOverlap = overlapMode === "visual";
+
+  // ─── Professionisti ospiti (mig. 029) ─────────────────────────────
+  // Quando un ospite è selezionato, il modale si adatta:
+  //   - nasconde sezione "Trattamento e Prezzo" (l'ospite incassa direttamente)
+  //   - nasconde selettore operatore (gli ospiti non sono nel team)
+  //   - opzionalmente preseleziona la stanza dell'ospite
+  // L'helper rende le condizioni di rendering pulite leggibili.
+  const isGuestAppointment = !!createGuestPractitionerId;
+  const selectedGuest = isGuestAppointment && guestPractitioners
+    ? guestPractitioners.find(g => g.id === createGuestPractitionerId) ?? null
+    : null;
+
+  // ─── Pre-selezione stanza default dell'ospite ──────────────────────
+  // Quando l'utente seleziona un ospite, se l'ospite ha una stanza default
+  // configurata e il selettore stanza è attivo (multi_room_enabled), la
+  // preselezioniamo. Solo se l'utente non ha già scelto manualmente una
+  // stanza diversa (non sovrascriviamo intenzionalità).
+  useEffect(() => {
+    if (!selectedGuest) return;
+    if (!multiRoomEnabled) return;
+    if (!setCreateRoomId) return;
+    if (createRoomId) return; // utente ha già scelto, non tocco
+    if (!selectedGuest.default_room_id) return;
+    setCreateRoomId(selectedGuest.default_room_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createGuestPractitionerId]);
 
   // ─── Multi-operatore: conflict detection (Fase 4d, mig. 022) ─────
   // Quando lo studio è multi-op e c'è un operatore selezionato, calcoliamo
@@ -464,6 +517,102 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
             ✕
           </button>
         </div>
+
+        {/* ─── Selettore "Per chi?" (Professionisti ospiti, mig. 029) ──────
+            Visibile SOLO se:
+            - guest_practitioners_enabled è ON a livello studio
+            - c'è almeno un ospite attivo registrato
+            Permette di marcare l'appuntamento come del titolare ("Studio") o
+            di uno dei professionisti ospiti. Quando ospite selezionato, il
+            modale si adatta: prezzo, pagamento, operatore vengono nascosti.
+            Non si applica in modalità gruppo (gli appuntamenti di gruppo
+            restano sempre del titolare). */}
+        {guestPractitionersEnabled
+          && guestPractitioners
+          && guestPractitioners.length > 0
+          && setCreateGuestPractitionerId
+          && !isGroupAppointment
+          && (
+          <div style={{
+            marginBottom: 20,
+            padding: 14,
+            borderRadius: 10,
+            background: THEME.panelSoft,
+            border: `1.5px solid ${THEME.border}`,
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: THEME.textSoft, marginBottom: 10, letterSpacing: 0.3 }}>
+              Per chi è l&apos;appuntamento?
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {/* Opzione "Studio" (titolare) */}
+              <button
+                type="button"
+                onClick={() => setCreateGuestPractitionerId(null)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "10px 14px", borderRadius: 8,
+                  background: !isGuestAppointment ? THEME.teal : THEME.panelBg,
+                  color: !isGuestAppointment ? "#fff" : THEME.text,
+                  border: `2px solid ${!isGuestAppointment ? THEME.teal : THEME.border}`,
+                  fontWeight: 700, fontSize: 13,
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                }}
+              >
+                <span style={{
+                  width: 10, height: 10, borderRadius: "50%",
+                  background: !isGuestAppointment ? "#fff" : THEME.teal,
+                  flexShrink: 0,
+                }} />
+                Studio
+              </button>
+              {/* Opzione per ogni ospite attivo */}
+              {guestPractitioners.map(g => {
+                const isSelected = createGuestPractitionerId === g.id;
+                const color = g.display_color || "#DB2777";
+                return (
+                  <button
+                    key={g.id}
+                    type="button"
+                    onClick={() => setCreateGuestPractitionerId(g.id)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 8,
+                      padding: "10px 14px", borderRadius: 8,
+                      background: isSelected ? color : THEME.panelBg,
+                      color: isSelected ? "#fff" : THEME.text,
+                      border: `2px solid ${isSelected ? color : THEME.border}`,
+                      fontWeight: 700, fontSize: 13,
+                      cursor: "pointer",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    <span style={{
+                      width: 10, height: 10, borderRadius: "50%",
+                      background: isSelected ? "#fff" : color,
+                      flexShrink: 0,
+                    }} />
+                    <span>{g.first_name} {g.last_name}</span>
+                    <span style={{
+                      fontSize: 11, fontWeight: 600,
+                      opacity: isSelected ? 0.85 : 0.6,
+                    }}>
+                      · {g.specialty}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {isGuestAppointment && (
+              <div style={{
+                marginTop: 10, fontSize: 11, color: THEME.muted,
+                fontStyle: "italic", lineHeight: 1.5,
+              }}>
+                Appuntamento del professionista ospite. Non verrà conteggiato
+                nei tuoi incassi (l&apos;ospite incassa direttamente).
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ─── Riga 1: Luogo + Sede/Indirizzo + Giorno ────── */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 20 }}>
@@ -1098,7 +1247,7 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
             chi svolge la seduta tra i membri attivi del team. Sotto, eventuale
             warning se l'orario è in conflitto con un altro appuntamento dello
             stesso operatore. */}
-        {multiOperatorEnabled && members && members.length > 0 && setCreateOperatorId && (
+        {multiOperatorEnabled && members && members.length > 0 && setCreateOperatorId && !isGuestAppointment && (
           <div style={{ marginBottom: 20, border: `1.5px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft, marginBottom: 12 }}>
               Operatore
@@ -1331,8 +1480,8 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
           </div>
         )}
 
-        {/* ─── Tipologia e Prezzo (NASCOSTO se gruppo) ──────────────────────── */}
-        {!isGroupAppointment && (
+        {/* ─── Tipologia e Prezzo (NASCOSTO se gruppo O se ospite mig.029) ─── */}
+        {!isGroupAppointment && !isGuestAppointment && (
         <div style={{ marginBottom: 20, border: `1.5px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft, marginBottom: 12 }}>
             Tipologia e Prezzo

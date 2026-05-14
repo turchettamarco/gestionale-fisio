@@ -672,8 +672,11 @@ export function useAppointmentMutations(
       // Se non bloccante e l'utente non ha scelto, applichiamo automaticamente il
       // default configurato (default "pos") senza interrompere il flusso.
       // (skip per i gruppi: i pagamenti sono per singolo partecipante)
+      // (skip per appt ospite mig. 029: l'ospite incassa direttamente,
+      // priceType/paymentMethod vengono azzerati a valle del basePayload)
+      const isGuestAppt = !!createForm.createGuestPractitionerId;
       let effectivePaymentMethod = paymentMethod;
-      if (!isGroupAppointment && priceType === "invoiced" && !paymentMethod) {
+      if (!isGroupAppointment && !isGuestAppt && priceType === "invoiced" && !paymentMethod) {
         const required = practiceSettings?.payment_method_required ?? true;
         if (required) {
           alert("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");
@@ -767,6 +770,30 @@ export function useAppointmentMutations(
             room_id: createForm.createRoomId ?? null,
             is_group: false,
           };
+
+      // ─── Professionisti ospiti (mig. 029) ─────────────────────────────
+      // Se l'appuntamento è di un ospite, sovrascriviamo i campi del
+      // titolare per coerenza:
+      //   - operator_id = NULL (constraint appointments_operator_xor_guest)
+      //   - guest_practitioner_id = id ospite
+      //   - price_type, payment_method, amount, package_id = NULL/false
+      //     (l'ospite incassa direttamente, niente conteggi titolare)
+      //   - treatment_type = NULL (la prestazione la decide l'ospite)
+      // Applica sia al caso gruppo sia non-gruppo (anche se in UI il
+      // gruppo è disabilitato per gli ospiti, garantiamo robustezza).
+      if (createForm.createGuestPractitionerId) {
+        (basePayload as Record<string, unknown>).guest_practitioner_id =
+          createForm.createGuestPractitionerId;
+        (basePayload as Record<string, unknown>).operator_id = null;
+        (basePayload as Record<string, unknown>).price_type = null;
+        (basePayload as Record<string, unknown>).payment_method = null;
+        (basePayload as Record<string, unknown>).amount = null;
+        (basePayload as Record<string, unknown>).package_id = null;
+        (basePayload as Record<string, unknown>).treatment_type = null;
+        (basePayload as Record<string, unknown>).is_paid = false;
+      } else {
+        (basePayload as Record<string, unknown>).guest_practitioner_id = null;
+      }
 
       try {
         let createdAppointmentId: string | null = null;

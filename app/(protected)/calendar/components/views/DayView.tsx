@@ -81,6 +81,11 @@ export type DayViewProps = {
   /** Click su slot in vista multi-op (con operatorId). Se non passato,
    *  cade in onSlotClick con operatorId = null (= mantiene comportamento legacy). */
   onSlotClickMulti?: (date: Date, hour: number, minute: number, operatorId: string | null) => void;
+  /** Click su slot della colonna ospite in vista split (mig. 029).
+   *  Se non passato, cade in onSlotClick (= mantiene comportamento legacy).
+   *  Quando passato, il parent può pre-selezionare createGuestPractitionerId
+   *  prima di aprire il modale. */
+  onSlotClickGuest?: (date: Date, hour: number, minute: number, guestId: string) => void;
   onContextMenu: DayTimelineProps["onContextMenu"];
   onDragStart: DayTimelineProps["onDragStart"];
   onDragEnd: DayTimelineProps["onDragEnd"];
@@ -112,7 +117,7 @@ export default function DayView({
   gridStartHour,
   studioLocations,
   draggingOver, showAvailableOnly, bulkMode, bulkSelected, searchMatchIds,
-  onSlotClick, onSlotClickMulti, onContextMenu,
+  onSlotClick, onSlotClickMulti, onSlotClickGuest, onContextMenu,
   onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
   draggingEventId,
   getDayEventPosition, getFreeWindows, getEventColor,
@@ -215,11 +220,17 @@ export default function DayView({
           dayLabels={dayLabels}
           TIME_COL={TIME_COL}
           gridStartHour={gridStartHour}
-          onSlotClick={(date, hour, minute, _side) => {
-            // _side ("owner"|"guest") sarà usato nello Step 4a per
-            // pre-selezionare il campo "Per chi?" del modale di creazione.
-            // Per ora ignoriamo e deleghiamo al normale onSlotClick.
-            onSlotClick(date, hour, minute);
+          onSlotClick={(date, hour, minute, side) => {
+            // Quando si clicca sulla colonna destra dello split (ospite) e
+            // il parent ha fornito onSlotClickGuest, lo invochiamo con
+            // l'id dell'ospite del giorno → il modale di creazione si
+            // aprirà con "Per chi?" preselezionato sull'ospite (mig. 029).
+            // Altrimenti deleghiamo al normale onSlotClick.
+            if (side === "guest" && onSlotClickGuest && guestInDay) {
+              onSlotClickGuest(date, hour, minute, guestInDay.id);
+            } else {
+              onSlotClick(date, hour, minute);
+            }
           }}
           onSelectEvent={onSelectEvent}
         />

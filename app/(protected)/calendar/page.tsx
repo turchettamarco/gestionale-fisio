@@ -489,6 +489,12 @@ function CalendarPageInner() {
   // creazione. null = nessuna. Default null = nessuna stanza pre-selezionata.
   const [createRoomId, setCreateRoomId] = useState<string | null>(null);
 
+  // Professionisti ospiti (mig. 029): id dell'ospite selezionato in
+  // creazione. null = appuntamento del titolare (default). Quando valoriz-
+  // zato, l'appuntamento viene salvato con guest_practitioner_id, operator_id
+  // forzato a null, e tutti i campi prezzo/pagamento azzerati.
+  const [createGuestPractitionerId, setCreateGuestPractitionerId] = useState<string | null>(null);
+
   // Sincronizza il default del campo "sede" con il nome dello studio corrente
   // (l'utente può comunque sovrascriverlo manualmente nel form di creazione).
   useEffect(() => {
@@ -939,6 +945,8 @@ function CalendarPageInner() {
       setCreateOperatorId(duplicateEvent.operator_id ?? null);
       // Multi-stanza: copia room_id dall'evento
       setCreateRoomId(duplicateEvent.room_id ?? null);
+      // Ospiti (mig. 029): copia guest_practitioner_id dall'evento duplicato
+      setCreateGuestPractitionerId(duplicateEvent.guest_practitioner_id ?? null);
     } else {
       setDuplicateMode(false);
       setEventToDuplicate(null);
@@ -951,6 +959,9 @@ function CalendarPageInner() {
       setCreateOperatorId(userId ?? null);
       // Multi-stanza: default nessuna stanza pre-selezionata
       setCreateRoomId(null);
+      // Ospiti (mig. 029): default è il titolare (Studio). L'utente sceglie
+      // l'ospite dal selettore "Per chi?" in cima al modale.
+      setCreateGuestPractitionerId(null);
       setTreatmentType(treatmentCatalog[0]?.key ?? "seduta");
       // Default: Contanti (allineato allo state di partenza). L'utente può
       // sempre cliccare "Fatturato" se vuole. Evita l'alert spurio del metodo.
@@ -1522,6 +1533,7 @@ function CalendarPageInner() {
       selectedPackageId,
       createOperatorId,
       createRoomId,
+      createGuestPractitionerId,
     },
     editForm: {
       editStatus,
@@ -2167,6 +2179,15 @@ return (
               bulkSelected={bulkSelected}
               searchMatchIds={searchMatchIds}
               onSlotClick={handleSlotClick}
+              onSlotClickGuest={(date, hour, minute, guestId) => {
+                // Click sulla colonna ospite (mig. 029): apro prima il modale
+                // (che resetta gli state al loro default), poi sovrascrivo
+                // createGuestPractitionerId. setState in React è async ma
+                // batched: entrambi i setState eseguiti nello stesso event
+                // handler vengono applicati prima del prossimo render.
+                handleSlotClick(date, hour, minute);
+                setCreateGuestPractitionerId(guestId);
+              }}
               onContextMenu={handleContextMenu}
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
@@ -2309,6 +2330,10 @@ return (
           rooms={studioRooms}
           createRoomId={createRoomId}
           setCreateRoomId={setCreateRoomId}
+          guestPractitionersEnabled={guestPractitionersEnabled && studioGuests.length > 0}
+          guestPractitioners={studioGuests}
+          createGuestPractitionerId={createGuestPractitionerId}
+          setCreateGuestPractitionerId={setCreateGuestPractitionerId}
           creating={creating}
         />
       )}
