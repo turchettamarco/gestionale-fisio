@@ -313,6 +313,15 @@ function SignupInner() {
     return (
       <Wrapper>
         <div style={{ textAlign: "center", padding: "40px 20px" }}>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+            <img
+              src="/logo-mark.svg"
+              alt="FisioHub"
+              width={64}
+              height={64}
+              style={{ display: "block" }}
+            />
+          </div>
           <div style={{ fontSize: 56, marginBottom: 16 }}>🎉</div>
           <h2 style={{ margin: "0 0 8px", fontSize: 22, color: "#0f172a" }}>
             Benvenuto in FisioHub!
@@ -328,6 +337,17 @@ function SignupInner() {
   return (
     <Wrapper>
       <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {/* Logo FisioHub (mark vettoriale) in cima al form, comune ai due flussi
+            di signup (beta classico + team invite). */}
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
+          <img
+            src="/logo-mark.svg"
+            alt="FisioHub"
+            width={56}
+            height={56}
+            style={{ display: "block" }}
+          />
+        </div>
         {isTeamInvite ? (
           // ─── HEADER team invite ──────────────────────────────────────────
           <div style={{ textAlign: "center", marginBottom: 8 }}>

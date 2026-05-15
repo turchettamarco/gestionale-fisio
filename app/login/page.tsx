@@ -7,7 +7,7 @@ import { supabase } from "@/src/lib/supabaseClient";
 
 /**
  * Login desktop-first (ma responsive).
- * Requisito asset: metti il logo qui -> /public/brand/fisiohub.png
+ * Logo: /public/logo-mark.svg (vettoriale, gradient teal→blu già nel SVG).
  */
 export default function LoginPage() {
   const router = useRouter();
@@ -87,12 +87,13 @@ export default function LoginPage() {
           <div className="brandTop">
             <div className="logoRing">
               <Image
-                src="/brand/fisiohub.png"
-                alt="FisioHub Galileo"
+                src="/logo-mark.svg"
+                alt="FisioHub"
                 width={132}
                 height={132}
                 priority
                 className="logoImg"
+                unoptimized
               />
             </div>
 

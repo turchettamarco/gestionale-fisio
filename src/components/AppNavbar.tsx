@@ -162,7 +162,15 @@ export default function AppNavbar({ active, onRefresh }: AppNavbarProps) {
         {/* Sinistra: logo + nav */}
         <div style={{ display: "flex", alignItems: "center", gap: 20, flexShrink: 0, minWidth: 0 }}>
           <Link href="/" style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 7, background: "rgba(255,255,255,0.2)", border: "1.5px solid rgba(255,255,255,0.3)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 13 }}>F</div>
+            {/* Logo FisioHub (mark vettoriale). Sfondo del cerchio già gradient teal→blu nel SVG,
+                quindi non serve cornice colorata: lo mostriamo "nudo" sulla navbar gradient. */}
+            <img
+              src="/logo-mark.svg"
+              alt="FisioHub"
+              width={28}
+              height={28}
+              style={{ display: "block", flexShrink: 0 }}
+            />
             <span className="app-nav-logo-text" style={{ fontWeight: 700, fontSize: 14, color: "#fff", letterSpacing: 0.5, textTransform: "uppercase" }}>
               Fisio<span style={{ fontWeight: 800 }}>Hub</span>
             </span>

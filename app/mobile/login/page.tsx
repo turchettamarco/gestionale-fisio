@@ -134,14 +134,20 @@ export default function MobileLoginPage() {
               width: 44,
               height: 44,
               borderRadius: 14,
-              background: "rgba(255,255,255,0.12)",
-              border: "1px solid rgba(255,255,255,0.12)",
               display: "grid",
               placeItems: "center",
-              fontSize: 18,
+              overflow: "hidden",
             }}
           >
-            🧠
+            {/* Logo FisioHub mark (vettoriale). Su sfondo scuro del mobile login
+                il cerchio gradient del SVG ha già contrasto sufficiente. */}
+            <img
+              src="/logo-mark.svg"
+              alt="FisioHub"
+              width={44}
+              height={44}
+              style={{ display: "block" }}
+            />
           </div>
           <div style={{ lineHeight: 1.1 }}>
             <div style={{ color: "white", fontSize: 20, fontWeight: 900 }}>

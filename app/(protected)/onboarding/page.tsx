@@ -302,8 +302,21 @@ export default function OnboardingPage() {
         fontWeight: 800,
         fontSize: 16,
         letterSpacing: 0.5,
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
       }}>
-        Fisio<span style={{ fontWeight: 900 }}>Hub</span>
+        {/* Logo FisioHub mark accanto al wordmark testuale */}
+        <img
+          src="/logo-mark.svg"
+          alt="FisioHub"
+          width={30}
+          height={30}
+          style={{ display: "block", flexShrink: 0 }}
+        />
+        <span>
+          Fisio<span style={{ fontWeight: 900 }}>Hub</span>
+        </span>
       </header>
 
       <main style={{ padding: "32px 16px 64px" }}>

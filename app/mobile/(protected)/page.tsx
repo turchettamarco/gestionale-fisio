@@ -1363,13 +1363,14 @@ export default function MobileHomePage() {
           justifyContent: "space-between",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{
-              width: 26, height: 26, borderRadius: 7,
-              background: "rgba(255,255,255,0.18)",
-              border: "1.5px solid rgba(255,255,255,0.25)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              color: "#fff", fontWeight: 800, fontSize: 12,
-            }}>F</div>
+            {/* Logo FisioHub mark (vettoriale, gradient teal→blu già nel SVG) */}
+            <img
+              src="/logo-mark.svg"
+              alt="FisioHub"
+              width={26}
+              height={26}
+              style={{ display: "block", flexShrink: 0 }}
+            />
             <span style={{
               fontWeight: 800, fontSize: 14, color: "#fff",
               letterSpacing: 0.5, textTransform: "uppercase",

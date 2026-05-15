@@ -1,17 +1,23 @@
 {
-  "name": "FisioHub — Studio Dr. Turchetta",
+  "name": "FisioHub",
   "short_name": "FisioHub",
-  "description": "Gestionale per la pratica di fisioterapia e osteopatia",
+  "description": "Gestionale per fisioterapisti e osteopati",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#f1f5f9",
+  "background_color": "#FAF7F2",
   "theme_color": "#0d9488",
   "lang": "it-IT",
   "dir": "ltr",
   "categories": ["medical", "health", "productivity"],
   "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
     {
       "src": "/icon-192.png",
       "sizes": "192x192",
