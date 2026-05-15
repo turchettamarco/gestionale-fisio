@@ -80,6 +80,8 @@ function GuestForm({
     display_color: string | null;
     default_room_id: string | null;
     notes: string | null;
+    phone: string | null;
+    email: string | null;
     pdf_print_fields: {
       telefono: boolean;
       durata: boolean;
@@ -102,6 +104,9 @@ function GuestForm({
   );
   const [roomId, setRoomId] = useState<string | null>(initial?.default_room_id ?? null);
   const [notes, setNotes] = useState(initial?.notes ?? "");
+  // Mig. 033 — Contatti professionista
+  const [phone, setPhone] = useState(initial?.phone ?? "");
+  const [email, setEmail] = useState(initial?.email ?? "");
   // Mig. 030 — Configurazione campi PDF. Default: tutti true.
   const [pdfTelefono, setPdfTelefono] = useState<boolean>(
     initial?.pdf_print_fields?.telefono ?? true
@@ -128,6 +133,8 @@ function GuestForm({
       display_color: color,
       default_room_id: roomId,
       notes: notes.trim() || null,
+      phone: phone.trim() || null,
+      email: email.trim() || null,
       pdf_print_fields: {
         telefono: pdfTelefono,
         durata: pdfDurata,
@@ -397,12 +404,35 @@ function GuestForm({
         </div>
       </div>
 
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+        <div>
+          <label style={labelStyle}>Telefono (per WhatsApp)</label>
+          <input
+            type="tel"
+            value={phone}
+            onChange={e => setPhone(e.target.value)}
+            placeholder="+39 333 1234567"
+            style={inputStyle}
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>Email</label>
+          <input
+            type="email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            placeholder="nome@esempio.it"
+            style={inputStyle}
+          />
+        </div>
+      </div>
+
       <div style={{ marginBottom: 12 }}>
         <label style={labelStyle}>Note (opzionale)</label>
         <textarea
           value={notes}
           onChange={e => setNotes(e.target.value)}
-          placeholder="Es. Viene il primo sabato del mese, contatto: 333 1234567"
+          placeholder="Es. Viene il primo sabato del mese"
           style={{ ...inputStyle, minHeight: 60, resize: "vertical", fontFamily: "inherit" }}
         />
       </div>
@@ -529,6 +559,8 @@ export type GuestPractitionersSectionProps = {
     display_color: string | null;
     default_room_id: string | null;
     notes: string | null;
+    phone: string | null;
+    email: string | null;
     pdf_print_fields: {
       telefono: boolean;
       durata: boolean;
@@ -543,6 +575,8 @@ export type GuestPractitionersSectionProps = {
     display_color: string | null;
     default_room_id: string | null;
     notes: string | null;
+    phone: string | null;
+    email: string | null;
     pdf_print_fields: {
       telefono: boolean;
       durata: boolean;

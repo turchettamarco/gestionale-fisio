@@ -860,6 +860,8 @@ export default function SettingsPage() {
     display_color: string | null;
     default_room_id: string | null;
     notes: string | null;
+    phone: string | null;
+    email: string | null;
     pdf_print_fields: {
       telefono: boolean;
       durata: boolean;
@@ -879,6 +881,8 @@ export default function SettingsPage() {
         display_color: payload.display_color,
         default_room_id: payload.default_room_id,
         notes: payload.notes,
+        phone: payload.phone,
+        email: payload.email,
         is_active: true,
         sort_order: maxSort + 1,
         // mig. 030 — configurazione campi PDF (default tutto true)
@@ -899,6 +903,8 @@ export default function SettingsPage() {
     display_color: string | null;
     default_room_id: string | null;
     notes: string | null;
+    phone: string | null;
+    email: string | null;
     pdf_print_fields: {
       telefono: boolean;
       durata: boolean;
@@ -916,6 +922,8 @@ export default function SettingsPage() {
       if (payload.display_color !== undefined) upd.display_color = payload.display_color;
       if (payload.default_room_id !== undefined) upd.default_room_id = payload.default_room_id;
       if (payload.notes !== undefined) upd.notes = payload.notes;
+      if (payload.phone !== undefined) upd.phone = payload.phone;
+      if (payload.email !== undefined) upd.email = payload.email;
       // mig. 030 — campi PDF
       if (payload.pdf_print_fields !== undefined) upd.pdf_print_fields = payload.pdf_print_fields;
 

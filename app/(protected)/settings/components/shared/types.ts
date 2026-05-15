@@ -175,6 +175,9 @@ export type GuestPractitionerRow = {
   access_token?: string | null;
   token_created_at?: string | null;
   last_access_at?: string | null;
+  // mig. 033 — Contatti professionista
+  phone?: string | null;
+  email?: string | null;
   created_at: string;
   updated_at?: string;
 };

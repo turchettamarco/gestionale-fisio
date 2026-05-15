@@ -76,6 +76,9 @@ type GuestRow = {
   access_token: string | null;
   token_created_at: string | null;
   last_access_at: string | null;
+  // mig. 033 — Contatti professionista
+  phone: string | null;
+  email: string | null;
 };
 
 type AppointmentRow = {
@@ -173,7 +176,7 @@ export default function AgendaOspiteClient() {
     (async () => {
       const { data, error: err } = await supabase
         .from("guest_practitioners")
-        .select("id, studio_id, first_name, last_name, specialty, display_color, default_room_id, is_active, pdf_print_fields, access_token, token_created_at, last_access_at")
+        .select("id, studio_id, first_name, last_name, specialty, display_color, default_room_id, is_active, pdf_print_fields, access_token, token_created_at, last_access_at, phone, email")
         .eq("id", guestId)
         .eq("studio_id", studio.id)
         .maybeSingle();
@@ -436,6 +439,21 @@ export default function AgendaOspiteClient() {
       flashPortal("Link copiato!");
     }
   }, [guest, flashPortal]);
+
+  // ── Invia link via WhatsApp (richiede phone valorizzato) ──────────────
+  const handleSendWhatsApp = useCallback(() => {
+    if (!guest?.access_token || !guest?.phone) {
+      flashPortal("Aggiungi prima il numero del professionista nelle impostazioni.", "err");
+      return;
+    }
+    const url = `${window.location.origin}/agenda/${guest.access_token}`;
+    const studioLabel = studio?.name || "Studio";
+    const message = `Ciao ${guest.first_name}, ecco il link aggiornato in tempo reale alla tua agenda da ${studioLabel}:\n\n${url}\n\nPuoi salvarlo nei preferiti del browser. Vedi solo i tuoi appuntamenti, nessun login richiesto.`;
+    // Normalizza il numero: rimuovi spazi/trattini/parentesi. wa.me accetta formato internazionale senza +.
+    const cleanPhone = guest.phone.replace(/[\s\-()]/g, "").replace(/^\+/, "");
+    const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+    window.open(waUrl, "_blank", "noopener,noreferrer");
+  }, [guest, studio?.name, flashPortal]);
 
   // ── States ───────────────────────────────────────────────────────────
   if (loading) {
@@ -710,6 +728,26 @@ export default function AgendaOspiteClient() {
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {guest.access_token ? (
                 <>
+                  {guest.phone ? (
+                    <button
+                      onClick={handleSendWhatsApp}
+                      disabled={portalSaving}
+                      className="ao-btnCTA"
+                      style={{ background: "#25D366", boxShadow: "0 2px 8px rgba(37,211,102,0.3)" }}
+                      title={`Invia il link a ${guest.first_name} via WhatsApp`}
+                    >
+                      💬 Invia su WhatsApp
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => flashPortal("Aggiungi prima il numero del professionista (Impostazioni → Team → Modifica).", "err")}
+                      className="ao-btn"
+                      style={{ color: T.mutedSoft, borderColor: T.border, opacity: 0.7 }}
+                      title="Numero non impostato"
+                    >
+                      💬 WhatsApp (numero mancante)
+                    </button>
+                  )}
                   <button
                     onClick={handleCopyLink}
                     disabled={portalSaving}
@@ -1043,7 +1081,23 @@ export default function AgendaOspiteClient() {
           guestColor={guestColor}
           guestDefaultRoomId={guest.default_room_id}
           initial={modalInitial}
-          defaultDate={filterMode === "month" ? currentMonth : new Date(rangeStart)}
+          defaultDate={(() => {
+            // Default intelligente:
+            //  - Se siamo nel mese corrente → oggi alle 9:00
+            //  - Altrimenti → il 1° del mese visualizzato alle 9:00
+            //  - Modo "range" → primo giorno del range alle 9:00
+            const now = new Date();
+            if (filterMode === "month") {
+              const sameMonth =
+                currentMonth.getFullYear() === now.getFullYear() &&
+                currentMonth.getMonth() === now.getMonth();
+              const base = sameMonth ? new Date(now) : new Date(currentMonth);
+              base.setHours(9, 0, 0, 0);
+              return base;
+            }
+            const base = new Date(rangeStart + "T09:00:00");
+            return base;
+          })()}
           onClose={closeModal}
           onSaved={handleSaved}
         />

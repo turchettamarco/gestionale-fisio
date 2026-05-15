@@ -108,7 +108,7 @@ export default function MobileSettingsPage() {
   // ── Working hours ──
   const [hours, setHours] = useState<{day_of_week:number;open_time:string;close_time:string;is_open:boolean}[]>([]);
 
-  // ── Professionisti ospiti (mig. 029-031) ──────────────────────────────
+  // ── Professionisti ospiti (mig. 029-033) ──────────────────────────────
   type GuestRow = {
     id: string; first_name: string; last_name: string; specialty: string;
     display_color: string | null; default_room_id: string | null;
@@ -119,6 +119,8 @@ export default function MobileSettingsPage() {
     access_token: string | null;
     token_created_at: string | null;
     last_access_at: string | null;
+    phone: string | null;
+    email: string | null;
   };
   const [guestEnabled, setGuestEnabled] = useState(false);
   const [savingGuestToggle, setSavingGuestToggle] = useState(false);
@@ -276,7 +278,7 @@ export default function MobileSettingsPage() {
     try {
       const { data, error: err } = await supabase
         .from("guest_practitioners")
-        .select("id, first_name, last_name, specialty, display_color, default_room_id, notes, is_active, sort_order, pdf_print_fields, access_token, token_created_at, last_access_at")
+        .select("id, first_name, last_name, specialty, display_color, default_room_id, notes, is_active, sort_order, pdf_print_fields, access_token, token_created_at, last_access_at, phone, email")
         .eq("studio_id", currentStudioId)
         .order("sort_order", { ascending: true })
         .order("last_name", { ascending: true });

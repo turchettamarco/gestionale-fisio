@@ -60,6 +60,9 @@ export type GuestEditRow = {
   access_token: string | null;
   token_created_at: string | null;
   last_access_at: string | null;
+  // mig. 033 — Contatti
+  phone: string | null;
+  email: string | null;
 };
 
 type StudioRoom = {
@@ -84,6 +87,9 @@ export default function GuestEditModalMobile({ guest, studioId, onClose, onSaved
   const [color, setColor] = useState(guest.display_color || "#DB2777");
   const [defaultRoomId, setDefaultRoomId] = useState<string | null>(guest.default_room_id);
   const [notes, setNotes] = useState(guest.notes || "");
+  // mig. 033 — Contatti
+  const [phone, setPhone] = useState(guest.phone || "");
+  const [email, setEmail] = useState(guest.email || "");
 
   // Campi PDF
   const pdfDefaults = guest.pdf_print_fields || {};
@@ -147,6 +153,8 @@ export default function GuestEditModalMobile({ guest, studioId, onClose, onSaved
           display_color: color,
           default_room_id: defaultRoomId,
           notes: notes.trim() || null,
+          phone: phone.trim() || null,
+          email: email.trim() || null,
           pdf_print_fields: {
             telefono: pdfTelefono,
             durata: pdfDurata,
@@ -163,7 +171,7 @@ export default function GuestEditModalMobile({ guest, studioId, onClose, onSaved
     } finally {
       setSaving(false);
     }
-  }, [firstName, lastName, specialty, color, defaultRoomId, notes, pdfTelefono, pdfDurata, pdfDiagnosi, pdfNote, guest.id, onSaved, onClose, flash]);
+  }, [firstName, lastName, specialty, color, defaultRoomId, notes, phone, email, pdfTelefono, pdfDurata, pdfDiagnosi, pdfNote, guest.id, onSaved, onClose, flash]);
 
   // ── Genera token portale ────────────────────────────────────────────────
   const handleGenerateToken = useCallback(async () => {
@@ -343,6 +351,24 @@ export default function GuestEditModalMobile({ guest, studioId, onClose, onSaved
                 />
               ))}
             </div>
+          </Field>
+          <Field label="Telefono (per WhatsApp)">
+            <input
+              type="tel"
+              value={phone}
+              onChange={e => setPhone(e.target.value)}
+              placeholder="+39 333 1234567"
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="Email">
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="nome@esempio.it"
+              style={inputStyle}
+            />
           </Field>
           <Field label="Note (private)">
             <textarea
