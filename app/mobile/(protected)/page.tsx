@@ -1404,14 +1404,14 @@ export default function MobileHomePage() {
                 }}>
                   {/* Voce Agenda Ospiti smart (mig. 029) */}
                   {hasGuests && showIndexLink && (
-                    <Link href="/ospiti" onClick={() => setUserMenuOpen(false)} style={{
+                    <Link href="/mobile/ospiti" onClick={() => setUserMenuOpen(false)} style={{
                       display: "flex", alignItems: "center", gap: 8, padding: "11px 14px",
                       color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
                       borderBottom: `1px solid ${THEME.border}`,
                     }}>📋 Agenda Ospiti</Link>
                   )}
                   {hasGuests && !showIndexLink && singleGuest && (
-                    <Link href={`/ospiti/${singleGuest.id}`} onClick={() => setUserMenuOpen(false)} style={{
+                    <Link href={`/mobile/ospiti/${singleGuest.id}`} onClick={() => setUserMenuOpen(false)} style={{
                       display: "flex", alignItems: "center", gap: 8, padding: "11px 14px",
                       color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
                       borderBottom: `1px solid ${THEME.border}`,
@@ -1439,7 +1439,7 @@ export default function MobileHomePage() {
                           {multipleGuests.map(g => (
                             <Link
                               key={g.id}
-                              href={`/ospiti/${g.id}`}
+                              href={`/mobile/ospiti/${g.id}`}
                               onClick={() => setUserMenuOpen(false)}
                               style={{
                                 display: "flex", alignItems: "center", gap: 8,

@@ -10,6 +10,7 @@ import {
   loadTreatmentTypes,
   keyFromLabel,
 } from "@/src/lib/treatmentTypes";
+import GuestEditModalMobile, { type GuestEditRow } from "../components/GuestEditModalMobile";
 
 const THEME = {
   appBg:"#f1f5f9", panelBg:"#ffffff", panelSoft:"#f7f9fd", text:"#0f172a", muted:"#334155",
@@ -110,8 +111,14 @@ export default function MobileSettingsPage() {
   // ── Professionisti ospiti (mig. 029-031) ──────────────────────────────
   type GuestRow = {
     id: string; first_name: string; last_name: string; specialty: string;
-    display_color: string | null; is_active: boolean; sort_order: number;
+    display_color: string | null; default_room_id: string | null;
+    notes: string | null; is_active: boolean; sort_order: number;
+    pdf_print_fields: {
+      telefono?: boolean; durata?: boolean; diagnosi?: boolean; note?: boolean;
+    };
     access_token: string | null;
+    token_created_at: string | null;
+    last_access_at: string | null;
   };
   const [guestEnabled, setGuestEnabled] = useState(false);
   const [savingGuestToggle, setSavingGuestToggle] = useState(false);
@@ -125,6 +132,8 @@ export default function MobileSettingsPage() {
   const [newGuestSpecialty, setNewGuestSpecialty] = useState("");
   const [newGuestColor, setNewGuestColor] = useState("#DB2777");
   const [savingNewGuest, setSavingNewGuest] = useState(false);
+  // Modale modifica ospite (full-screen)
+  const [editingGuest, setEditingGuest] = useState<GuestRow | null>(null);
   // Palette colori per ospiti (allineata desktop)
   const GUEST_COLOR_PRESETS: { value: string; name: string }[] = [
     { value: "#DB2777", name: "Magenta" },
@@ -267,7 +276,7 @@ export default function MobileSettingsPage() {
     try {
       const { data, error: err } = await supabase
         .from("guest_practitioners")
-        .select("id, first_name, last_name, specialty, display_color, is_active, sort_order, access_token")
+        .select("id, first_name, last_name, specialty, display_color, default_room_id, notes, is_active, sort_order, pdf_print_fields, access_token, token_created_at, last_access_at")
         .eq("studio_id", currentStudioId)
         .order("sort_order", { ascending: true })
         .order("last_name", { ascending: true });
@@ -1029,7 +1038,7 @@ export default function MobileSettingsPage() {
                             </div>
                           </div>
                           <Link
-                            href={`/ospiti/${g.id}`}
+                            href={`/mobile/ospiti/${g.id}`}
                             style={{
                               padding: "6px 12px", borderRadius: 8,
                               background: THEME.gradient, color: "#fff",
@@ -1041,6 +1050,17 @@ export default function MobileSettingsPage() {
                           </Link>
                         </div>
                         <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                          <button
+                            onClick={() => setEditingGuest(g)}
+                            style={{
+                              flex: 1, padding: "7px 10px", borderRadius: 8,
+                              border: `1px solid ${THEME.teal}`, background: "#fff",
+                              fontSize: 11, fontWeight: 800, color: THEME.teal,
+                              cursor: "pointer",
+                            }}
+                          >
+                            ✏️ Modifica
+                          </button>
                           <button
                             onClick={() => void toggleGuestActive(g)}
                             style={{
@@ -1200,8 +1220,7 @@ export default function MobileSettingsPage() {
                   background: "rgba(37,99,235,0.06)", fontSize: 11,
                   color: THEME.muted, lineHeight: 1.5,
                 }}>
-                  💡 Per generare il <strong>link portale pubblico</strong>, configurare i <strong>campi PDF</strong>{guestsList.length > 0 ? " " : ""}
-                  o impostare la <strong>stanza predefinita</strong> di un ospite, usa la versione desktop delle impostazioni.
+                  💡 Tap <strong>Modifica</strong> su un ospite per configurare colore, stanza predefinita, campi del PDF, e generare il <strong>link portale pubblico</strong>.
                 </div>
               </>
             )}
@@ -1664,6 +1683,16 @@ export default function MobileSettingsPage() {
           </Link>
         ))}
       </nav>
+
+      {/* Modale modifica ospite (full-screen) */}
+      {editingGuest && currentStudioId && (
+        <GuestEditModalMobile
+          guest={editingGuest as GuestEditRow}
+          studioId={currentStudioId}
+          onClose={() => setEditingGuest(null)}
+          onSaved={() => { void loadGuests(); }}
+        />
+      )}
     </div>
   );
 }
