@@ -32,6 +32,7 @@ import { useState, useMemo } from "react";
 import { THEME, cardStyle, sectionHead, inputStyle, labelStyle } from "../shared/theme";
 import { BtnPrimary, BtnOutline } from "../shared/Buttons";
 import type { GuestPractitionerRow, StudioRoomRow } from "../shared/types";
+import PhoneInput from "@/src/components/PhoneInput";
 
 // ── Palette di colori per ospiti ─────────────────────────────────────────
 // Tonalità calde/sature, leggibili sia come fondo card (testo bianco sopra)
@@ -407,12 +408,9 @@ function GuestForm({
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
         <div>
           <label style={labelStyle}>Telefono (per WhatsApp)</label>
-          <input
-            type="tel"
+          <PhoneInput
             value={phone}
-            onChange={e => setPhone(e.target.value)}
-            placeholder="+39 333 1234567"
-            style={inputStyle}
+            onChange={setPhone}
           />
         </div>
         <div>

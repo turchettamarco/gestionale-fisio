@@ -20,6 +20,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
+import { checkAppointmentOverlap, fmtTimeRange, type OverlapAppointment } from "@/src/lib/appointmentOverlap";
 import { X, Search, Trash2, Calendar, Clock, MapPin, FileText, User } from "lucide-react";
 
 // ── Palette (allineata pagina ospite) ────────────────────────────────────
@@ -127,6 +128,10 @@ export default function GuestAppointmentModal({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // ── Overlap detection ───────────────────────────────────────────────────
+  const [overlaps, setOverlaps] = useState<OverlapAppointment[]>([]);
+  const [checkingOverlaps, setCheckingOverlaps] = useState(false);
 
   // ── Stanze (carico una sola volta) ──────────────────────────────────────
   const [rooms, setRooms] = useState<StudioRoom[]>([]);
@@ -269,6 +274,39 @@ export default function GuestAppointmentModal({
     })();
     return () => { cancelled = true; };
   }, [mode, initial?.patient_id, initial?.patient_name]);
+
+  // ── Overlap check (debounced) ──────────────────────────────────────────
+  useEffect(() => {
+    if (!date || !startTime || !duration) {
+      setOverlaps([]);
+      return;
+    }
+    let cancelled = false;
+    setCheckingOverlaps(true);
+    const handle = setTimeout(async () => {
+      try {
+        const startDt = combineDateTime(date, startTime);
+        const endDt = new Date(startDt.getTime() + duration * 60000);
+        const conflicts = await checkAppointmentOverlap({
+          supabase,
+          studioId,
+          startAt: startDt,
+          endAt: endDt,
+          roomId: roomId,           // controlla solo nella stessa stanza
+          excludeAppointmentId: initial?.id,
+        });
+        if (cancelled) return;
+        setOverlaps(conflicts);
+      } catch (e) {
+        // Silent fail: non blocchiamo la UI se l'overlap check fallisce
+        if (!cancelled) setOverlaps([]);
+        console.error("Overlap check failed:", e);
+      } finally {
+        if (!cancelled) setCheckingOverlaps(false);
+      }
+    }, 400);
+    return () => { cancelled = true; clearTimeout(handle); };
+  }, [date, startTime, duration, roomId, studioId, initial?.id]);
 
   // ── Salva (create o update) ─────────────────────────────────────────────
   const handleSave = useCallback(async () => {
@@ -780,6 +818,41 @@ export default function GuestAppointmentModal({
                 style={{ resize: "vertical", fontFamily: "inherit" }}
               />
             </div>
+
+            {/* ── Warning sovrapposizione (soft, non blocca) ───────── */}
+            {overlaps.length > 0 && (
+              <div style={{
+                padding: "10px 14px",
+                background: "#fef3c7",
+                border: "1px solid #fcd34d",
+                borderRadius: 8,
+                color: "#92400e",
+                fontSize: 12,
+                fontWeight: 600,
+                lineHeight: 1.5,
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6 }}>
+                  ⚠️ Sovrapposizione rilevata
+                </div>
+                <div style={{ marginBottom: 6 }}>
+                  In questa stanza c&apos;è già {overlaps.length === 1 ? "un appuntamento" : `${overlaps.length} appuntamenti`}:
+                </div>
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {overlaps.slice(0, 3).map(o => (
+                    <li key={o.id} style={{ marginBottom: 2 }}>
+                      <strong>{fmtTimeRange(o.start_at, o.end_at)}</strong>
+                      {o.patient_name && <> · {o.patient_name}</>}
+                      {" · "}
+                      <em>{o.practitioner_label}</em>
+                    </li>
+                  ))}
+                  {overlaps.length > 3 && <li>+ {overlaps.length - 3} altri</li>}
+                </ul>
+                <div style={{ marginTop: 6, fontSize: 11, fontWeight: 500, opacity: 0.85 }}>
+                  Puoi comunque salvare se sei consapevole della sovrapposizione.
+                </div>
+              </div>
+            )}
 
             {error && <div className="gam-error">{error}</div>}
           </div>

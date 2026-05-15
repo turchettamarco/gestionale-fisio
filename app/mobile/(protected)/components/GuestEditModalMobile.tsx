@@ -18,6 +18,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { X, Trash2, Copy, Link2, Unlink } from "lucide-react";
+import PhoneInput from "@/src/components/PhoneInput";
 
 // Palette mobile (allineata settings mobile)
 const T = {
@@ -353,12 +354,9 @@ export default function GuestEditModalMobile({ guest, studioId, onClose, onSaved
             </div>
           </Field>
           <Field label="Telefono (per WhatsApp)">
-            <input
-              type="tel"
+            <PhoneInput
               value={phone}
-              onChange={e => setPhone(e.target.value)}
-              placeholder="+39 333 1234567"
-              style={inputStyle}
+              onChange={setPhone}
             />
           </Field>
           <Field label="Email">
