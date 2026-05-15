@@ -28,8 +28,9 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
-import { Printer, Download, Eye, ChevronLeft, ChevronRight, ArrowLeft } from "lucide-react";
+import { Printer, Download, Eye, ChevronLeft, ChevronRight, ArrowLeft, Plus } from "lucide-react";
 import { previewAgendaInBrowser, printAgenda, downloadAgendaPDF, type GuestAgendaData } from "./utils/exportGuestAgenda";
+import GuestAppointmentModal, { type GuestApptInitial } from "./components/GuestAppointmentModal";
 
 // ── Palette brand FisioHub ──────────────────────────────────────────────
 const T = {
@@ -63,6 +64,7 @@ type GuestRow = {
   last_name: string;
   specialty: string;
   display_color: string | null;
+  default_room_id: string | null;
   is_active: boolean;
   pdf_print_fields: {
     telefono?: boolean;
@@ -79,6 +81,7 @@ type AppointmentRow = {
   status: string;
   calendar_note: string | null;
   patient_id: string;
+  room_id: string | null;
   patient: {
     first_name: string;
     last_name: string;
@@ -149,6 +152,11 @@ export default function AgendaOspiteClient() {
   const [appointments, setAppointments] = useState<AppointmentRow[]>([]);
   const [selectedDays, setSelectedDays] = useState<Record<string, boolean>>({});
 
+  // ── Fase B: modale create/edit appuntamento ospite ─────────────────────
+  const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
+  const [modalInitial, setModalInitial] = useState<GuestApptInitial | undefined>(undefined);
+  const [reloadKey, setReloadKey] = useState(0);  // bump per forzare refetch dopo save
+
   // ── Carica ospite ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!guestId || !studio?.id) return;
@@ -157,7 +165,7 @@ export default function AgendaOspiteClient() {
     (async () => {
       const { data, error: err } = await supabase
         .from("guest_practitioners")
-        .select("id, studio_id, first_name, last_name, specialty, display_color, is_active, pdf_print_fields")
+        .select("id, studio_id, first_name, last_name, specialty, display_color, default_room_id, is_active, pdf_print_fields")
         .eq("id", guestId)
         .eq("studio_id", studio.id)
         .maybeSingle();
@@ -191,7 +199,7 @@ export default function AgendaOspiteClient() {
         .from("appointments")
         .select(`
           id, start_at, end_at, status, calendar_note,
-          patient_id,
+          patient_id, room_id,
           patient:patients(first_name, last_name, phone, diagnosis)
         `)
         .eq("guest_practitioner_id", guestId)
@@ -210,7 +218,7 @@ export default function AgendaOspiteClient() {
       setAppointments(normalized);
     })();
     return () => { cancelled = true; };
-  }, [guestId, studio?.id, fromDate, toDate]);
+  }, [guestId, studio?.id, fromDate, toDate, reloadKey]);
 
   // ── Raggruppa per giorno ──────────────────────────────────────────────
   const groupedByDay = useMemo(() => {
@@ -329,6 +337,34 @@ export default function AgendaOspiteClient() {
     if (!guest) return;
     printAgenda(buildExportData(dayKeyToPrint));
   }, [guest, buildExportData]);
+
+  // ── Fase B: handler open/close modale ──────────────────────────────────
+  const openCreateModal = useCallback(() => {
+    setModalInitial(undefined);
+    setModalMode("create");
+  }, []);
+
+  const openEditModal = useCallback((appt: AppointmentRow) => {
+    setModalInitial({
+      id: appt.id,
+      patient_id: appt.patient_id,
+      patient_name: appt.patient ? `${appt.patient.last_name} ${appt.patient.first_name}` : "",
+      start_at: appt.start_at,
+      end_at: appt.end_at,
+      room_id: appt.room_id,
+      calendar_note: appt.calendar_note,
+    });
+    setModalMode("edit");
+  }, []);
+
+  const closeModal = useCallback(() => {
+    setModalMode(null);
+    setModalInitial(undefined);
+  }, []);
+
+  const handleSaved = useCallback(() => {
+    setReloadKey(k => k + 1);
+  }, []);
 
   // ── States ───────────────────────────────────────────────────────────
   if (loading) {
@@ -620,6 +656,14 @@ export default function AgendaOspiteClient() {
             </div>
 
             <div className="ao-toolbarRight">
+              <button
+                className="ao-btnCTA"
+                onClick={openCreateModal}
+                style={{ background: T.blue, boxShadow: "0 2px 8px rgba(37,99,235,0.25)" }}
+              >
+                <Plus size={14} /> Nuovo appuntamento
+              </button>
+              <div className="ao-divider" />
               <button className="ao-btn" onClick={handlePreview}>
                 <Eye size={14} /> Anteprima
               </button>
@@ -782,9 +826,17 @@ export default function AgendaOspiteClient() {
                             : "—";
                           const isLast = idx === group.events.length - 1;
                           return (
-                            <tr key={ev.id} style={{
-                              borderBottom: isLast ? "none" : `1px solid ${T.borderXSoft}`,
-                            }}>
+                            <tr
+                              key={ev.id}
+                              onClick={() => openEditModal(ev)}
+                              style={{
+                                borderBottom: isLast ? "none" : `1px solid ${T.borderXSoft}`,
+                                cursor: "pointer",
+                                transition: "background 0.12s",
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.background = T.panelSoft}
+                              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                            >
                               <td style={{
                                 ...tdStyle, color: guestColor, fontWeight: 800,
                                 whiteSpace: "nowrap", fontSize: 14,
@@ -830,6 +882,21 @@ export default function AgendaOspiteClient() {
           </div>
         </div>
       </div>
+
+      {/* ── Modale create/edit appuntamento ospite (Fase B) ─────────────── */}
+      {modalMode && studio?.id && (
+        <GuestAppointmentModal
+          mode={modalMode}
+          studioId={studio.id}
+          guestId={guest.id}
+          guestColor={guestColor}
+          guestDefaultRoomId={guest.default_room_id}
+          initial={modalInitial}
+          defaultDate={filterMode === "month" ? currentMonth : new Date(rangeStart)}
+          onClose={closeModal}
+          onSaved={handleSaved}
+        />
+      )}
     </>
   );
 }
