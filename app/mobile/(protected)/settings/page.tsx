@@ -107,6 +107,34 @@ export default function MobileSettingsPage() {
   // ── Working hours ──
   const [hours, setHours] = useState<{day_of_week:number;open_time:string;close_time:string;is_open:boolean}[]>([]);
 
+  // ── Professionisti ospiti (mig. 029-031) ──────────────────────────────
+  type GuestRow = {
+    id: string; first_name: string; last_name: string; specialty: string;
+    display_color: string | null; is_active: boolean; sort_order: number;
+    access_token: string | null;
+  };
+  const [guestEnabled, setGuestEnabled] = useState(false);
+  const [savingGuestToggle, setSavingGuestToggle] = useState(false);
+  const [useGuestIndex, setUseGuestIndex] = useState(false);
+  const [savingGuestIndexToggle, setSavingGuestIndexToggle] = useState(false);
+  const [guestsList, setGuestsList] = useState<GuestRow[]>([]);
+  const [loadingGuests, setLoadingGuests] = useState(false);
+  const [showNewGuestForm, setShowNewGuestForm] = useState(false);
+  const [newGuestFirstName, setNewGuestFirstName] = useState("");
+  const [newGuestLastName, setNewGuestLastName] = useState("");
+  const [newGuestSpecialty, setNewGuestSpecialty] = useState("");
+  const [newGuestColor, setNewGuestColor] = useState("#DB2777");
+  const [savingNewGuest, setSavingNewGuest] = useState(false);
+  // Palette colori per ospiti (allineata desktop)
+  const GUEST_COLOR_PRESETS: { value: string; name: string }[] = [
+    { value: "#DB2777", name: "Magenta" },
+    { value: "#7C3AED", name: "Viola" },
+    { value: "#0EA5E9", name: "Azzurro" },
+    { value: "#F59E0B", name: "Ambra" },
+    { value: "#14B8A6", name: "Turchese" },
+    { value: "#EF4444", name: "Rosso" },
+  ];
+
   // ── Goals ──
   const [monthlyGoal, setMonthlyGoal] = useState("2000");
   const [inactiveThresh, setInactiveThresh] = useState("45");
@@ -145,6 +173,9 @@ export default function MobileSettingsPage() {
       setShowBookingBellCalendar(currentStudio.show_booking_bell_calendar ?? false);
       // Multi-sede (mig. 014)
       setMultiLocationEnabled(currentStudio.multi_location_enabled ?? false);
+      // Professionisti ospiti (mig. 029, 031)
+      setGuestEnabled(Boolean((currentStudio as { guest_practitioners_enabled?: boolean }).guest_practitioners_enabled));
+      setUseGuestIndex(Boolean((currentStudio as { use_guest_index_page?: boolean }).use_guest_index_page));
     }
   },[currentStudio]);
 
@@ -227,6 +258,111 @@ export default function MobileSettingsPage() {
     } finally {
       setSavingMultiToggle(false);
     }
+  }
+
+  // ── Professionisti ospiti: load + handler ────────────────────────────
+  const loadGuests = useCallback(async () => {
+    if (!currentStudioId) return;
+    setLoadingGuests(true);
+    try {
+      const { data, error: err } = await supabase
+        .from("guest_practitioners")
+        .select("id, first_name, last_name, specialty, display_color, is_active, sort_order, access_token")
+        .eq("studio_id", currentStudioId)
+        .order("sort_order", { ascending: true })
+        .order("last_name", { ascending: true });
+      if (err) { console.error(err); setGuestsList([]); return; }
+      setGuestsList((data ?? []) as GuestRow[]);
+    } finally {
+      setLoadingGuests(false);
+    }
+  }, [currentStudioId]);
+
+  useEffect(() => {
+    if (guestEnabled && currentStudioId) void loadGuests();
+  }, [guestEnabled, currentStudioId, loadGuests]);
+
+  async function saveGuestToggle() {
+    if (!currentStudioId) return;
+    setSavingGuestToggle(true); setError(""); setSuccess("");
+    try {
+      const { error: err } = await supabase
+        .from("studios")
+        .update({ guest_practitioners_enabled: guestEnabled })
+        .eq("id", currentStudioId);
+      if (err) { setError("Errore: " + err.message); return; }
+      await refreshStudio();
+      setSuccess(guestEnabled ? "Professionisti ospiti attivati." : "Professionisti ospiti disattivati.");
+      setTimeout(() => setSuccess(""), 3000);
+    } finally {
+      setSavingGuestToggle(false);
+    }
+  }
+
+  async function saveGuestIndexToggle() {
+    if (!currentStudioId) return;
+    setSavingGuestIndexToggle(true); setError(""); setSuccess("");
+    try {
+      const { error: err } = await supabase
+        .from("studios")
+        .update({ use_guest_index_page: useGuestIndex })
+        .eq("id", currentStudioId);
+      if (err) { setError("Errore: " + err.message); return; }
+      await refreshStudio();
+      setSuccess(useGuestIndex ? "Pagina indice ospiti attivata." : "Pagina indice ospiti disattivata.");
+      setTimeout(() => setSuccess(""), 3000);
+    } finally {
+      setSavingGuestIndexToggle(false);
+    }
+  }
+
+  function resetNewGuestForm() {
+    setNewGuestFirstName("");
+    setNewGuestLastName("");
+    setNewGuestSpecialty("");
+    setNewGuestColor("#DB2777");
+    setShowNewGuestForm(false);
+  }
+
+  async function createNewGuest() {
+    if (!currentStudioId) return;
+    if (!newGuestFirstName.trim() || !newGuestLastName.trim() || !newGuestSpecialty.trim()) {
+      setError("Nome, cognome e specialità sono obbligatori.");
+      return;
+    }
+    setSavingNewGuest(true); setError(""); setSuccess("");
+    try {
+      const maxSort = guestsList.reduce((m, g) => Math.max(m, g.sort_order ?? 0), 0);
+      const { error: err } = await supabase.from("guest_practitioners").insert({
+        studio_id: currentStudioId,
+        first_name: newGuestFirstName.trim(),
+        last_name: newGuestLastName.trim(),
+        specialty: newGuestSpecialty.trim(),
+        display_color: newGuestColor,
+        is_active: true,
+        sort_order: maxSort + 1,
+      });
+      if (err) { setError("Errore: " + err.message); return; }
+      resetNewGuestForm();
+      await loadGuests();
+      setSuccess("Professionista ospite aggiunto.");
+      setTimeout(() => setSuccess(""), 3000);
+    } finally {
+      setSavingNewGuest(false);
+    }
+  }
+
+  async function toggleGuestActive(g: GuestRow) {
+    if (!currentStudioId) return;
+    const newActive = !g.is_active;
+    const { error: err } = await supabase
+      .from("guest_practitioners")
+      .update({ is_active: newActive })
+      .eq("id", g.id);
+    if (err) { setError("Errore: " + err.message); return; }
+    await loadGuests();
+    setSuccess(newActive ? "Ospite attivato." : "Ospite disattivato.");
+    setTimeout(() => setSuccess(""), 2500);
   }
 
   function resetLocForm() {
@@ -809,6 +945,266 @@ export default function MobileSettingsPage() {
               )}
             </div>
 
+          </div>
+        </Section>
+
+        {/* ── Professionisti ospiti (mig. 029-031) ─────────────────── */}
+        <Section
+          id="ospiti"
+          title="🩺 Professionisti ospiti"
+          sub={guestEnabled
+            ? `${guestsList.filter(g => g.is_active).length} ${guestsList.filter(g => g.is_active).length === 1 ? "ospite attivo" : "ospiti attivi"}`
+            : "Disattivati · attiva per registrare collaboratori esterni"}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 14 }}>
+            <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(148,163,184,0.06)", fontSize: 11, color: THEME.muted, lineHeight: 1.5 }}>
+              Registra professionisti esterni (es. ortopedico, nutrizionista) che lavorano occasionalmente nello studio.
+              Gli appuntamenti dei loro pazienti NON entrano nei tuoi incassi né nel tuo calendario.
+              Li gestisci da una sezione dedicata (menu utente → Agenda Ospiti).
+            </div>
+
+            {/* Toggle feature ON/OFF */}
+            <MobileToggle
+              label="Attiva professionisti ospiti"
+              description={guestEnabled ? "Feature attiva" : "Feature disattivata"}
+              checked={guestEnabled}
+              onChange={setGuestEnabled}
+            />
+            <button
+              onClick={() => void saveGuestToggle()}
+              disabled={savingGuestToggle}
+              style={{
+                padding: "10px 16px", borderRadius: 10, border: "none",
+                background: savingGuestToggle ? THEME.gray : THEME.gradient,
+                color: "#fff", fontSize: 13, fontWeight: 800,
+                cursor: savingGuestToggle ? "not-allowed" : "pointer",
+              }}
+            >
+              {savingGuestToggle ? "Salvataggio..." : "Salva impostazione"}
+            </button>
+
+            {guestEnabled && (
+              <>
+                <div style={{ height: 1, background: THEME.border, margin: "6px 0" }} />
+
+                {/* Lista ospiti */}
+                <div style={{ fontSize: 13, fontWeight: 800, color: THEME.text }}>
+                  Registrati ({guestsList.length})
+                </div>
+
+                {loadingGuests ? (
+                  <div style={{ padding: 14, textAlign: "center", color: THEME.muted, fontSize: 12 }}>
+                    Caricamento...
+                  </div>
+                ) : guestsList.length === 0 ? (
+                  <div style={{
+                    padding: 16, textAlign: "center",
+                    background: "rgba(148,163,184,0.04)", borderRadius: 10,
+                    fontSize: 12, color: THEME.muted, lineHeight: 1.5,
+                  }}>
+                    Nessun professionista registrato.<br />
+                    Aggiungilo qui sotto.
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {guestsList.map(g => (
+                      <div
+                        key={g.id}
+                        style={{
+                          background: "#fff", border: `1px solid ${THEME.border}`,
+                          borderLeft: `4px solid ${g.display_color || "#DB2777"}`,
+                          borderRadius: 10, padding: "12px 14px",
+                          opacity: g.is_active ? 1 : 0.55,
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: THEME.text }}>
+                              {g.first_name} {g.last_name}
+                            </div>
+                            <div style={{ fontSize: 11, color: THEME.muted, marginTop: 1, fontWeight: 600 }}>
+                              {g.specialty}
+                              {g.access_token && <span style={{ marginLeft: 8, color: THEME.green }}>· 🔗 Portale attivo</span>}
+                              {!g.is_active && <span style={{ marginLeft: 8, color: THEME.red }}>· Disattivato</span>}
+                            </div>
+                          </div>
+                          <Link
+                            href={`/ospiti/${g.id}`}
+                            style={{
+                              padding: "6px 12px", borderRadius: 8,
+                              background: THEME.gradient, color: "#fff",
+                              fontSize: 11, fontWeight: 800, textDecoration: "none",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            Agenda →
+                          </Link>
+                        </div>
+                        <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                          <button
+                            onClick={() => void toggleGuestActive(g)}
+                            style={{
+                              flex: 1, padding: "7px 10px", borderRadius: 8,
+                              border: `1px solid ${THEME.border}`, background: "#fff",
+                              fontSize: 11, fontWeight: 700, color: THEME.muted,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {g.is_active ? "Disattiva" : "Riattiva"}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Pulsante / form Aggiungi */}
+                {!showNewGuestForm ? (
+                  <button
+                    onClick={() => setShowNewGuestForm(true)}
+                    style={{
+                      padding: "10px 16px", borderRadius: 10, border: `1px dashed ${THEME.border}`,
+                      background: "rgba(13,148,136,0.03)", color: THEME.teal,
+                      fontSize: 13, fontWeight: 800, cursor: "pointer",
+                    }}
+                  >
+                    + Aggiungi professionista
+                  </button>
+                ) : (
+                  <div style={{
+                    background: "#fff", border: `1.5px solid ${THEME.teal}`,
+                    borderRadius: 10, padding: 14,
+                    display: "flex", flexDirection: "column", gap: 10,
+                  }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: THEME.text }}>
+                      Nuovo professionista
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <div>
+                        <label style={{ fontSize: 10, fontWeight: 800, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>Nome *</label>
+                        <input
+                          value={newGuestFirstName}
+                          onChange={e => setNewGuestFirstName(e.target.value)}
+                          style={{
+                            width: "100%", padding: "8px 10px", borderRadius: 8,
+                            border: `1px solid ${THEME.border}`, fontSize: 13,
+                            color: THEME.text, fontWeight: 600, outline: "none",
+                            marginTop: 4,
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 10, fontWeight: 800, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>Cognome *</label>
+                        <input
+                          value={newGuestLastName}
+                          onChange={e => setNewGuestLastName(e.target.value)}
+                          style={{
+                            width: "100%", padding: "8px 10px", borderRadius: 8,
+                            border: `1px solid ${THEME.border}`, fontSize: 13,
+                            color: THEME.text, fontWeight: 600, outline: "none",
+                            marginTop: 4,
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 10, fontWeight: 800, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>Specialità *</label>
+                      <input
+                        value={newGuestSpecialty}
+                        onChange={e => setNewGuestSpecialty(e.target.value)}
+                        placeholder="Es. Ortopedico, Nutrizionista..."
+                        style={{
+                          width: "100%", padding: "8px 10px", borderRadius: 8,
+                          border: `1px solid ${THEME.border}`, fontSize: 13,
+                          color: THEME.text, fontWeight: 600, outline: "none",
+                          marginTop: 4,
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 10, fontWeight: 800, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "block" }}>Colore</label>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {GUEST_COLOR_PRESETS.map(c => (
+                          <button
+                            key={c.value}
+                            type="button"
+                            onClick={() => setNewGuestColor(c.value)}
+                            style={{
+                              width: 32, height: 32, borderRadius: "50%",
+                              background: c.value, cursor: "pointer",
+                              border: newGuestColor === c.value ? "3px solid #fff" : "2px solid transparent",
+                              boxShadow: newGuestColor === c.value ? `0 0 0 2px ${c.value}` : "none",
+                            }}
+                            aria-label={c.name}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                      <button
+                        onClick={resetNewGuestForm}
+                        disabled={savingNewGuest}
+                        style={{
+                          flex: 1, padding: "9px 14px", borderRadius: 8,
+                          border: `1px solid ${THEME.border}`, background: "#fff",
+                          fontSize: 12, fontWeight: 800, color: THEME.muted,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Annulla
+                      </button>
+                      <button
+                        onClick={() => void createNewGuest()}
+                        disabled={savingNewGuest}
+                        style={{
+                          flex: 1, padding: "9px 14px", borderRadius: 8,
+                          border: "none", background: THEME.gradient, color: "#fff",
+                          fontSize: 12, fontWeight: 800,
+                          cursor: savingNewGuest ? "not-allowed" : "pointer",
+                          opacity: savingNewGuest ? 0.6 : 1,
+                        }}
+                      >
+                        {savingNewGuest ? "Salvataggio..." : "Aggiungi"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Toggle pagina indice (solo se 2+ ospiti) */}
+                {guestsList.length >= 2 && (
+                  <>
+                    <div style={{ height: 1, background: THEME.border, margin: "6px 0" }} />
+                    <MobileToggle
+                      label="Pagina indice ospiti"
+                      description="Voce menu apre una pagina dedicata con tutti i tuoi ospiti, invece del submenu"
+                      checked={useGuestIndex}
+                      onChange={setUseGuestIndex}
+                    />
+                    <button
+                      onClick={() => void saveGuestIndexToggle()}
+                      disabled={savingGuestIndexToggle}
+                      style={{
+                        padding: "10px 16px", borderRadius: 10, border: "none",
+                        background: savingGuestIndexToggle ? THEME.gray : THEME.gradient,
+                        color: "#fff", fontSize: 13, fontWeight: 800,
+                        cursor: savingGuestIndexToggle ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {savingGuestIndexToggle ? "Salvataggio..." : "Salva preferenza indice"}
+                    </button>
+                  </>
+                )}
+
+                <div style={{
+                  marginTop: 6, padding: "10px 12px", borderRadius: 8,
+                  background: "rgba(37,99,235,0.06)", fontSize: 11,
+                  color: THEME.muted, lineHeight: 1.5,
+                }}>
+                  💡 Per generare il <strong>link portale pubblico</strong>, configurare i <strong>campi PDF</strong>{guestsList.length > 0 ? " " : ""}
+                  o impostare la <strong>stanza predefinita</strong> di un ospite, usa la versione desktop delle impostazioni.
+                </div>
+              </>
+            )}
           </div>
         </Section>
 

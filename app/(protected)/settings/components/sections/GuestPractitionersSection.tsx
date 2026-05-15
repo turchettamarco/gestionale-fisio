@@ -148,7 +148,6 @@ function GuestForm({
           <input
             value={firstName}
             onChange={e => setFirstName(e.target.value)}
-            placeholder="Andrea"
             style={inputStyle}
           />
         </div>
@@ -157,7 +156,6 @@ function GuestForm({
           <input
             value={lastName}
             onChange={e => setLastName(e.target.value)}
-            placeholder="Alfieri"
             style={inputStyle}
           />
         </div>
