@@ -279,11 +279,116 @@ export function generateAgendaHTML(data: GuestAgendaData): string {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 2) Apre HTML in nuova finestra per anteprima
+// Helper: rileva mobile (touch + viewport stretto)
+// ════════════════════════════════════════════════════════════════════════
+
+function isMobileDevice(): boolean {
+  if (typeof window === "undefined") return false;
+  // Touch + larghezza viewport stretta → trattalo come mobile
+  const hasTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+  const narrow = window.innerWidth <= 900;
+  return hasTouch && narrow;
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Iframe modale fullscreen per mobile (con bottoni Chiudi + Stampa)
+// Risolve il problema di iOS Safari/Chrome dove window.open apre una pagina
+// "orfana" senza modo di tornare indietro.
+// ════════════════════════════════════════════════════════════════════════
+
+function openMobilePreview(html: string, autoprint: boolean): void {
+  // Rimuovi eventuali overlay precedenti
+  const existing = document.getElementById("agenda-mobile-preview-overlay");
+  if (existing) existing.remove();
+
+  const overlay = document.createElement("div");
+  overlay.id = "agenda-mobile-preview-overlay";
+  overlay.style.cssText = `
+    position: fixed; inset: 0; background: #ffffff; z-index: 99999;
+    display: flex; flex-direction: column;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  `;
+
+  // Header con bottoni
+  const header = document.createElement("div");
+  header.style.cssText = `
+    flex-shrink: 0; padding: 10px 14px;
+    background: linear-gradient(135deg, #0d9488, #2563eb);
+    display: flex; align-items: center; gap: 10px;
+    box-shadow: 0 2px 8px rgba(15,23,42,0.15);
+  `;
+
+  const closeBtn = document.createElement("button");
+  closeBtn.innerHTML = "← Chiudi";
+  closeBtn.style.cssText = `
+    background: rgba(255,255,255,0.2); border: 1.5px solid rgba(255,255,255,0.3);
+    border-radius: 8px; color: #fff; font-weight: 800;
+    padding: 8px 14px; cursor: pointer; font-size: 13px;
+    -webkit-tap-highlight-color: transparent;
+  `;
+  closeBtn.onclick = () => overlay.remove();
+
+  const title = document.createElement("div");
+  title.textContent = "Anteprima agenda";
+  title.style.cssText = `
+    flex: 1; color: #fff; font-weight: 800; font-size: 14px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  `;
+
+  const printBtn = document.createElement("button");
+  printBtn.innerHTML = "🖨 Stampa";
+  printBtn.style.cssText = `
+    background: rgba(255,255,255,0.2); border: 1.5px solid rgba(255,255,255,0.3);
+    border-radius: 8px; color: #fff; font-weight: 800;
+    padding: 8px 14px; cursor: pointer; font-size: 13px;
+    -webkit-tap-highlight-color: transparent;
+  `;
+  printBtn.onclick = () => {
+    const iframe = overlay.querySelector("iframe") as HTMLIFrameElement | null;
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    }
+  };
+
+  header.appendChild(closeBtn);
+  header.appendChild(title);
+  header.appendChild(printBtn);
+  overlay.appendChild(header);
+
+  // Iframe con il contenuto HTML
+  const iframe = document.createElement("iframe");
+  iframe.style.cssText = `
+    flex: 1; width: 100%; border: none; background: #fff;
+  `;
+  iframe.srcdoc = html;
+  overlay.appendChild(iframe);
+
+  document.body.appendChild(overlay);
+
+  // Se autoprint, aspetta che iframe sia caricato e lancia print()
+  if (autoprint) {
+    iframe.onload = () => {
+      setTimeout(() => {
+        if (iframe.contentWindow) {
+          iframe.contentWindow.focus();
+          iframe.contentWindow.print();
+        }
+      }, 350);
+    };
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 2) Apre HTML in nuova finestra per anteprima (desktop) o overlay (mobile)
 // ════════════════════════════════════════════════════════════════════════
 
 export function previewAgendaInBrowser(data: GuestAgendaData): void {
   const html = generateAgendaHTML(data);
+  if (isMobileDevice()) {
+    openMobilePreview(html, false);
+    return;
+  }
   const w = window.open("", "_blank");
   if (!w) {
     alert("Il browser ha bloccato l'apertura della finestra. Disabilita il blocco popup per questo sito.");
@@ -294,11 +399,15 @@ export function previewAgendaInBrowser(data: GuestAgendaData): void {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 3) Stampa direttamente (apre + window.print)
+// 3) Stampa direttamente (apre + window.print) - mobile via iframe overlay
 // ════════════════════════════════════════════════════════════════════════
 
 export function printAgenda(data: GuestAgendaData): void {
   const html = generateAgendaHTML(data);
+  if (isMobileDevice()) {
+    openMobilePreview(html, true);
+    return;
+  }
   const w = window.open("", "_blank");
   if (!w) {
     alert("Il browser ha bloccato l'apertura della finestra. Disabilita il blocco popup per questo sito.");

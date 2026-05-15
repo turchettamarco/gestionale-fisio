@@ -151,6 +151,71 @@ export default function GuestAppointmentModal({
   const [searchOpen, setSearchOpen] = useState(false);
   const [searching, setSearching] = useState(false);
 
+  // ── Quick-create paziente (mobile-friendly) ─────────────────────────────
+  const [quickCreateOpen, setQuickCreateOpen] = useState(false);
+  const [qcFirstName, setQcFirstName] = useState("");
+  const [qcLastName, setQcLastName] = useState("");
+  const [qcPhone, setQcPhone] = useState("");
+  const [qcSaving, setQcSaving] = useState(false);
+  const [qcError, setQcError] = useState<string | null>(null);
+
+  const openQuickCreate = useCallback(() => {
+    // Pre-popola con la query di ricerca: euristica = prima parola = cognome, resto = nome
+    const q = searchQuery.trim();
+    if (q) {
+      const parts = q.split(/\s+/);
+      setQcLastName(parts[0] || "");
+      setQcFirstName(parts.slice(1).join(" ") || "");
+    } else {
+      setQcLastName("");
+      setQcFirstName("");
+    }
+    setQcPhone("");
+    setQcError(null);
+    setQuickCreateOpen(true);
+    setSearchOpen(false);
+  }, [searchQuery]);
+
+  const handleQuickCreate = useCallback(async () => {
+    setQcError(null);
+    if (!qcFirstName.trim() || !qcLastName.trim()) {
+      setQcError("Nome e cognome sono obbligatori.");
+      return;
+    }
+    setQcSaving(true);
+    try {
+      // Recupera owner_id (utente loggato) — NOT NULL nel DB
+      const { data: userData } = await supabase.auth.getUser();
+      const ownerId = userData?.user?.id;
+      if (!ownerId) {
+        setQcError("Sessione non valida. Ricarica la pagina.");
+        return;
+      }
+      const { data, error: err } = await supabase
+        .from("patients")
+        .insert({
+          first_name: qcFirstName.trim(),
+          last_name: qcLastName.trim(),
+          phone: qcPhone.trim() || null,
+          owner_id: ownerId,
+          studio_id: studioId,
+        })
+        .select("id, first_name, last_name, phone")
+        .single();
+      if (err) throw new Error(err.message);
+      if (!data) throw new Error("Errore creazione paziente.");
+      // Seleziona automaticamente il paziente appena creato
+      setPatientId(data.id);
+      setPatientName(`${data.last_name} ${data.first_name}`);
+      setQuickCreateOpen(false);
+      setSearchQuery("");
+    } catch (e) {
+      setQcError(e instanceof Error ? e.message : "Errore sconosciuto.");
+    } finally {
+      setQcSaving(false);
+    }
+  }, [qcFirstName, qcLastName, qcPhone, studioId]);
+
   useEffect(() => {
     if (!searchOpen || searchQuery.trim().length < 2) {
       setSearchResults([]);
@@ -439,38 +504,165 @@ export default function GuestAppointmentModal({
                       style={{ paddingLeft: 36 }}
                     />
                   </div>
-                  {searchOpen && searchQuery.length >= 2 && (
+                  {searchOpen && searchQuery.length >= 2 && !quickCreateOpen && (
                     <div className="gam-search-dropdown">
                       {searching ? (
                         <div style={{ padding: 14, fontSize: 12, color: T.muted, textAlign: "center" }}>
                           Ricerca...
                         </div>
                       ) : searchResults.length === 0 ? (
-                        <div style={{ padding: 14, fontSize: 12, color: T.muted, textAlign: "center" }}>
-                          Nessun paziente trovato. Crea il paziente dalla sezione Pazienti.
-                        </div>
-                      ) : (
-                        searchResults.map(p => (
-                          <div
-                            key={p.id}
-                            className="gam-search-item"
-                            onClick={() => {
-                              setPatientId(p.id);
-                              setPatientName(`${p.last_name} ${p.first_name}`);
-                              setSearchOpen(false);
+                        <div style={{ padding: 14, textAlign: "center" }}>
+                          <div style={{ fontSize: 12, color: T.muted, marginBottom: 10 }}>
+                            Nessun paziente trovato per &quot;{searchQuery}&quot;.
+                          </div>
+                          <button
+                            type="button"
+                            onClick={openQuickCreate}
+                            style={{
+                              padding: "8px 14px", borderRadius: 8, border: "none",
+                              background: GRADIENT, color: T.white,
+                              fontSize: 12, fontWeight: 800, cursor: "pointer",
                             }}
                           >
-                            <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>
-                              {p.last_name} {p.first_name}
-                            </div>
-                            {p.phone && (
-                              <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
-                                {p.phone}
+                            + Crea nuovo paziente
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          {searchResults.map(p => (
+                            <div
+                              key={p.id}
+                              className="gam-search-item"
+                              onClick={() => {
+                                setPatientId(p.id);
+                                setPatientName(`${p.last_name} ${p.first_name}`);
+                                setSearchOpen(false);
+                              }}
+                            >
+                              <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>
+                                {p.last_name} {p.first_name}
                               </div>
-                            )}
+                              {p.phone && (
+                                <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                                  {p.phone}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                          {/* Bottone crea nuovo anche se ci sono risultati */}
+                          <div
+                            style={{
+                              padding: "10px 14px", borderTop: `1px solid ${T.border}`,
+                              background: T.panelSoft, textAlign: "center",
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={openQuickCreate}
+                              style={{
+                                padding: "6px 12px", borderRadius: 6, border: "none",
+                                background: "transparent", color: T.blue,
+                                fontSize: 12, fontWeight: 800, cursor: "pointer",
+                              }}
+                            >
+                              + Crea nuovo paziente
+                            </button>
                           </div>
-                        ))
+                        </>
                       )}
+                    </div>
+                  )}
+
+                  {/* ── Mini-form quick-create paziente ──────────────── */}
+                  {quickCreateOpen && (
+                    <div style={{
+                      marginTop: 8, padding: 12,
+                      background: T.panelSoft, border: `1.5px solid ${T.blue}`,
+                      borderRadius: 10,
+                    }}>
+                      <div style={{
+                        fontSize: 11, fontWeight: 800, color: T.blue,
+                        textTransform: "uppercase", letterSpacing: 0.5,
+                        marginBottom: 8,
+                      }}>
+                        + Crea nuovo paziente
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                        <input
+                          type="text"
+                          placeholder="Nome *"
+                          value={qcFirstName}
+                          onChange={e => setQcFirstName(e.target.value)}
+                          autoFocus
+                          style={{
+                            padding: "9px 10px", borderRadius: 8,
+                            border: `1px solid ${T.border}`, fontSize: 13,
+                            color: T.text, fontWeight: 600, outline: "none",
+                          }}
+                        />
+                        <input
+                          type="text"
+                          placeholder="Cognome *"
+                          value={qcLastName}
+                          onChange={e => setQcLastName(e.target.value)}
+                          style={{
+                            padding: "9px 10px", borderRadius: 8,
+                            border: `1px solid ${T.border}`, fontSize: 13,
+                            color: T.text, fontWeight: 600, outline: "none",
+                          }}
+                        />
+                      </div>
+                      <input
+                        type="tel"
+                        placeholder="Telefono (opzionale)"
+                        value={qcPhone}
+                        onChange={e => setQcPhone(e.target.value)}
+                        style={{
+                          width: "100%", padding: "9px 10px", borderRadius: 8,
+                          border: `1px solid ${T.border}`, fontSize: 13,
+                          color: T.text, fontWeight: 600, outline: "none",
+                          marginBottom: 8,
+                        }}
+                      />
+                      {qcError && (
+                        <div style={{
+                          padding: "6px 10px", marginBottom: 8,
+                          background: "#fef2f2", border: "1px solid #fecaca",
+                          borderRadius: 6, color: "#991b1b",
+                          fontSize: 11, fontWeight: 700,
+                        }}>
+                          {qcError}
+                        </div>
+                      )}
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={() => { setQuickCreateOpen(false); setQcError(null); }}
+                          disabled={qcSaving}
+                          style={{
+                            flex: 1, padding: "9px 12px", borderRadius: 8,
+                            border: `1px solid ${T.border}`, background: T.white,
+                            color: T.muted, fontSize: 12, fontWeight: 800,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Annulla
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleQuickCreate}
+                          disabled={qcSaving}
+                          style={{
+                            flex: 2, padding: "9px 12px", borderRadius: 8,
+                            border: "none", background: GRADIENT,
+                            color: T.white, fontSize: 12, fontWeight: 800,
+                            cursor: qcSaving ? "not-allowed" : "pointer",
+                            opacity: qcSaving ? 0.6 : 1,
+                          }}
+                        >
+                          {qcSaving ? "Creazione..." : "Crea e seleziona"}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
