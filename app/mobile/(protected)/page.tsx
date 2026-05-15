@@ -574,10 +574,14 @@ export default function MobileHomePage() {
         supabase.from("appointments").select(SEL)
           .gte("start_at", `${dateYMD}T00:00:00`)
           .lt("start_at",  `${dateYMD}T23:59:59`)
+          // mig. 029 — escludi appuntamenti degli ospiti dal calendario titolare
+          .is("guest_practitioner_id", null)
           .order("start_at", { ascending: true }),
         supabase.from("appointments").select(SEL)
           .gte("start_at", `${todayYMD}T00:00:00`)
           .lt("start_at", addDays(new Date(), 8).toISOString())
+          // mig. 029 — escludi appuntamenti degli ospiti dal calendario titolare
+          .is("guest_practitioner_id", null)
           .order("start_at", { ascending: true }),
       ]);
 
@@ -911,7 +915,9 @@ export default function MobileHomePage() {
         .from("appointments")
         .select("start_at, end_at, status")
         .gte("start_at", startISO)
-        .lte("start_at", endISO);
+        .lte("start_at", endISO)
+        // mig. 029 — slot del titolare, non degli ospiti
+        .is("guest_practitioner_id", null);
       if (cancelled) return;
       if (error || !data) {
         setQaBusyTimes(new Set());
