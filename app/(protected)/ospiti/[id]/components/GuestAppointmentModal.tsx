@@ -145,6 +145,22 @@ export default function GuestAppointmentModal({
     return () => { cancelled = true; };
   }, [studioId]);
 
+  // ── Nome studio (per popolare clinic_site, vincolo chk_location_consistency) ──
+  const [studioName, setStudioName] = useState<string>("Studio");
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("studios")
+        .select("name")
+        .eq("id", studioId)
+        .maybeSingle();
+      if (cancelled || !data?.name) return;
+      setStudioName(data.name);
+    })();
+    return () => { cancelled = true; };
+  }, [studioId]);
+
   // ── Ricerca paziente ────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<PatientResult[]>([]);
@@ -276,6 +292,11 @@ export default function GuestAppointmentModal({
         room_id: roomId,
         calendar_note: note.trim() || null,
         status: "booked" as const,
+        // Vincolo chk_location_consistency: location='studio' + clinic_site valorizzato.
+        // Per gli ospiti usiamo sempre lo studio (mai domicile).
+        location: "studio" as const,
+        clinic_site: studioName,
+        domicile_address: null,
         // Campi di pagamento espliciti a null: l'ospite incassa direttamente
         price_type: null,
         payment_method: null,
