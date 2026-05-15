@@ -72,6 +72,10 @@ type GuestRow = {
     diagnosi?: boolean;
     note?: boolean;
   };
+  // mig. 032 — Portale pubblico
+  access_token: string | null;
+  token_created_at: string | null;
+  last_access_at: string | null;
 };
 
 type AppointmentRow = {
@@ -157,6 +161,10 @@ export default function AgendaOspiteClient() {
   const [modalInitial, setModalInitial] = useState<GuestApptInitial | undefined>(undefined);
   const [reloadKey, setReloadKey] = useState(0);  // bump per forzare refetch dopo save
 
+  // ── Portale pubblico (mig. 032): genera/revoca/copia dal pannellino ────
+  const [portalSaving, setPortalSaving] = useState(false);
+  const [portalMessage, setPortalMessage] = useState<{ text: string; type: "ok" | "err" } | null>(null);
+
   // ── Carica ospite ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!guestId || !studio?.id) return;
@@ -165,7 +173,7 @@ export default function AgendaOspiteClient() {
     (async () => {
       const { data, error: err } = await supabase
         .from("guest_practitioners")
-        .select("id, studio_id, first_name, last_name, specialty, display_color, default_room_id, is_active, pdf_print_fields")
+        .select("id, studio_id, first_name, last_name, specialty, display_color, default_room_id, is_active, pdf_print_fields, access_token, token_created_at, last_access_at")
         .eq("id", guestId)
         .eq("studio_id", studio.id)
         .maybeSingle();
@@ -365,6 +373,69 @@ export default function AgendaOspiteClient() {
   const handleSaved = useCallback(() => {
     setReloadKey(k => k + 1);
   }, []);
+
+  // ── Portale pubblico: genera / revoca / copia ─────────────────────────
+  const flashPortal = useCallback((text: string, type: "ok" | "err" = "ok") => {
+    setPortalMessage({ text, type });
+    setTimeout(() => setPortalMessage(null), 2500);
+  }, []);
+
+  const handleGenerateToken = useCallback(async () => {
+    if (!guest) return;
+    setPortalSaving(true);
+    try {
+      const newToken = crypto.randomUUID();
+      const now = new Date().toISOString();
+      const { error: err } = await supabase
+        .from("guest_practitioners")
+        .update({ access_token: newToken, token_created_at: now, last_access_at: null })
+        .eq("id", guest.id);
+      if (err) throw new Error(err.message);
+      // Aggiorno lo state guest localmente per refresh immediato senza reload
+      setGuest({ ...guest, access_token: newToken, token_created_at: now, last_access_at: null });
+      flashPortal("Link generato. Ora puoi copiarlo e inviarlo all'ospite.");
+    } catch (e) {
+      flashPortal(e instanceof Error ? e.message : "Errore", "err");
+    } finally {
+      setPortalSaving(false);
+    }
+  }, [guest, flashPortal]);
+
+  const handleRevokeToken = useCallback(async () => {
+    if (!guest) return;
+    if (!confirm("Revocare il link? L'ospite non potrà più aprirlo.")) return;
+    setPortalSaving(true);
+    try {
+      const { error: err } = await supabase
+        .from("guest_practitioners")
+        .update({ access_token: null, token_created_at: null, last_access_at: null })
+        .eq("id", guest.id);
+      if (err) throw new Error(err.message);
+      setGuest({ ...guest, access_token: null, token_created_at: null, last_access_at: null });
+      flashPortal("Link revocato.");
+    } catch (e) {
+      flashPortal(e instanceof Error ? e.message : "Errore", "err");
+    } finally {
+      setPortalSaving(false);
+    }
+  }, [guest, flashPortal]);
+
+  const handleCopyLink = useCallback(async () => {
+    if (!guest?.access_token) return;
+    const url = `${window.location.origin}/agenda/${guest.access_token}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      flashPortal("Link copiato negli appunti!");
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = url;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      flashPortal("Link copiato!");
+    }
+  }, [guest, flashPortal]);
 
   // ── States ───────────────────────────────────────────────────────────
   if (loading) {
@@ -604,6 +675,86 @@ export default function AgendaOspiteClient() {
               </div>
             </div>
           </div>
+
+          {/* ── PANNELLO PORTALE PUBBLICO (mig. 032) ─────────────────── */}
+          <div style={{
+            background: guest.access_token ? "rgba(22,163,74,0.05)" : T.panelBg,
+            border: `1px solid ${guest.access_token ? "#86efac" : T.border}`,
+            borderRadius: 12, padding: "12px 16px", marginBottom: 14,
+            display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+          }}>
+            <div style={{ fontSize: 20 }}>🔗</div>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: T.text }}>
+                Portale pubblico
+                {guest.access_token && (
+                  <span style={{
+                    marginLeft: 8, fontSize: 10, fontWeight: 800,
+                    color: "#16a34a", background: "#dcfce7",
+                    padding: "2px 8px", borderRadius: 99,
+                    textTransform: "uppercase", letterSpacing: 0.5,
+                  }}>
+                    Attivo
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: T.mutedSoft, marginTop: 2, lineHeight: 1.4 }}>
+                {guest.access_token
+                  ? <>
+                      Link generato il {guest.token_created_at && new Date(guest.token_created_at).toLocaleDateString("it-IT", { day: "numeric", month: "short", year: "numeric" })}
+                      {guest.last_access_at && <> · Ultimo accesso: {new Date(guest.last_access_at).toLocaleString("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</>}
+                    </>
+                  : "Genera un link pubblico da inviare via WhatsApp o email per consultare l'agenda senza login."}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {guest.access_token ? (
+                <>
+                  <button
+                    onClick={handleCopyLink}
+                    disabled={portalSaving}
+                    className="ao-btnCTA"
+                    style={{ background: T.teal, boxShadow: "0 2px 8px rgba(13,148,136,0.25)" }}
+                  >
+                    📋 Copia link
+                  </button>
+                  <button
+                    onClick={handleRevokeToken}
+                    disabled={portalSaving}
+                    className="ao-btn"
+                    style={{ color: T.red, borderColor: T.red }}
+                  >
+                    Revoca
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={handleGenerateToken}
+                  disabled={portalSaving}
+                  className="ao-btnCTA"
+                  style={{
+                    background: "linear-gradient(135deg, #0d9488, #2563eb)",
+                    boxShadow: "0 2px 8px rgba(37,99,235,0.25)",
+                  }}
+                >
+                  {portalSaving ? "Generazione…" : "🔗 Genera link agenda"}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Feedback portale (toast inline) */}
+          {portalMessage && (
+            <div style={{
+              padding: "8px 14px", marginBottom: 14, borderRadius: 8,
+              fontSize: 12, fontWeight: 700,
+              background: portalMessage.type === "ok" ? "#dcfce7" : "#fef2f2",
+              border: `1px solid ${portalMessage.type === "ok" ? "#86efac" : "#fecaca"}`,
+              color: portalMessage.type === "ok" ? "#15803d" : "#991b1b",
+            }}>
+              {portalMessage.text}
+            </div>
+          )}
 
           {/* ── TOOLBAR navigatore + azioni ─────────────────────────── */}
           <div className="ao-toolbar">

@@ -300,82 +300,145 @@ function openMobilePreview(html: string, autoprint: boolean): void {
   // Rimuovi eventuali overlay precedenti
   const existing = document.getElementById("agenda-mobile-preview-overlay");
   if (existing) existing.remove();
+  const existingStyle = document.getElementById("agenda-mobile-preview-style");
+  if (existingStyle) existingStyle.remove();
 
+  // Estrai contenuto <body>...</body> e <style>...</style> dall'HTML generato.
+  // Cosi possiamo inserire entrambi nel DOM principale senza iframe (che su iOS
+  // crea problemi di hit-testing che impediscono al tasto X di rispondere).
+  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  const styleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+  const bodyHTML = bodyMatch ? bodyMatch[1] : html;
+  const cssText = styleMatch ? styleMatch[1] : "";
+
+  // Salva stato body originale per ripristino al close
+  const originalOverflow = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
+
+  // ── 1. Inietta gli stili dell'agenda (scoped al wrapper #agenda-print-area)
+  //    + regole @media print per nascondere tutto tranne l'agenda quando si stampa
+  const styleEl = document.createElement("style");
+  styleEl.id = "agenda-mobile-preview-style";
+  styleEl.textContent = `
+    /* Stili dell'agenda (scoping leggero al container) */
+    #agenda-print-area { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; padding: 16px; }
+    ${cssText}
+    /* In stampa: nascondi TUTTO tranne #agenda-print-area */
+    @media print {
+      body > *:not(#agenda-mobile-preview-overlay) { display: none !important; }
+      #agenda-mobile-preview-overlay { position: static !important; background: #fff !important; }
+      #agenda-mobile-preview-overlay > header { display: none !important; }
+      #agenda-print-area { padding: 0 !important; }
+    }
+  `;
+  document.head.appendChild(styleEl);
+
+  // ── 2. Overlay container ────────────────────────────────────────────
   const overlay = document.createElement("div");
   overlay.id = "agenda-mobile-preview-overlay";
   overlay.style.cssText = `
-    position: fixed; inset: 0; background: #ffffff; z-index: 99999;
+    position: fixed; inset: 0; background: #f1f5f9; z-index: 2147483646;
     display: flex; flex-direction: column;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   `;
 
-  // Header con bottoni
-  const header = document.createElement("div");
+  // Funzione di chiusura riutilizzabile
+  const closeOverlay = () => {
+    document.body.style.overflow = originalOverflow;
+    document.removeEventListener("keydown", onKey);
+    overlay.remove();
+    styleEl.remove();
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") closeOverlay();
+  };
+  document.addEventListener("keydown", onKey);
+
+  // ── 3. Header (NO sotto print, vedi @media print sopra) ─────────────
+  const header = document.createElement("header");
   header.style.cssText = `
-    flex-shrink: 0; padding: 10px 14px;
+    flex-shrink: 0; padding: 12px 14px;
     background: linear-gradient(135deg, #0d9488, #2563eb);
     display: flex; align-items: center; gap: 10px;
-    box-shadow: 0 2px 8px rgba(15,23,42,0.15);
+    box-shadow: 0 2px 12px rgba(15,23,42,0.25);
+    position: sticky; top: 0; z-index: 10;
   `;
 
+  // Bottone X — area di tap molto generosa
   const closeBtn = document.createElement("button");
-  closeBtn.innerHTML = "← Chiudi";
+  closeBtn.type = "button";
+  closeBtn.setAttribute("aria-label", "Chiudi anteprima");
+  closeBtn.innerHTML = "✕";
   closeBtn.style.cssText = `
-    background: rgba(255,255,255,0.2); border: 1.5px solid rgba(255,255,255,0.3);
-    border-radius: 8px; color: #fff; font-weight: 800;
-    padding: 8px 14px; cursor: pointer; font-size: 13px;
-    -webkit-tap-highlight-color: transparent;
+    background: rgba(255,255,255,0.25); border: 1.5px solid rgba(255,255,255,0.4);
+    border-radius: 50%; color: #fff; font-weight: 800;
+    width: 44px; height: 44px; cursor: pointer; font-size: 20px;
+    line-height: 1; padding: 0;
+    -webkit-tap-highlight-color: rgba(255,255,255,0.3);
+    flex-shrink: 0;
+    touch-action: manipulation;
   `;
-  closeBtn.onclick = () => overlay.remove();
+  // Triplo aggancio per essere veramente sicuri (pointerup + click + touchend)
+  const handleClose = (e: Event) => {
+    e.preventDefault();
+    e.stopPropagation();
+    closeOverlay();
+  };
+  closeBtn.addEventListener("click", handleClose);
+  closeBtn.addEventListener("touchend", handleClose, { passive: false });
+  closeBtn.addEventListener("pointerup", handleClose);
 
   const title = document.createElement("div");
   title.textContent = "Anteprima agenda";
   title.style.cssText = `
-    flex: 1; color: #fff; font-weight: 800; font-size: 14px;
+    flex: 1; color: #fff; font-weight: 800; font-size: 15px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   `;
 
   const printBtn = document.createElement("button");
-  printBtn.innerHTML = "🖨 Stampa";
+  printBtn.type = "button";
+  printBtn.innerHTML = "🖨";
+  printBtn.setAttribute("aria-label", "Stampa");
   printBtn.style.cssText = `
-    background: rgba(255,255,255,0.2); border: 1.5px solid rgba(255,255,255,0.3);
-    border-radius: 8px; color: #fff; font-weight: 800;
-    padding: 8px 14px; cursor: pointer; font-size: 13px;
-    -webkit-tap-highlight-color: transparent;
+    background: rgba(255,255,255,0.25); border: 1.5px solid rgba(255,255,255,0.4);
+    border-radius: 50%; color: #fff; font-weight: 800;
+    width: 44px; height: 44px; cursor: pointer; font-size: 18px;
+    line-height: 1; padding: 0;
+    -webkit-tap-highlight-color: rgba(255,255,255,0.3);
+    flex-shrink: 0;
+    touch-action: manipulation;
   `;
-  printBtn.onclick = () => {
-    const iframe = overlay.querySelector("iframe") as HTMLIFrameElement | null;
-    if (iframe?.contentWindow) {
-      iframe.contentWindow.focus();
-      iframe.contentWindow.print();
-    }
+  const triggerPrint = (e: Event) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Stampa direttamente la window: @media print nasconde tutto tranne #agenda-print-area
+    window.print();
   };
+  printBtn.addEventListener("click", triggerPrint);
+  printBtn.addEventListener("touchend", triggerPrint, { passive: false });
 
   header.appendChild(closeBtn);
   header.appendChild(title);
   header.appendChild(printBtn);
   overlay.appendChild(header);
 
-  // Iframe con il contenuto HTML
-  const iframe = document.createElement("iframe");
-  iframe.style.cssText = `
-    flex: 1; width: 100%; border: none; background: #fff;
+  // ── 4. Area contenuto con scrolling nativo ─────────────────────────
+  const contentArea = document.createElement("div");
+  contentArea.id = "agenda-print-area";
+  contentArea.style.cssText = `
+    flex: 1; overflow: auto; -webkit-overflow-scrolling: touch;
+    background: #fff;
   `;
-  iframe.srcdoc = html;
-  overlay.appendChild(iframe);
+  contentArea.innerHTML = bodyHTML;
+  overlay.appendChild(contentArea);
 
   document.body.appendChild(overlay);
 
-  // Se autoprint, aspetta che iframe sia caricato e lancia print()
+  // Autoprint se richiesto
   if (autoprint) {
-    iframe.onload = () => {
-      setTimeout(() => {
-        if (iframe.contentWindow) {
-          iframe.contentWindow.focus();
-          iframe.contentWindow.print();
-        }
-      }, 350);
-    };
+    setTimeout(() => {
+      window.print();
+    }, 400);
   }
 }
 
