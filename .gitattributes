@@ -1,0 +1,5 @@
+# File SQL: newline LF su tutti i sistemi.
+# Necessario perché lo script db-status calcola SHA-256 sul contenuto:
+# se Windows convertisse i newline in CRLF, l'hash divergerebbe e
+# vedremmo "HASH MISMATCH" pur senza aver modificato il contenuto SQL.
+migrations/*.sql text eol=lf

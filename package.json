@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "db:status": "tsx scripts/db-status.ts",
+    "db:rehash": "tsx scripts/db-rehash.ts",
     "db:migrate": "tsx scripts/db-migrate.ts"
   },
   "dependencies": {
