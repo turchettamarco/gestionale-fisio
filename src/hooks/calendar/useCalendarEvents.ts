@@ -235,6 +235,11 @@ export function useCalendarEvents(
           )
           .gte("start_at", startISO)
           .lt("start_at", endISO)
+          // mig. 029 → rivoluzione UX (Step rivoluzione): gli appuntamenti
+          // dell'ospite NON entrano più nel calendario titolare. Stanno
+          // tutti e solo nella sezione /ospiti/[id]. Il calendario titolare
+          // mostra esclusivamente "le mie cose".
+          .is("guest_practitioner_id", null)
           .order("start_at", { ascending: true });
 
         // Ignore stale responses

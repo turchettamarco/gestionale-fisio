@@ -2255,6 +2255,10 @@ return (
         </div>
       </main>
 
+      {/* Rivoluzione UX (mig. 029): il calendario titolare non crea più
+          appuntamenti per gli ospiti. Quelli si creano dalla loro sezione
+          /ospiti/[id]. Quindi passiamo guestPractitionersEnabled=false per
+          nascondere il selettore "Per chi è l'appuntamento?". */}
       {createOpen && (
         <CreateAppointmentModal
           duplicateMode={duplicateMode}
@@ -2351,10 +2355,10 @@ return (
           rooms={studioRooms}
           createRoomId={createRoomId}
           setCreateRoomId={setCreateRoomId}
-          guestPractitionersEnabled={guestPractitionersEnabled && studioGuests.length > 0}
-          guestPractitioners={studioGuests}
-          createGuestPractitionerId={createGuestPractitionerId}
-          setCreateGuestPractitionerId={setCreateGuestPractitionerId}
+          guestPractitionersEnabled={false}
+          guestPractitioners={undefined}
+          createGuestPractitionerId={null}
+          setCreateGuestPractitionerId={() => {}}
           creating={creating}
         />
       )}

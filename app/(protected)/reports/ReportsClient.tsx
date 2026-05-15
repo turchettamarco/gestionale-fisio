@@ -378,11 +378,13 @@ export default function ReportsPage(){
       // ── Appuntamenti periodo ──
       // Tappa 2: aggiungiamo location_id alle SELECT (filtro sede + dettaglio modal).
       // Filtro sede: applicato in JS dopo fetch (più semplice gestire "Tutte" + null).
+      // mig. 029 → tutte le query reports escludono gli appuntamenti ospite
+      // (incassano direttamente, non rientrano nei fatturati del titolare).
       const[{data:done},{data:unp},{data:allA},,{data:groups},{data:rentalsRaw}]=await Promise.all([
-        supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id,price_type,payment_method,location_id,operator_id").eq("status","done").gte("amount",0.01).gte("start_at",fs).lte("start_at",ts).order("start_at",{ascending:false}),
-        supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id,location_id,operator_id").eq("status","not_paid").gte("start_at",fs).lte("start_at",ts).order("start_at",{ascending:false}),
-        supabase.from("appointments").select("status,start_at,patient_id,location_id,operator_id").gte("start_at",fs).lte("start_at",ts),
-        supabase.from("appointments").select("status,start_at,location_id,operator_id").eq("status","cancelled").gte("start_at",fs).lte("start_at",ts),
+        supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id,price_type,payment_method,location_id,operator_id").eq("status","done").gte("amount",0.01).gte("start_at",fs).lte("start_at",ts).is("guest_practitioner_id",null).order("start_at",{ascending:false}),
+        supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id,location_id,operator_id").eq("status","not_paid").gte("start_at",fs).lte("start_at",ts).is("guest_practitioner_id",null).order("start_at",{ascending:false}),
+        supabase.from("appointments").select("status,start_at,patient_id,location_id,operator_id").gte("start_at",fs).lte("start_at",ts).is("guest_practitioner_id",null),
+        supabase.from("appointments").select("status,start_at,location_id,operator_id").eq("status","cancelled").gte("start_at",fs).lte("start_at",ts).is("guest_practitioner_id",null),
         // ─── GRUPPI (mig. 014) ─────────────────────────────────────────────
         // Per ogni gruppo "done" nel periodo, prendiamo i partecipanti pagati con dati paziente.
         // I gruppi padre hanno amount=null quindi NON vengono presi dalla query "done" sopra.
@@ -399,6 +401,7 @@ export default function ReportsPage(){
           .eq("status", "done")
           .gte("start_at", fs)
           .lte("start_at", ts)
+          .is("guest_practitioner_id", null)
           .order("start_at", { ascending: false }),
         // ─── NOLEGGI (Tappa 2) ─────────────────────────────────────────────
         // Definizione: noleggi che si CONCLUDONO nel periodo (end_date in [from,to]).
@@ -699,7 +702,7 @@ export default function ReportsPage(){
       setRentals(rentalsList);
 
       // ── Tutti i non pagati (storico) ──
-      const{data:allUnp}=await supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id").eq("status","not_paid").order("start_at",{ascending:false}).limit(2000);
+      const{data:allUnp}=await supabase.from("appointments").select("id,amount,start_at,treatment_type,patient_id").eq("status","not_paid").is("guest_practitioner_id",null).order("start_at",{ascending:false}).limit(2000);
       const unpIds=Array.from(new Set((allUnp||[]).map((r:any)=>r.patient_id).filter(Boolean))) as string[];
       const unpPatMap=await pats(unpIds);
       const today=new Date();
@@ -745,7 +748,7 @@ export default function ReportsPage(){
       else if(period==="year")prevBase.setFullYear(prevBase.getFullYear()-1);
       else prevBase.setMonth(prevBase.getMonth()-1);
       const{from:pf,to:pt}=getRange(period,prevBase);
-      const{data:prevD}=await supabase.from("appointments").select("amount").eq("status","done").gte("amount",0.01).gte("start_at",pf.toISOString()).lte("start_at",pt.toISOString());
+      const{data:prevD}=await supabase.from("appointments").select("amount").eq("status","done").gte("amount",0.01).gte("start_at",pf.toISOString()).lte("start_at",pt.toISOString()).is("guest_practitioner_id",null);
       setPrevRev((prevD||[]).reduce((s:number,r:any)=>s+(parseFloat(String(r.amount))||0),0));
 
       // ── Trend: mensile dentro il periodo selezionato (o ultimi 6 mesi per day/week/month) ──
@@ -757,8 +760,8 @@ export default function ReportsPage(){
         while(cur<=pTo){
           const mf=soM(cur).toISOString(),mt=eoM(cur).toISOString();
           const[{data:mp},{data:mu}]=await Promise.all([
-            supabase.from("appointments").select("amount").eq("status","done").gte("amount",0.01).gte("start_at",mf).lte("start_at",mt),
-            supabase.from("appointments").select("amount").eq("status","not_paid").gte("amount",0.01).gte("start_at",mf).lte("start_at",mt),
+            supabase.from("appointments").select("amount").eq("status","done").gte("amount",0.01).gte("start_at",mf).lte("start_at",mt).is("guest_practitioner_id",null),
+            supabase.from("appointments").select("amount").eq("status","not_paid").gte("amount",0.01).gte("start_at",mf).lte("start_at",mt).is("guest_practitioner_id",null),
           ]);
           bars.push({monthKey:toYMD(cur),label:cur.toLocaleDateString("it-IT",{month:"short",year:period==="year"?"2-digit":undefined}),revenue:(mp||[]).reduce((s:number,r:any)=>s+(parseFloat(String(r.amount))||0),0),unpaid:(mu||[]).reduce((s:number,r:any)=>s+(parseFloat(String(r.amount))||0),0)});
           cur.setMonth(cur.getMonth()+1);
@@ -770,8 +773,8 @@ export default function ReportsPage(){
           const d=new Date(now.getFullYear(),now.getMonth()-i,1);
           const mf=soM(d).toISOString(),mt=eoM(d).toISOString();
           const[{data:mp},{data:mu}]=await Promise.all([
-            supabase.from("appointments").select("amount").eq("status","done").gte("amount",0.01).gte("start_at",mf).lte("start_at",mt),
-            supabase.from("appointments").select("amount").eq("status","not_paid").gte("amount",0.01).gte("start_at",mf).lte("start_at",mt),
+            supabase.from("appointments").select("amount").eq("status","done").gte("amount",0.01).gte("start_at",mf).lte("start_at",mt).is("guest_practitioner_id",null),
+            supabase.from("appointments").select("amount").eq("status","not_paid").gte("amount",0.01).gte("start_at",mf).lte("start_at",mt).is("guest_practitioner_id",null),
           ]);
           bars.push({monthKey:toYMD(d),label:d.toLocaleDateString("it-IT",{month:"short"}),revenue:(mp||[]).reduce((s:number,r:any)=>s+(parseFloat(String(r.amount))||0),0),unpaid:(mu||[]).reduce((s:number,r:any)=>s+(parseFloat(String(r.amount))||0),0)});
         }
@@ -790,7 +793,7 @@ export default function ReportsPage(){
         else if(period==="year")d.setFullYear(d.getFullYear()+i);
         const{from:cf,to:ct}=getRange(period,d);
         const[{data:cDone}]=await Promise.all([
-          supabase.from("appointments").select("amount,status").in("status",["done","not_paid"]).gte("start_at",cf.toISOString()).lte("start_at",ct.toISOString()),
+          supabase.from("appointments").select("amount,status").in("status",["done","not_paid"]).gte("start_at",cf.toISOString()).lte("start_at",ct.toISOString()).is("guest_practitioner_id",null),
         ]);
         const cRev=(cDone||[]).filter((r:any)=>r.status==="done").reduce((s:number,r:any)=>s+(parseFloat(String(r.amount))||0),0);
         const cSess=(cDone||[]).length;
@@ -809,7 +812,7 @@ export default function ReportsPage(){
       const patientIdsInPeriod=Array.from(new Set(ap.filter(a=>a.patient_id).map((a:any)=>a.patient_id)));
       let newCount=0,returnCount=0;
       if(patientIdsInPeriod.length>0){
-        const{data:firstVisits}=await supabase.from("appointments").select("patient_id,start_at").in("patient_id",patientIdsInPeriod).neq("status","cancelled").order("start_at",{ascending:true});
+        const{data:firstVisits}=await supabase.from("appointments").select("patient_id,start_at").in("patient_id",patientIdsInPeriod).neq("status","cancelled").is("guest_practitioner_id",null).order("start_at",{ascending:true});
         const firstVisitMap=new Map<string,string>();
         (firstVisits||[]).forEach((r:any)=>{if(!firstVisitMap.has(r.patient_id))firstVisitMap.set(r.patient_id,r.start_at);});
         patientIdsInPeriod.forEach(pid=>{
@@ -822,7 +825,7 @@ export default function ReportsPage(){
       setNewPatients(newCount);setReturnPatients(returnCount);
 
       // ── Media visite per paziente (storico) ──
-      const{data:allDoneHist}=await supabase.from("appointments").select("patient_id").eq("status","done").limit(10000);
+      const{data:allDoneHist}=await supabase.from("appointments").select("patient_id").eq("status","done").is("guest_practitioner_id",null).limit(10000);
       if(allDoneHist&&allDoneHist.length>0){
         const visitMap=new Map<string,number>();
         (allDoneHist as{patient_id:string}[]).forEach(r=>{visitMap.set(r.patient_id,(visitMap.get(r.patient_id)||0)+1);});
@@ -831,7 +834,7 @@ export default function ReportsPage(){
       }
 
       // ── LTV ──
-      const{data:allRevHist}=await supabase.from("appointments").select("patient_id,amount").eq("status","done").gte("amount",0.01).limit(10000);
+      const{data:allRevHist}=await supabase.from("appointments").select("patient_id,amount").eq("status","done").gte("amount",0.01).is("guest_practitioner_id",null).limit(10000);
       if(allRevHist&&allRevHist.length>0){
         const revMap=new Map<string,number>();
         (allRevHist as{patient_id:string;amount:number}[]).forEach(r=>{revMap.set(r.patient_id,(revMap.get(r.patient_id)||0)+(parseFloat(String(r.amount))||0));});
@@ -840,9 +843,9 @@ export default function ReportsPage(){
       }
 
       // ── Pazienti non rischedulati ──
-      const{data:futureAppts}=await supabase.from("appointments").select("patient_id").gte("start_at",today.toISOString()).neq("status","cancelled");
+      const{data:futureAppts}=await supabase.from("appointments").select("patient_id").gte("start_at",today.toISOString()).neq("status","cancelled").is("guest_practitioner_id",null);
       const futureIds=new Set((futureAppts||[]).map((r:any)=>r.patient_id).filter(Boolean));
-      const{data:recentDone}=await supabase.from("appointments").select("patient_id,start_at,patients:patient_id(first_name,last_name,phone)").eq("status","done").order("start_at",{ascending:false}).limit(500);
+      const{data:recentDone}=await supabase.from("appointments").select("patient_id,start_at,patients:patient_id(first_name,last_name,phone)").eq("status","done").is("guest_practitioner_id",null).order("start_at",{ascending:false}).limit(500);
       const seenUnsch=new Set<string>();
       const unschList:{id:string;name:string;lastVisit:string;days:number;phone:string|null}[]=[];
       for(const r of (recentDone||[]) as any[]){
@@ -865,7 +868,7 @@ export default function ReportsPage(){
       setTreatBreak(Array.from(treatMap.entries()).map(([type,v])=>({type,...v})).sort((a,b)=>b.revenue-a.revenue));
 
       // ── Cancellazioni per giorno settimana ──
-      const{data:allApptsDow}=await supabase.from("appointments").select("status,start_at").gte("start_at",fs).lte("start_at",ts);
+      const{data:allApptsDow}=await supabase.from("appointments").select("status,start_at").gte("start_at",fs).lte("start_at",ts).is("guest_practitioner_id",null);
       const GG=["Lun","Mar","Mer","Gio","Ven","Sab","Dom"];
       const dowData:CancelDay[]=GG.map(day=>({day,total:0,cancelled:0,rate:0}));
       (allApptsDow||[]).forEach((r:any)=>{
@@ -889,7 +892,7 @@ export default function ReportsPage(){
       setCapacityPct(slotsAvailable>0?Math.min(Math.round((slotsUsed/slotsAvailable)*100),100):null);
 
       // ── Best day ──
-      const{data:bestDoneEver}=await supabase.from("appointments").select("start_at,amount").eq("status","done").gte("amount",0.01).limit(10000);
+      const{data:bestDoneEver}=await supabase.from("appointments").select("start_at,amount").eq("status","done").gte("amount",0.01).is("guest_practitioner_id",null).limit(10000);
       if(bestDoneEver&&bestDoneEver.length>0){
         const dayTotals=new Array(7).fill(0);
         (bestDoneEver as{start_at:string;amount:number}[]).forEach(a=>{
@@ -920,6 +923,7 @@ export default function ReportsPage(){
         .from("appointments")
         .select("start_at,end_at,status,location,clinic_site,domicile_address,treatment_type,price_type,payment_method,amount,is_paid,calendar_note,patients:patient_id(first_name,last_name,phone)")
         .gte("start_at",fs).lte("start_at",ts)
+        .is("guest_practitioner_id",null)
         .order("start_at",{ascending:true});
       if(error) throw new Error(error.message);
 

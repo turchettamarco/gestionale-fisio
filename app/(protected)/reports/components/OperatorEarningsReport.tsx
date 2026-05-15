@@ -355,7 +355,9 @@ export default function OperatorEarningsReport({
           .eq("studio_id", studioId)
           .in("status", ["done", "not_paid", "confirmed"])
           .gte("start_at", range.from.toISOString())
-          .lt("start_at", range.to.toISOString()),
+          .lt("start_at", range.to.toISOString())
+          // mig. 029 → ospiti incassano direttamente, non sono "guadagni operatore"
+          .is("guest_practitioner_id", null),
         supabase
           .from("treatment_types")
           .select("id, key, label, duration_min")

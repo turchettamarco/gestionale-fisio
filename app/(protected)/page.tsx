@@ -90,6 +90,8 @@ export default function HomePage() {
         .select("id,patient_id,start_at,end_at,status,location,clinic_site,domicile_address,amount,price_type,payment_method,treatment_type,is_paid,paid_at,calendar_note,whatsapp_sent_at,whatsapp_sent,patients:patient_id(first_name,last_name,phone,status)")
         .gte("start_at", lastWeekStart.toISOString())
         .lt("start_at", end.toISOString())
+        // mig. 029 → escludi appuntamenti degli ospiti dal calendario titolare
+        .is("guest_practitioner_id", null)
         .order("start_at", { ascending: true });
       if (error) throw new Error(error.message);
       setAppts((data || []) as AppointmentRow[]);
@@ -114,6 +116,8 @@ export default function HomePage() {
       const { data, error } = await supabase.from("appointments")
         .select("id,patient_id,amount,start_at,patients:patient_id(first_name,last_name,phone)")
         .in("status", ["done", "not_paid"]).eq("is_paid", false).not("amount", "is", null).gt("amount", 0)
+        // mig. 029 → ospiti incassano direttamente, non sono "saldi aperti" del titolare
+        .is("guest_practitioner_id", null)
         .order("start_at", { ascending: false }).limit(200);
       if (error) throw error;
 
@@ -362,6 +366,8 @@ export default function HomePage() {
         .select("patient_id,start_at,patients:patient_id!inner(first_name,last_name,phone,status)")
         .eq("status", "done")
         .gte("start_at", twoYearsAgo)
+        // mig. 029 → "pazienti inattivi" del titolare, non degli ospiti
+        .is("guest_practitioner_id", null)
         .order("start_at", { ascending: false })
         .limit(1000);
       if (error) throw new Error(error.message);

@@ -553,6 +553,7 @@ function CalendarPageInner() {
       patients:patient_id(first_name,last_name,phone),
       appointment_participants(id,price,payment_status)
     `).gte("start_at",s0.toISOString()).lt("start_at",e0.toISOString())
+      .is("guest_practitioner_id",null)
       .order("start_at",{ascending:true});
     if (err) { setError(`Errore: ${err.message}`); setLoading(false); return; }
     const mapped: CalendarEvent[] = (data??[]).map((a:any) => {
@@ -671,6 +672,7 @@ function CalendarPageInner() {
       patients:patient_id(first_name,last_name,phone),
       appointment_participants(id,price,payment_status)
     `).gte("start_at", firstDay.toISOString()).lte("start_at", lastDay.toISOString())
+      .is("guest_practitioner_id",null)
       .order("start_at", {ascending:true});
     if (!err && data) {
       const mapped: CalendarEvent[] = data.map((a:any) => {
