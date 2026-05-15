@@ -374,6 +374,43 @@ export default function MobileHomePage() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
+  // mig. 029 — Agenda Ospiti nel menu utente mobile (rivoluzione UX):
+  //  - 0 ospiti  → voce non visibile
+  //  - 1 ospite  → link diretto /ospiti/{id}
+  //  - 2+ ospiti + flag OFF → submenu collassabile
+  //  - 2+ ospiti + flag ON  → link unico /ospiti
+  const guestEnabledStudio = (currentStudio as { guest_practitioners_enabled?: boolean })?.guest_practitioners_enabled === true;
+  const useGuestIndex = (currentStudio as { use_guest_index_page?: boolean })?.use_guest_index_page === true;
+  const [guestList, setGuestList] = useState<Array<{
+    id: string; first_name: string; last_name: string;
+    specialty: string; display_color: string | null;
+  }>>([]);
+  const [guestSubmenuOpen, setGuestSubmenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!guestEnabledStudio || !currentStudioId) { setGuestList([]); return; }
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("guest_practitioners")
+        .select("id, first_name, last_name, specialty, display_color")
+        .eq("studio_id", currentStudioId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true });
+      if (cancelled || error) return;
+      setGuestList((data ?? []) as Array<{
+        id: string; first_name: string; last_name: string;
+        specialty: string; display_color: string | null;
+      }>);
+    })();
+    return () => { cancelled = true; };
+  }, [guestEnabledStudio, currentStudioId]);
+
+  const hasGuests = guestList.length > 0;
+  const singleGuest = guestList.length === 1 ? guestList[0] : null;
+  const multipleGuests = guestList.length > 1 ? guestList : null;
+  const showIndexLink = useGuestIndex && guestList.length >= 2;
+
   // Swipe
   const swipeX = useRef<number | null>(null);
   const swipeY = useRef<number | null>(null);
@@ -1360,11 +1397,70 @@ export default function MobileHomePage() {
               }}>{userInitials}</button>
               {userMenuOpen && (
                 <div style={{
-                  position: "absolute", right: 0, top: "calc(100% + 6px)", width: 180,
+                  position: "absolute", right: 0, top: "calc(100% + 6px)", width: 200,
                   background: THEME.panelBg, border: `1px solid ${THEME.border}`,
                   borderRadius: 12, boxShadow: "0 8px 24px rgba(15,23,42,0.15)",
                   overflow: "hidden", zIndex: 60,
                 }}>
+                  {/* Voce Agenda Ospiti smart (mig. 029) */}
+                  {hasGuests && showIndexLink && (
+                    <Link href="/ospiti" onClick={() => setUserMenuOpen(false)} style={{
+                      display: "flex", alignItems: "center", gap: 8, padding: "11px 14px",
+                      color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
+                      borderBottom: `1px solid ${THEME.border}`,
+                    }}>📋 Agenda Ospiti</Link>
+                  )}
+                  {hasGuests && !showIndexLink && singleGuest && (
+                    <Link href={`/ospiti/${singleGuest.id}`} onClick={() => setUserMenuOpen(false)} style={{
+                      display: "flex", alignItems: "center", gap: 8, padding: "11px 14px",
+                      color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
+                      borderBottom: `1px solid ${THEME.border}`,
+                    }}>📋 Agenda {singleGuest.first_name}</Link>
+                  )}
+                  {hasGuests && !showIndexLink && multipleGuests && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setGuestSubmenuOpen(o => !o)}
+                        style={{
+                          width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+                          padding: "11px 14px", background: "transparent", border: "none",
+                          cursor: "pointer", color: THEME.text, fontSize: 13, fontWeight: 600,
+                          borderBottom: `1px solid ${THEME.border}`, textAlign: "left",
+                        }}
+                      >
+                        <span>📋 Agenda Ospiti</span>
+                        <span style={{ fontSize: 10, color: THEME.muted }}>
+                          {guestSubmenuOpen ? "▾" : "▸"}
+                        </span>
+                      </button>
+                      {guestSubmenuOpen && (
+                        <div style={{ borderBottom: `1px solid ${THEME.border}` }}>
+                          {multipleGuests.map(g => (
+                            <Link
+                              key={g.id}
+                              href={`/ospiti/${g.id}`}
+                              onClick={() => setUserMenuOpen(false)}
+                              style={{
+                                display: "flex", alignItems: "center", gap: 8,
+                                padding: "9px 14px 9px 30px",
+                                color: THEME.text, fontSize: 12, fontWeight: 600,
+                                background: "#f8fafc", textDecoration: "none",
+                              }}
+                            >
+                              <span style={{
+                                width: 8, height: 8, borderRadius: "50%",
+                                background: g.display_color || "#DB2777", flexShrink: 0,
+                              }} />
+                              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {g.first_name} {g.last_name}
+                              </span>
+                            </Link>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
                   <Link href="/settings" onClick={() => setUserMenuOpen(false)} style={{
                     display: "flex", alignItems: "center", gap: 8, padding: "11px 14px",
                     color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
