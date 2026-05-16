@@ -3,7 +3,7 @@
 // Pagina PUBBLICA del portale ospite (mig. 032, Step 6c).
 //
 // Accessibile SENZA autenticazione tramite URL:
-//   https://app.fisiohub.it/agenda/{access_token}
+//   https://myfisiohub.app/agenda/{access_token}
 //
 // Il titolare genera il token da Impostazioni → Team → Modifica ospite,
 // poi invia il link via WhatsApp/email. L'ospite apre e vede la sua agenda.

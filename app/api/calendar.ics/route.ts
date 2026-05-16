@@ -246,7 +246,7 @@ export async function GET(req: NextRequest) {
         endAt = new Date(startMs + 60 * 60 * 1000).toISOString();
       }
 
-      const uid = `${appt.id}@fisiohub.app`;
+      const uid = `${appt.id}@myfisiohub.app`;
       const dtstamp = toICSDate(new Date().toISOString());
       const dtstart = toICSDate(appt.start_at);
       const dtend = toICSDate(endAt);

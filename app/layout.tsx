@@ -47,7 +47,7 @@ export const metadata: Metadata = {
     title: "FisioHub — Gestionale per fisioterapisti e osteopati",
     description:
       "Agenda, pazienti, pacchetti, promemoria WhatsApp. Tutto in un posto solo.",
-    url: "https://fisiohub.app",
+    url: "https://myfisiohub.app",
     siteName: "FisioHub",
     images: [
       { url: "/og-image.png", width: 1200, height: 630, alt: "FisioHub" },
