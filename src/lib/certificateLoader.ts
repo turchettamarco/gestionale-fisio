@@ -116,7 +116,7 @@ async function loadStudioData(studioId: string): Promise<CertificateStudioData> 
 async function loadPatientData(patientId: string): Promise<CertificatePatientData> {
   const { data, error } = await supabase
     .from("patients")
-    .select("first_name, last_name, birth_date, sex")
+    .select("first_name, last_name, birth_date, gender")
     .eq("id", patientId)
     .single();
 
@@ -131,14 +131,14 @@ async function loadPatientData(patientId: string): Promise<CertificatePatientDat
     first_name: string | null;
     last_name: string | null;
     birth_date: string | null;
-    sex: string | null;
+    gender: string | null;
   };
 
-  // Conversione M/F → m/f (utility usa minuscolo, DB usa maiuscolo)
+  // Normalizzazione gender (DB può contenere M/F, m/f, "maschio"/"femmina"…)
   let gender: "m" | "f" | null = null;
-  const sexRaw = (p.sex || "").toString().trim().toUpperCase();
-  if (sexRaw === "M") gender = "m";
-  else if (sexRaw === "F") gender = "f";
+  const g = (p.gender || "").toString().trim().toLowerCase();
+  if (g === "m" || g.startsWith("masch")) gender = "m";
+  else if (g === "f" || g.startsWith("femm")) gender = "f";
 
   return {
     first_name: p.first_name || "",

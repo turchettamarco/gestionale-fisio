@@ -98,15 +98,31 @@ function fmtDateShort(d: Date): string {
   });
 }
 
-/** Estrae città da indirizzo "Via X, 12345 Città (PR)" → "Città" */
+/** Estrae città da indirizzo. Gestisce due pattern italiani comuni:
+ *  • "Via X, 12345 Città (PR)"   → "Città"
+ *  • "Città, Via X 12"            → "Città"  (es. "Pontecorvo, Via Galileo Galilei 5")
+ *  • "Via X, Città"               → "Città"
+ */
 function extractCity(address: string | null): string {
   if (!address) return "";
-  // pattern "..., 12345 CITTÀ (PR)" → CITTÀ
-  const m = address.match(/\d{5}\s+([^()(,]+?)(\s*\([A-Z]{2}\))?\s*$/);
-  if (m) return m[1].trim();
-  // fallback: ultimo segmento dopo l'ultima virgola
-  const parts = address.split(",");
-  return parts[parts.length - 1].trim();
+
+  // Pattern 1: "..., 12345 Città (PR)"
+  const m1 = address.match(/\d{5}\s+([^()(,]+?)(\s*\([A-Z]{2}\))?\s*$/);
+  if (m1) return m1[1].trim();
+
+  // Pattern 2: "Città, Via X 12" (la città è il PRIMO segmento se il
+  // secondo contiene una keyword stradale tipica)
+  const parts = address.split(",").map((s) => s.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    const streetKw = /^(via|viale|corso|piazza|p\.zza|p\.le|piazzale|largo|vicolo|strada|str\.|loc\.|località)\b/i;
+    if (streetKw.test(parts[1])) {
+      return parts[0]; // città in testa
+    }
+    // Altrimenti: ultimo segmento (default)
+    return parts[parts.length - 1];
+  }
+
+  return parts[0] || "";
 }
 
 /** Calcola pronomi/concordanze in base al genere */
@@ -139,6 +155,21 @@ function pronouns(gender: "m" | "f" | null | undefined): {
     recato: "si è recato/a",
     interessato: "interessato/a",
   };
+}
+
+/**
+ * Restituisce il nome del professionista così come deve apparire nel
+ * documento. NON aggiunge "Dott." se l'utente lo ha già scritto nelle
+ * settings (es. "Dr. Marco", "Dott. Marco", "Dott.ssa Anna"). Se invece
+ * il campo contiene solo "Mario Rossi", aggiunge "Dott." davanti come
+ * default ragionevole. L'utente ha pieno controllo dalla firma settings.
+ */
+function formatPractitionerName(signatureName: string | null): string {
+  if (!signatureName) return "il sottoscritto";
+  const name = signatureName.trim();
+  // Regex: matcha qualsiasi prefisso titolato già presente all'inizio
+  const hasTitlePrefix = /^(dott\.?(ssa)?|dr\.?(ssa)?|prof\.?(ssa)?)\s/i.test(name);
+  return hasTitlePrefix ? name : `Dott. ${name}`;
 }
 
 // ── Costanti grafiche ────────────────────────────────────────────────────
@@ -177,7 +208,7 @@ function drawHeader(doc: JsPDFType, studio: CertificateStudioData): number {
   doc.setFont("helvetica", "normal");
   doc.setTextColor(COLOR_MUTED[0], COLOR_MUTED[1], COLOR_MUTED[2]);
   const profLine = [
-    studio.signature_name ? `Dott. ${studio.signature_name}` : null,
+    studio.signature_name ? formatPractitionerName(studio.signature_name) : null,
     studio.signature_title,
   ]
     .filter(Boolean)
@@ -270,8 +301,7 @@ function drawIntroBody(
   variant: "single" | "multi"
 ): number {
   const p = pronouns(patient.gender);
-  const docName = studio.signature_name ? `Dott. ${studio.signature_name}` : "il sottoscritto";
-  const qualifica = studio.signature_title || "Fisioterapista";
+  const docName = formatPractitionerName(studio.signature_name);
 
   const patientFullName = `${patient.first_name} ${patient.last_name}`.trim();
   const birthPart =
@@ -284,8 +314,12 @@ function drawIntroBody(
       ? `${p.recato} presso questo studio per sottoporsi a seduta di trattamento fisioterapico nella giornata di seguito riportata.`
       : `${p.recato} presso questo studio per sottoporsi alle sedute di trattamento fisioterapico nelle giornate di seguito riportate.`;
 
+  // Frase costruita per NON incollare signature_title nella grammatica:
+  // la qualifica resta visibile nell'header studio, qui basta dire
+  // "titolare dello studio in epigrafe".
+  const subject = studio.signature_name ? docName : "Il sottoscritto";
   const fullText =
-    `Il sottoscritto ${docName}, in qualità di ${qualifica} titolare dello studio in epigrafe, ` +
+    `${subject}, titolare dello studio in epigrafe, ` +
     `attesta che ${p.signor} ${patientFullName}${birthPart}, ${sedutaPart}`;
 
   doc.setFontSize(11);
@@ -455,7 +489,7 @@ function drawSignature(
   doc.setFont("helvetica", "bold");
   doc.setTextColor(COLOR_TEXT[0], COLOR_TEXT[1], COLOR_TEXT[2]);
   const docName = studio.signature_name
-    ? `Dott. ${studio.signature_name}`
+    ? formatPractitionerName(studio.signature_name)
     : "Il professionista";
   doc.text(docName, sigBlockX + sigBlockW / 2, sigY + 4, { align: "center" });
   // Qualifica
