@@ -19,6 +19,9 @@ export type StudioBrandingSectionProps = {
   studioGoogleReview: string; setStudioGoogleReview: (v: string) => void;
   studioSignatureName: string; setStudioSignatureName: (v: string) => void;
   studioSignatureTitle: string; setStudioSignatureTitle: (v: string) => void;
+  // Iscrizione albo professionale (mig. 034) — usato negli attestati di presenza
+  professionalRegisterNumber: string; setProfessionalRegisterNumber: (v: string) => void;
+  professionalRegisterName: string; setProfessionalRegisterName: (v: string) => void;
   // Logo (multi-tenancy: salvato su studios.logo_base64)
   logoBase64: string; setLogoBase64: (v: string) => void;
   // Notifiche (Fase N2)
@@ -96,6 +99,41 @@ export default function StudioBrandingSection(p: StudioBrandingSectionProps) {
               />
               <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>
                 Specialità/disciplina sotto la firma
+              </div>
+            </div>
+
+            <div style={{ gridColumn: "1 / -1", marginTop: 8, paddingTop: 16, borderTop: `1px solid ${THEME.border}` }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: THEME.text, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                Iscrizione albo professionale
+              </div>
+              <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 10 }}>
+                Usato negli attestati di presenza e nei documenti ufficiali rilasciati ai pazienti.
+              </div>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Numero iscrizione albo</label>
+              <input
+                value={p.professionalRegisterNumber}
+                onChange={e => p.setProfessionalRegisterNumber(e.target.value)}
+                placeholder="Es. 1234"
+                style={inputStyle}
+              />
+              <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>
+                Il tuo numero di iscrizione all&apos;albo
+              </div>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Nome albo</label>
+              <input
+                value={p.professionalRegisterName}
+                onChange={e => p.setProfessionalRegisterName(e.target.value)}
+                placeholder="TSRM-PSTRP"
+                style={inputStyle}
+              />
+              <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>
+                Default TSRM-PSTRP (modificabile se diverso)
               </div>
             </div>
 

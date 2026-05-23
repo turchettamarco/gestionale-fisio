@@ -57,6 +57,9 @@ export default function MobileSettingsPage() {
   // Firma usata nei messaggi WhatsApp/promemoria (multi-tenancy)
   const [signatureName, setSignatureName] = useState("");
   const [signatureTitle, setSignatureTitle] = useState("");
+  // Iscrizione albo professionale (mig. 034) — per attestati di presenza
+  const [professionalRegisterNumber, setProfessionalRegisterNumber] = useState("");
+  const [professionalRegisterName, setProfessionalRegisterName]     = useState("TSRM-PSTRP");
   // Logo studio (multi-tenancy: salvato su studios.logo_base64)
   const [logoBase64, setLogoBase64] = useState("");
   // Dati fiscali (interni, su practice_settings)
@@ -174,6 +177,15 @@ export default function MobileSettingsPage() {
       setGoogleReviewLink(currentStudio.google_review_link || "");
       setSignatureName(currentStudio.signature_name || "");
       setSignatureTitle(currentStudio.signature_title || "");
+      // Iscrizione albo (mig. 034)
+      setProfessionalRegisterNumber(
+        ((currentStudio as unknown as { professional_register_number?: string | null })
+          .professional_register_number) || ""
+      );
+      setProfessionalRegisterName(
+        ((currentStudio as unknown as { professional_register_name?: string | null })
+          .professional_register_name) || "TSRM-PSTRP"
+      );
       setLogoBase64(currentStudio.logo_base64 || "");
       // Notifiche (Fase N2)
       setNotifyEmailEnabled(currentStudio.notify_email_enabled ?? true);
@@ -489,6 +501,9 @@ export default function MobileSettingsPage() {
         google_review_link: googleReviewLink.trim() || null,
         signature_name:     signatureName.trim() || null,
         signature_title:    signatureTitle.trim() || null,
+        // Iscrizione albo (mig. 034)
+        professional_register_number: professionalRegisterNumber.trim() || null,
+        professional_register_name:   professionalRegisterName.trim() || "TSRM-PSTRP",
         logo_base64:        logoBase64 || null,
         // Notifiche (Fase N2)
         notify_email_enabled:        notifyEmailEnabled,
@@ -734,6 +749,18 @@ export default function MobileSettingsPage() {
               <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
                 <div><label style={lbl}>Nome firma</label><input value={signatureName} onChange={e=>setSignatureName(e.target.value)} placeholder="Es. Dr. Mario Rossi" style={inp}/></div>
                 <div><label style={lbl}>Titolo</label><input value={signatureTitle} onChange={e=>setSignatureTitle(e.target.value)} placeholder="Es. Fisioterapia e Osteopatia" style={inp}/></div>
+              </div>
+            </div>
+
+            {/* ─── Iscrizione albo professionale (mig. 034) — attestati ─── */}
+            <div style={{ marginTop:8, padding:"12px 14px", borderRadius:10, background:THEME.panelSoft, border:`1px solid ${THEME.border}` }}>
+              <div style={{ fontSize:12, fontWeight:700, color:THEME.muted, marginBottom:8, letterSpacing:0.3 }}>ISCRIZIONE ALBO PROFESSIONALE</div>
+              <div style={{ fontSize:11, color:THEME.muted, lineHeight:1.5, marginBottom:10 }}>
+                Usato negli attestati di presenza e nei documenti ufficiali rilasciati ai pazienti.
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                <div><label style={lbl}>Numero iscrizione albo</label><input value={professionalRegisterNumber} onChange={e=>setProfessionalRegisterNumber(e.target.value)} placeholder="Es. 1234" style={inp}/></div>
+                <div><label style={lbl}>Nome albo</label><input value={professionalRegisterName} onChange={e=>setProfessionalRegisterName(e.target.value)} placeholder="TSRM-PSTRP" style={inp}/></div>
               </div>
             </div>
 

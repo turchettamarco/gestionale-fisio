@@ -124,6 +124,9 @@ export default function SettingsPage() {
   const [studioGoogleReview, setStudioGoogleReview]     = useState("");
   const [studioSignatureName, setStudioSignatureName]   = useState("");
   const [studioSignatureTitle, setStudioSignatureTitle] = useState("");
+  // Iscrizione albo professionale (mig. 034) — per attestati di presenza
+  const [professionalRegisterNumber, setProfessionalRegisterNumber] = useState("");
+  const [professionalRegisterName, setProfessionalRegisterName]     = useState("TSRM-PSTRP");
   const [studioWebsite, setStudioWebsite]               = useState("");
   const [savingStudio, setSavingStudio]                 = useState(false);
   // Logo studio (multi-tenancy: salvato su studios.logo_base64)
@@ -204,6 +207,15 @@ export default function SettingsPage() {
     setStudioGoogleReview(studio.google_review_link || "");
     setStudioSignatureName(studio.signature_name || "");
     setStudioSignatureTitle(studio.signature_title || "");
+    // Iscrizione albo professionale (mig. 034)
+    setProfessionalRegisterNumber(
+      ((studio as unknown as { professional_register_number?: string | null })
+        .professional_register_number) || ""
+    );
+    setProfessionalRegisterName(
+      ((studio as unknown as { professional_register_name?: string | null })
+        .professional_register_name) || "TSRM-PSTRP"
+    );
     setStudioWebsite(studio.website || "");
     // Logo: ora gestito sulla tabella studios (multi-tenancy)
     setLogoBase64(studio.logo_base64 || "");
@@ -237,6 +249,9 @@ export default function SettingsPage() {
         google_review_link: studioGoogleReview.trim() || null,
         signature_name:     studioSignatureName.trim() || null,
         signature_title:    studioSignatureTitle.trim() || null,
+        // Iscrizione albo professionale (mig. 034)
+        professional_register_number: professionalRegisterNumber.trim() || null,
+        professional_register_name:   professionalRegisterName.trim() || "TSRM-PSTRP",
         website:            studioWebsite.trim() || null,
         logo_base64:        logoBase64 || null,
         // Notifiche (Fase N2)
@@ -255,6 +270,7 @@ export default function SettingsPage() {
     }
   }, [studio, studioName, studioAddress, studioPhone, studioEmail,
       studioGoogleReview, studioSignatureName, studioSignatureTitle, studioWebsite,
+      professionalRegisterNumber, professionalRegisterName,
       logoBase64,
       notifyEmailEnabled, notifyBellEnabled, notifyWaRedirectEnabled,
       showBookingCardHome, showBookingBellCalendar,
@@ -1871,6 +1887,8 @@ export default function SettingsPage() {
               studioGoogleReview={studioGoogleReview} setStudioGoogleReview={setStudioGoogleReview}
               studioSignatureName={studioSignatureName} setStudioSignatureName={setStudioSignatureName}
               studioSignatureTitle={studioSignatureTitle} setStudioSignatureTitle={setStudioSignatureTitle}
+              professionalRegisterNumber={professionalRegisterNumber} setProfessionalRegisterNumber={setProfessionalRegisterNumber}
+              professionalRegisterName={professionalRegisterName} setProfessionalRegisterName={setProfessionalRegisterName}
               logoBase64={logoBase64} setLogoBase64={setLogoBase64}
               notifyEmailEnabled={notifyEmailEnabled} setNotifyEmailEnabled={setNotifyEmailEnabled}
               notifyBellEnabled={notifyBellEnabled} setNotifyBellEnabled={setNotifyBellEnabled}
