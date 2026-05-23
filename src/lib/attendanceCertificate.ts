@@ -192,7 +192,11 @@ const PAGE_H = 297;
  * + dati studio + linea divisoria + titolo "Attestato di Presenza").
  * Ritorna la Y del cursore dopo l'header (pronta per il corpo).
  */
-function drawHeader(doc: JsPDFType, studio: CertificateStudioData): number {
+function drawHeader(
+  doc: JsPDFType,
+  studio: CertificateStudioData,
+  patient: CertificatePatientData
+): number {
   const topY = 22;
   let leftY = topY;
 
@@ -271,6 +275,35 @@ function drawHeader(doc: JsPDFType, studio: CertificateStudioData): number {
   doc.setTextColor(COLOR_MUTED[0], COLOR_MUTED[1], COLOR_MUTED[2]);
   doc.text("Trattamento fisioterapico", PAGE_W / 2, y, { align: "center" });
 
+  // ── Blocco "A FAVORE DI" — paziente in evidenza ──────────────────────
+  y += 14;
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(COLOR_MUTED[0], COLOR_MUTED[1], COLOR_MUTED[2]);
+  doc.text("A FAVORE DI", PAGE_W / 2, y, { align: "center" });
+
+  y += 8;
+  doc.setFontSize(16);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(COLOR_TEXT[0], COLOR_TEXT[1], COLOR_TEXT[2]);
+  const patientFullName = `${patient.first_name} ${patient.last_name}`.trim();
+  doc.text(patientFullName, PAGE_W / 2, y, { align: "center" });
+
+  // Eventuale data di nascita appena sotto, in piccolo
+  if (patient.birth_date) {
+    y += 5.5;
+    doc.setFontSize(9.5);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(COLOR_MUTED[0], COLOR_MUTED[1], COLOR_MUTED[2]);
+    const pr = pronouns(patient.gender);
+    doc.text(
+      `${pr.nato} il ${fmtDateShort(toDate(patient.birth_date))}`,
+      PAGE_W / 2,
+      y,
+      { align: "center" }
+    );
+  }
+
   return y + 15;
 }
 
@@ -301,26 +334,14 @@ function drawIntroBody(
   variant: "single" | "multi"
 ): number {
   const p = pronouns(patient.gender);
-  const docName = formatPractitionerName(studio.signature_name);
-
   const patientFullName = `${patient.first_name} ${patient.last_name}`.trim();
-  const birthPart =
-    patient.birth_date
-      ? `, ${p.nato} il ${fmtDateShort(toDate(patient.birth_date))}`
-      : "";
 
-  const sedutaPart =
-    variant === "single"
-      ? `${p.recato} presso questo studio per sottoporsi a seduta di trattamento fisioterapico nella giornata di seguito riportata.`
-      : `${p.recato} presso questo studio per sottoporsi alle sedute di trattamento fisioterapico nelle giornate di seguito riportate.`;
-
-  // Frase costruita per NON incollare signature_title nella grammatica:
-  // la qualifica resta visibile nell'header studio, qui basta dire
-  // "titolare dello studio in epigrafe".
-  const subject = studio.signature_name ? docName : "Il sottoscritto";
+  // Frase asciutta in stile certificato impersonale:
+  // dati professionista già nell'header e firma, paziente già grande sopra.
   const fullText =
-    `${subject}, titolare dello studio in epigrafe, ` +
-    `attesta che ${p.signor} ${patientFullName}${birthPart}, ${sedutaPart}`;
+    variant === "single"
+      ? `Si attesta che ${p.signor} ${patientFullName} ${p.recato} presso questo studio per una seduta di fisioterapia nella data indicata di seguito.`
+      : `Si attesta che ${p.signor} ${patientFullName} ${p.recato} presso questo studio per le sedute di fisioterapia nelle date indicate di seguito.`;
 
   doc.setFontSize(11);
   doc.setFont("helvetica", "normal");
@@ -559,7 +580,7 @@ export async function downloadCertificateSingle(
   const treatmentLabel = data.treatmentLabel || "Seduta di fisioterapia";
 
   // Render
-  let y = drawHeader(doc, data.studio);
+  let y = drawHeader(doc, data.studio, data.patient);
   y = drawIntroBody(doc, y, data.studio, data.patient, "single");
   y = drawSingleDateBox(doc, y, date, treatmentLabel);
   drawClosingText(doc, y + 4);
@@ -593,7 +614,7 @@ export async function downloadCertificateMulti(
     .sort((a, b) => a.date.getTime() - b.date.getTime());
 
   // Render
-  let y = drawHeader(doc, data.studio);
+  let y = drawHeader(doc, data.studio, data.patient);
   y = drawIntroBody(doc, y, data.studio, data.patient, "multi");
   y = drawMultiDatesBox(doc, y, normDates);
 

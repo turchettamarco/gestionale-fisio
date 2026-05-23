@@ -35,6 +35,7 @@ import { SOAPNotesEditor } from "@/app/(protected)/calendar/components/SOAPNotes
 import { PhotoGallerySection } from "@/app/(protected)/patients/[id]/PhotoGallery";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
+import AttendanceCertificateDialog from "@/src/components/certificates/AttendanceCertificateDialog";
 import PaidPill from "@/src/components/PaidPill";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
 import PatientPackagesSection from "@/src/components/packages/PatientPackagesSection";
@@ -361,6 +362,8 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   const [error,     setError]     = useState("");
   const [patient,   setPatient]   = useState<Patient | null>(null);
   const [activeTab, setActiveTab] = useState<"info" | "clinical" | "packages" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal">("info");
+  // Modale attestato di presenza cumulativo (Step 5)
+  const [showCertDialogMobile, setShowCertDialogMobile] = useState(false);
 
   /* user */
   const [userEmail,    setUserEmail]    = useState<string | null>(null);
@@ -1153,6 +1156,24 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
               ))}
             </div>
 
+            {/* Bottone Attestato di presenza (Step 5) */}
+            <button
+              onClick={() => setShowCertDialogMobile(true)}
+              disabled={apptStats.done === 0}
+              style={{
+                padding: "12px 14px", borderRadius: 12,
+                border: `1.5px solid ${T.border}`,
+                background: apptStats.done === 0 ? T.appBg : T.panelBg,
+                color: T.text, fontWeight: 700, fontSize: 14,
+                cursor: apptStats.done === 0 ? "not-allowed" : "pointer",
+                opacity: apptStats.done === 0 ? 0.5 : 1,
+                boxShadow: "0 1px 4px rgba(15,23,42,0.06)",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              }}
+            >
+              📄 Attestato di presenza
+            </button>
+
             {/* Barra progresso ciclo */}
             {prescribed > 0 && (
               <div style={{ background: T.panelBg, border: `1.5px solid ${T.border}`,
@@ -1532,6 +1553,23 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
         signatureName={getStudioBranding(currentStudio).signatureName}
         signatureTitle={getStudioBranding(currentStudio).signatureTitle}
       />
+
+      {/* Attestato di presenza cumulativo (Step 5) */}
+      {showCertDialogMobile && (
+        <AttendanceCertificateDialog
+          patientId={patientId}
+          patientFirstName={patient?.first_name ?? ""}
+          patientLastName={patient?.last_name ?? ""}
+          appointments={appointments.map(a => ({
+            id: a.id,
+            start_at: a.start_at,
+            status: a.status,
+            treatment_type: null,
+          }))}
+          onClose={() => setShowCertDialogMobile(false)}
+          mobile
+        />
+      )}
     </div>
   );
 }

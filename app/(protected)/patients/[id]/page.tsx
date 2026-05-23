@@ -20,6 +20,7 @@ import ClinicalDiarySection from "@/src/components/patient/clinical/ClinicalDiar
 import PatientPageTour from "@/src/components/patient/PatientPageTour";
 import { translateError } from "@/src/lib/translateError";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import AttendanceCertificateDialog from "@/src/components/certificates/AttendanceCertificateDialog";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter } from "@/src/lib/pdfHeader";
 import { ClinicalScalesSection } from "./ClinicalScales";
 import { PhotoGallerySection } from "./PhotoGallery";
@@ -884,6 +885,8 @@ export default function PatientDetailPage({
   const [secDocClinici,   setSecDocClinici]   = useState(true);
   const [secPacchetti,    setSecPacchetti]    = useState(true);
   const [secTerapie,      setSecTerapie]      = useState(true);
+  // Modale attestato di presenza cumulativo (Step 5)
+  const [showCertDialog, setShowCertDialog] = useState(false);
   const [secDiarioSOAP,   setSecDiarioSOAP]   = useState(true);
 
   // ── Dati per PatientSummaryPanel (Tappa 4) ────────────────────────
@@ -3081,7 +3084,24 @@ ${rows}
           />
           {secTerapie && (
           <div style={cardBody}>
-            <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
+            <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12, gap: 8 }}>
+              <button
+                onClick={() => setShowCertDialog(true)}
+                disabled={appointments.filter(a => a.status === "done").length === 0}
+                title={appointments.filter(a => a.status === "done").length === 0
+                  ? "Disponibile dopo almeno una seduta completata"
+                  : "Genera attestato di presenza PDF per più date"}
+                style={{
+                  padding: "8px 14px", borderRadius: 8,
+                  border: `1px solid ${THEME.border}`,
+                  background: THEME.panelSoft, color: THEME.text,
+                  fontWeight: 600, fontSize: 13,
+                  cursor: appointments.filter(a => a.status === "done").length === 0 ? "not-allowed" : "pointer",
+                  opacity: appointments.filter(a => a.status === "done").length === 0 ? 0.5 : 1,
+                }}
+              >
+                📄 Attestato presenza
+              </button>
               {btnOutline(loadingAppts ? "Aggiorno…" : "Aggiorna", loadAppointments, THEME.blue, loadingAppts)}
             </div>
 
@@ -3703,6 +3723,22 @@ ${rows}
           signatureName={getStudioBranding(currentStudio).signatureName}
           signatureTitle={getStudioBranding(currentStudio).signatureTitle}
         />
+
+        {/* Attestato di presenza cumulativo (mig. 034 + Step 5) */}
+        {showCertDialog && (
+          <AttendanceCertificateDialog
+            patientId={patientId as string}
+            patientFirstName={firstName || (patient?.first_name ?? "")}
+            patientLastName={lastName || (patient?.last_name ?? "")}
+            appointments={appointments.map(a => ({
+              id: a.id,
+              start_at: a.start_at,
+              status: a.status,
+              treatment_type: null,
+            }))}
+            onClose={() => setShowCertDialog(false)}
+          />
+        )}
 
       </main>
     </div>
