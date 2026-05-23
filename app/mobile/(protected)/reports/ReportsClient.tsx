@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import Link from "next/link";
+import ReportPrintModal from "@/src/components/mobile/ReportPrintModal";
 
 /* ─── Theme ───────────────────────────────────────────────────────────── */
 const THEME = {
@@ -118,10 +119,13 @@ function getBucketIndex(dt: Date, period: Period): number {
 }
 
 /* ─── Print helpers ───────────────────────────────────────────────────── */
+// I builder restituiscono SOLO l'HTML, niente window.open.
+// Il rendering avviene tramite <ReportPrintModal /> (full-screen iframe),
+// così su iOS PWA l'utente non resta bloccato in una WebView senza navigazione.
+
 const fmt = (v: number) => new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR"}).format(v);
 
-function printReport(therapies: UnpaidTherapy[], title: string) {
-  const w = window.open("","_blank"); if(!w) return;
+function buildReportHtml(therapies: UnpaidTherapy[], title: string): string {
   const today = new Date().toLocaleDateString("it-IT",{year:"numeric",month:"long",day:"numeric"});
   const patients: Record<string,{items:UnpaidTherapy[];total:number}> = {};
   therapies.forEach(t=>{
@@ -138,27 +142,25 @@ function printReport(therapies: UnpaidTherapy[], title: string) {
     });
   });
   rows+=`<tr style="background:#e8e8e8;font-weight:bold"><td colspan="4">TOTALE</td><td>${fmt(grand)}</td></tr>`;
-  w.document.write(`<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>${title}</title>
-  <style>body{font-family:sans-serif;padding:2cm;color:#000}table{width:100%;border-collapse:collapse;margin-top:1cm}
+  return `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>${title}</title>
+  <style>body{font-family:sans-serif;padding:2cm;color:#000;margin:0}table{width:100%;border-collapse:collapse;margin-top:1cm}
   th,td{border:1px solid #000;padding:6pt;font-size:10pt}th{background:#f0f0f0;font-weight:bold}
-  h1{font-size:18pt;text-align:center}button{padding:10px 20px;background:#2563eb;color:#fff;border:none;border-radius:4px;cursor:pointer;margin-bottom:1cm}
-  @media print{button{display:none}}</style></head><body>
-  <button onclick="window.print()">🖨️ Stampa</button>
+  h1{font-size:18pt;text-align:center;margin-top:0}
+  @media screen and (max-width:768px){body{padding:14px}}
+  @media print{@page{margin:1.5cm}body{padding:0}}</style></head><body>
   <h1>${title}</h1><div style="text-align:center;color:#555;margin-bottom:1cm">${today}</div>
   <table><thead><tr><th>Paziente</th><th>Tipo</th><th>Data</th><th>Giorni</th><th>Importo</th></tr></thead>
   <tbody>${rows}</tbody></table>
   <p style="margin-top:2cm;font-size:9pt;color:#555">Generato da FisioHub — ${new Date().toLocaleString("it-IT")}</p>
-  <script>window.onload=()=>setTimeout(()=>window.print(),500)</script></body></html>`);
-  w.document.close();
+  </body></html>`;
 }
 
-function printTotalReport(
+function buildTotalReportHtml(
   statistics: Statistic,
   reportTherapies: AppointmentTherapy[],
   rawData: FinancialItem[],
   period: Period, baseDate: Date,
-) {
-  const w = window.open("","_blank"); if(!w) return;
+): string {
   const today = new Date().toLocaleDateString("it-IT",{year:"numeric",month:"long",day:"numeric"});
   const {from,to}=getRange(period,baseDate);
   const rangeLabel = period==="month"
@@ -171,6 +173,9 @@ function printTotalReport(
     if(!a[k]) a[k]=[];
     a[k].push(t); return a;
   },{});
+
+  // rawData parameter resta per compatibilità con la firma esistente
+  void rawData;
 
   const therapyRows = Object.keys(byPatient).sort((a,b)=>a.localeCompare(b,"it")).map(name=>{
     const list=[...byPatient[name]].sort((x,y)=>new Date(x.date).getTime()-new Date(y.date).getTime());
@@ -185,13 +190,14 @@ function printTotalReport(
       </table></div>`;
   }).join("");
 
-  w.document.write(`<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>Report Totali</title>
-  <style>body{font-family:sans-serif;padding:2cm;color:#000}button{padding:10px 20px;background:#2563eb;color:#fff;border:none;border-radius:4px;cursor:pointer;margin-bottom:1cm}
-  @media print{button{display:none}}</style></head><body>
-  <button onclick="window.print()">🖨️ Stampa</button>
+  return `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>Report Totali</title>
+  <style>body{font-family:sans-serif;padding:2cm;color:#000;margin:0}
+  h1{margin-top:0}
+  @media screen and (max-width:768px){body{padding:14px}.summary{grid-template-columns:1fr !important}}
+  @media print{@page{margin:1.5cm}body{padding:0}}</style></head><body>
   <h1 style="text-align:center">REPORT TOTALI — FISIOHUB</h1>
   <p style="text-align:center;color:#555">${today} — ${escHtml(rangeLabel)}</p>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:2cm 0">
+  <div class="summary" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:2cm 0">
     <div style="padding:20px;border:1px solid #000;border-radius:8px;text-align:center;background:#f0fdf4">
       <div style="font-weight:bold">TOTALE INCASSATO</div>
       <div style="font-size:24pt;font-weight:bold;color:#16a34a">${fmt(statistics.total)}</div>
@@ -205,8 +211,7 @@ function printTotalReport(
   </div>
   <h2>🧑‍⚕️ Terapie per paziente</h2>${therapyRows}
   <p style="margin-top:2cm;font-size:9pt;color:#555">Generato da FisioHub — ${new Date().toLocaleString("it-IT")}</p>
-  <script>window.onload=()=>setTimeout(()=>window.print(),500)</script></body></html>`);
-  w.document.close();
+  </body></html>`;
 }
 
 /* ─── MobileBarChart ──────────────────────────────────────────────────── */
@@ -299,6 +304,10 @@ export default function ReportsMobile() {
   const [expandedPaid,   setExpandedPaid]   = useState(false);
   const [expandedUnpaid, setExpandedUnpaid] = useState(false);
   const [showUnpaidDropdown, setShowUnpaidDropdown] = useState(false);
+
+  // Anteprima report come modale full-screen (vedi ReportPrintModal).
+  // Sostituisce window.open che su iOS PWA lasciava l'utente bloccato.
+  const [previewReport, setPreviewReport] = useState<{ html: string; title: string } | null>(null);
 
   /* user */
   const [userEmail,    setUserEmail]    = useState<string|null>(null);
@@ -891,7 +900,10 @@ export default function ReportsMobile() {
 
                 {/* Stampa */}
                 <div style={{display:"flex",gap:10}}>
-                  <button onClick={()=>printTotalReport(statistics,reportTherapies,rawData,period,baseDate)}
+                  <button onClick={()=>setPreviewReport({
+                    html: buildTotalReportHtml(statistics,reportTherapies,rawData,period,baseDate),
+                    title: "Report totali"
+                  })}
                     style={{flex:1,padding:"12px",borderRadius:12,border:"none",
                       background:THEME.gradient,color:"#fff",fontWeight:700,fontSize:13,
                       cursor:"pointer",fontFamily:"Inter,-apple-system,sans-serif"}}>
@@ -910,7 +922,13 @@ export default function ReportsMobile() {
                       <div style={{position:"absolute",bottom:"calc(100% + 8px)",left:0,right:0,
                         background:THEME.panelBg,border:`1.5px solid ${THEME.border}`,
                         borderRadius:12,boxShadow:"0 -8px 24px rgba(15,23,42,0.12)",overflow:"hidden",zIndex:40}}>
-                        <button onClick={()=>{printReport(unpaidTherapiesAll,"Report Terapie Non Pagate");setShowUnpaidDropdown(false);}}
+                        <button onClick={()=>{
+                          setPreviewReport({
+                            html: buildReportHtml(unpaidTherapiesAll,"Report Terapie Non Pagate"),
+                            title: "Report Terapie Non Pagate"
+                          });
+                          setShowUnpaidDropdown(false);
+                        }}
                           style={{width:"100%",padding:"12px 16px",background:"none",border:"none",
                             textAlign:"left",fontSize:13,color:THEME.text,fontWeight:600,cursor:"pointer",
                             borderBottom:`1px solid ${THEME.border}`}}>
@@ -918,7 +936,10 @@ export default function ReportsMobile() {
                         </button>
                         {Array.from(new Set(unpaidTherapiesAll.map(t=>t.patient_name))).sort().map(name=>(
                           <button key={name} onClick={()=>{
-                            printReport(unpaidTherapiesAll.filter(t=>t.patient_name===name),`Non Pagati — ${name}`);
+                            setPreviewReport({
+                              html: buildReportHtml(unpaidTherapiesAll.filter(t=>t.patient_name===name),`Non Pagati — ${name}`),
+                              title: `Non Pagati — ${name}`
+                            });
                             setShowUnpaidDropdown(false);
                           }} style={{width:"100%",padding:"10px 16px",background:"none",border:"none",
                             textAlign:"left",fontSize:12,color:THEME.muted,cursor:"pointer",
@@ -1194,6 +1215,15 @@ export default function ReportsMobile() {
           </>
         )}
       </div>
+
+      {/* Anteprima report full-screen (mobile-safe per PWA iOS) */}
+      {previewReport && (
+        <ReportPrintModal
+          html={previewReport.html}
+          title={previewReport.title}
+          onClose={() => setPreviewReport(null)}
+        />
+      )}
     </div>
   );
 }

@@ -652,8 +652,21 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   }
   async function openDocument(doc: PatientDoc) {
     const res = await supabase.storage.from("patient_docs").createSignedUrl(doc.storage_path, 300);
-    if (res.data?.signedUrl) window.open(res.data.signedUrl, "_blank", "noopener,noreferrer");
-    else setError("Impossibile aprire il documento");
+    if (!res.data?.signedUrl) {
+      setError("Impossibile aprire il documento");
+      return;
+    }
+    // Apertura mobile-safe: niente window.open (su iOS PWA lascia bloccati).
+    // Uso un anchor con `download` attribute: iOS mostra la sheet "Apri in..."
+    // mantenendo la PWA aperta in background.
+    const a = document.createElement("a");
+    a.href = res.data.signedUrl;
+    a.download = doc.file_name || "documento";
+    a.rel = "noopener noreferrer";
+    a.target = "_blank";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
   async function deleteDocument(doc: PatientDoc) {
     if (!window.confirm("Eliminare questo documento?")) return;
