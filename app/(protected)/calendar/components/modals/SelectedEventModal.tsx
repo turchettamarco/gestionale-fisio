@@ -101,6 +101,8 @@ export type SelectedEventModalProps = {
   onSave: () => void;
   /** Elimina l'appuntamento dal DB */
   onDelete: () => void;
+  /** Genera attestato di presenza per questo singolo appuntamento (PDF) */
+  onGenerateCertificate: () => void;
   /** Invia promemoria WhatsApp */
   onSendReminder: (eventId: string, phone?: string, firstName?: string) => void;
   /** Apre WhatsApp con messaggio recensione Google */
@@ -148,7 +150,7 @@ export default function SelectedEventModal({
   timeSelectSlots,
   eventColors, setEventColors,
   getEventColor, getDefaultAmount,
-  onClose, onDuplicate, onSave, onDelete,
+  onClose, onDuplicate, onSave, onDelete, onGenerateCertificate,
   onSendReminder, onSendGoogleReview, onSendWeeklyReminder,
   multiOperatorEnabled,
   members,
@@ -986,6 +988,28 @@ export default function SelectedEventModal({
             >
               Scheda paziente
             </Link>
+
+            {/* Bottone "Attestato presenza" — abilitato solo se c'è un paziente */}
+            <button
+              onClick={onGenerateCertificate}
+              disabled={!selectedEvent.patient_id}
+              title={selectedEvent.patient_id
+                ? "Scarica attestato PDF di presenza per questa data"
+                : "Disponibile solo per appuntamenti con paziente collegato"}
+              style={{
+                padding: "12px 20px", borderRadius: 8,
+                border: `1px solid ${THEME.borderSoft}`,
+                background: THEME.panelSoft, color: THEME.text,
+                cursor: selectedEvent.patient_id ? "pointer" : "not-allowed",
+                fontWeight: 600,
+                display: "inline-flex", alignItems: "center", gap: 6,
+                minWidth: 170, justifyContent: "center",
+                opacity: selectedEvent.patient_id ? 1 : 0.5,
+                fontSize: 13,
+              }}
+            >
+              📄 Attestato presenza
+            </button>
 
             <button
               onClick={onSave}

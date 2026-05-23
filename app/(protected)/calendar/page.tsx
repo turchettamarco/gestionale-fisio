@@ -106,6 +106,7 @@ import WhatsAppConfirmDialog from "./components/modals/WhatsAppConfirmDialog";
 import CreateAppointmentModal from "./components/modals/CreateAppointmentModal";
 import SelectedEventModal from "./components/modals/SelectedEventModal";
 import GroupEventModal from "./components/modals/GroupEventModal";
+import { generateSingleCertificate } from "@/src/lib/certificateLoader";
 
 export default function CalendarPage() {
   return (
@@ -2432,6 +2433,25 @@ return (
           onDuplicate={(event) => openCreateModal(event.start, event.start.getHours(), event.start.getMinutes(), event)}
           onSave={saveAppointment}
           onDelete={deleteAppointment}
+          onGenerateCertificate={async () => {
+            if (!selectedEvent.patient_id || !selectedEvent.start) {
+              setError("Impossibile generare attestato: paziente o data mancanti.");
+              return;
+            }
+            try {
+              await generateSingleCertificate({
+                patientId: selectedEvent.patient_id,
+                appointmentDate: selectedEvent.start,
+                treatmentLabel:
+                  selectedEvent.treatment_type === "macchinario"
+                    ? "Seduta strumentale"
+                    : "Seduta di fisioterapia",
+              });
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : "Errore generazione attestato";
+              setError(msg);
+            }
+          }}
           onSendReminder={sendReminder}
           onSendGoogleReview={sendGoogleReview}
           onSendWeeklyReminder={(patientId, firstName, phone) => {

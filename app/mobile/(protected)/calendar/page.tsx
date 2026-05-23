@@ -10,6 +10,7 @@ import { buildReminderMessage } from "@/app/(protected)/calendar/utils/reminderM
 import { assignLanes } from "@/app/(protected)/calendar/utils/laneAssignment";
 import { getLocationCardStyle } from "@/app/(protected)/calendar/utils/locationHelpers";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
+import { generateSingleCertificate } from "@/src/lib/certificateLoader";
 import { SOAPNotesEditor } from "@/app/(protected)/calendar/components/SOAPNotes";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 import PackagePickerSection from "@/src/components/packages/PackagePickerSection";
@@ -2760,6 +2761,30 @@ function CalendarPageInner() {
                 <LightBtn v="ghost"
                   onClick={()=>router.push(`/mobile/patients/${selectedEvent.patient_id}`)}>
                   👤 Scheda paziente
+                </LightBtn>
+              )}
+              {selectedEvent.patient_id && (
+                <LightBtn v="ghost"
+                  onClick={async () => {
+                    if (!selectedEvent.patient_id || !selectedEvent.start) return;
+                    try {
+                      setBusy(true);
+                      await generateSingleCertificate({
+                        patientId: selectedEvent.patient_id,
+                        appointmentDate: selectedEvent.start,
+                        treatmentLabel:
+                          selectedEvent.treatment_type === "macchinario"
+                            ? "Seduta strumentale"
+                            : "Seduta di fisioterapia",
+                      });
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : "Errore generazione attestato");
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  disabled={busy}>
+                  📄 Attestato
                 </LightBtn>
               )}
               <LightBtn v="danger" onClick={deleteEvent} disabled={busy}>🗑 Elimina</LightBtn>
