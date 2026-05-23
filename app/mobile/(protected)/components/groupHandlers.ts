@@ -274,14 +274,23 @@ export async function duplicateGroupApi(
  * Invia promemoria WhatsApp a TUTTI i partecipanti di un gruppo.
  * Apre 1 finestra WA per ogni paziente con telefono (con delay tra l'una e l'altra).
  *
- * NOTA: il messaggio è generico ("Promemoria appuntamento di gruppo + giorno/ora").
- * Per ora non ricicliamo il template `reminder_message` con `{saluto}` come fa
- * il desktop, perché su mobile non abbiamo accesso facile al practice_settings.
- * Se serve un template più ricco, si può estendere in futuro.
+ * Multi-tenancy: il chiamante DEVE passare `branding` (da getStudioBranding del
+ * currentStudio), altrimenti la firma sarà generica.
+ *
+ * Template: se passato (es. da practice_settings.reminder_message), applica
+ * gli stessi placeholder usati dal desktop in buildReminderMessage:
+ *   {saluto}, {nome}, {data_relativa}, {data}, {ora}, {luogo}, {titolo}, {firma}
+ * Se template è null, fallback al messaggio generico (retrocompat).
  */
 export async function sendReminderToAllApi(
   event: GroupEvent,
-  branding?: { signatureName: string | null; signatureTitle: string | null }
+  branding?: { signatureName: string | null; signatureTitle: string | null },
+  options?: {
+    /** Template dal `reminder_message` di practice_settings, oppure null */
+    template?: string | null;
+    /** Indirizzo studio (per il placeholder {luogo}) */
+    studioAddress?: string | null;
+  },
 ): Promise<void> {
   const participants = event.participants ?? [];
   if (participants.length === 0) {
@@ -300,26 +309,74 @@ export async function sendReminderToAllApi(
   );
   if (!ok) return;
 
-  const dataStr = new Intl.DateTimeFormat("it-IT", {
-    weekday: "long", day: "numeric", month: "long",
-  }).format(event.start);
+  // ── Helpers per placeholder (riproduce la logica di buildReminderMessage) ──
+  const fmtDataRelativa = (d: Date): string => {
+    const oggi = new Date();
+    oggi.setHours(0, 0, 0, 0);
+    const giorno = new Date(d);
+    giorno.setHours(0, 0, 0, 0);
+    const diff = Math.round((giorno.getTime() - oggi.getTime()) / 86400000);
+    if (diff === 0) return "oggi";
+    if (diff === 1) return "domani";
+    if (diff === 2) return "dopodomani";
+    return new Intl.DateTimeFormat("it-IT", {
+      weekday: "long", day: "numeric", month: "long",
+    }).format(d);
+  };
+  const fmtDataIt = (d: Date): string =>
+    new Intl.DateTimeFormat("it-IT", { day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
+  const getSaluto = (): string => (new Date().getHours() < 14 ? "Buongiorno" : "Buonasera");
+
+  const dataRel = fmtDataRelativa(event.start);
+  const dataStr = fmtDataIt(event.start);
   const oraStr = `${String(event.start.getHours()).padStart(2, "0")}:${String(event.start.getMinutes()).padStart(2, "0")}`;
   const titolo = event.group_title || "Lezione di gruppo";
 
-  // Multi-tenancy: la firma viene dal branding dello studio corrente.
-  // Fallback "A presto!" senza firma se branding non fornito (meglio nessuna
-  // firma che una firma di un altro studio).
-  const firmaLine = branding && (branding.signatureName || branding.signatureTitle)
-    ? `\n\nA presto!\n${[branding.signatureName, branding.signatureTitle].filter(Boolean).join(", ")}.`
-    : "\n\nA presto!";
+  // Luogo: priorità indirizzo studio (dal currentStudio), fallback su clinic_site
+  const luogo = options?.studioAddress?.trim()
+    || event.clinic_site
+    || event.domicile_address
+    || "presso lo studio";
+
+  const firmaArr = [branding?.signatureName, branding?.signatureTitle].filter(Boolean) as string[];
+  const firmaText = firmaArr.length > 0 ? firmaArr.join("\n") : "";
+
+  const buildMessage = (firstName: string | null): string => {
+    const saluto = getSaluto();
+    const nome = (firstName ?? "").trim() || "Cliente";
+
+    // Se ho un template, applico i placeholder; altrimenti uso messaggio generico
+    // ma sempre con firma da branding (mai hardcoded).
+    if (options?.template && options.template.trim()) {
+      let t = options.template;
+      t = t.replace(/\{saluto\}/g, saluto);
+      t = t.replace(/\{nome\}/g, nome);
+      t = t.replace(/\{data_relativa\}/g, dataRel);
+      t = t.replace(/\{data\}/g, dataStr);
+      t = t.replace(/\{ora\}/g, oraStr);
+      t = t.replace(/\{luogo\}/g, luogo);
+      t = t.replace(/\{titolo\}/g, titolo);
+      t = t.replace(/\{firma\}/g, firmaText);
+      // Pulisce eventuali link conferma residui dai template del singolo
+      t = t.replace(/\{link_conferma\}/g, "").replace(/\{link\}/g, "");
+      return t;
+    }
+
+    // Fallback: messaggio generico (compatibilità con vecchi chiamanti)
+    const ciaoMattina = saluto === "Buongiorno" ? saluto : "Buonasera";
+    const firmaLine = firmaText
+      ? `\n\nA presto,\n${firmaText}`
+      : "\n\nA presto!";
+    return (
+      `${ciaoMattina} ${nome},\n` +
+      `Le ricordo l'appuntamento di "${titolo}" ${dataRel} alle ${oraStr}.` +
+      (luogo !== "presso lo studio" ? `\n\n📍 ${luogo}` : "") +
+      firmaLine
+    );
+  };
 
   for (const p of withPhone) {
-    const saluto = (p.patient_first_name ?? "").trim() || "ciao";
-    const msg = encodeURIComponent(
-      `Ciao ${saluto},\n` +
-      `ti ricordo il nostro appuntamento di "${titolo}" ${dataStr} alle ${oraStr}.` +
-      firmaLine,
-    );
+    const msg = encodeURIComponent(buildMessage(p.patient_first_name ?? null));
     const phone = (p.patient_phone ?? "").replace(/\D/g, "");
     const num = phone.startsWith("39") ? phone : `39${phone}`;
     const url = `https://wa.me/${num}?text=${msg}`;

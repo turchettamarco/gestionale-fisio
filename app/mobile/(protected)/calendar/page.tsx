@@ -3023,7 +3023,14 @@ function CalendarPageInner() {
             if (ok) await refreshOpenGroupCal();
           }}
           onSendReminderToAll={async (event) => {
-            await sendReminderToAllApi(event, getStudioBranding(currentStudio));
+            await sendReminderToAllApi(
+              event,
+              getStudioBranding(currentStudio),
+              {
+                template: reminderTplCache,
+                studioAddress: currentStudio?.address ?? null,
+              }
+            );
           }}
           onDeleteGroup={async (apptId) => {
             const ok = await deleteGroupApi(apptId);
