@@ -7,11 +7,14 @@
 //
 // Tutte le funzioni restituiscono `Promise<{ ok: boolean; error?: string }>`
 // così il chiamante può decidere come notificare l'utente. Internamente
-// chiamano supabase e mostrano `alert()` solo per errori critici.
+// chiamano supabase e usano `showToast.error()` (in-app, non bloccante)
+// per gli errori critici, mantenendo `window.confirm()` per conferme
+// distruttive (eliminazione, rimozione partecipante).
 //
 // ═══════════════════════════════════════════════════════════════════════
 
 import { supabase } from "@/src/lib/supabaseClient";
+import { showToast } from "@/src/components/mobile/ToastProvider";
 import type { Participant, PatientSearchResult, GroupEvent } from "./GroupEventModalMobile";
 
 /** Ricerca pazienti per il search inline del modal gruppo */
@@ -92,7 +95,7 @@ export async function addParticipantApi(
       attendance_status: "pending",
     });
   if (error) {
-    alert("Errore aggiunta partecipante: " + error.message);
+    showToast.error("Errore aggiunta partecipante: " + error.message);
     return false;
   }
   return true;
@@ -123,7 +126,7 @@ export async function updateParticipantApi(
     .update(dbPatch)
     .eq("id", participantId);
   if (error) {
-    alert("Errore aggiornamento partecipante: " + error.message);
+    showToast.error("Errore aggiornamento partecipante: " + error.message);
     return false;
   }
   return true;
@@ -136,7 +139,7 @@ export async function removeParticipantApi(participantId: string): Promise<boole
     .delete()
     .eq("id", participantId);
   if (error) {
-    alert("Errore rimozione partecipante: " + error.message);
+    showToast.error("Errore rimozione partecipante: " + error.message);
     return false;
   }
   return true;
@@ -155,7 +158,7 @@ export async function markAllPaidApi(appointmentId: string): Promise<boolean> {
     .eq("appointment_id", appointmentId)
     .eq("payment_status", "unpaid");
   if (error) {
-    alert("Errore aggiornamento pagamenti: " + error.message);
+    showToast.error("Errore aggiornamento pagamenti: " + error.message);
     return false;
   }
   return true;
@@ -171,7 +174,7 @@ export async function updateGroupApi(
     .update(patch)
     .eq("id", appointmentId);
   if (error) {
-    alert("Errore aggiornamento gruppo: " + error.message);
+    showToast.error("Errore aggiornamento gruppo: " + error.message);
     return false;
   }
   return true;
@@ -184,7 +187,7 @@ export async function deleteGroupApi(appointmentId: string): Promise<boolean> {
     .delete()
     .eq("id", appointmentId);
   if (error) {
-    alert("Errore eliminazione gruppo: " + error.message);
+    showToast.error("Errore eliminazione gruppo: " + error.message);
     return false;
   }
   return true;
@@ -210,7 +213,7 @@ export async function duplicateGroupApi(
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData.user?.id;
   if (!userId) {
-    alert("Sessione scaduta. Effettua di nuovo il login.");
+    showToast.warning("Sessione scaduta. Effettua di nuovo il login.");
     return null;
   }
 
@@ -241,7 +244,7 @@ export async function duplicateGroupApi(
     .select("id")
     .single();
   if (createErr || !created) {
-    alert("Errore duplicazione gruppo: " + (createErr?.message || "errore sconosciuto"));
+    showToast.error("Errore duplicazione gruppo: " + (createErr?.message || "errore sconosciuto"));
     return null;
   }
 
@@ -260,9 +263,9 @@ export async function duplicateGroupApi(
       .insert(partRows);
     if (partErr) {
       console.error("[duplicate-group-mobile] errore partecipanti:", partErr);
-      alert(
-        `Gruppo duplicato, ma errore nell'aggiungere i partecipanti: ${partErr.message}\n` +
-        `Puoi aggiungerli dalla scheda del nuovo gruppo.`,
+      showToast.warning(
+        `Gruppo duplicato, ma errore nell'aggiungere i partecipanti: ${partErr.message}. ` +
+        `Puoi aggiungerli dalla scheda del nuovo gruppo.`
       );
     }
   }
@@ -294,12 +297,12 @@ export async function sendReminderToAllApi(
 ): Promise<void> {
   const participants = event.participants ?? [];
   if (participants.length === 0) {
-    alert("Nessun partecipante a cui inviare il promemoria.");
+    showToast.warning("Nessun partecipante a cui inviare il promemoria.");
     return;
   }
   const withPhone = participants.filter(p => (p.patient_phone ?? "").trim());
   if (withPhone.length === 0) {
-    alert("Nessun partecipante ha un numero di telefono registrato.");
+    showToast.warning("Nessun partecipante ha un numero di telefono registrato.");
     return;
   }
   const skipped = participants.length - withPhone.length;

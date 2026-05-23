@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import { StudioProvider } from "@/src/contexts/StudioContext";
+import { ToastProvider } from "@/src/components/mobile/ToastProvider";
 import WelcomeTour from "@/app/(protected)/components/WelcomeTour";
 import ActivityTracker from "@/app/(protected)/components/ActivityTracker";
 
@@ -30,9 +31,11 @@ export default function MobileProtectedLayout({ children }: { children: React.Re
   if (!ready) return null;
   return (
     <StudioProvider>
-      {children}
-      <WelcomeTour />
-      <ActivityTracker />
+      <ToastProvider>
+        {children}
+        <WelcomeTour />
+        <ActivityTracker />
+      </ToastProvider>
     </StudioProvider>
   );
 }

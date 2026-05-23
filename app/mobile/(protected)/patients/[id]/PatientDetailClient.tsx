@@ -36,6 +36,7 @@ import { PhotoGallerySection } from "@/app/(protected)/patients/[id]/PhotoGaller
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 import AttendanceCertificateDialog from "@/src/components/certificates/AttendanceCertificateDialog";
+import { showToast } from "@/src/components/mobile/ToastProvider";
 import PaidPill from "@/src/components/PaidPill";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
 import PatientPackagesSection from "@/src/components/packages/PatientPackagesSection";
@@ -1788,7 +1789,7 @@ function MobilePortalTab({ patient, currentStudio }: {
     try {
       const r = await fetch("/api/portal",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({patient_id:patient.id})});
       const d = await r.json();
-      if(d.error){alert("Errore: "+d.error);return;}
+      if(d.error){showToast.error("Errore: "+d.error);return;}
       const url = `${window.location.origin}/portale/${d.token}`;
       setLink(url);
       return url;
@@ -1830,7 +1831,7 @@ function MobilePortalTab({ patient, currentStudio }: {
     const url = link || await generate();
     if(!url) return;
     try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(()=>setCopied(false),2000); }
-    catch { alert("Link: "+url); }
+    catch { showToast.info("Link: "+url); }
   }
 
   return (

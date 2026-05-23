@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { getStudioBranding } from "@/src/lib/studioBranding";
+import { showToast } from "@/src/components/mobile/ToastProvider";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
@@ -48,7 +49,7 @@ import {
 function openWA(phone: string, message: string = ""): void {
   const n = normalizePhoneForWA(phone);
   if (!n) {
-    alert("Il numero di telefono del paziente non è valido. Verifica e riprova.");
+    showToast.error("Il numero di telefono del paziente non è valido. Verifica e riprova.");
     return;
   }
   const isMobile = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
@@ -1017,7 +1018,7 @@ function CalendarPageInner() {
   const sendReminder = useCallback((
     appointmentId:string, patientPhone?:string, patientFirstName?:string, isConfirmation?:boolean,
   ) => {
-    if (!patientPhone) { alert("Nessun telefono registrato per questo paziente"); return; }
+    if (!patientPhone) { showToast.warning("Nessun telefono registrato per questo paziente"); return; }
     const appointment = events.find(e=>e.id===appointmentId);
     if (!appointment) return;
 
@@ -1087,7 +1088,7 @@ function CalendarPageInner() {
         .order("start_at", { ascending: true });
 
       if (error) {
-        alert(`Errore caricamento appuntamenti: ${error.message}`);
+        showToast.error(`Errore caricamento appuntamenti: ${error.message}`);
         return;
       }
 
@@ -1105,7 +1106,7 @@ function CalendarPageInner() {
         appointments: mapped,
       });
     } catch (e) {
-      alert(`Errore: ${e instanceof Error ? e.message : String(e)}`);
+      showToast.error(`Errore: ${e instanceof Error ? e.message : String(e)}`);
     }
   }, []);
 
@@ -1162,7 +1163,7 @@ function CalendarPageInner() {
     let effectiveEditPM = editPaymentMethod;
     if (editPriceType === "invoiced" && !editPaymentMethod) {
       if (paymentMethodRequired) {
-        alert("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");
+        showToast.warning("Seleziona il metodo di pagamento (Contanti, POS o Bonifico).");
         return;
       }
       effectiveEditPM = defaultPaymentMethod;
@@ -1485,8 +1486,8 @@ function CalendarPageInner() {
         .insert(allPartRows);
       if (partErr) {
         console.error("[calendar-mobile-create-group] errore partecipanti:", partErr);
-        alert(
-          `Gruppo creato, ma errore nell'aggiungere i partecipanti: ${partErr.message}\n` +
+        showToast.warning(
+          `Gruppo creato, ma errore nell'aggiungere i partecipanti: ${partErr.message}. ` +
           `Puoi aggiungerli dalla scheda del gruppo.`
         );
       }
@@ -1793,7 +1794,7 @@ function CalendarPageInner() {
                 .filter(Boolean)
                 .map(x => `• ${fmtTime(x!.start)} — ${x!.patient_name}`)
                 .join("\n");
-              alert(`${1 + hidden} appuntamenti sovrapposti:\n\n${names}`);
+              showToast.info(`${1 + hidden} appuntamenti sovrapposti: ${names.replace(/\n/g, " · ")}`);
             }}
             style={{
               position: "absolute",
@@ -3066,7 +3067,7 @@ function CalendarPageInner() {
               await loadAppointments(currentDate);
               const niceDate = newStart.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
               const niceTime = newStart.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
-              alert(`✓ Gruppo duplicato per ${niceDate} alle ${niceTime}.`);
+              showToast.success(`Gruppo duplicato per ${niceDate} alle ${niceTime}.`);
             }
           }}
         />

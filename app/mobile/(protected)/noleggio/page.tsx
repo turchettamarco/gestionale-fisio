@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudioId } from "@/src/contexts/StudioContext";
+import { showToast } from "@/src/components/mobile/ToastProvider";
 
 const THEME = {
   appBg:"#f1f5f9", panelBg:"#ffffff", text:"#0f172a", muted:"#334155",
@@ -117,11 +118,11 @@ export default function MobileNoleggioPage() {
   async function toggleReturned(id:string,cur:boolean){ await supabase.from("noleggios").update({is_returned:!cur}).eq("id",id); setNoleggios(p=>p.map(n=>n.id===id?{...n,is_returned:!cur}:n)); }
   async function del(id:string){ if(!confirm("Eliminare?"))return; await supabase.from("noleggios").delete().eq("id",id); setNoleggios(p=>p.filter(n=>n.id!==id)); }
   async function saveEditNoleggio(id:string) {
-    if(!editName.trim()){alert("Il nome non può essere vuoto.");return;}
-    if(!editStart||!editEnd){alert("Date obbligatorie.");return;}
-    if(new Date(editEnd)<new Date(editStart)){alert("La data di fine non può essere prima della data di inizio.");return;}
+    if(!editName.trim()){showToast.warning("Il nome non può essere vuoto.");return;}
+    if(!editStart||!editEnd){showToast.warning("Date obbligatorie.");return;}
+    if(new Date(editEnd)<new Date(editStart)){showToast.warning("La data di fine non può essere prima della data di inizio.");return;}
     const pday = parseFloat(editPricePerDay)||0;
-    if(pday<=0){alert("Prezzo al giorno non valido.");return;}
+    if(pday<=0){showToast.warning("Prezzo al giorno non valido.");return;}
     const days = Math.max(1, Math.round((new Date(editEnd+"T12:00:00").getTime()-new Date(editStart+"T12:00:00").getTime())/86400000));
     const total = Math.round(days*pday*100)/100;
 
@@ -135,7 +136,7 @@ export default function MobileNoleggioPage() {
       total_amount:total,
     }).eq("id",id);
     setEditSaving(false);
-    if(error){alert("Errore: "+error.message);return;}
+    if(error){showToast.error("Errore: "+error.message);return;}
     setEditingId(null);
     setNoleggios(p=>p.map(n=>n.id===id?{...n,patient_name:editName.trim(),patient_phone:editPhone.trim()||null,start_date:editStart,end_date:editEnd,price_per_day:pday,total_amount:total}:n));
   }
@@ -145,13 +146,13 @@ export default function MobileNoleggioPage() {
     try {
       const { data: userData } = await supabase.auth.getUser();
       const userId = userData.user?.id ?? null;
-      if (!userId) { alert("Sessione non valida."); return; }
+      if (!userId) { showToast.error("Sessione non valida."); return; }
       const parts=n.patient_name.trim().split(/\s+/);
       const {data,error}=await supabase.from("patients").insert({first_name:parts.slice(1).join(" ")||"",last_name:parts[0]||n.patient_name,phone:n.patient_phone||"",owner_id:userId,studio_id:currentStudioId}).select("id").single();
-      if(error){alert("Errore: "+error.message);return;}
+      if(error){showToast.error("Errore: "+error.message);return;}
       await supabase.from("noleggios").update({patient_id:data.id}).eq("id",n.id);
       setNoleggios(p=>p.map(x=>x.id===n.id?{...x,patient_id:data.id}:x));
-      alert("✅ Paziente creato e collegato!");
+      showToast.success("Paziente creato e collegato!");
     } finally {setCreatingPatient(null);}
   }
 

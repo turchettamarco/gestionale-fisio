@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { showToast } from "@/src/components/mobile/ToastProvider";
 import {
   type TreatmentTypeRow,
   loadTreatmentTypes,
@@ -398,7 +399,7 @@ export default function MobileSettingsPage() {
 
   async function createLoc() {
     if (!currentStudioId) return;
-    if (!locFormName.trim()) { alert("Il nome della sede è obbligatorio"); return; }
+    if (!locFormName.trim()) { showToast.warning("Il nome della sede è obbligatorio"); return; }
     setSavingLocation(true);
     try {
       const maxSort = studioLocations.reduce((m, l) => Math.max(m, l.sort_order ?? 0), 0);
@@ -410,7 +411,7 @@ export default function MobileSettingsPage() {
         border_color: locFormBorderColor,
         sort_order: maxSort + 1,
       });
-      if (errIns) { alert("Errore: " + errIns.message); return; }
+      if (errIns) { showToast.error("Errore: " + errIns.message); return; }
       await refreshLocations();
       resetLocForm();
       setSuccess("Sede aggiunta."); setTimeout(()=>setSuccess(""), 3000);
@@ -421,7 +422,7 @@ export default function MobileSettingsPage() {
 
   async function updateLoc(id: string) {
     if (!currentStudioId) return;
-    if (!locFormName.trim()) { alert("Il nome della sede è obbligatorio"); return; }
+    if (!locFormName.trim()) { showToast.warning("Il nome della sede è obbligatorio"); return; }
     setSavingLocation(true);
     try {
       const { error: errUpd } = await supabase.from("studio_locations").update({
@@ -429,7 +430,7 @@ export default function MobileSettingsPage() {
         address: locFormAddress.trim() || null,
         border_color: locFormBorderColor,
       }).eq("id", id);
-      if (errUpd) { alert("Errore: " + errUpd.message); return; }
+      if (errUpd) { showToast.error("Errore: " + errUpd.message); return; }
       await refreshLocations();
       resetLocForm();
       setSuccess("Sede aggiornata."); setTimeout(()=>setSuccess(""), 3000);
@@ -439,13 +440,13 @@ export default function MobileSettingsPage() {
   }
 
   async function deleteLoc(id: string, name: string, isPrimary: boolean) {
-    if (isPrimary) { alert("Non puoi rimuovere la sede principale."); return; }
+    if (isPrimary) { showToast.warning("Non puoi rimuovere la sede principale."); return; }
     const ok = confirm(`Rimuovere la sede "${name}"?`);
     if (!ok) return;
     setSavingLocation(true);
     try {
       const { error: errDel } = await supabase.from("studio_locations").delete().eq("id", id);
-      if (errDel) { alert("Errore: " + errDel.message); return; }
+      if (errDel) { showToast.error("Errore: " + errDel.message); return; }
       await refreshLocations();
       setSuccess("Sede rimossa."); setTimeout(()=>setSuccess(""), 3000);
     } finally {
@@ -461,13 +462,13 @@ export default function MobileSettingsPage() {
         .from("studio_locations")
         .update({ is_primary: false })
         .eq("studio_id", currentStudioId);
-      if (errOff) { alert("Errore: " + errOff.message); return; }
+      if (errOff) { showToast.error("Errore: " + errOff.message); return; }
 
       const { error: errOn } = await supabase
         .from("studio_locations")
         .update({ is_primary: true, border_color: null })
         .eq("id", id);
-      if (errOn) { alert("Errore: " + errOn.message); return; }
+      if (errOn) { showToast.error("Errore: " + errOn.message); return; }
 
       await refreshLocations();
       setSuccess("Sede principale aggiornata."); setTimeout(()=>setSuccess(""), 3000);
@@ -784,7 +785,7 @@ export default function MobileSettingsPage() {
                     onChange={e => {
                       const file = e.target.files?.[0];
                       if (!file) return;
-                      if (file.size > 200000) { alert("Logo max 200KB"); return; }
+                      if (file.size > 200000) { showToast.warning("Logo max 200KB"); return; }
                       const r = new FileReader();
                       r.onload = ev => setLogoBase64(ev.target!.result as string);
                       r.readAsDataURL(file);

@@ -28,6 +28,7 @@ function openWA(phone: string, message: string = ""): void {
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getStudioBranding } from "@/src/lib/studioBranding";
+import { showToast } from "@/src/components/mobile/ToastProvider";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
@@ -819,7 +820,7 @@ export default function MobileHomePage() {
   // (fire-and-forget). Così il messaggio ha SEMPRE il link conferma funzionante.
   const sendReminder = useCallback((appt: Appointment) => {
     const phone = appt.patients?.phone;
-    if (!phone) { alert("Nessun numero registrato."); return; }
+    if (!phone) { showToast.warning("Nessun numero registrato."); return; }
 
     // Usa link conferma dalla cache, o generalo al volo client-side
     let linkConferma = confirmLinks[appt.id];
@@ -867,7 +868,7 @@ export default function MobileHomePage() {
     // con fallback a wa.me se l'app non è installata
     const clean = formatPhoneForWA(phone);
     if (!clean) {
-      alert("Il numero di telefono del paziente non è valido. Verifica e riprova.");
+      showToast.error("Il numero di telefono del paziente non è valido. Verifica e riprova.");
       return;
     }
     const enc = encodeURIComponent(message);
@@ -935,7 +936,7 @@ export default function MobileHomePage() {
       setWeekAppts(prev => prev.map(a => a.id === editAppt.id ? updated : a));
       setEditAppt(null);
     } catch (e: any) {
-      alert(e?.message ?? "Errore nel salvataggio");
+      showToast.error(e?.message ?? "Errore nel salvataggio");
     } finally {
       setEditSaving(false);
     }
@@ -1080,31 +1081,31 @@ export default function MobileHomePage() {
 
   async function saveQuickAdd() {
     if (!qaTime) return;
-    if (!qaDate) { alert("Seleziona la data."); return; }
+    if (!qaDate) { showToast.warning("Seleziona la data."); return; }
     if (qaBusyTimes.has(qaTime)) {
-      alert("L'orario selezionato è già occupato. Scegline un altro.");
+      showToast.error("L'orario selezionato è già occupato. Scegline un altro.");
       return;
     }
 
     // ─── Validazione gruppo (mig. 014) ──────────────────────────────────────
     if (qaIsGroup) {
       if (!qaGroupTitle.trim()) {
-        alert("Inserisci un titolo per il gruppo (es. \"Posturale\").");
+        showToast.warning("Inserisci un titolo per il gruppo (es. \"Posturale\").");
         return;
       }
       const maxN = parseInt(qaGroupMax, 10);
       if (isNaN(maxN) || maxN < 2) {
-        alert("Numero massimo partecipanti non valido (minimo 2).");
+        showToast.warning("Numero massimo partecipanti non valido (minimo 2).");
         return;
       }
       const pricePP = parseFloat(qaGroupPrice.replace(",", "."));
       if (isNaN(pricePP) || pricePP < 0) {
-        alert("Prezzo per persona non valido.");
+        showToast.warning("Prezzo per persona non valido.");
         return;
       }
       // Step 6.1: validazione partecipanti iniziali
       if (qaInitialParticipants.length > maxN) {
-        alert(`Hai selezionato ${qaInitialParticipants.length} partecipanti, ma il massimo è ${maxN}.`);
+        showToast.warning(`Hai selezionato ${qaInitialParticipants.length} partecipanti, ma il massimo è ${maxN}.`);
         return;
       }
     }
@@ -1159,8 +1160,8 @@ export default function MobileHomePage() {
             .insert(partRows);
           if (partErr) {
             console.error("[mobile-create-group] errore partecipanti:", partErr);
-            alert(
-              `Gruppo creato, ma errore nell'aggiungere i partecipanti: ${partErr.message}\n` +
+            showToast.warning(
+              `Gruppo creato, ma errore nell'aggiungere i partecipanti: ${partErr.message}. ` +
               `Puoi aggiungerli dalla scheda del gruppo.`
             );
           }
@@ -1179,7 +1180,7 @@ export default function MobileHomePage() {
       // Create new patient if in new mode
       if (qaNewMode) {
         if (!qaNewFirst.trim() || !qaNewLast.trim()) {
-          alert("Inserisci nome e cognome del paziente.");
+          showToast.warning("Inserisci nome e cognome del paziente.");
           setQaSaving(false);
           return;
         }
@@ -1200,7 +1201,7 @@ export default function MobileHomePage() {
       }
 
       if (!patientId) {
-        alert("Seleziona o crea un paziente.");
+        showToast.warning("Seleziona o crea un paziente.");
         setQaSaving(false);
         return;
       }
@@ -1235,7 +1236,7 @@ export default function MobileHomePage() {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Errore nella creazione";
       console.error("[saveQuickAdd]", e);
-      alert(msg);
+      showToast.error(msg);
     } finally { setQaSaving(false); }
   }
 
@@ -1259,7 +1260,7 @@ export default function MobileHomePage() {
 
     const clean = formatPhoneForWA(patientPhone);
     if (!clean) {
-      alert("Il numero di telefono del paziente non è valido. Verifica e riprova.");
+      showToast.error("Il numero di telefono del paziente non è valido. Verifica e riprova.");
       setWaConfirmOpen(false);
       setWaConfirmData(null);
       return;
@@ -3196,7 +3197,7 @@ export default function MobileHomePage() {
               await loadAll();
               const niceDate = newStart.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
               const niceTime = newStart.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
-              alert(`✓ Gruppo duplicato per ${niceDate} alle ${niceTime}.`);
+              showToast.success(`Gruppo duplicato per ${niceDate} alle ${niceTime}.`);
             }
           }}
         />

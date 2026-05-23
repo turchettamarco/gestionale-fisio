@@ -17,6 +17,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { showToast } from "@/src/components/mobile/ToastProvider";
 
 // Tipo locale del partecipante (riallineato a `appointment_participants` del DB)
 export type Participant = {
@@ -322,12 +323,12 @@ export default function GroupEventModalMobile({
 
   const handleDuplicate = async () => {
     if (!dupDate || !dupTime) {
-      alert("Inserisci data e ora valide.");
+      showToast.warning("Inserisci data e ora valide.");
       return;
     }
     const newStart = new Date(`${dupDate}T${dupTime}:00`);
     if (isNaN(newStart.getTime())) {
-      alert("Data o ora non valide.");
+      showToast.warning("Data o ora non valide.");
       return;
     }
     setBusy(true);
@@ -342,9 +343,9 @@ export default function GroupEventModalMobile({
   const handleSaveGroupEdit = async () => {
     const newMax = parseInt(editMax, 10);
     const newPrice = parseFloat(editPrice.replace(",", "."));
-    if (!editTitle.trim()) { alert("Il titolo non può essere vuoto."); return; }
-    if (isNaN(newMax) || newMax < count) { alert(`Max deve essere ≥ ${count}.`); return; }
-    if (isNaN(newPrice) || newPrice < 0) { alert("Prezzo non valido."); return; }
+    if (!editTitle.trim()) { showToast.warning("Il titolo non può essere vuoto."); return; }
+    if (isNaN(newMax) || newMax < count) { showToast.warning(`Max deve essere ≥ ${count}.`); return; }
+    if (isNaN(newPrice) || newPrice < 0) { showToast.warning("Prezzo non valido."); return; }
     setBusy(true);
     try {
       await onUpdateGroup(event.id, {
