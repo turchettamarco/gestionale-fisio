@@ -221,6 +221,15 @@ export default function MobileHomePage() {
   const [dayAppts,  setDayAppts]  = useState<Appointment[]>([]);
   const [weekAppts, setWeekAppts] = useState<Appointment[]>([]);
 
+  // Stats settimana lun-dom della settimana corrente (per badge in header)
+  // Caricato in parallelo al loadAll per coerenza con il calcolo desktop
+  // (vedi RightSidebar.tsx + useCalendarEvents.ts).
+  const [weekStats, setWeekStats] = useState<{
+    done: number;       // sedute con status=done già fatte
+    total: number;      // sedute totali settimana (escluse cancellate)
+    revenue: number;    // € atteso (amount ?? expected_price)
+  }>({ done: 0, total: 0, revenue: 0 });
+
   // Cache link di conferma pre-generati per ogni appuntamento.
   // Li pre-generiamo quando gli appuntamenti vengono caricati, così al click
   // su "Invia WA" non serve alcuna chiamata async: il click può invocare direttamente
@@ -570,7 +579,19 @@ export default function MobileHomePage() {
                    patients:patient_id(first_name,last_name,phone),
                    appointment_participants(id,price,payment_status)`;
 
-      const [dayRes, weekRes] = await Promise.all([
+      // ─── Range settimana lun-dom della data visualizzata ───────────────
+      // (allineato col calcolo del calendario desktop in useCalendarEvents.ts)
+      const baseDate = new Date(`${dateYMD}T12:00:00`);
+      const dow = baseDate.getDay(); // 0=dom, 1=lun, ..., 6=sab
+      const diffToMonday = (dow === 0 ? -6 : 1) - dow;
+      const weekStart = new Date(baseDate);
+      weekStart.setDate(baseDate.getDate() + diffToMonday);
+      weekStart.setHours(0, 0, 0, 0);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 7);
+      weekEnd.setHours(0, 0, 0, 0);
+
+      const [dayRes, weekRes, weekStatsRes] = await Promise.all([
         supabase.from("appointments").select(SEL)
           .gte("start_at", `${dateYMD}T00:00:00`)
           .lt("start_at",  `${dateYMD}T23:59:59`)
@@ -583,10 +604,34 @@ export default function MobileHomePage() {
           // mig. 029 — escludi appuntamenti degli ospiti dal calendario titolare
           .is("guest_practitioner_id", null)
           .order("start_at", { ascending: true }),
+        // Query light per le stats settimana lun-dom (solo campi necessari)
+        supabase.from("appointments")
+          .select("status, amount, expected_price")
+          .gte("start_at", weekStart.toISOString())
+          .lt("start_at", weekEnd.toISOString())
+          .is("guest_practitioner_id", null),
       ]);
 
       if (dayRes.error)  throw dayRes.error;
       if (weekRes.error) throw weekRes.error;
+      // Le stats sono non-blocking: se errore, le azzero ma non blocco il resto
+      if (weekStatsRes.error) {
+        setWeekStats({ done: 0, total: 0, revenue: 0 });
+      } else {
+        const rows = (weekStatsRes.data ?? []) as Array<{
+          status: string;
+          amount: number | null;
+          expected_price: number | null;
+        }>;
+        const valid = rows.filter(r => r.status !== "cancelled");
+        const done = valid.filter(r => r.status === "done").length;
+        const total = valid.length;
+        const revenue = valid.reduce(
+          (sum, r) => sum + Number(r.amount ?? r.expected_price ?? 0),
+          0
+        );
+        setWeekStats({ done, total, revenue });
+      }
 
       const map = (a: any): Appointment => {
         const p = Array.isArray(a.patients) ? a.patients[0] : a.patients;
@@ -1607,6 +1652,20 @@ export default function MobileHomePage() {
               <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 600, marginTop: 2 }}>
                 {loading ? "…" : `${activeAppts.length} sedute`}
                 {!isToday && ` · ${headerDateLabel}`}
+                {/* Stats settimana (lun-dom): fatte/totali · € atteso */}
+                {!loading && weekStats.total > 0 && (
+                  <>
+                    {" · "}
+                    <span style={{ fontWeight: 700 }}>
+                      <span style={{ color: THEME.green }}>{weekStats.done}</span>
+                      <span style={{ color: THEME.muted }}>/{weekStats.total}</span>
+                    </span>
+                    {" · "}
+                    <span style={{ color: THEME.blue, fontWeight: 700 }}>
+                      €{Math.round(weekStats.revenue).toLocaleString("it-IT")}
+                    </span>
+                  </>
+                )}
               </div>
             </div>
           </div>
