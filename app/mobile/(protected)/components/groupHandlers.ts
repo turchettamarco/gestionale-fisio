@@ -279,7 +279,10 @@ export async function duplicateGroupApi(
  * il desktop, perché su mobile non abbiamo accesso facile al practice_settings.
  * Se serve un template più ricco, si può estendere in futuro.
  */
-export async function sendReminderToAllApi(event: GroupEvent): Promise<void> {
+export async function sendReminderToAllApi(
+  event: GroupEvent,
+  branding?: { signatureName: string | null; signatureTitle: string | null }
+): Promise<void> {
   const participants = event.participants ?? [];
   if (participants.length === 0) {
     alert("Nessun partecipante a cui inviare il promemoria.");
@@ -303,12 +306,19 @@ export async function sendReminderToAllApi(event: GroupEvent): Promise<void> {
   const oraStr = `${String(event.start.getHours()).padStart(2, "0")}:${String(event.start.getMinutes()).padStart(2, "0")}`;
   const titolo = event.group_title || "Lezione di gruppo";
 
+  // Multi-tenancy: la firma viene dal branding dello studio corrente.
+  // Fallback "A presto!" senza firma se branding non fornito (meglio nessuna
+  // firma che una firma di un altro studio).
+  const firmaLine = branding && (branding.signatureName || branding.signatureTitle)
+    ? `\n\nA presto!\n${[branding.signatureName, branding.signatureTitle].filter(Boolean).join(", ")}.`
+    : "\n\nA presto!";
+
   for (const p of withPhone) {
     const saluto = (p.patient_first_name ?? "").trim() || "ciao";
     const msg = encodeURIComponent(
       `Ciao ${saluto},\n` +
-      `ti ricordo il nostro appuntamento di "${titolo}" ${dataStr} alle ${oraStr}.\n\n` +
-      `A presto!\nDr. Marco Turchetta, Fisioterapia e Osteopatia.`,
+      `ti ricordo il nostro appuntamento di "${titolo}" ${dataStr} alle ${oraStr}.` +
+      firmaLine,
     );
     const phone = (p.patient_phone ?? "").replace(/\D/g, "");
     const num = phone.startsWith("39") ? phone : `39${phone}`;

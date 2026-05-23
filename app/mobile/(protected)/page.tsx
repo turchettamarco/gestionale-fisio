@@ -3152,7 +3152,7 @@ export default function MobileHomePage() {
             if (ok) await refreshOpenGroup();
           }}
           onSendReminderToAll={async (event) => {
-            await sendReminderToAllApi(event);
+            await sendReminderToAllApi(event, getStudioBranding(currentStudio));
           }}
           onDeleteGroup={async (apptId) => {
             const ok = await deleteGroupApi(apptId);
