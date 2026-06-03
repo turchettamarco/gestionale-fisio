@@ -1601,6 +1601,25 @@ function MobileEserciziTab({ patientId, patientName, currentStudio }: {
   const [genLoading, setGenLoading] = React.useState(false);
   const [error,    setError]    = React.useState("");
   const [storico,  setStorico]  = React.useState<any[]>([]);
+  const [aiExName,   setAiExName]   = React.useState("");
+  const [aiAddLoading, setAiAddLoading] = React.useState(false);
+
+  // Arricchisce un esercizio con video YouTube + foto dimostrativa
+  async function enrichOne(e: any) {
+    const out = { ...e };
+    try {
+      const r = await fetch(`/api/youtube-search?q=${encodeURIComponent(e.nome)}`);
+      const d = await r.json();
+      if (d.videoId) out.youtube_id = d.videoId;
+    } catch {}
+    try {
+      const iq = e.image_query || e.nome;
+      const r = await fetch(`/api/image-search?q=${encodeURIComponent(iq + " exercise")}`);
+      const d = await r.json();
+      if (d.url || d.thumbnail) out.image_url = d.url || d.thumbnail;
+    } catch {}
+    return out;
+  }
 
   React.useEffect(() => { loadScheda(); }, [patientId]);
 
@@ -1625,22 +1644,15 @@ function MobileEserciziTab({ patientId, patientName, currentStudio }: {
     try {
       const res = await fetch("/api/ai-esercizi", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: `Sei un fisioterapista. Genera esattamente 5 esercizi domiciliari per il paziente: ${patientName}.\nRispondi SOLO con array JSON: [{"id":"1","nome":"","descrizione":"","serie":"3","ripetizioni":"10","frequenza":"1 volta al giorno","note":"","avvertenze":"","youtube_id":"","categoria":"rinforzo"}]` }),
+        body: JSON.stringify({ prompt: `Sei un fisioterapista. Genera esattamente 5 esercizi domiciliari per il paziente: ${patientName}.\nPer image_query scrivi 2-4 parole IN INGLESE per cercare una foto dimostrativa (es: "side plank exercise").\nRispondi SOLO con array JSON: [{"id":"1","nome":"","descrizione":"","serie":"3","ripetizioni":"10","frequenza":"1 volta al giorno","note":"","avvertenze":"","youtube_id":"","categoria":"rinforzo","image_query":"english search terms"}]` }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       const match = data.text.replace(/```json|```/g,"").trim().match(/\[[\s\S]*\]/);
       if (!match) throw new Error("JSON non trovato");
       const parsed = JSON.parse(match[0]);
-      // Cerca video YouTube
-      const withVideos = await Promise.all(parsed.map(async (e: any) => {
-        try {
-          const r = await fetch(`/api/youtube-search?q=${encodeURIComponent(e.nome)}`);
-          const d = await r.json();
-          if (d.videoId) return { ...e, youtube_id: d.videoId };
-        } catch {}
-        return e;
-      }));
+      // Cerca video YouTube + foto per ogni esercizio
+      const withVideos = await Promise.all(parsed.map((e: any) => enrichOne(e)));
       setEsercizi(withVideos);
       // Salva
       const token = crypto.randomUUID();
@@ -1654,6 +1666,55 @@ function MobileEserciziTab({ patientId, patientName, currentStudio }: {
       await loadScheda();
     } catch(e:any) { setError(e?.message ?? "Errore"); }
     finally { setGenLoading(false); }
+  }
+
+  // Aggiungi un singolo esercizio con AI (es: "plank laterale")
+  async function aggiungiAI() {
+    const nome = aiExName.trim();
+    if (!nome) return;
+    setAiAddLoading(true); setError("");
+    try {
+      const res = await fetch("/api/ai-esercizi", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: `Sei un fisioterapista. Descrivi l'esercizio "${nome}" come scheda domiciliare.
+Per categoria scegli tra: stretching, rinforzo, mobilita, respirazione, equilibrio.
+Per image_query scrivi 2-4 parole IN INGLESE per cercare una foto (es: "side plank exercise").
+Rispondi SOLO con oggetto JSON: {"nome":"${nome}","descrizione":"","serie":"3","ripetizioni":"10","frequenza":"1 volta al giorno","note":"","avvertenze":"","categoria":"rinforzo","image_query":"english search terms"}
+Testo in italiano.` }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      const match = (data.text ?? "").replace(/```json|```/g,"").trim().match(/\{[\s\S]*\}/);
+      if (!match) throw new Error("JSON non trovato");
+      const obj = JSON.parse(match[0]);
+      let nuovo: any = {
+        id: Date.now().toString(),
+        nome: obj.nome || nome,
+        descrizione: obj.descrizione || "",
+        serie: obj.serie || "3",
+        ripetizioni: obj.ripetizioni || "10",
+        frequenza: obj.frequenza || "1 volta al giorno",
+        note: obj.note || "",
+        avvertenze: obj.avvertenze || "",
+        categoria: obj.categoria || "rinforzo",
+        image_query: obj.image_query || "",
+      };
+      nuovo = await enrichOne(nuovo);
+      const updated = [...esercizi, nuovo];
+      setEsercizi(updated);
+      setAiExName("");
+      // Salva
+      const payload = { patient_id:patientId, patient_name:patientName, esercizi:JSON.stringify(updated), expires_at:new Date(Date.now()+90*24*60*60*1000).toISOString() };
+      if (schedaId) {
+        await supabase.from("schede_esercizi_pubbliche").update(payload).eq("id", schedaId);
+      } else {
+        const token = crypto.randomUUID();
+        const { data:d } = await supabase.from("schede_esercizi_pubbliche").insert({ ...payload, token }).select("id,token").single();
+        if (d) { setSchedaId(d.id); setPubLink(`${window.location.origin}/esercizi/${d.token}`); }
+      }
+      await loadScheda();
+    } catch(e:any) { setError(e?.message ?? "Errore"); }
+    finally { setAiAddLoading(false); }
   }
 
   function sendWA() {
@@ -1704,6 +1765,20 @@ function MobileEserciziTab({ patientId, patientName, currentStudio }: {
         )}
       </div>
 
+      {/* Aggiungi un esercizio specifico con AI */}
+      <div style={{display:"flex",gap:8,marginBottom:16,alignItems:"center",padding:"10px 12px",borderRadius:10,border:"1.5px dashed #0d9488",background:"rgba(13,148,136,0.04)"}}>
+        <input
+          value={aiExName}
+          onChange={e=>setAiExName(e.target.value)}
+          placeholder="Aggiungi esercizio con AI — es: plank laterale"
+          style={{...inp, flex:1, fontSize:13}}
+        />
+        <button onClick={aggiungiAI} disabled={aiAddLoading || !aiExName.trim()}
+          style={{padding:"10px 14px",borderRadius:9,border:"none",background:"linear-gradient(135deg,#0d9488,#2563eb)",color:"#fff",fontWeight:700,fontSize:13,cursor:(aiAddLoading||!aiExName.trim())?"not-allowed":"pointer",opacity:(aiAddLoading||!aiExName.trim())?0.55:1,flexShrink:0,whiteSpace:"nowrap"}}>
+          {aiAddLoading?"⏳":"✨ Aggiungi"}
+        </button>
+      </div>
+
       {/* Link pubblico */}
       {pubLink && (
         <div style={{marginBottom:14,padding:"12px 14px",borderRadius:10,background:"rgba(22,163,74,0.05)",border:"1.5px solid rgba(22,163,74,0.25)"}}>
@@ -1727,6 +1802,12 @@ function MobileEserciziTab({ patientId, patientName, currentStudio }: {
               <div style={{fontWeight:800,fontSize:14,color:"#0f172a",marginBottom:4}}>{idx+1}. {e.nome}</div>
               <div style={{fontSize:12,color:"#64748b",marginBottom:6}}>{e.serie} serie × {e.ripetizioni} · {e.frequenza}</div>
               {e.descrizione && <div style={{fontSize:12,color:"#334155",lineHeight:1.6,marginBottom:6}}>{e.descrizione}</div>}
+              {e.image_url && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={e.image_url} alt={`Foto: ${e.nome}`} loading="lazy"
+                  style={{width:"100%",maxHeight:180,objectFit:"cover",borderRadius:8,border:"1px solid #e2e8f0",marginBottom:6,display:"block"}}
+                  onError={ev=>{(ev.target as HTMLImageElement).style.display="none";}}/>
+              )}
               {e.avvertenze && <div style={{fontSize:11,color:"#dc2626",background:"rgba(220,38,38,0.05)",padding:"5px 8px",borderRadius:6,marginBottom:6}}>⚠️ {e.avvertenze}</div>}
               {e.youtube_id && (
                 <a href={`https://www.youtube.com/watch?v=${e.youtube_id}`} target="_blank" rel="noopener noreferrer"

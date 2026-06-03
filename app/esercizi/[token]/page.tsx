@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 type Esercizio = {
   id: string; nome: string; descrizione: string; serie: string;
   ripetizioni: string; frequenza: string; note: string; avvertenze: string;
-  youtube_id?: string; youtube_query?: string; categoria?: string;
+  youtube_id?: string; youtube_query?: string; categoria?: string; image_url?: string;
 };
 
 function EsercizioSVG({ categoria }: { categoria?: string }) {
@@ -126,6 +126,7 @@ export default function SchedaEserciziPubblica() {
                   <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3,flexWrap:"wrap"}}>
                     <span style={{fontSize:10,fontWeight:700,color:cat.color,background:cat.bg,padding:"2px 8px",borderRadius:99}}>{cat.label}</span>
                     {ytId&&<span style={{fontSize:10,color:"#dc2626",fontWeight:700}}>▶ Video</span>}
+                    {e.image_url&&<span style={{fontSize:10,color:"#0d9488",fontWeight:700}}>🖼️ Foto</span>}
                   </div>
                   <div style={{fontWeight:800,fontSize:15,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.nome}</div>
                   <div style={{fontSize:12,color:"#64748b",marginTop:2}}>{e.serie} serie × {e.ripetizioni} · {e.frequenza}</div>
@@ -136,6 +137,13 @@ export default function SchedaEserciziPubblica() {
               {/* Dettagli */}
               {isOpen&&(
                 <div style={{borderTop:"1.5px solid #f1f5f9"}}>
+                  {/* Foto dimostrativa */}
+                  {e.image_url&&(
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={e.image_url} alt={`Foto: ${e.nome}`} loading="lazy"
+                      style={{width:"100%",maxHeight:240,objectFit:"cover",display:"block"}}
+                      onError={ev=>{(ev.target as HTMLImageElement).style.display="none";}}/>
+                  )}
                   {/* Thumbnail YouTube cliccabile */}
                   {ytId&&(
                     <div style={{position:"relative",cursor:"pointer"}} onClick={()=>setVideoOpen(ytId)}>

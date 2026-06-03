@@ -936,8 +936,12 @@ export default function PatientDetailPage({
     avvertenze: string;
     youtube_id?: string;   // ID video YouTube (es. "dQw4w9WgXcQ")
     categoria?: string;    // stretching | rinforzo | mobilita | respirazione | equilibrio
+    image_url?: string;    // URL foto dimostrativa dell'esercizio
+    image_query?: string;  // termini di ricerca foto (in inglese, generati dall'AI)
   };
   const [esercizi,       setEsercizi]       = useState<Esercizio[]>([]);
+  const [aiExName,       setAiExName]       = useState("");      // nome esercizio da aggiungere con AI
+  const [aiAddLoading,   setAiAddLoading]   = useState(false);   // caricamento aggiunta singola con AI
   const [pubLink,        setPubLink]        = useState("");
   const [pubLinkLoading, setPubLinkLoading] = useState(false);
   const [genLoading,     setGenLoading]     = useState(false);
@@ -1721,6 +1725,26 @@ ${footer}
     if (w) setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
 
+  // ── Arricchisce un esercizio con video YouTube + foto dimostrativa ────────
+  async function enrichEsercizio(e: Esercizio): Promise<Esercizio> {
+    let out = { ...e };
+    // Video YouTube (query in italiano sul nome)
+    try {
+      const q = e.nome + (e.categoria ? ` ${e.categoria}` : "");
+      const res = await fetch(`/api/youtube-search?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      if (data.videoId) out.youtube_id = data.videoId;
+    } catch {}
+    // Foto dimostrativa (query in inglese: image_query se presente, altrimenti il nome)
+    try {
+      const iq = e.image_query || e.nome;
+      const res = await fetch(`/api/image-search?q=${encodeURIComponent(iq + " exercise")}`);
+      const data = await res.json();
+      if (data.url || data.thumbnail) out.image_url = data.url || data.thumbnail;
+    } catch {}
+    return out;
+  }
+
   // ── Scheda Esercizi — Genera con AI ──────────────────────────────────────
   async function generaEserciziAI() {
     if (!patient) return;
@@ -1748,8 +1772,9 @@ ${ctx}
 
 Rispondi SOLO con un array JSON valido, senza testo aggiuntivo, senza markdown.
 Per youtube_id metti l'ID reale di un video YouTube di fisioterapia/riabilitazione per quell'esercizio (solo l'ID, es: "abc123xyz"). Per categoria scegli tra: stretching, rinforzo, mobilita, respirazione, equilibrio.
+Per image_query scrivi 2-4 parole IN INGLESE per cercare una foto dimostrativa dell'esercizio (es: "side plank exercise", "shoulder stretch", "glute bridge").
 
-[{"id":"1","nome":"","descrizione":"Come eseguirlo (1-2 frasi)","serie":"3","ripetizioni":"10","frequenza":"1 volta al giorno","note":"","avvertenze":"Fermarsi se...","youtube_id":"ID_VIDEO_YOUTUBE","categoria":"stretching"}]
+[{"id":"1","nome":"","descrizione":"Come eseguirlo (1-2 frasi)","serie":"3","ripetizioni":"10","frequenza":"1 volta al giorno","note":"","avvertenze":"Fermarsi se...","youtube_id":"ID_VIDEO_YOUTUBE","categoria":"stretching","image_query":"english search terms"}]
 
 Genera 5 esercizi in italiano adatti alla diagnosi.` }),
       });
@@ -1765,17 +1790,9 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
       const withIds = parsed.map((e, i) => ({ ...e, id: e.id ?? String(i+1) }));
       setEsercizi(withIds);
 
-      // Cerca automaticamente i video YouTube per ogni esercizio
+      // Cerca automaticamente video YouTube + foto per ogni esercizio
       setGenError(""); 
-      const withVideos = await Promise.all(withIds.map(async (e) => {
-        try {
-          const q = e.nome + (e.categoria ? ` ${e.categoria}` : "");
-          const res = await fetch(`/api/youtube-search?q=${encodeURIComponent(q)}`);
-          const data = await res.json();
-          if (data.videoId) return { ...e, youtube_id: data.videoId };
-        } catch {}
-        return e;
-      }));
+      const withVideos = await Promise.all(withIds.map(e => enrichEsercizio(e)));
       setEsercizi(withVideos);
       // Salva automaticamente nel DB
       setTimeout(async () => {
@@ -1809,6 +1826,84 @@ Genera 5 esercizi in italiano adatti alla diagnosi.` }),
     const id = Date.now().toString();
     setEsercizi(prev => [...prev, { id, nome:"", descrizione:"", serie:"3", ripetizioni:"10", frequenza:"1 volta al giorno", note:"", avvertenze:"" }]);
     setEditingEx(id);
+  }
+
+  // ── Aggiungi un singolo esercizio con AI (es: "plank laterale") ───────────
+  async function aggiungiEsercizioAI() {
+    const nome = aiExName.trim();
+    if (!nome || !patient) return;
+    setAiAddLoading(true); setGenError("");
+    try {
+      const ctx = [
+        bodyRegion ? `Zona corporea: ${bodyRegion}` : "",
+        pathologyType ? `Tipo patologia: ${pathologyType}` : "",
+        medicalDiagnosis ? `Diagnosi medica: ${medicalDiagnosis}` : "",
+        diagnosis ? `Diagnosi fisioterapica: ${diagnosis}` : "",
+      ].filter(Boolean).join("\n");
+
+      const response = await fetch("/api/ai-esercizi", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: `Sei un fisioterapista esperto. Descrivi l'esercizio "${nome}" come scheda domiciliare per un paziente.
+${ctx ? `\nContesto clinico:\n${ctx}\n` : ""}
+Rispondi SOLO con un oggetto JSON valido, senza testo aggiuntivo, senza markdown.
+Per categoria scegli tra: stretching, rinforzo, mobilita, respirazione, equilibrio.
+Per image_query scrivi 2-4 parole IN INGLESE per cercare una foto dimostrativa (es: "side plank exercise").
+
+{"nome":"${nome}","descrizione":"Come eseguirlo (1-2 frasi)","serie":"3","ripetizioni":"10","frequenza":"1 volta al giorno","note":"","avvertenze":"Fermarsi se...","categoria":"rinforzo","image_query":"english search terms"}
+
+Adatta serie, ripetizioni e avvertenze alla condizione del paziente. Testo in italiano.` }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Errore API");
+      const clean = (data.text ?? "").replace(/```json|```/g, "").trim();
+      const match = clean.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error("Nessun JSON trovato nella risposta AI");
+      const obj = JSON.parse(match[0]);
+
+      let nuovo: Esercizio = {
+        id: Date.now().toString(),
+        nome: obj.nome || nome,
+        descrizione: obj.descrizione || "",
+        serie: obj.serie || "3",
+        ripetizioni: obj.ripetizioni || "10",
+        frequenza: obj.frequenza || "1 volta al giorno",
+        note: obj.note || "",
+        avvertenze: obj.avvertenze || "",
+        categoria: obj.categoria || "rinforzo",
+        image_query: obj.image_query || "",
+      };
+      // Arricchisci con video + foto, poi accoda
+      nuovo = await enrichEsercizio(nuovo);
+      const updated = [...esercizi, nuovo];
+      setEsercizi(updated);
+      setAiExName("");
+
+      // Salva nel DB (aggiorna scheda corrente o ne crea una nuova)
+      try {
+        const payload = {
+          patient_id: patientId,
+          patient_name: `${lastName} ${firstName}`.trim(),
+          esercizi: JSON.stringify(updated),
+          note: eserciziNote || null,
+          expires_at: new Date(Date.now() + 90*24*60*60*1000).toISOString(),
+        };
+        if (schedaId) {
+          await supabase.from("schede_esercizi_pubbliche").update(payload).eq("id", schedaId);
+        } else {
+          const token = crypto.randomUUID();
+          const { data: d } = await supabase.from("schede_esercizi_pubbliche").insert({ ...payload, token }).select("id,token").single();
+          if (d) { setSchedaId(d.id); setPubLink(`${window.location.origin}/esercizi/${d.token}`); }
+        }
+        await loadSchedaEsercizi();
+      } catch(e) { console.warn("autosave add-ai", e); }
+    } catch(e: any) {
+      setGenError(`Errore: ${e?.message ?? "sconosciuto"}.`);
+      console.error(e);
+    } finally {
+      setAiAddLoading(false);
+    }
   }
 
   function updateEsercizio(id: string, field: keyof Esercizio, value: string) {
@@ -2033,6 +2128,7 @@ ${esercizi.length>0?`
           <span class="ex-params">${e.serie} serie × ${e.ripetizioni} ripetizioni &nbsp;·&nbsp; ${e.frequenza}</span>
         </div>
         <div class="ex-desc">${e.descrizione}</div>
+        ${(e as any).image_url ? `<img class="ex-img" src="${(e as any).image_url}" alt="Foto esercizio" />` : ""}
         ${e.note ? `<div class="ex-note">📌 ${e.note}</div>` : ""}
         ${e.avvertenze ? `<div class="ex-warn">⚠️ ${e.avvertenze}</div>` : ""}
         ${(e as any).youtube_id ? `<div class="ex-video">▶ Video dimostrativo: <a href="https://www.youtube.com/watch?v=${(e as any).youtube_id}" style="color:#dc2626">youtube.com/watch?v=${(e as any).youtube_id}</a></div>` : ""}
@@ -2062,6 +2158,7 @@ ${esercizi.length>0?`
   .ex-note{font-size:11px;color:#0d9488;background:rgba(13,148,136,0.06);padding:5px 10px;border-radius:6px;margin-bottom:4px;}
   .ex-warn{font-size:11px;color:#dc2626;background:rgba(220,38,38,0.05);padding:5px 10px;border-radius:6px;}
   .ex-video{font-size:11px;color:#64748b;margin-top:4px;}
+  .ex-img{max-width:260px;max-height:170px;width:auto;border-radius:8px;border:1px solid #e2e8f0;margin:6px 0;display:block;object-fit:cover;}
   .footer{margin-top:32px;padding-top:18px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:flex-end;}
   .firma-box{border-bottom:1.5px solid #0f172a;width:200px;height:40px;margin-top:24px;}
   .firma-label{font-size:10px;color:#64748b;margin-top:4px;}
@@ -3320,6 +3417,24 @@ ${rows}
                 )}
               </div>
 
+              {/* Aggiungi un esercizio specifico con AI */}
+              <div style={{ display:"flex", gap:8, marginBottom:16, alignItems:"center", padding:"10px 12px", borderRadius:10, border:`1.5px dashed ${THEME.teal}`, background:"rgba(13,148,136,0.04)", flexWrap:"wrap" }}>
+                <span style={{ fontSize:18, flexShrink:0 }}>✨</span>
+                <input
+                  value={aiExName}
+                  onChange={e => setAiExName(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && !aiAddLoading && aiExName.trim()) aggiungiEsercizioAI(); }}
+                  placeholder="Aggiungi un esercizio con AI — es: plank laterale, ponte glutei, allungamento ischiocrurali…"
+                  style={{ flex:1, minWidth:220, padding:"8px 12px", borderRadius:8, border:`1.5px solid ${THEME.border}`, fontSize:12, fontWeight:500, color:THEME.text, background:"#fff", outline:"none" }}
+                />
+                <button
+                  onClick={aggiungiEsercizioAI}
+                  disabled={aiAddLoading || !aiExName.trim()}
+                  style={{ padding:"9px 16px", borderRadius:8, border:"none", background:`linear-gradient(135deg,#0d9488,#2563eb)`, color:"#fff", fontWeight:700, fontSize:13, cursor:(aiAddLoading||!aiExName.trim())?"not-allowed":"pointer", opacity:(aiAddLoading||!aiExName.trim())?0.55:1, display:"flex", alignItems:"center", gap:8, flexShrink:0, boxShadow:"0 2px 8px rgba(13,148,136,0.2)" }}>
+                  {aiAddLoading ? "⏳ Aggiungo…" : "✨ Aggiungi con AI"}
+                </button>
+              </div>
+
               {genError && (
                 <div style={{ marginBottom:12, padding:"9px 14px", borderRadius:8, background:"rgba(220,38,38,0.05)", border:"1px solid rgba(220,38,38,0.2)", color:THEME.red, fontSize:12, fontWeight:600 }}>
                   {genError}
@@ -3450,6 +3565,40 @@ ${rows}
                               ))}
                             </div>
                             {e.descrizione && <div style={{ fontSize:12, color:THEME.text, lineHeight:1.6 }}>{e.descrizione}</div>}
+                            {e.image_url && (
+                              <div style={{ position:"relative", borderRadius:8, overflow:"hidden", border:`1px solid ${THEME.border}`, maxWidth:320 }}>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={e.image_url} alt={`Foto: ${e.nome}`} loading="lazy"
+                                  style={{ width:"100%", maxHeight:200, objectFit:"cover", display:"block" }}
+                                  onError={ev => { (ev.target as HTMLImageElement).parentElement!.style.display = "none"; }}/>
+                                <div style={{ position:"absolute", top:6, right:6, display:"flex", gap:5 }}>
+                                  <button title="Cerca un'altra foto" onClick={async () => {
+                                      const iq = e.image_query || e.nome;
+                                      try {
+                                        const res = await fetch(`/api/image-search?q=${encodeURIComponent(iq + " exercise")}`);
+                                        const d = await res.json();
+                                        if (d.url || d.thumbnail) updateEsercizio(e.id, "image_url", d.url || d.thumbnail);
+                                      } catch {}
+                                    }}
+                                    style={{ width:26, height:26, borderRadius:6, border:"none", background:"rgba(15,23,42,0.65)", color:"#fff", cursor:"pointer", fontSize:12 }}>🔄</button>
+                                  <button title="Rimuovi foto" onClick={() => updateEsercizio(e.id, "image_url", "")}
+                                    style={{ width:26, height:26, borderRadius:6, border:"none", background:"rgba(220,38,38,0.85)", color:"#fff", cursor:"pointer", fontSize:12 }}>✕</button>
+                                </div>
+                              </div>
+                            )}
+                            {!e.image_url && (
+                              <button onClick={async () => {
+                                  const iq = e.image_query || e.nome;
+                                  try {
+                                    const res = await fetch(`/api/image-search?q=${encodeURIComponent(iq + " exercise")}`);
+                                    const d = await res.json();
+                                    if (d.url || d.thumbnail) updateEsercizio(e.id, "image_url", d.url || d.thumbnail);
+                                  } catch {}
+                                }}
+                                style={{ fontSize:11, color:THEME.teal, background:"rgba(13,148,136,0.06)", padding:"5px 10px", borderRadius:6, border:`1px solid ${THEME.border}`, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:5, fontWeight:700, alignSelf:"flex-start" }}>
+                                🖼️ Cerca foto dimostrativa
+                              </button>
+                            )}
                             {e.note && <div style={{ fontSize:11, color:THEME.teal, background:"rgba(13,148,136,0.06)", padding:"5px 10px", borderRadius:6 }}>📌 {e.note}</div>}
                             {e.avvertenze && <div style={{ fontSize:11, color:THEME.red, background:"rgba(220,38,38,0.05)", padding:"5px 10px", borderRadius:6 }}>⚠️ {e.avvertenze}</div>}
                             {e.youtube_id && (
