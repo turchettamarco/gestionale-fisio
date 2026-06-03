@@ -1104,6 +1104,7 @@ export default function PatientDetailPage({
     loadAppointments();
     loadDocs();
     loadClinicalDocs();
+    loadSchedaEsercizi();
   }, [patientId]);
 
   // ── Tappa 4: dati per PatientSummaryPanel ───────────────────────
