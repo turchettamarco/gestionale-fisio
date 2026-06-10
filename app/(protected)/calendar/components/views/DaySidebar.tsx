@@ -17,6 +17,7 @@
 
 import {
   THEME, fmtTime, statusBg, statusColor,
+  cycleDotTitle,
   type CalendarEvent,
 } from "../../utils";
 import PaidIconButton from "@/src/components/PaidIconButton";
@@ -195,16 +196,16 @@ export default function DaySidebar({
               {/* Azioni rapide */}
               <div style={{ display: "flex", gap: 5 }}>
                 <button
-                  title={isDone ? "Annulla eseguita" : "Segna eseguita"}
+                  title={cycleDotTitle(ev.status)}
                   onClick={e => { e.stopPropagation(); onToggleDone(ev.id, ev.status); }}
                   style={{
                     flex: 1, padding: "4px 0", borderRadius: 5, border: "none",
-                    background: isDone ? THEME.green : "rgba(22,163,74,0.12)",
-                    color: isDone ? "#fff" : THEME.green,
+                    background: isDone ? THEME.green : ev.status === "not_paid" ? "#f97316" : "rgba(22,163,74,0.12)",
+                    color: isDone || ev.status === "not_paid" ? "#fff" : THEME.green,
                     cursor: "pointer", fontWeight: 700, fontSize: 11,
                   }}
                 >
-                  {isDone ? "✓ Eseguita" : "Esegui"}
+                  {isDone ? "✓ Eseguita" : ev.status === "not_paid" ? "! Non pagata" : "Esegui"}
                 </button>
                 {onUpdatePayment ? (
                   <div style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "center" }} onClick={e => e.stopPropagation()}>

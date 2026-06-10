@@ -21,8 +21,9 @@
 //     edit*, gestione is_paid/paid_at coerente con CHECK constraint
 //     mig. 010
 //   - deleteAppointment: DELETE con conferma
-//   - toggleDoneQuick(apptId, current): toggle status booked↔done con
-//     auto-pagamento coerente (done implica is_paid=true, paid_at=now)
+//   - toggleDoneQuick(apptId, current): ciclo a 3 stati sul pallino card
+//     confirmed → done → not_paid → confirmed, con auto-pagamento
+//     coerente (done implica is_paid=true, paid_at=now)
 //   - togglePaidQuick(apptId, currentlyPaid): toggle is_paid mantenendo
 //     paid_at coerente
 //   - handleUpdatePayment: handler completo per PaidIconButton/PaidPill
@@ -326,10 +327,17 @@ export function useAppointmentMutations(
   ]);
 
   /* ─── toggleDoneQuick ─── */
+  // Ciclo a 3 stati sul pallino della card (in alto a dx):
+  //   confirmed (Confermato, blu) → done (Eseguito/Pagato, verde)
+  //   → not_paid (Non pagata, arancio) → confirmed (di nuovo Confermato).
+  // Da booked/cancelled il primo click porta comunque a "done" (come prima).
   const toggleDoneQuick = useCallback(
     async (apptId: string, current: Status) => {
       setError("");
-      const next: Status = current === "done" ? "confirmed" : "done";
+      const next: Status =
+        current === "done"     ? "not_paid"
+        : current === "not_paid" ? "confirmed"
+        : "done";
 
       // Mantiene coerenza col CHECK constraint appointments_paid_consistency:
       // is_paid=true ↔ paid_at NOT NULL (mig. 010).

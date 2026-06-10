@@ -101,7 +101,7 @@ export default function QuickActionsMenu({
             }}
             style={itemWithBorder}
           >
-            ✅ Segna come eseguito
+            {event.status === "done" ? "🟠 Segna non pagata" : event.status === "not_paid" ? "🔵 Riporta a confermato" : "✅ Segna come eseguito"}
           </button>
 
           <button

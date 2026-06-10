@@ -108,6 +108,26 @@ export function statusLabel(status: Status): string {
   }
 }
 
+// ─── Ciclo pallino card (toggleDoneQuick) ────────────────────────────────
+// Click sul pallino in alto a dx della card appuntamento:
+//   confirmed → done → not_paid → confirmed (booked/cancelled → done).
+
+export function cycleNextStatus(s: Status): Status {
+  if (s === "done") return "not_paid";
+  if (s === "not_paid") return "confirmed";
+  return "done";
+}
+
+export function cycleDotTitle(s: Status): string {
+  return `${statusLabel(s)} → ${statusLabel(cycleNextStatus(s))}`;
+}
+
+export function cycleDotGlyph(s: Status): string {
+  if (s === "done") return "✓";
+  if (s === "not_paid") return "!";
+  return "";
+}
+
 // ─── Treatment helpers ───────────────────────────────────────────────────
 
 export function getTreatmentColor(tt: string | null | undefined): string {

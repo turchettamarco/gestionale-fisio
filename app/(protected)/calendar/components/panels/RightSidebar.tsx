@@ -21,6 +21,7 @@
 import { type RefObject } from "react";
 import {
   THEME, fmtTime, statusBg, statusColor,
+  cycleDotTitle,
   startOfISOWeekMonday, toDateInputValue,
   type CalendarEvent,
 } from "../../utils";
@@ -356,17 +357,17 @@ export default function RightSidebar({
                               e.stopPropagation();
                               onToggleDone(appointment.id, appointment.status);
                             }}
-                            title={appointment.status === "done" ? "Segna come non eseguito" : "Segna come eseguito"}
+                            title={cycleDotTitle(appointment.status)}
                             style={{
                               width: 20, height: 20, borderRadius: 4,
-                              border: `2px solid ${appointment.status === "done" ? THEME.greenDark : THEME.border}`,
-                              background: appointment.status === "done" ? THEME.greenDark : "transparent",
+                              border: `2px solid ${appointment.status === "done" ? THEME.greenDark : appointment.status === "not_paid" ? "#f97316" : THEME.border}`,
+                              background: appointment.status === "done" ? THEME.greenDark : appointment.status === "not_paid" ? "#f97316" : "transparent",
                               cursor: "pointer",
                               display: "flex", alignItems: "center", justifyContent: "center",
                               fontSize: 10, color: "#fff",
                             }}
                           >
-                            {appointment.status === "done" && "✓"}
+                            {appointment.status === "done" ? "✓" : appointment.status === "not_paid" ? "!" : ""}
                           </button>
                         </div>
                       </div>

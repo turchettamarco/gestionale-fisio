@@ -31,6 +31,7 @@
 import { useMemo } from "react";
 import {
   THEME, fmtTime, formatDMY, pad2, statusBg, statusLabel, getTreatmentLabel,
+  cycleDotTitle, cycleDotGlyph,
   getLocationCardStyle,
   type CalendarEvent,
 } from "../../utils";
@@ -622,18 +623,18 @@ export default function DayTimelineMulti({
                                     e.stopPropagation();
                                     onToggleDone(event.id, event.status);
                                   }}
-                                  title={isCompleted ? "Annulla completamento" : "Segna eseguito"}
+                                  title={cycleDotTitle(event.status)}
                                   style={{
                                     width: 16, height: 16, borderRadius: 4,
                                     border: "none",
-                                    background: isCompleted ? "#16a34a" : "rgba(255,255,255,0.85)",
-                                    color: isCompleted ? "#fff" : "#0f172a",
+                                    background: isCompleted ? "#16a34a" : event.status === "not_paid" ? "#f97316" : "rgba(255,255,255,0.85)",
+                                    color: isCompleted || event.status === "not_paid" ? "#fff" : "#0f172a",
                                     cursor: "pointer", fontSize: 9, fontWeight: 800,
                                     display: "flex", alignItems: "center", justifyContent: "center",
                                     padding: 0, flexShrink: 0,
                                   }}
                                 >
-                                  {isCompleted ? "✓" : "○"}
+                                  {isCompleted ? "✓" : event.status === "not_paid" ? "!" : "○"}
                                 </button>
                               </div>
                             </div>
@@ -683,18 +684,18 @@ export default function DayTimelineMulti({
                                 e.stopPropagation();
                                 onToggleDone(event.id, event.status);
                               }}
-                              title={isCompleted ? "Annulla completamento" : "Segna eseguito"}
+                              title={cycleDotTitle(event.status)}
                               style={{
                                 width: 14, height: 14, borderRadius: 3,
                                 border: "none",
-                                background: isCompleted ? "#16a34a" : "rgba(255,255,255,0.85)",
-                                color: isCompleted ? "#fff" : "#0f172a",
+                                background: isCompleted ? "#16a34a" : event.status === "not_paid" ? "#f97316" : "rgba(255,255,255,0.85)",
+                                color: isCompleted || event.status === "not_paid" ? "#fff" : "#0f172a",
                                 cursor: "pointer", fontSize: 8, fontWeight: 800,
                                 display: "flex", alignItems: "center", justifyContent: "center",
                                 padding: 0, flexShrink: 0,
                               }}
                             >
-                              {isCompleted ? "✓" : "○"}
+                              {isCompleted ? "✓" : event.status === "not_paid" ? "!" : "○"}
                             </button>
                           </div>
                         )}

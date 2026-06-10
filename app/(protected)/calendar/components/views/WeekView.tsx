@@ -26,6 +26,7 @@
 
 import {
   THEME, fmtTime, formatDMY, pad2, statusBg, statusLabel,
+  cycleDotTitle, cycleDotGlyph,
   autoNameFontSize,
   assignLanes, assignLanesByOperator,
   getLocationCardStyle,
@@ -707,16 +708,16 @@ export default function WeekView({
                             if (bulkMode) onToggleBulkSelect(event.id);
                             else onToggleDone(event.id, event.status);
                           }}
-                          title={isDone ? "Annulla eseguita" : "Segna eseguita"}
+                          title={cycleDotTitle(event.status)}
                           style={{
                             width: 14, height: 14, borderRadius: 99, flexShrink: 0,
                             border: `1.5px solid ${isDone ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.5)"}`,
                             background: isDone ? "rgba(255,255,255,0.9)" : "transparent",
                             cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                            color: statusBg(event.status), fontSize: 8, fontWeight: 800,
+                            color: isDone ? statusBg(event.status) : "#fff", fontSize: 8, fontWeight: 800,
                           }}
                         >
-                          {isDone || bulkSelected.has(event.id) ? "✓" : ""}
+                          {bulkSelected.has(event.id) ? "✓" : cycleDotGlyph(event.status)}
                         </button>
                       </div>
                     </div>
@@ -807,16 +808,16 @@ export default function WeekView({
                             if (bulkMode) onToggleBulkSelect(event.id);
                             else onToggleDone(event.id, event.status);
                           }}
-                          title={isDone ? "Annulla eseguita" : "Segna eseguita"}
+                          title={cycleDotTitle(event.status)}
                           style={{
                             width: 16, height: 16, borderRadius: 99, flexShrink: 0,
                             border: `1.5px solid ${isDone ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.5)"}`,
                             background: isDone ? "rgba(255,255,255,0.9)" : "transparent",
                             cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                            color: statusBg(event.status), fontSize: 9, fontWeight: 800,
+                            color: isDone ? statusBg(event.status) : "#fff", fontSize: 9, fontWeight: 800,
                           }}
                         >
-                          {isDone || bulkSelected.has(event.id) ? "✓" : ""}
+                          {bulkSelected.has(event.id) ? "✓" : cycleDotGlyph(event.status)}
                         </button>
                       </div>
                     </div>

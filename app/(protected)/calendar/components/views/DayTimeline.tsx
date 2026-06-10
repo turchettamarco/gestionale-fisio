@@ -21,6 +21,7 @@
 
 import {
   THEME, fmtTime, formatDMY, pad2, statusBg, statusLabel, getTreatmentLabel,
+  cycleDotTitle, cycleDotGlyph,
   assignLanes,
   getLocationCardStyle,
   type CalendarEvent,
@@ -437,7 +438,7 @@ export default function DayTimeline({
                       >🪙</button>
                     )}
                     <button
-                      title={isDone ? "Annulla" : "Eseguita"}
+                      title={cycleDotTitle(event.status)}
                       onClick={e => {
                         e.preventDefault(); e.stopPropagation();
                         if (bulkMode) onToggleBulkSelect(event.id);
@@ -448,11 +449,11 @@ export default function DayTimeline({
                         border: `1.5px solid ${isDone ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.5)"}`,
                         background: isDone ? "rgba(255,255,255,0.9)" : "transparent",
                         cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                        color: statusBg(event.status), fontSize: 9, fontWeight: 900,
+                        color: isDone ? statusBg(event.status) : "#fff", fontSize: 9, fontWeight: 900,
                         padding: 0, flexShrink: 0,
                       }}
                     >
-                      {isDone || bulkSelected.has(event.id) ? "✓" : ""}
+                      {bulkSelected.has(event.id) ? "✓" : cycleDotGlyph(event.status)}
                     </button>
                   </div>
 
@@ -559,7 +560,7 @@ export default function DayTimeline({
                     </button>
                     {/* Eseguito */}
                     <button
-                      title={isDone ? "Annulla" : "Eseguita"}
+                      title={cycleDotTitle(event.status)}
                       onClick={e => {
                         e.preventDefault(); e.stopPropagation();
                         if (bulkMode) onToggleBulkSelect(event.id);
@@ -570,11 +571,11 @@ export default function DayTimeline({
                         border: `1.5px solid ${isDone ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.45)"}`,
                         background: isDone ? "rgba(255,255,255,0.9)" : "transparent",
                         cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                        color: statusBg(event.status), fontSize: 7, fontWeight: 900,
+                        color: isDone ? statusBg(event.status) : "#fff", fontSize: 7, fontWeight: 900,
                         padding: 0, flexShrink: 0,
                       }}
                     >
-                      {isDone || bulkSelected.has(event.id) ? "✓" : ""}
+                      {bulkSelected.has(event.id) ? "✓" : cycleDotGlyph(event.status)}
                     </button>
                   </div>
 
