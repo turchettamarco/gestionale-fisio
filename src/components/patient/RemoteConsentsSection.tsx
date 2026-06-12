@@ -100,7 +100,7 @@ export default function RemoteConsentsSection({
   useEffect(() => { void load(); }, [load]);
 
   // ── Invio ─────────────────────────────────────────────────────────────
-  async function sendConsents() {
+  async function sendConsents(mode: "wa" | "copy") {
     const studioId = studio?.id ?? null;
     if (!studioId) { notify("error", "Studio non disponibile, ricarica la pagina"); return; }
     const types: ConsentType[] = [];
@@ -142,12 +142,20 @@ export default function RemoteConsentsSection({
 
     const created = (res.data ?? []) as ConsentRow[];
     setConsents(prev => [...created, ...prev]);
-    notify("success", `${created.length === 1 ? "Consenso creato" : "Consensi creati"} ✓`);
 
-    // Apri subito WhatsApp con il messaggio completo (se c'è il telefono)
-    if (patientPhone && created.length > 0) {
-      const msg = buildWaMessage(created);
-      openWhatsApp(patientPhone, msg);
+    if (created.length === 0) { notify("success", "Consenso creato ✓"); return; }
+
+    if (mode === "wa" && patientPhone) {
+      notify("success", `${created.length === 1 ? "Consenso creato" : "Consensi creati"} ✓`);
+      openWhatsApp(patientPhone, buildWaMessage(created));
+    } else {
+      // Copia diretta: link unico (bundle) o link del singolo documento
+      try {
+        await navigator.clipboard.writeText(consentUrl(created[0]));
+        notify("success", "Link copiato negli appunti ✓");
+      } catch {
+        notify("error", "Creato, ma copia non riuscita: usa il bottone Copia link qui sotto");
+      }
     }
   }
 
@@ -295,17 +303,31 @@ export default function RemoteConsentsSection({
                 Consenso al trattamento
               </label>
             </div>
-            <button onClick={sendConsents} disabled={sending}
-              style={{ width: "100%", padding: "11px 16px", borderRadius: 10,
-                border: "none", background: T.gradient, color: "#fff",
-                fontWeight: 700, fontSize: 13, cursor: sending ? "wait" : "pointer",
-                opacity: sending ? 0.7 : 1, fontFamily: "inherit",
-                boxShadow: "0 2px 8px rgba(13,148,136,0.25)" }}>
-              {sending ? "Creazione…" : patientPhone ? "📲 Genera link e invia su WhatsApp" : "🔗 Genera link"}
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              {patientPhone && (
+                <button onClick={() => sendConsents("wa")} disabled={sending}
+                  style={{ flex: 1, padding: "11px 12px", borderRadius: 10,
+                    border: "none", background: T.gradient, color: "#fff",
+                    fontWeight: 700, fontSize: 12.5, cursor: sending ? "wait" : "pointer",
+                    opacity: sending ? 0.7 : 1, fontFamily: "inherit",
+                    boxShadow: "0 2px 8px rgba(13,148,136,0.25)" }}>
+                  {sending ? "Creazione…" : "📲 Genera + WhatsApp"}
+                </button>
+              )}
+              <button onClick={() => sendConsents("copy")} disabled={sending}
+                style={{ flex: 1, padding: "11px 12px", borderRadius: 10,
+                  border: patientPhone ? `1.5px solid ${T.blue}` : "none",
+                  background: patientPhone ? "rgba(37,99,235,0.07)" : T.gradient,
+                  color: patientPhone ? T.blue : "#fff",
+                  fontWeight: 700, fontSize: 12.5, cursor: sending ? "wait" : "pointer",
+                  opacity: sending ? 0.7 : 1, fontFamily: "inherit",
+                  boxShadow: patientPhone ? "none" : "0 2px 8px rgba(13,148,136,0.25)" }}>
+                {sending ? "Creazione…" : "🔗 Genera + copia link"}
+              </button>
+            </div>
             {!patientPhone && (
               <div style={{ fontSize: 11, color: T.muted, marginTop: 6, textAlign: "center" }}>
-                Nessun telefono in anagrafica: potrai copiare il link manualmente.
+                Nessun telefono in anagrafica: il link verrà copiato negli appunti.
               </div>
             )}
           </div>

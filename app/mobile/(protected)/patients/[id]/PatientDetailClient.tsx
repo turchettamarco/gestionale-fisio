@@ -31,6 +31,7 @@ import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import RemoteConsentsSection from "@/src/components/patient/RemoteConsentsSection";
+import { quickSendRemoteConsents } from "@/src/lib/consents/quickSend";
 import { ClinicalScalesSection } from "@/app/(protected)/patients/[id]/ClinicalScales";
 import { SOAPNotesEditor } from "@/app/(protected)/calendar/components/SOAPNotes";
 import { PhotoGallerySection } from "@/app/(protected)/patients/[id]/PhotoGallery";
@@ -261,10 +262,11 @@ function DocThumbnail({ doc }: { doc: PatientDoc }) {
 }
 
 /* ─── QuickActionBar ──────────────────────────────────────────────────── */
-function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, firstName, currentStudio, birthdayTpl, paymentTpl }: {
+function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, firstName, lastName, currentStudio, birthdayTpl, paymentTpl }: {
   phone: string | null; waPhone: string | null; patientId: string;
   unpaidAmount: number; birthDate: string | null; firstName: string | null;
-  currentStudio: { name: string; signature_name: string | null; signature_title: string | null } | null;
+  lastName: string | null;
+  currentStudio: { id?: string; name: string; address?: string | null; signature_name: string | null; signature_title: string | null } | null;
   birthdayTpl: string | null;
   paymentTpl: string | null;
 }) {
@@ -272,6 +274,7 @@ function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, fi
     phone    ? { label: "Chiama",    icon: "📞", href: `tel:${phone}`,                          color: T.blue  } : null,
     waPhone  ? { label: "WhatsApp",  icon: "💬", href: `#`, color: T.green } : null,
     { label: "Prenota",   icon: "📅", href: `/mobile/calendar?new=1&patient_id=${patientId}`, color: T.teal  },
+    { label: "Consensi",  icon: "🖊️", href: `#consents`, color: "#0d9488" },
     (birthDate && phone) ? { label: "Auguri",   icon: "🎂", href: `#birthday`, color: "#f59e0b" } : null,
     (unpaidAmount > 0 && phone) ? { label: `€${unpaidAmount % 1 === 0 ? unpaidAmount.toFixed(0) : unpaidAmount.toFixed(2)}`, icon: "💶", href: `#payment`, color: "#dc2626" } : null,
   ].filter(Boolean) as { label: string; icon: string; href: string; color: string }[];
@@ -287,7 +290,20 @@ function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, fi
           onClick={e => {
             // Saluto dinamico (Buongiorno/Buonasera)
             const saluto = new Date().getHours() < 14 ? "Buongiorno" : "Buonasera";
-            if (a.href === "#birthday" && phone) {
+            if (a.href === "#consents") {
+              e.preventDefault();
+              void (async () => {
+                const r = await quickSendRemoteConsents({
+                  patientId,
+                  firstName: firstName ?? "",
+                  lastName: lastName ?? "",
+                  phone,
+                  studio: currentStudio,
+                });
+                if (r.kind === "error") showToast.error(r.message);
+                else showToast.success(r.message);
+              })();
+            } else if (a.href === "#birthday" && phone) {
               e.preventDefault();
               const nome = firstName?.trim() || "Paziente";
               let msg: string;
@@ -948,8 +964,11 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
               unpaidAmount={_unpaid}
               birthDate={patient.birth_date ?? null}
               firstName={patient.first_name ?? null}
+              lastName={patient.last_name ?? null}
               currentStudio={currentStudio ? {
+                id: currentStudio.id,
                 name: currentStudio.name,
+                address: currentStudio.address ?? null,
                 signature_name: currentStudio.signature_name,
                 signature_title: currentStudio.signature_title,
               } : null}

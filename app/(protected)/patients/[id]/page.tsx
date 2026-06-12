@@ -29,6 +29,7 @@ import PaidPill from "@/src/components/PaidPill";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
 import PatientPackagesSection from "@/src/components/packages/PatientPackagesSection";
 import RemoteConsentsSection from "@/src/components/patient/RemoteConsentsSection";
+import { quickSendRemoteConsents } from "@/src/lib/consents/quickSend";
 import PackageBadge from "@/src/components/packages/PackageBadge";
 
 function cleanPhoneWA(phone: string): string {
@@ -756,6 +757,7 @@ export default function PatientDetailPage({
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState("");
   const [patient, setPatient] = useState<Patient | null>(null);
+  const [quickConsentMsg, setQuickConsentMsg] = useState<string | null>(null);
 
   // ── Template messaggi dalle impostazioni ─────────────────────────────────
   // Caricati dalla tabella practice_settings, usati per i bottoni WhatsApp
@@ -2585,6 +2587,35 @@ ${rows}
               display: "inline-flex", alignItems: "center", gap: 5,
               fontFamily: "inherit",
             }}>🔏 Consensi</button>
+
+            <button onClick={async () => {
+              if (!patient) return;
+              setQuickConsentMsg("⏳ …");
+              const r = await quickSendRemoteConsents({
+                patientId,
+                firstName: patient.first_name ?? "",
+                lastName: patient.last_name ?? "",
+                phone: patient.phone ?? null,
+                studio: currentStudio,
+              });
+              setQuickConsentMsg(r.message);
+              setTimeout(() => setQuickConsentMsg(null), 4000);
+            }} title="Invia link di firma a distanza (riusa il link se già in attesa)" style={{
+              padding: "6px 12px", borderRadius: 7,
+              border: `1px solid rgba(13,148,136,0.35)`,
+              background: "rgba(13,148,136,0.07)",
+              color: "#0d9488", fontWeight: 700, fontSize: 12, cursor: "pointer", height: 30,
+              display: "inline-flex", alignItems: "center", gap: 5,
+              fontFamily: "inherit",
+            }}>🖊️ A distanza</button>
+
+            {quickConsentMsg && (
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: "#0d9488",
+                padding: "4px 10px", borderRadius: 99,
+                background: "rgba(13,148,136,0.08)", border: "1px solid rgba(13,148,136,0.25)" }}>
+                {quickConsentMsg}
+              </span>
+            )}
 
             {/* ── SALDO APERTO (visibile solo se >0) ─────────────────────── */}
             {unpaidAmount > 0 && phone && (
