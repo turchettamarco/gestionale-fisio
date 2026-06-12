@@ -4,6 +4,8 @@ import { supabase } from "@/src/lib/supabaseClient";
 import { showToast } from "@/src/components/mobile/ToastProvider";
 import { openWhatsApp } from "@/src/lib/whatsapp";
 import { getStudioBranding } from "@/src/lib/studioBranding";
+import { openHtmlWindow } from "@/src/lib/openHtmlWindow";
+import { renderProgramHtml } from "@/src/lib/exercise/printProgram";
 
 // ═══════════════════════════════════════════════════════════════════════
 // src/components/patient/ExerciseProgramSection.tsx
@@ -347,6 +349,23 @@ export default function ExerciseProgramSection({
     notify("success", "Programma salvato ✓");
   }
 
+  function stampaPdf() {
+    const branding = getStudioBranding(studio);
+    const html = renderProgramHtml(esercizi, {
+      patientName,
+      fase,
+      durata,
+      startDate,
+      studio: {
+        name: studio?.name ?? null,
+        signature_name: branding.signatureName,
+        signature_title: branding.signatureTitle,
+      },
+      publicUrl: pubLink || null,
+    });
+    openHtmlWindow(html, { width: 850, height: 950 });
+  }
+
   async function copyLink() {
     if (!pubLink) return;
     try {
@@ -638,9 +657,8 @@ export default function ExerciseProgramSection({
               opacity: saving ? 0.7 : 1, fontFamily: "inherit" }}>
             {saving ? "Salvataggio…" : dirty ? "💾 Salva programma" : "✓ Salvato"}
           </button>
-          {token && (
-            <div style={{ display: "flex", gap: 8 }}>
-              {patientPhone && (
+          <div style={{ display: "flex", gap: 8 }}>
+              {token && patientPhone && (
                 <button onClick={sendWA}
                   style={{ flex: 1, padding: "9px 12px", borderRadius: 9,
                     border: `1.5px solid ${T.green}40`, background: `${T.green}0d`,
@@ -649,15 +667,21 @@ export default function ExerciseProgramSection({
                   📲 Invia su WhatsApp
                 </button>
               )}
-              <button onClick={copyLink}
+              {token && <button onClick={copyLink}
                 style={{ flex: 1, padding: "9px 12px", borderRadius: 9,
                   border: `1.5px solid ${T.blue}40`, background: `${T.blue}0d`,
                   color: T.blue, fontWeight: 700, fontSize: 12, cursor: "pointer",
                   fontFamily: "inherit" }}>
                 🔗 Copia link paziente
+              </button>}
+              <button onClick={stampaPdf}
+                style={{ flex: 1, padding: "9px 12px", borderRadius: 9,
+                  border: `1.5px solid ${T.violet}40`, background: `${T.violet}0d`,
+                  color: T.violet, fontWeight: 700, fontSize: 12, cursor: "pointer",
+                  fontFamily: "inherit" }}>
+                🖨️ Stampa / PDF
               </button>
-            </div>
-          )}
+          </div>
           {dirty && token && (
             <div style={{ fontSize: 11, color: T.amber, fontWeight: 600, textAlign: "center" }}>
               ⚠️ Modifiche non salvate: il link mostra l'ultima versione salvata
