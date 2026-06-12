@@ -37,6 +37,7 @@ type ConsentRow = {
   title: string;
   body_text: string;
   access_token: string;
+  bundle_token: string | null;
   status: "pending" | "signed" | "revoked";
   sent_at: string;
   signed_at: string | null;
@@ -117,12 +118,22 @@ export default function RemoteConsentsSection({
     };
     const patientInfo = { firstName: patientFirstName, lastName: patientLastName };
 
+    // Più documenti insieme → bundle_token condiviso: il paziente riceve
+    // UN solo link e firma una volta sola per tutti.
+    let bundleToken: string | null = null;
+    if (types.length > 1) {
+      const bytes = new Uint8Array(24);
+      crypto.getRandomValues(bytes);
+      bundleToken = Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+    }
+
     const rows = types.map(t => ({
       studio_id: studioId,
       patient_id: patientId,
       consent_type: t,
       title: buildConsentTitle(t),
       body_text: buildConsentBody(t, studioInfo, patientInfo),
+      bundle_token: bundleToken,
     }));
 
     const res = await supabase.from("patient_consents").insert(rows).select("*");
@@ -141,20 +152,35 @@ export default function RemoteConsentsSection({
   }
 
   function consentUrl(c: ConsentRow): string {
-    return `${window.location.origin}/consensi/${c.access_token}`;
+    // Documenti inviati insieme condividono il link del bundle: firma unica
+    return `${window.location.origin}/consensi/${c.bundle_token ?? c.access_token}`;
   }
 
   function buildWaMessage(items: ConsentRow[]): string {
     const branding = getStudioBranding(studio);
     const firma = branding.signatureName ? `\n\n${branding.signatureName}` : "";
+    const sameBundle = items.length > 1 &&
+      items[0].bundle_token != null &&
+      items.every(c => c.bundle_token === items[0].bundle_token);
+
+    if (sameBundle || items.length === 1) {
+      const labels = items.map(c => `• ${consentTypeLabel(c.consent_type)}`).join("\n");
+      return (
+        `Gentile ${patientFirstName},\n` +
+        `prima della prossima seduta ti chiedo di leggere e firmare ` +
+        `${items.length === 1 ? "questo documento" : "questi documenti"} ` +
+        `(bastano 2 minuti, si firma direttamente dal telefono):\n\n${labels}\n\n` +
+        `${consentUrl(items[0])}${firma}`
+      );
+    }
+
     const links = items
       .map(c => `• ${consentTypeLabel(c.consent_type)}:\n${consentUrl(c)}`)
       .join("\n\n");
     return (
       `Gentile ${patientFirstName},\n` +
       `prima della prossima seduta ti chiedo di leggere e firmare ` +
-      `${items.length === 1 ? "questo documento" : "questi documenti"} ` +
-      `(bastano 2 minuti, si firma direttamente dal telefono):\n\n${links}${firma}`
+      `questi documenti (bastano 2 minuti, si firma direttamente dal telefono):\n\n${links}${firma}`
     );
   }
 

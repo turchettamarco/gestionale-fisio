@@ -6,19 +6,21 @@ import { useParams } from "next/navigation";
 // app/consensi/[token]/page.tsx
 // ═══════════════════════════════════════════════════════════════════════
 //
-// Pagina pubblica di firma consensi a distanza.
+// Pagina pubblica di firma consensi a distanza — FIRMA UNICA + VERIFICA
+// IDENTITÀ con data di nascita.
 //
 // Flusso:
-//   1. Il paziente apre turchettamarco.com/consensi/{token} (link WhatsApp)
-//   2. GET /api/consents?token={token} → testo consenso + branding studio
-//   3. Il paziente legge, spunta la presa visione, digita nome e cognome,
-//      firma sul canvas (touch/mouse)
-//   4. POST /api/consents → status='signed'
-//   5. Conferma verde. Se il link viene riaperto dopo la firma: vista
-//      read-only con data firma.
+//   1. GET ?token → se il paziente ha birth_date in anagrafica, l'API
+//      risponde con verification_required=true e SOLO i metadati
+//   2. Step verifica: il paziente inserisce la propria data di nascita
+//      → POST action=verify → documenti completi (max 10 tentativi,
+//      poi il link si blocca)
+//   3. Il paziente legge ogni documento, spunta la presa visione di
+//      ciascuno, digita nome e cognome, firma UNA volta sul canvas
+//   4. POST action=sign (con birth_date ri-verificata stateless)
+//   5. Conferma verde / vista read-only se già firmato.
 //
-// NB: raggiungibile anche come /mobile/consensi/{token} (re-export, vedi
-// middleware che reindirizza i telefoni su /mobile/*).
+// NB: raggiungibile anche come /mobile/consensi/{token} (re-export).
 // ═══════════════════════════════════════════════════════════════════════
 
 const T = {
@@ -27,31 +29,42 @@ const T = {
   teal: "#0d9488", gradient: "linear-gradient(135deg,#0d9488,#2563eb)",
 };
 
-type ApiConsent = {
+type ApiDoc = {
+  id: string;
   consent_type: string;
   title: string;
   body_text: string;
   status: "pending" | "signed" | "revoked";
   signed_at: string | null;
   signed_name: string | null;
-  studio: {
-    name?: string | null;
-    signature_name?: string | null;
-    signature_title?: string | null;
-    multi_operator_enabled?: boolean | null;
-    address?: string | null;
-  } | null;
 };
+
+type StudioInfo = {
+  name?: string | null;
+  signature_name?: string | null;
+  signature_title?: string | null;
+} | null;
 
 export default function ConsensoPubblicoPage() {
   const params = useParams<{ token: string }>();
   const token = params?.token ?? "";
 
-  const [consent, setConsent] = useState<ApiConsent | null>(null);
-  const [loadError, setLoadError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [studio, setStudio] = useState<StudioInfo>(null);
 
-  const [accepted, setAccepted] = useState(false);
+  // Step verifica
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [birthDate, setBirthDate] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState("");
+
+  // Documenti (disponibili solo dopo verifica, o subito se non richiesta)
+  const [documents, setDocuments] = useState<ApiDoc[] | null>(null);
+  const [docCount, setDocCount] = useState(0);
+
+  // Firma
+  const [acceptedIds, setAcceptedIds] = useState<Set<string>>(new Set());
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -67,9 +80,15 @@ export default function ConsensoPubblicoPage() {
     (async () => {
       try {
         const res = await fetch(`/api/consents?token=${encodeURIComponent(token)}`);
-        const data = await res.json();
-        if (!res.ok) { setLoadError(data?.error ?? "Errore caricamento"); return; }
-        setConsent(data as ApiConsent);
+        const json = await res.json();
+        if (!res.ok) { setLoadError(json?.error ?? "Errore caricamento"); return; }
+        setStudio(json.studio ?? null);
+        if (json.verification_required) {
+          setNeedsVerification(true);
+          setDocCount(json.documents_meta?.length ?? 0);
+        } else {
+          setDocuments(json.documents as ApiDoc[]);
+        }
       } catch {
         setLoadError("Errore di rete. Riprova.");
       } finally {
@@ -77,6 +96,27 @@ export default function ConsensoPubblicoPage() {
       }
     })();
   }, [token]);
+
+  async function verify() {
+    if (!birthDate) { setVerifyError("Inserisci la tua data di nascita."); return; }
+    setVerifyError("");
+    setVerifying(true);
+    try {
+      const res = await fetch("/api/consents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verify", token, birth_date: birthDate }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setVerifyError(json?.error ?? "Verifica non riuscita."); return; }
+      setDocuments(json.documents as ApiDoc[]);
+      setNeedsVerification(false);
+    } catch {
+      setVerifyError("Errore di rete. Riprova.");
+    } finally {
+      setVerifying(false);
+    }
+  }
 
   // ── Canvas firma ─────────────────────────────────────────────────────
   function setupCanvas(el: HTMLCanvasElement | null) {
@@ -138,8 +178,29 @@ export default function ConsensoPubblicoPage() {
     setHasDrawn(false);
   }
 
+  function toggleAccepted(id: string) {
+    setAcceptedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  const pendingDocs = documents?.filter(d => d.status === "pending") ?? [];
+  const signedDocs  = documents?.filter(d => d.status === "signed") ?? [];
+  const allRevoked  = (documents?.length ?? 0) > 0 &&
+    documents!.every(d => d.status === "revoked");
+
   async function submit() {
-    if (!accepted) { setSubmitError("Spunta la presa visione per continuare."); return; }
+    if (acceptedIds.size === 0) {
+      setSubmitError("Spunta la presa visione dei documenti per continuare."); return;
+    }
+    if (acceptedIds.size < pendingDocs.length) {
+      const proceed = confirm(
+        "Non hai spuntato tutti i documenti: verranno firmati solo quelli selezionati. Continuare?"
+      );
+      if (!proceed) return;
+    }
     if (name.trim().length < 5 || !name.trim().includes(" ")) {
       setSubmitError("Inserisci nome e cognome completi."); return;
     }
@@ -153,14 +214,16 @@ export default function ConsensoPubblicoPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          action: "sign",
           token,
+          birth_date: birthDate || undefined,
           signed_name: name.trim(),
           signature_data: sig,
-          accepted: true,
+          accepted_ids: Array.from(acceptedIds),
         }),
       });
-      const data = await res.json();
-      if (!res.ok) { setSubmitError(data?.error ?? "Errore invio firma."); return; }
+      const json = await res.json();
+      if (!res.ok) { setSubmitError(json?.error ?? "Errore invio firma."); return; }
       setDone(true);
     } catch {
       setSubmitError("Errore di rete. Riprova.");
@@ -195,10 +258,16 @@ export default function ConsensoPubblicoPage() {
     return out;
   }
 
-  const studioHeader = consent?.studio
-    ? [consent.studio.signature_name, consent.studio.signature_title]
-        .filter(Boolean).join(" · ") || consent.studio.name || ""
+  const studioHeader = studio
+    ? [studio.signature_name, studio.signature_title]
+        .filter(Boolean).join(" · ") || studio.name || ""
     : "";
+
+  const headerTitle = needsVerification
+    ? "Verifica identità"
+    : documents && documents.length > 1
+      ? `Documenti da firmare (${documents.length})`
+      : documents?.[0]?.title ?? `Documenti da firmare${docCount > 1 ? ` (${docCount})` : ""}`;
 
   // ── UI ───────────────────────────────────────────────────────────────
   return (
@@ -224,7 +293,7 @@ export default function ConsensoPubblicoPage() {
           </div>
         )}
 
-        {!loading && consent && (
+        {!loading && !loadError && (
           <div style={{ background: T.panelBg, border: `1.5px solid ${T.border}`,
             borderRadius: 16, overflow: "hidden", boxShadow: "0 2px 12px rgba(15,23,42,0.07)" }}>
 
@@ -237,39 +306,73 @@ export default function ConsensoPubblicoPage() {
                 </div>
               )}
               <div style={{ fontWeight: 800, fontSize: 17, color: "#fff", lineHeight: 1.35 }}>
-                {consent.title}
+                {headerTitle}
               </div>
             </div>
 
-            {/* Già firmato */}
-            {(consent.status === "signed" || done) && (
-              <div style={{ padding: "22px" }}>
+            {/* STEP VERIFICA */}
+            {needsVerification && (
+              <div style={{ padding: "24px 22px" }}>
+                <div style={{ fontSize: 14, color: T.text, lineHeight: 1.6, marginBottom: 18 }}>
+                  Per la tua sicurezza, prima di mostrarti
+                  {docCount > 1 ? " i documenti" : " il documento"} ti chiediamo di
+                  confermare la tua <strong>data di nascita</strong>.
+                </div>
+                <input type="date" value={birthDate}
+                  onChange={e => setBirthDate(e.target.value)}
+                  style={{ width: "100%", boxSizing: "border-box", padding: "12px 14px",
+                    borderRadius: 10, border: `1.5px solid ${T.border}`, fontSize: 16,
+                    fontFamily: "inherit", color: T.text, background: "#fff" }} />
+
+                {verifyError && (
+                  <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10,
+                    background: "rgba(220,38,38,0.07)", border: "1.5px solid rgba(220,38,38,0.25)",
+                    color: T.red, fontSize: 13, fontWeight: 600 }}>
+                    ⚠️ {verifyError}
+                  </div>
+                )}
+
+                <button onClick={verify} disabled={verifying}
+                  style={{ marginTop: 16, width: "100%", padding: "13px 16px",
+                    borderRadius: 12, border: "none", background: T.gradient,
+                    color: "#fff", fontWeight: 800, fontSize: 15,
+                    cursor: verifying ? "wait" : "pointer",
+                    opacity: verifying ? 0.7 : 1, fontFamily: "inherit" }}>
+                  {verifying ? "Verifica…" : "Continua →"}
+                </button>
+
+                <div style={{ fontSize: 11, color: T.muted, marginTop: 10, textAlign: "center" }}>
+                  La data viene confrontata con quella presente nella tua scheda.
+                </div>
+              </div>
+            )}
+
+            {/* Tutto firmato / appena firmato */}
+            {documents && (done || (pendingDocs.length === 0 && signedDocs.length > 0)) && (
+              <div style={{ padding: 22 }}>
                 <div style={{ background: "rgba(22,163,74,0.08)",
                   border: "1.5px solid rgba(22,163,74,0.3)", borderRadius: 12,
                   padding: "16px 18px", textAlign: "center" }}>
                   <div style={{ fontSize: 28, marginBottom: 6 }}>✅</div>
                   <div style={{ fontWeight: 800, fontSize: 15, color: T.green }}>
-                    Consenso firmato
+                    {done ? "Firma registrata correttamente" : "Consensi già firmati"}
                   </div>
-                  {(consent.signed_name || done) && (
-                    <div style={{ fontSize: 13, color: T.muted, marginTop: 6 }}>
-                      {done
-                        ? "Grazie! La firma è stata registrata correttamente."
-                        : `Firmato da ${consent.signed_name} il ${consent.signed_at
-                            ? new Date(consent.signed_at).toLocaleDateString("it-IT", {
+                  <div style={{ fontSize: 13, color: T.muted, marginTop: 6 }}>
+                    {done
+                      ? "Grazie! Puoi chiudere questa pagina."
+                      : signedDocs[0]
+                        ? `Firmato da ${signedDocs[0].signed_name} il ${signedDocs[0].signed_at
+                            ? new Date(signedDocs[0].signed_at).toLocaleDateString("it-IT", {
                                 day: "2-digit", month: "long", year: "numeric" })
-                            : "—"}`}
-                    </div>
-                  )}
+                            : "—"}`
+                        : ""}
+                  </div>
                 </div>
-                {!done && (
-                  <div style={{ marginTop: 18 }}>{renderBody(consent.body_text)}</div>
-                )}
               </div>
             )}
 
-            {/* Revocato */}
-            {consent.status === "revoked" && !done && (
+            {/* Tutto revocato */}
+            {documents && allRevoked && !done && (
               <div style={{ padding: 28, textAlign: "center" }}>
                 <div style={{ fontSize: 28, marginBottom: 6 }}>🚫</div>
                 <div style={{ fontWeight: 700, fontSize: 15, color: T.text }}>
@@ -281,24 +384,38 @@ export default function ConsensoPubblicoPage() {
               </div>
             )}
 
-            {/* Da firmare */}
-            {consent.status === "pending" && !done && (
+            {/* Documenti da firmare */}
+            {documents && pendingDocs.length > 0 && !done && (
               <div style={{ padding: "20px 22px" }}>
-                {renderBody(consent.body_text)}
 
-                <div style={{ borderTop: `1.5px solid ${T.border}`, marginTop: 18, paddingTop: 18 }}>
-                  <label style={{ display: "flex", alignItems: "flex-start", gap: 10,
-                    fontSize: 13.5, color: T.text, cursor: "pointer", lineHeight: 1.5 }}>
-                    <input type="checkbox" checked={accepted}
-                      onChange={e => setAccepted(e.target.checked)}
-                      style={{ width: 18, height: 18, marginTop: 2, accentColor: T.teal }} />
-                    <span>
-                      Dichiaro di aver <strong>letto e compreso</strong> il documento sopra
-                      riportato e di prestare il mio consenso.
-                    </span>
-                  </label>
+                {pendingDocs.map((doc, i) => (
+                  <div key={doc.id} style={{ marginBottom: 18 }}>
+                    {documents.length > 1 && (
+                      <div style={{ fontWeight: 800, fontSize: 14.5, color: T.text,
+                        padding: "10px 0 8px", borderTop: i > 0 ? `1.5px solid ${T.border}` : "none",
+                        marginTop: i > 0 ? 6 : 0 }}>
+                        {i + 1}. {doc.title}
+                      </div>
+                    )}
+                    {renderBody(doc.body_text)}
+                    <label style={{ display: "flex", alignItems: "flex-start", gap: 10,
+                      fontSize: 13.5, color: T.text, cursor: "pointer", lineHeight: 1.5,
+                      background: acceptedIds.has(doc.id) ? "rgba(13,148,136,0.06)" : T.appBg,
+                      border: `1.5px solid ${acceptedIds.has(doc.id) ? T.teal : T.border}`,
+                      borderRadius: 10, padding: "11px 14px" }}>
+                      <input type="checkbox" checked={acceptedIds.has(doc.id)}
+                        onChange={() => toggleAccepted(doc.id)}
+                        style={{ width: 18, height: 18, marginTop: 2, accentColor: T.teal }} />
+                      <span>
+                        Dichiaro di aver <strong>letto e compreso</strong> questo documento
+                        e di prestare il mio consenso.
+                      </span>
+                    </label>
+                  </div>
+                ))}
 
-                  <div style={{ marginTop: 16 }}>
+                <div style={{ borderTop: `1.5px solid ${T.border}`, paddingTop: 18 }}>
+                  <div>
                     <div style={{ fontSize: 10, color: T.muted, fontWeight: 700,
                       textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
                       Nome e cognome
@@ -315,7 +432,9 @@ export default function ConsensoPubblicoPage() {
                       alignItems: "center", marginBottom: 6 }}>
                       <div style={{ fontSize: 10, color: T.muted, fontWeight: 700,
                         textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                        Firma qui sotto (dito o mouse)
+                        {pendingDocs.length > 1
+                          ? "Un'unica firma per tutti i documenti (dito o mouse)"
+                          : "Firma qui sotto (dito o mouse)"}
                       </div>
                       <button onClick={clearCanvas} style={{ padding: "3px 10px",
                         borderRadius: 6, border: `1px solid ${T.border}`, background: "#fff",
@@ -347,10 +466,14 @@ export default function ConsensoPubblicoPage() {
                   <button onClick={submit} disabled={submitting}
                     style={{ marginTop: 16, width: "100%", padding: "14px 16px",
                       borderRadius: 12, border: "none", background: T.gradient,
-                      color: "#fff", fontWeight: 800, fontSize: 15, cursor: submitting ? "wait" : "pointer",
+                      color: "#fff", fontWeight: 800, fontSize: 15,
+                      cursor: submitting ? "wait" : "pointer",
                       opacity: submitting ? 0.7 : 1, fontFamily: "inherit",
                       boxShadow: "0 2px 10px rgba(13,148,136,0.3)" }}>
-                    {submitting ? "Invio in corso…" : "✓ Conferma e firma"}
+                    {submitting ? "Invio in corso…"
+                      : pendingDocs.length > 1
+                        ? `✓ Firma ${acceptedIds.size > 0 ? acceptedIds.size : ""} document${acceptedIds.size === 1 ? "o" : "i"}`
+                        : "✓ Conferma e firma"}
                   </button>
 
                   <div style={{ fontSize: 11, color: T.muted, marginTop: 10, textAlign: "center" }}>
