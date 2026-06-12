@@ -121,6 +121,9 @@ export async function GET(req: NextRequest) {
       note: data.note,
       created_at: data.created_at,
       expires_at: data.expires_at,
+      fase: (data as any).fase ?? null,
+      durata_settimane: (data as any).durata_settimane ?? null,
+      start_date: (data as any).start_date ?? null,
       studio,
     });
   } catch (e: any) {

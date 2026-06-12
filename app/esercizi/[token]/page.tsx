@@ -3,10 +3,28 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
+// ═══════════════════════════════════════════════════════════════════════
+// app/esercizi/[token]/page.tsx — Programma esercizi pubblico (paziente)
+// ═══════════════════════════════════════════════════════════════════════
+// v2: programma con settimana corrente. Se la scheda ha durata e data di
+// inizio, la pagina calcola in che settimana si trova il paziente, la
+// evidenzia e mostra per ogni esercizio i parametri di QUELLA settimana
+// (serie/ripetizioni/carico dalla progressione). Selettore settimane per
+// vedere il percorso completo. Le schede legacy (senza programma)
+// vengono mostrate come liste semplici, identiche a prima.
+// ═══════════════════════════════════════════════════════════════════════
+
+type ProgressStep = { settimana: number; serie: string; ripetizioni: string; carico: string };
+
 type Esercizio = {
   id: string; nome: string; descrizione: string; serie: string;
   ripetizioni: string; frequenza: string; note: string; avvertenze: string;
   youtube_id?: string; youtube_query?: string; categoria?: string; image_url?: string;
+  progressione?: ProgressStep[];
+};
+
+const FASE_LABEL: Record<string, string> = {
+  acuta: "Fase acuta", subacuta: "Fase subacuta", cronica: "Fase di consolidamento",
 };
 
 function EsercizioSVG({ categoria }: { categoria?: string }) {
@@ -51,6 +69,14 @@ export default function SchedaEserciziPubblica() {
   const [studio,      setStudio]      = useState<any>(null);
   const [expanded,    setExpanded]    = useState<string|null>(null);
   const [videoOpen,   setVideoOpen]   = useState<string|null>(null);
+  const [showProg,    setShowProg]    = useState<string|null>(null);
+
+  // Programma
+  const [fase,    setFase]    = useState<string|null>(null);
+  const [durata,  setDurata]  = useState<number|null>(null);
+  const [startD,  setStartD]  = useState<string|null>(null);
+  const [week,    setWeek]    = useState(1);        // settimana visualizzata
+  const [curWeek, setCurWeek] = useState<number|null>(null); // settimana reale del paziente
 
   useEffect(()=>{
     if(!token) return;
@@ -60,8 +86,30 @@ export default function SchedaEserciziPubblica() {
         setPatientName(d.patient_name); setEsercizi(d.esercizi??[]); setNota(d.note??"");
         setCreatedAt(d.created_at?new Date(d.created_at).toLocaleDateString("it-IT",{day:"2-digit",month:"long",year:"numeric"}):"");
         setStudio(d.studio || null);
+        setFase(d.fase ?? null);
+        const dur = d.durata_settimane ?? null;
+        setDurata(dur);
+        setStartD(d.start_date ?? null);
+        if (dur && d.start_date) {
+          const days = Math.floor((Date.now() - new Date(d.start_date + "T00:00:00").getTime()) / 86400000);
+          const w = Math.min(dur, Math.max(1, Math.floor(days / 7) + 1));
+          const realW = days < 0 ? 0 : w;          // 0 = non ancora iniziato
+          setCurWeek(realW);
+          setWeek(realW === 0 ? 1 : w);
+        }
       }).catch(()=>setError("Errore caricamento")).finally(()=>setLoading(false));
   },[token]);
+
+  const isProgram = durata !== null && durata > 1;
+
+  // Parametri dell'esercizio per la settimana selezionata
+  function paramsFor(e: Esercizio): { serie: string; ripetizioni: string; carico: string | null } {
+    if (isProgram && Array.isArray(e.progressione)) {
+      const s = e.progressione.find(p => p.settimana === week);
+      if (s) return { serie: s.serie, ripetizioni: s.ripetizioni, carico: s.carico || null };
+    }
+    return { serie: e.serie, ripetizioni: e.ripetizioni, carico: null };
+  }
 
   if(loading) return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f1f5f9",fontFamily:"system-ui,sans-serif"}}><div style={{textAlign:"center"}}><div style={{fontSize:40,marginBottom:12}}>⏳</div><div style={{fontSize:16,color:"#334155",fontWeight:600}}>Caricamento scheda…</div></div></div>;
   if(error)   return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f1f5f9",fontFamily:"system-ui,sans-serif"}}><div style={{textAlign:"center",padding:32}}><div style={{fontSize:40,marginBottom:12}}>😕</div><div style={{fontSize:18,color:"#dc2626",fontWeight:700,marginBottom:8}}>{error}</div><div style={{fontSize:14,color:"#64748b"}}>Contatta il tuo fisioterapista per un nuovo link.</div></div></div>;
@@ -98,12 +146,66 @@ export default function SchedaEserciziPubblica() {
         <div style={{fontSize:12,fontWeight:700,color:"rgba(255,255,255,0.7)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>{studio ? [studio.name, studio.signature_name].filter(Boolean).join(" — ") : "Scheda Esercizi"}</div>
         <div style={{fontSize:22,fontWeight:800,color:"#fff",marginBottom:4}}>Programma Esercizi Domiciliari</div>
         <div style={{fontSize:15,color:"rgba(255,255,255,0.9)",fontWeight:600}}>{patientName}</div>
+        {fase && FASE_LABEL[fase] && (
+          <div style={{display:"inline-block",marginTop:8,fontSize:11.5,fontWeight:800,color:"#fff",background:"rgba(255,255,255,0.18)",border:"1.5px solid rgba(255,255,255,0.35)",padding:"3px 12px",borderRadius:99}}>
+            {FASE_LABEL[fase]}
+          </div>
+        )}
         {createdAt&&<div style={{fontSize:12,color:"rgba(255,255,255,0.65)",marginTop:6}}>Emesso il {createdAt}</div>}
       </div>
 
       <div style={{maxWidth:680,margin:"0 auto",padding:"0 16px"}}>
+
+        {/* Barra programma: settimana corrente + selettore */}
+        {isProgram && (
+          <div style={{background:"#fff",borderRadius:"0 0 14px 14px",padding:"16px 18px",marginBottom:14,boxShadow:"0 4px 16px rgba(13,148,136,0.1)"}}>
+            <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:6}}>
+              <div style={{fontSize:15,fontWeight:800,color:"#0f172a"}}>
+                {curWeek === 0
+                  ? `Il programma inizia il ${startD ? new Date(startD+"T00:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"long"}) : "—"}`
+                  : curWeek !== null && curWeek === week
+                    ? `📍 Sei alla settimana ${curWeek} di ${durata}`
+                    : `Settimana ${week} di ${durata}`}
+              </div>
+              {curWeek !== null && curWeek > 0 && week !== curWeek && (
+                <button className="no-print" onClick={()=>setWeek(curWeek)} style={{fontSize:11.5,fontWeight:800,color:"#0d9488",background:"rgba(13,148,136,0.08)",border:"1.5px solid rgba(13,148,136,0.3)",borderRadius:99,padding:"3px 11px",cursor:"pointer",fontFamily:"inherit"}}>
+                  ↩ Torna a oggi
+                </button>
+              )}
+            </div>
+
+            {/* Barra avanzamento */}
+            <div style={{display:"flex",gap:4,marginBottom:12}}>
+              {Array.from({length: durata!}, (_,i)=>i+1).map(w=>(
+                <div key={w} style={{flex:1,height:6,borderRadius:99,
+                  background: curWeek !== null && w < (curWeek||0) ? "#0d9488"
+                    : curWeek === w ? "linear-gradient(135deg,#0d9488,#2563eb)"
+                    : "#e2e8f0"}}/>
+              ))}
+            </div>
+
+            {/* Selettore settimane */}
+            <div className="no-print" style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {Array.from({length: durata!}, (_,i)=>i+1).map(w=>(
+                <button key={w} onClick={()=>setWeek(w)}
+                  style={{width:34,height:34,borderRadius:9,fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit",
+                    border: week===w ? "none" : `1.5px solid ${curWeek===w ? "#0d9488" : "#e2e8f0"}`,
+                    background: week===w ? "linear-gradient(135deg,#0d9488,#2563eb)" : "#fff",
+                    color: week===w ? "#fff" : curWeek===w ? "#0d9488" : "#64748b",
+                    position:"relative"}}>
+                  {w}
+                  {curWeek===w && week!==w && <span style={{position:"absolute",top:-3,right:-3,width:8,height:8,borderRadius:"50%",background:"#0d9488"}}/>}
+                </button>
+              ))}
+            </div>
+            <div style={{fontSize:11,color:"#94a3b8",marginTop:8}}>
+              I valori di serie, ripetizioni e carico qui sotto sono quelli della settimana selezionata.
+            </div>
+          </div>
+        )}
+
         {/* Intro */}
-        <div style={{background:"#fff",borderRadius:"0 0 14px 14px",padding:"14px 18px",marginBottom:20,boxShadow:"0 4px 16px rgba(13,148,136,0.1)"}}>
+        <div style={{background:"#fff",borderRadius:isProgram?14:"0 0 14px 14px",padding:"14px 18px",marginBottom:20,boxShadow:"0 4px 16px rgba(13,148,136,0.1)"}}>
           <div style={{fontSize:13,color:"#0d9488",fontWeight:600,lineHeight:1.6}}>
             ℹ️ Esegui gli esercizi con attenzione. In caso di dolore acuto, <strong>fermati e contatta lo studio</strong>.<br/>Tocca ogni esercizio per dettagli e video dimostrativo.
           </div>
@@ -111,10 +213,12 @@ export default function SchedaEserciziPubblica() {
         </div>
 
         {/* Lista esercizi */}
-        {esercizi.map((e,idx)=>{
+        {esercizi.map((e)=>{
           const cat = getCat(e.categoria);
           const ytId = e.youtube_id || null;
           const isOpen = expanded === e.id;
+          const p = paramsFor(e);
+          const hasProg = isProgram && Array.isArray(e.progressione) && e.progressione.length > 0;
           return (
             <div key={e.id} style={{background:"#fff",borderRadius:14,marginBottom:12,overflow:"hidden",boxShadow:"0 2px 8px rgba(15,23,42,0.06)",border:"1.5px solid #e2e8f0"}}>
               {/* Header */}
@@ -129,7 +233,10 @@ export default function SchedaEserciziPubblica() {
                     {e.image_url&&<span style={{fontSize:10,color:"#0d9488",fontWeight:700}}>🖼️ Foto</span>}
                   </div>
                   <div style={{fontWeight:800,fontSize:15,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.nome}</div>
-                  <div style={{fontSize:12,color:"#64748b",marginTop:2}}>{e.serie} serie × {e.ripetizioni} · {e.frequenza}</div>
+                  <div style={{fontSize:12,color:"#64748b",marginTop:2}}>
+                    {p.serie} serie × {p.ripetizioni} · {e.frequenza}
+                    {hasProg && <span style={{color:"#0d9488",fontWeight:700}}> · sett. {week}</span>}
+                  </div>
                 </div>
                 <div style={{fontSize:18,color:"#94a3b8",transition:"transform 0.2s",transform:isOpen?"rotate(180deg)":"none",flexShrink:0}}>▾</div>
               </div>
@@ -160,13 +267,46 @@ export default function SchedaEserciziPubblica() {
                   )}
                   <div style={{padding:"14px 16px"}}>
                     <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
-                      {[{l:"Serie",v:e.serie},{l:"Ripetizioni",v:e.ripetizioni},{l:"Frequenza",v:e.frequenza}].map(k=>(
+                      {[{l:"Serie",v:p.serie},{l:"Ripetizioni",v:p.ripetizioni},{l:"Frequenza",v:e.frequenza}].map(k=>(
                         <span key={k.l} style={{fontSize:12,fontWeight:700,color:"#2563eb",background:"rgba(37,99,235,0.08)",padding:"4px 12px",borderRadius:99}}>{k.l}: {k.v}</span>
                       ))}
                     </div>
+                    {hasProg && p.carico && (
+                      <div style={{fontSize:13,fontWeight:700,color:"#0d9488",background:"rgba(13,148,136,0.07)",padding:"8px 12px",borderRadius:8,marginBottom:10,borderLeft:"3px solid #0d9488"}}>
+                        🎯 Questa settimana: {p.carico}
+                      </div>
+                    )}
                     {e.descrizione&&<div style={{fontSize:14,color:"#334155",lineHeight:1.7,marginBottom:10}}>{e.descrizione}</div>}
                     {e.note&&<div style={{fontSize:13,color:"#0d9488",background:"rgba(13,148,136,0.07)",padding:"8px 12px",borderRadius:8,marginBottom:8}}>📌 {e.note}</div>}
                     {e.avvertenze&&<div style={{fontSize:13,color:"#dc2626",background:"rgba(220,38,38,0.06)",padding:"8px 12px",borderRadius:8,marginBottom:10}}>⚠️ {e.avvertenze}</div>}
+
+                    {/* Percorso completo (progressione) */}
+                    {hasProg && (
+                      <div style={{marginBottom:10}}>
+                        <button className="no-print" onClick={()=>setShowProg(showProg===e.id?null:e.id)}
+                          style={{background:"transparent",border:"none",color:"#2563eb",fontSize:12.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:0,textDecoration:"underline"}}>
+                          {showProg===e.id ? "Nascondi percorso completo ▲" : "Vedi percorso completo ▼"}
+                        </button>
+                        {showProg===e.id && (
+                          <div style={{marginTop:8,border:"1.5px solid #e2e8f0",borderRadius:10,overflow:"hidden"}}>
+                            <div style={{display:"grid",gridTemplateColumns:"50px 60px 60px 1fr",gap:0,fontSize:11,fontWeight:800,color:"#64748b",background:"#f8fafc",padding:"7px 10px"}}>
+                              <div>SETT.</div><div>SERIE</div><div>RIP.</div><div>CARICO</div>
+                            </div>
+                            {(e.progressione??[]).map(s=>(
+                              <div key={s.settimana} style={{display:"grid",gridTemplateColumns:"50px 60px 60px 1fr",gap:0,fontSize:12,padding:"7px 10px",
+                                background: s.settimana===week ? "rgba(13,148,136,0.07)" : "#fff",
+                                borderTop:"1px solid #f1f5f9",
+                                fontWeight: s.settimana===week ? 800 : 500,
+                                color: s.settimana===week ? "#0d9488" : "#334155"}}>
+                                <div>{s.settimana===curWeek ? `📍${s.settimana}` : s.settimana}</div>
+                                <div>{s.serie}</div><div>{s.ripetizioni}</div><div>{s.carico}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {ytId&&(
                       <button onClick={()=>setVideoOpen(ytId)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"13px 16px",background:"#dc2626",borderRadius:10,border:"none",color:"#fff",cursor:"pointer",fontWeight:800,fontSize:15,fontFamily:"inherit"}}>
                         <span style={{fontSize:22}}>▶</span> Guarda il video dimostrativo
