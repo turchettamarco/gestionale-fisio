@@ -248,9 +248,14 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+    // Firma grafica FACOLTATIVA: la firma elettronica semplice si perfeziona
+    // con spunta + nome digitato + verifica identità + metadati. Se presente,
+    // la firma disegnata viene salvata come evidenza aggiuntiva.
     const signatureData = body.signature_data ?? "";
-    if (!signatureData.startsWith("data:image/png;base64,") || signatureData.length < 200) {
-      return NextResponse.json({ error: "Firma mancante" }, { status: 400 });
+    const hasSignature = signatureData.length > 0;
+    if (hasSignature &&
+        (!signatureData.startsWith("data:image/png;base64,") || signatureData.length < 200)) {
+      return NextResponse.json({ error: "Firma non valida" }, { status: 400 });
     }
     if (signatureData.length > 500_000) {
       return NextResponse.json({ error: "Firma troppo grande" }, { status: 413 });
@@ -296,7 +301,7 @@ export async function POST(req: NextRequest) {
         status: "signed",
         signed_at: new Date().toISOString(),
         signed_name: signedName,
-        signature_data: signatureData,
+        signature_data: hasSignature ? signatureData : null,
         signer_ip: ip,
         signer_user_agent: ua,
       })

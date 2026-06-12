@@ -204,12 +204,15 @@ export default function ConsensoPubblicoPage() {
     if (name.trim().length < 5 || !name.trim().includes(" ")) {
       setSubmitError("Inserisci nome e cognome completi."); return;
     }
-    if (!hasDrawnRef.current) { setSubmitError("Firma nello spazio dedicato."); return; }
+    // Firma grafica facoltativa: spunta + nome e cognome sono sufficienti
+    // (firma elettronica semplice, eIDAS). Se disegnata, è evidenza extra.
 
     setSubmitError("");
     setSubmitting(true);
     try {
-      const sig = canvasRef.current!.toDataURL("image/png");
+      const sig = hasDrawnRef.current
+        ? canvasRef.current!.toDataURL("image/png")
+        : null;
       const res = await fetch("/api/consents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -242,7 +245,7 @@ export default function ConsensoPubblicoPage() {
         out.push(
           <ul key={key} style={{ margin: "8px 0", paddingLeft: 22 }}>
             {list.map((li, i) => (
-              <li key={i} style={{ fontSize: 13.5, lineHeight: 1.7, marginBottom: 3 }}>{li}</li>
+              <li key={i} style={{ fontSize: 13.5, lineHeight: 1.7, marginBottom: 3, color: T.text }}>{li}</li>
             ))}
           </ul>
         );
@@ -252,7 +255,7 @@ export default function ConsensoPubblicoPage() {
     blocks.forEach((b, i) => {
       if (b.startsWith("• ")) { list.push(b.slice(2)); return; }
       flush(`ul-${i}`);
-      out.push(<p key={i} style={{ fontSize: 13.5, lineHeight: 1.7, margin: "0 0 12px" }}>{b}</p>);
+      out.push(<p key={i} style={{ fontSize: 13.5, lineHeight: 1.7, margin: "0 0 12px", color: T.text }}>{b}</p>);
     });
     flush("ul-end");
     return out;
@@ -433,8 +436,8 @@ export default function ConsensoPubblicoPage() {
                       <div style={{ fontSize: 10, color: T.muted, fontWeight: 700,
                         textTransform: "uppercase", letterSpacing: "0.05em" }}>
                         {pendingDocs.length > 1
-                          ? "Un'unica firma per tutti i documenti (dito o mouse)"
-                          : "Firma qui sotto (dito o mouse)"}
+                          ? "Firma grafica — facoltativa, vale per tutti i documenti"
+                          : "Firma grafica — facoltativa"}
                       </div>
                       <button onClick={clearCanvas} style={{ padding: "3px 10px",
                         borderRadius: 6, border: `1px solid ${T.border}`, background: "#fff",
