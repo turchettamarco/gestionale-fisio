@@ -30,6 +30,7 @@ import type { PaymentMethod } from "@/src/components/PaidPopover";
 import PatientPackagesSection from "@/src/components/packages/PatientPackagesSection";
 import RemoteConsentsSection from "@/src/components/patient/RemoteConsentsSection";
 import { quickSendRemoteConsents } from "@/src/lib/consents/quickSend";
+import ExerciseProgramSection from "@/src/components/patient/ExerciseProgramSection";
 import PackageBadge from "@/src/components/packages/PackageBadge";
 
 function cleanPhoneWA(phone: string): string {
@@ -3387,284 +3388,24 @@ ${rows}
         <section style={{ ...cardStyle }}>
           <SecHeader
             icon="🏋️"
-            title="Scheda Esercizi Domiciliari"
-            subtitle="Genera con AI · modifica · stampa PDF da consegnare al paziente"
+            title="Programma Esercizi"
+            subtitle="Fase clinica · progressione settimanale · genera con AI · link paziente"
             open={secEsercizi}
-            onToggle={() => { setSecEsercizi(s => { if(!s) loadSchedaEsercizi(); return !s; }); }}
-            badge={!secEsercizi && esercizi.length > 0
-              ? <span style={{ background:"rgba(13,148,136,0.1)", color:THEME.teal, fontWeight:800, fontSize:12, borderRadius:99, padding:"2px 10px", border:"1px solid rgba(13,148,136,0.2)" }}>
-                  {esercizi.length} esercizi
-                </span>
-              : undefined}
+            onToggle={() => setSecEsercizi(s => !s)}
           />
-          {secEsercizi && (
+          {secEsercizi && patient && (
             <div style={cardBody}>
-
-              {/* Toolbar */}
-              <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
-                <div style={{ flex:1, minWidth:200 }}>
-                  <input
-                    value={eserciziNote}
-                    onChange={e => setEserciziNote(e.target.value)}
-                    placeholder="Istruzioni aggiuntive per l'AI (opzionale, es: solo esercizi in scarico, evitare rotazioni...)"
-                    style={{ width:"100%", padding:"8px 12px", borderRadius:8, border:`1.5px solid ${THEME.border}`, fontSize:12, fontWeight:500, color:THEME.text, background:"#fff", outline:"none" }}
-                  />
-                </div>
-                <button
-                  onClick={generaEserciziAI}
-                  disabled={genLoading}
-                  style={{ padding:"9px 18px", borderRadius:8, border:"none", background:`linear-gradient(135deg,#0d9488,#2563eb)`, color:"#fff", fontWeight:700, fontSize:13, cursor:genLoading?"wait":"pointer", opacity:genLoading?0.7:1, display:"flex", alignItems:"center", gap:8, flexShrink:0, boxShadow:"0 2px 8px rgba(13,148,136,0.25)" }}>
-                  {genLoading ? "⏳ Generando…" : "✨ Genera con AI"}
-                </button>
-                <button
-                  onClick={addEsercizioVuoto}
-                  style={{ padding:"9px 14px", borderRadius:8, border:`1.5px solid ${THEME.teal}`, background:"rgba(13,148,136,0.06)", color:THEME.teal, fontWeight:700, fontSize:13, cursor:"pointer", flexShrink:0 }}>
-                  + Aggiungi
-                </button>
-                {esercizi.length > 0 && (
-                  <button
-                    onClick={stampaEsercizi}
-                    style={{ padding:"9px 14px", borderRadius:8, border:`1.5px solid ${THEME.blue}`, background:"rgba(37,99,235,0.06)", color:THEME.blue, fontWeight:700, fontSize:13, cursor:"pointer", flexShrink:0 }}>
-                    🖨️ Stampa PDF
-                  </button>
-                )}
-                {esercizi.length > 0 && (
-                  <button
-                    onClick={generatePubLink}
-                    disabled={pubLinkLoading}
-                    style={{ padding:"9px 14px", borderRadius:8, border:`1.5px solid #16a34a`, background:"rgba(22,163,74,0.06)", color:"#16a34a", fontWeight:700, fontSize:13, cursor:"pointer", flexShrink:0, opacity:pubLinkLoading?0.6:1 }}>
-                    {pubLinkLoading ? "⏳ Generando…" : "🔗 Genera link paziente"}
-                  </button>
-                )}
-                {esercizi.length > 0 && (
-                  <button onClick={saveSchedaEsercizi} disabled={savingScheda}
-                    style={{ padding:"9px 14px", borderRadius:8, border:`1.5px solid ${THEME.teal}`, background:"rgba(13,148,136,0.06)", color:THEME.teal, fontWeight:700, fontSize:13, cursor:"pointer", flexShrink:0, opacity:savingScheda?0.6:1 }}>
-                    {savingScheda ? "💾 Salvo…" : "💾 Salva"}
-                  </button>
-                )}
-                {schedeStorico.length > 0 && (
-                  <button onClick={() => setShowStorico(v=>!v)}
-                    style={{ padding:"9px 14px", borderRadius:8, border:`1.5px solid ${THEME.border}`, background:THEME.panelSoft, color:THEME.muted, fontWeight:700, fontSize:13, cursor:"pointer", flexShrink:0 }}>
-                    🕐 Storico ({schedeStorico.length})
-                  </button>
-                )}
-              </div>
-
-              {/* Aggiungi un esercizio specifico con AI */}
-              <div style={{ display:"flex", gap:8, marginBottom:16, alignItems:"center", padding:"10px 12px", borderRadius:10, border:`1.5px dashed ${THEME.teal}`, background:"rgba(13,148,136,0.04)", flexWrap:"wrap" }}>
-                <span style={{ fontSize:18, flexShrink:0 }}>✨</span>
-                <input
-                  value={aiExName}
-                  onChange={e => setAiExName(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter" && !aiAddLoading && aiExName.trim()) aggiungiEsercizioAI(); }}
-                  placeholder="Aggiungi un esercizio con AI — es: plank laterale, ponte glutei, allungamento ischiocrurali…"
-                  style={{ flex:1, minWidth:220, padding:"8px 12px", borderRadius:8, border:`1.5px solid ${THEME.border}`, fontSize:12, fontWeight:500, color:THEME.text, background:"#fff", outline:"none" }}
-                />
-                <button
-                  onClick={aggiungiEsercizioAI}
-                  disabled={aiAddLoading || !aiExName.trim()}
-                  style={{ padding:"9px 16px", borderRadius:8, border:"none", background:`linear-gradient(135deg,#0d9488,#2563eb)`, color:"#fff", fontWeight:700, fontSize:13, cursor:(aiAddLoading||!aiExName.trim())?"not-allowed":"pointer", opacity:(aiAddLoading||!aiExName.trim())?0.55:1, display:"flex", alignItems:"center", gap:8, flexShrink:0, boxShadow:"0 2px 8px rgba(13,148,136,0.2)" }}>
-                  {aiAddLoading ? "⏳ Aggiungo…" : "✨ Aggiungi con AI"}
-                </button>
-              </div>
-
-              {genError && (
-                <div style={{ marginBottom:12, padding:"9px 14px", borderRadius:8, background:"rgba(220,38,38,0.05)", border:"1px solid rgba(220,38,38,0.2)", color:THEME.red, fontSize:12, fontWeight:600 }}>
-                  {genError}
-                </div>
-              )}
-
-              {/* Storico schede */}
-              {showStorico && schedeStorico.length > 0 && (
-                <div style={{ marginBottom:14, padding:"14px 16px", borderRadius:10, border:`1.5px solid ${THEME.border}`, background:THEME.panelSoft }}>
-                  <div style={{ fontSize:12, fontWeight:700, color:THEME.text, marginBottom:10 }}>🕐 Storico schede esercizi</div>
-                  <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                    {schedeStorico.map((s, i) => (
-                      <div key={s.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", borderRadius:8, background:"#fff", border:`1px solid ${s.id===schedaId?THEME.teal:THEME.border}` }}>
-                        <div style={{ flex:1 }}>
-                          <div style={{ fontSize:12, fontWeight:700, color:THEME.text }}>
-                            {i===0?"📌 Attuale":"📄"} Scheda del {new Date(s.created_at).toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"numeric"})}
-                          </div>
-                          {s.note && <div style={{ fontSize:11, color:THEME.muted }}>{s.note}</div>}
-                        </div>
-                        <button onClick={() => loadSchedaStorico(s.id)}
-                          style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${THEME.teal}`, background:"rgba(13,148,136,0.06)", color:THEME.teal, cursor:"pointer", fontWeight:700, fontSize:11 }}>
-                          Carica
-                        </button>
-                        <a href={`${window.location.origin}/esercizi/${s.token}`} target="_blank" rel="noopener noreferrer"
-                          style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${THEME.blue}`, background:"rgba(37,99,235,0.06)", color:THEME.blue, textDecoration:"none", fontWeight:700, fontSize:11 }}>
-                          Link
-                        </a>
-                        <button onClick={async()=>{
-                          if(!confirm("Eliminare questa scheda esercizi? Il link non funzionerà più.")) return;
-                          await supabase.from("schede_esercizi_pubbliche").delete().eq("id",s.id);
-                          if(schedaId===s.id) { setSchedaId(null); setEsercizi([]); }
-                          await loadSchedaEsercizi();
-                        }} style={{ padding:"5px 8px", borderRadius:6, border:`1px solid rgba(220,38,38,0.3)`, background:"rgba(220,38,38,0.05)", color:THEME.red, cursor:"pointer", fontWeight:700, fontSize:11 }}>
-                          🗑
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {pubLink && (
-                <div style={{ marginBottom:16, padding:"14px 16px", borderRadius:10, background:"rgba(22,163,74,0.05)", border:"1.5px solid rgba(22,163,74,0.3)" }}>
-                  <div style={{ fontSize:12, fontWeight:700, color:"#15803d", marginBottom:8 }}>✅ Link generato! Valido 90 giorni — invialo al paziente via WhatsApp:</div>
-                  <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
-                    <code style={{ flex:1, fontSize:11, background:"#0f172a", color:"#fff", padding:"6px 10px", borderRadius:6, wordBreak:"break-all", userSelect:"all" }}>{pubLink}</code>
-                    <button onClick={() => navigator.clipboard.writeText(pubLink)} style={{ padding:"7px 12px", borderRadius:7, border:"1px solid #16a34a", background:"#16a34a", color:"#fff", fontWeight:700, fontSize:11, cursor:"pointer", flexShrink:0 }}>
-                      📋 Copia
-                    </button>
-                    <button onClick={()=>{
-                        const __b3 = getStudioBranding(currentStudio); const firma = [__b3.signatureName, __b3.signatureTitle].filter(Boolean).join("\n");
-                        const msg = `Gentile ${lastName} ${firstName},\nEcco la sua scheda esercizi domiciliari:\n${pubLink}\n\nClicchi il link per vedere gli esercizi e i video dimostrativi.${firma ? `\n${firma}` : ""}`;
-                        const url = "https://wa.me/?text=" + encodeURIComponent(msg);
-                        const w = window.open(url, "_blank", "noopener,noreferrer"); if (!w) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200); }
-                      }}
-                      style={{ padding:"7px 12px", borderRadius:7, border:"1px solid #16a34a", background:"rgba(37,211,102,0.1)", color:"#15803d", fontWeight:700, fontSize:11, cursor:"pointer", flexShrink:0 }}>
-                      💬 Invia WA
-                    </button>
-                    <a href={pubLink} target="_blank" rel="noopener noreferrer"
-                      style={{ padding:"7px 12px", borderRadius:7, border:`1px solid ${THEME.blue}`, background:"rgba(37,99,235,0.06)", color:THEME.blue, fontWeight:700, fontSize:11, textDecoration:"none", flexShrink:0 }}>
-                      👁️ Anteprima
-                    </a>
-                  </div>
-                </div>
-              )}
-
-              {genLoading && (
-                <div style={{ textAlign:"center", padding:"32px 0", color:THEME.teal }}>
-                  <div style={{ fontSize:32, marginBottom:12 }}>✨</div>
-                  <div style={{ fontSize:14, fontWeight:700 }}>Claude sta generando il programma…</div>
-                  <div style={{ fontSize:12, color:THEME.muted, marginTop:4 }}>Poi cercherà automaticamente i video YouTube per ogni esercizio</div>
-                </div>
-              )}
-
-              {!genLoading && esercizi.length === 0 && (
-                <div style={{ textAlign:"center", padding:"32px 0", color:THEME.muted }}>
-                  <div style={{ fontSize:40, marginBottom:12 }}>🏋️</div>
-                  <div style={{ fontSize:14, fontWeight:700, color:THEME.text, marginBottom:6 }}>Nessun esercizio ancora</div>
-                  <div style={{ fontSize:12 }}>Clicca <strong>"Genera con AI"</strong> per creare automaticamente un programma personalizzato basato sulla diagnosi del paziente, oppure aggiungi esercizi manualmente.</div>
-                </div>
-              )}
-
-              {/* Lista esercizi */}
-              {!genLoading && esercizi.length > 0 && (
-                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                  {esercizi.map((e, idx) => (
-                    <div key={e.id} style={{ border:`1.5px solid ${editingEx===e.id?THEME.teal:THEME.border}`, borderRadius:10, overflow:"hidden", background:editingEx===e.id?"rgba(13,148,136,0.02)":"#fff", transition:"border-color 0.15s" }}>
-                      {/* Header esercizio */}
-                      <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:THEME.panelSoft, borderBottom:`1px solid ${THEME.border}` }}>
-                        <div style={{ width:24, height:24, borderRadius:"50%", background:`linear-gradient(135deg,#0d9488,#2563eb)`, color:"#fff", fontWeight:800, fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{idx+1}</div>
-                        {editingEx === e.id ? (
-                          <input value={e.nome} onChange={ev => updateEsercizio(e.id,"nome",ev.target.value)} placeholder="Nome esercizio" style={{ flex:1, padding:"4px 8px", borderRadius:6, border:`1.5px solid ${THEME.teal}`, fontSize:13, fontWeight:700, outline:"none" }}/>
-                        ) : (
-                          <span style={{ flex:1, fontSize:13, fontWeight:800, color:THEME.text }}>{e.nome || <em style={{ color:THEME.muted }}>Esercizio senza nome</em>}</span>
-                        )}
-                        <div style={{ display:"flex", gap:4, flexShrink:0 }}>
-                          <button onClick={() => moveEsercizio(e.id,-1)} disabled={idx===0} style={{ width:24, height:24, borderRadius:5, border:`1px solid ${THEME.border}`, background:"#fff", cursor:"pointer", fontSize:11, opacity:idx===0?0.3:1 }}>↑</button>
-                          <button onClick={() => moveEsercizio(e.id,1)} disabled={idx===esercizi.length-1} style={{ width:24, height:24, borderRadius:5, border:`1px solid ${THEME.border}`, background:"#fff", cursor:"pointer", fontSize:11, opacity:idx===esercizi.length-1?0.3:1 }}>↓</button>
-                          <button onClick={() => setEditingEx(editingEx===e.id?null:e.id)} style={{ width:24, height:24, borderRadius:5, border:`1px solid ${editingEx===e.id?THEME.teal:THEME.border}`, background:editingEx===e.id?"rgba(13,148,136,0.1)":"#fff", cursor:"pointer", fontSize:11 }}>{editingEx===e.id?"✓":"✏️"}</button>
-                          <button onClick={() => removeEsercizio(e.id)} style={{ width:24, height:24, borderRadius:5, border:"1px solid rgba(220,38,38,0.3)", background:"rgba(220,38,38,0.05)", cursor:"pointer", fontSize:11, color:THEME.red }}>✕</button>
-                        </div>
-                      </div>
-
-                      {/* Body esercizio */}
-                      <div style={{ padding:"12px 14px", display:"grid", gap:8 }}>
-                        {editingEx === e.id ? (
-                          <>
-                            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
-                              {([["serie","Serie"],["ripetizioni","Ripetizioni"],["frequenza","Frequenza"]] as const).map(([f,l]) => (
-                                <div key={f}>
-                                  <label style={{ fontSize:10, fontWeight:700, color:THEME.muted, textTransform:"uppercase", letterSpacing:0.4, display:"block", marginBottom:3 }}>{l}</label>
-                                  <input value={e[f]} onChange={ev => updateEsercizio(e.id, f, ev.target.value)} style={{ width:"100%", padding:"6px 8px", borderRadius:6, border:`1.5px solid ${THEME.border}`, fontSize:12, outline:"none" }}/>
-                                </div>
-                              ))}
-                            </div>
-                            {([["descrizione","Descrizione esecuzione"],["note","Note tecniche"],["avvertenze","Avvertenze"]] as const).map(([f,l]) => (
-                              <div key={f}>
-                                <label style={{ fontSize:10, fontWeight:700, color:THEME.muted, textTransform:"uppercase", letterSpacing:0.4, display:"block", marginBottom:3 }}>{l}</label>
-                                <textarea value={e[f]} onChange={ev => updateEsercizio(e.id, f, ev.target.value)} rows={2} style={{ width:"100%", padding:"6px 8px", borderRadius:6, border:`1.5px solid ${THEME.border}`, fontSize:12, outline:"none", resize:"vertical", fontFamily:"inherit" }}/>
-                              </div>
-                            ))}
-                          </>
-                        ) : (
-                          <>
-                            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-                              {[{l:"Serie",v:e.serie},{l:"Rip.",v:e.ripetizioni},{l:"Frequenza",v:e.frequenza}].map(k=>(
-                                <span key={k.l} style={{ fontSize:11, fontWeight:700, color:THEME.blue, background:"rgba(37,99,235,0.08)", padding:"2px 10px", borderRadius:99 }}>{k.l}: {k.v}</span>
-                              ))}
-                            </div>
-                            {e.descrizione && <div style={{ fontSize:12, color:THEME.text, lineHeight:1.6 }}>{e.descrizione}</div>}
-                            {e.image_url && (
-                              <div style={{ position:"relative", borderRadius:8, overflow:"hidden", border:`1px solid ${THEME.border}`, maxWidth:320 }}>
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={e.image_url} alt={`Foto: ${e.nome}`} loading="lazy"
-                                  style={{ width:"100%", maxHeight:200, objectFit:"cover", display:"block" }}
-                                  onError={ev => { (ev.target as HTMLImageElement).parentElement!.style.display = "none"; }}/>
-                                <div style={{ position:"absolute", top:6, right:6, display:"flex", gap:5 }}>
-                                  <button title="Cerca un'altra foto" onClick={async () => {
-                                      const iq = e.image_query || e.nome;
-                                      try {
-                                        const res = await fetch(`/api/image-search?q=${encodeURIComponent(iq + " exercise")}`);
-                                        const d = await res.json();
-                                        if (d.url || d.thumbnail) updateEsercizio(e.id, "image_url", d.url || d.thumbnail);
-                                      } catch {}
-                                    }}
-                                    style={{ width:26, height:26, borderRadius:6, border:"none", background:"rgba(15,23,42,0.65)", color:"#fff", cursor:"pointer", fontSize:12 }}>🔄</button>
-                                  <button title="Rimuovi foto" onClick={() => updateEsercizio(e.id, "image_url", "")}
-                                    style={{ width:26, height:26, borderRadius:6, border:"none", background:"rgba(220,38,38,0.85)", color:"#fff", cursor:"pointer", fontSize:12 }}>✕</button>
-                                </div>
-                              </div>
-                            )}
-                            {!e.image_url && (
-                              <button onClick={async () => {
-                                  const iq = e.image_query || e.nome;
-                                  try {
-                                    const res = await fetch(`/api/image-search?q=${encodeURIComponent(iq + " exercise")}`);
-                                    const d = await res.json();
-                                    if (d.url || d.thumbnail) updateEsercizio(e.id, "image_url", d.url || d.thumbnail);
-                                  } catch {}
-                                }}
-                                style={{ fontSize:11, color:THEME.teal, background:"rgba(13,148,136,0.06)", padding:"5px 10px", borderRadius:6, border:`1px solid ${THEME.border}`, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:5, fontWeight:700, alignSelf:"flex-start" }}>
-                                🖼️ Cerca foto dimostrativa
-                              </button>
-                            )}
-                            {e.note && <div style={{ fontSize:11, color:THEME.teal, background:"rgba(13,148,136,0.06)", padding:"5px 10px", borderRadius:6 }}>📌 {e.note}</div>}
-                            {e.avvertenze && <div style={{ fontSize:11, color:THEME.red, background:"rgba(220,38,38,0.05)", padding:"5px 10px", borderRadius:6 }}>⚠️ {e.avvertenze}</div>}
-                            {e.youtube_id && (
-                              <a href={`https://www.youtube.com/watch?v=${e.youtube_id}`} target="_blank" rel="noopener noreferrer"
-                                style={{ fontSize:11, color:"#dc2626", background:"rgba(220,38,38,0.06)", padding:"5px 10px", borderRadius:6, display:"inline-flex", alignItems:"center", gap:5, textDecoration:"none", fontWeight:700 }}>
-                                ▶ Apri video su YouTube
-                              </a>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Bottone stampa in fondo se ci sono esercizi */}
-              {esercizi.length > 0 && (
-                <div style={{ marginTop:16, display:"flex", justifyContent:"flex-end", gap:10 }}>
-                  <button onClick={() => { if(confirm("Rigenerare con AI? Gli esercizi attuali verranno sostituiti.")) generaEserciziAI(); }} disabled={genLoading}
-                    style={{ padding:"9px 16px", borderRadius:8, border:`1.5px solid ${THEME.teal}`, background:"rgba(13,148,136,0.06)", color:THEME.teal, fontWeight:700, fontSize:13, cursor:"pointer" }}>
-                    ↺ Rigenera
-                  </button>
-                  <button onClick={stampaEsercizi}
-                    style={{ padding:"9px 20px", borderRadius:8, border:"none", background:`linear-gradient(135deg,#0d9488,#2563eb)`, color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer", boxShadow:"0 2px 8px rgba(13,148,136,0.2)" }}>
-                    🖨️ Stampa PDF da consegnare al paziente
-                  </button>
-                </div>
-              )}
+              <ExerciseProgramSection
+                patientId={patient.id}
+                patientName={`${patient.last_name ?? ""} ${patient.first_name ?? ""}`.trim()}
+                patientPhone={patient.phone ?? null}
+                studio={currentStudio}
+              />
             </div>
           )}
         </section>
         )}
+
 
         {/* ── TIMELINE PAZIENTE ────────────────────────────────────────────── */}
         {activeSection === "timeline" && (
