@@ -30,6 +30,7 @@ import { getStudioBranding } from "@/src/lib/studioBranding";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import RemoteConsentsSection from "@/src/components/patient/RemoteConsentsSection";
 import { ClinicalScalesSection } from "@/app/(protected)/patients/[id]/ClinicalScales";
 import { SOAPNotesEditor } from "@/app/(protected)/calendar/components/SOAPNotes";
 import { PhotoGallerySection } from "@/app/(protected)/patients/[id]/PhotoGallery";
@@ -1441,6 +1442,15 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
 
         {activeTab === "docs" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+            {/* Consensi a distanza (firma via link) */}
+            <RemoteConsentsSection
+              patientId={patientId}
+              patientFirstName={patient?.first_name ?? ""}
+              patientLastName={patient?.last_name ?? ""}
+              patientPhone={patient?.phone ?? null}
+              studio={currentStudio}
+            />
 
             {/* Upload */}
             <div style={{ background: T.panelBg, border: `1.5px solid ${T.border}`,
