@@ -77,6 +77,14 @@ export default function RemoteConsentsSection({
   const [sendConsenso, setSendConsenso] = useState(true);
   const [sending, setSending] = useState(false);
   const [open, setOpen] = useState(false);
+  // Feedback inline: visibile anche dove ToastProvider non è montato (desktop)
+  const [notice, setNotice] = useState<{ kind: "success" | "error"; msg: string } | null>(null);
+
+  function notify(kind: "success" | "error", msg: string) {
+    showToast[kind](msg);            // no-op se ToastProvider assente
+    setNotice({ kind, msg });
+    setTimeout(() => setNotice(n => (n?.msg === msg ? null : n)), 3500);
+  }
 
   const load = useCallback(async () => {
     const res = await supabase
@@ -93,11 +101,11 @@ export default function RemoteConsentsSection({
   // ── Invio ─────────────────────────────────────────────────────────────
   async function sendConsents() {
     const studioId = studio?.id ?? null;
-    if (!studioId) { showToast.error("Studio non disponibile, ricarica la pagina"); return; }
+    if (!studioId) { notify("error", "Studio non disponibile, ricarica la pagina"); return; }
     const types: ConsentType[] = [];
     if (sendPrivacy)  types.push("gdpr_informativa_privacy");
     if (sendConsenso) types.push("consenso_trattamento");
-    if (types.length === 0) { showToast.error("Seleziona almeno un documento"); return; }
+    if (types.length === 0) { notify("error", "Seleziona almeno un documento"); return; }
 
     setSending(true);
     const branding = getStudioBranding(studio);
@@ -119,11 +127,11 @@ export default function RemoteConsentsSection({
 
     const res = await supabase.from("patient_consents").insert(rows).select("*");
     setSending(false);
-    if (res.error) { showToast.error(`Errore: ${res.error.message}`); return; }
+    if (res.error) { notify("error", `Errore: ${res.error.message}`); return; }
 
     const created = (res.data ?? []) as ConsentRow[];
     setConsents(prev => [...created, ...prev]);
-    showToast.success(`${created.length === 1 ? "Consenso creato" : "Consensi creati"} ✓`);
+    notify("success", `${created.length === 1 ? "Consenso creato" : "Consensi creati"} ✓`);
 
     // Apri subito WhatsApp con il messaggio completo (se c'è il telefono)
     if (patientPhone && created.length > 0) {
@@ -153,9 +161,9 @@ export default function RemoteConsentsSection({
   async function copyLink(c: ConsentRow) {
     try {
       await navigator.clipboard.writeText(consentUrl(c));
-      showToast.success("Link copiato ✓");
+      notify("success", "Link copiato ✓");
     } catch {
-      showToast.error("Copia non riuscita");
+      notify("error", "Copia non riuscita");
     }
   }
 
@@ -176,8 +184,8 @@ export default function RemoteConsentsSection({
       .update({ status: "revoked", revoked_at: new Date().toISOString() })
       .eq("id", c.id)
       .eq("status", "pending");
-    if (res.error) { showToast.error(`Errore: ${res.error.message}`); return; }
-    showToast.success("Link disattivato");
+    if (res.error) { notify("error", `Errore: ${res.error.message}`); return; }
+    notify("success", "Link disattivato");
     await load();
   }
 
@@ -232,6 +240,16 @@ export default function RemoteConsentsSection({
 
       {open && (
         <div style={{ borderTop: `1.5px solid ${T.border}` }}>
+
+          {notice && (
+            <div style={{ margin: "12px 16px 0", padding: "9px 13px", borderRadius: 10,
+              fontSize: 12.5, fontWeight: 700,
+              background: notice.kind === "success" ? "rgba(22,163,74,0.08)" : "rgba(220,38,38,0.07)",
+              border: `1.5px solid ${notice.kind === "success" ? "rgba(22,163,74,0.3)" : "rgba(220,38,38,0.25)"}`,
+              color: notice.kind === "success" ? T.green : T.red }}>
+              {notice.kind === "success" ? "✓" : "⚠️"} {notice.msg}
+            </div>
+          )}
 
           {/* Invio */}
           <div style={{ padding: "14px 16px", background: T.panelSoft }}>

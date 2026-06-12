@@ -28,6 +28,7 @@ import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import PaidPill from "@/src/components/PaidPill";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
 import PatientPackagesSection from "@/src/components/packages/PatientPackagesSection";
+import RemoteConsentsSection from "@/src/components/patient/RemoteConsentsSection";
 import PackageBadge from "@/src/components/packages/PackageBadge";
 
 function cleanPhoneWA(phone: string): string {
@@ -3789,6 +3790,17 @@ ${rows}
               <button onClick={() => setShowConsentModal(true)} style={{ width: "100%", padding: "9px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #0d9488, #2563eb)", color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
                 🔏 Firma entrambi su iPad e salva automaticamente
               </button>
+            </div>
+
+            {/* Consensi a distanza (firma via link da casa) */}
+            <div style={{ marginBottom: 16 }}>
+              <RemoteConsentsSection
+                patientId={patientId}
+                patientFirstName={patient?.first_name ?? ""}
+                patientLastName={patient?.last_name ?? ""}
+                patientPhone={patient?.phone ?? null}
+                studio={currentStudio}
+              />
             </div>
 
             {/* Upload manuale */}
