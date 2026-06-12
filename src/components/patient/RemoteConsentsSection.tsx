@@ -11,24 +11,24 @@ import {
 } from "@/src/lib/consents/texts";
 
 // ═══════════════════════════════════════════════════════════════════════
-// src/components/patient/RemoteConsentsSection.tsx
+// src/components/patient/RemoteConsentsSection.tsx — v2
 // ═══════════════════════════════════════════════════════════════════════
+// Consensi a distanza: il paziente firma da casa via link (WhatsApp).
+// Usato sia nella scheda paziente desktop (sezione Documenti GDPR) sia
+// mobile (tab Referti). Feedback inline (funziona anche senza
+// ToastProvider) + toast dove disponibile.
 //
-// Sezione "Consensi a distanza" nella tab Referti della scheda paziente.
-//
-// COMPLEMENTA il flusso in-studio (modal desktop con firma su tablet):
-// qui il consenso viene INVIATO via link e il paziente firma da casa.
-//
-// Funzioni:
-//   • Invia: crea righe in patient_consents (snapshot testo + token DB)
-//   • Lista con badge stato (In attesa / Firmato / Revocato)
-//   • Azioni: WhatsApp, Copia link, Apri firmato (HTML stampabile), Revoca
+// v2: redesign — guida (i) integrata, eliminazione diretta (pending E
+// firmati, con conferma rafforzata sui firmati), inserimento data di
+// nascita se mancante in anagrafica (necessaria per la verifica
+// identità), pill di selezione tipi, righe lista compatte.
 // ═══════════════════════════════════════════════════════════════════════
 
 const T = {
   panelBg: "#ffffff", panelSoft: "#f7f9fd", text: "#0f172a", muted: "#334155",
-  border: "#cbd5e1", blue: "#2563eb", green: "#16a34a", red: "#dc2626",
-  amber: "#f97316", teal: "#0d9488", gradient: "linear-gradient(135deg,#0d9488,#2563eb)",
+  faint: "#64748b", border: "#cbd5e1", blue: "#2563eb", green: "#16a34a",
+  red: "#dc2626", amber: "#d97706", teal: "#0d9488",
+  gradient: "linear-gradient(135deg,#0d9488,#2563eb)",
 };
 
 type ConsentRow = {
@@ -51,6 +51,7 @@ type Props = {
   patientFirstName: string;
   patientLastName: string;
   patientPhone: string | null;
+  patientBirthDate: string | null;
   studio: {
     id?: string;
     name?: string | null;
@@ -61,24 +62,32 @@ type Props = {
   } | null;
 };
 
-function fmtDT(s: string | null): string {
+function fmtD(s: string | null): string {
   if (!s) return "—";
-  return new Date(s).toLocaleString("it-IT", {
+  return new Date(s).toLocaleDateString("it-IT", {
     day: "2-digit", month: "2-digit", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
   });
 }
 
 export default function RemoteConsentsSection({
-  patientId, patientFirstName, patientLastName, patientPhone, studio,
+  patientId, patientFirstName, patientLastName, patientPhone,
+  patientBirthDate, studio,
 }: Props) {
   const [consents, setConsents] = useState<ConsentRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
+
   const [sendPrivacy, setSendPrivacy] = useState(true);
   const [sendConsenso, setSendConsenso] = useState(true);
   const [sending, setSending] = useState(false);
-  const [open, setOpen] = useState(false);
-  // Feedback inline: visibile anche dove ToastProvider non è montato (desktop)
+
+  // Data di nascita: serve per la verifica identità sul link pubblico
+  const [birthDate, setBirthDate] = useState<string | null>(patientBirthDate);
+  const [birthInput, setBirthInput] = useState("");
+  const [savingBirth, setSavingBirth] = useState(false);
+  const [skipVerification, setSkipVerification] = useState(false);
+
   const [notice, setNotice] = useState<{ kind: "success" | "error"; msg: string } | null>(null);
 
   function notify(kind: "success" | "error", msg: string) {
@@ -98,6 +107,21 @@ export default function RemoteConsentsSection({
   }, [patientId]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setBirthDate(patientBirthDate); }, [patientBirthDate]);
+
+  // ── Data di nascita mancante ──────────────────────────────────────────
+  async function saveBirthDate() {
+    if (!birthInput) { notify("error", "Seleziona una data"); return; }
+    setSavingBirth(true);
+    const res = await supabase
+      .from("patients")
+      .update({ birth_date: birthInput })
+      .eq("id", patientId);
+    setSavingBirth(false);
+    if (res.error) { notify("error", `Errore: ${res.error.message}`); return; }
+    setBirthDate(birthInput);
+    notify("success", "Data di nascita salvata in anagrafica ✓");
+  }
 
   // ── Invio ─────────────────────────────────────────────────────────────
   async function sendConsents(mode: "wa" | "copy") {
@@ -118,8 +142,6 @@ export default function RemoteConsentsSection({
     };
     const patientInfo = { firstName: patientFirstName, lastName: patientLastName };
 
-    // Più documenti insieme → bundle_token condiviso: il paziente riceve
-    // UN solo link e firma una volta sola per tutti.
     let bundleToken: string | null = null;
     if (types.length > 1) {
       const bytes = new Uint8Array(24);
@@ -142,53 +164,35 @@ export default function RemoteConsentsSection({
 
     const created = (res.data ?? []) as ConsentRow[];
     setConsents(prev => [...created, ...prev]);
-
     if (created.length === 0) { notify("success", "Consenso creato ✓"); return; }
 
     if (mode === "wa" && patientPhone) {
       notify("success", `${created.length === 1 ? "Consenso creato" : "Consensi creati"} ✓`);
       openWhatsApp(patientPhone, buildWaMessage(created));
     } else {
-      // Copia diretta: link unico (bundle) o link del singolo documento
       try {
         await navigator.clipboard.writeText(consentUrl(created[0]));
         notify("success", "Link copiato negli appunti ✓");
       } catch {
-        notify("error", "Creato, ma copia non riuscita: usa il bottone Copia link qui sotto");
+        notify("error", "Creato, ma copia non riuscita: usa Copia link qui sotto");
       }
     }
   }
 
   function consentUrl(c: ConsentRow): string {
-    // Documenti inviati insieme condividono il link del bundle: firma unica
     return `${window.location.origin}/consensi/${c.bundle_token ?? c.access_token}`;
   }
 
   function buildWaMessage(items: ConsentRow[]): string {
     const branding = getStudioBranding(studio);
     const firma = branding.signatureName ? `\n\n${branding.signatureName}` : "";
-    const sameBundle = items.length > 1 &&
-      items[0].bundle_token != null &&
-      items.every(c => c.bundle_token === items[0].bundle_token);
-
-    if (sameBundle || items.length === 1) {
-      const labels = items.map(c => `• ${consentTypeLabel(c.consent_type)}`).join("\n");
-      return (
-        `Gentile ${patientFirstName},\n` +
-        `prima della prossima seduta ti chiedo di leggere e firmare ` +
-        `${items.length === 1 ? "questo documento" : "questi documenti"} ` +
-        `(bastano 2 minuti, si firma direttamente dal telefono):\n\n${labels}\n\n` +
-        `${consentUrl(items[0])}${firma}`
-      );
-    }
-
-    const links = items
-      .map(c => `• ${consentTypeLabel(c.consent_type)}:\n${consentUrl(c)}`)
-      .join("\n\n");
+    const labels = items.map(c => `• ${consentTypeLabel(c.consent_type)}`).join("\n");
     return (
       `Gentile ${patientFirstName},\n` +
       `prima della prossima seduta ti chiedo di leggere e firmare ` +
-      `questi documenti (bastano 2 minuti, si firma direttamente dal telefono):\n\n${links}${firma}`
+      `${items.length === 1 ? "questo documento" : "questi documenti"} ` +
+      `(bastano 2 minuti, si firma direttamente dal telefono):\n\n${labels}\n\n` +
+      `${consentUrl(items[0])}${firma}`
     );
   }
 
@@ -211,69 +215,125 @@ export default function RemoteConsentsSection({
     openHtmlWindow(html, { width: 800, height: 900 });
   }
 
-  async function revoke(c: ConsentRow) {
-    if (!confirm("Disattivare questo link? Il paziente non potrà più firmare con questo link.")) return;
-    const res = await supabase
-      .from("patient_consents")
-      .update({ status: "revoked", revoked_at: new Date().toISOString() })
-      .eq("id", c.id)
-      .eq("status", "pending");
+  // ── Eliminazione diretta (pending E firmati) ──────────────────────────
+  async function remove(c: ConsentRow) {
+    const msg = c.status === "signed"
+      ? `⚠️ ATTENZIONE: stai eliminando un consenso FIRMATO da ${c.signed_name ?? "il paziente"}.\n\n` +
+        `Il documento firmato è la tua evidenza legale: una volta eliminato non è recuperabile.\n\n` +
+        `Eliminare definitivamente?`
+      : "Eliminare questo consenso? Il link smetterà di funzionare.";
+    if (!confirm(msg)) return;
+
+    const res = await supabase.from("patient_consents").delete().eq("id", c.id);
     if (res.error) { notify("error", `Errore: ${res.error.message}`); return; }
-    notify("success", "Link disattivato");
-    await load();
+    setConsents(prev => prev.filter(x => x.id !== c.id));
+    notify("success", "Consenso eliminato");
   }
 
-  // ── UI ────────────────────────────────────────────────────────────────
+  // ── UI helpers ────────────────────────────────────────────────────────
   const pendingCount = consents.filter(c => c.status === "pending").length;
   const signedCount  = consents.filter(c => c.status === "signed").length;
+  const needsBirthGate = birthDate === null && !skipVerification;
 
-  const badge = (c: ConsentRow) => {
-    const map = {
-      pending: { bg: "rgba(249,115,22,0.1)",  bd: "rgba(249,115,22,0.35)", col: T.amber, lbl: "In attesa" },
-      signed:  { bg: "rgba(22,163,74,0.1)",   bd: "rgba(22,163,74,0.35)",  col: T.green, lbl: "Firmato" },
-      revoked: { bg: "rgba(148,163,184,0.15)", bd: "rgba(148,163,184,0.4)", col: "#64748b", lbl: "Disattivato" },
-    }[c.status];
-    return (
-      <span style={{ padding: "2px 9px", borderRadius: 99, fontSize: 10.5, fontWeight: 800,
-        background: map.bg, border: `1.5px solid ${map.bd}`, color: map.col,
-        whiteSpace: "nowrap" }}>
-        {map.lbl}
-      </span>
-    );
+  const statusDot = (c: ConsentRow) => {
+    const col = c.status === "signed" ? T.green : c.status === "pending" ? T.amber : T.faint;
+    return <span style={{ width: 9, height: 9, borderRadius: "50%", background: col,
+      flexShrink: 0, boxShadow: `0 0 0 3px ${col}1f` }} />;
   };
 
-  const miniBtn = (label: string, onClick: () => void, color: string = T.blue): React.ReactNode => (
-    <button onClick={onClick} style={{ padding: "6px 11px", borderRadius: 8,
-      border: `1.5px solid ${color}33`, background: `${color}11`, color,
+  const pill = (label: string, active: boolean, onClick: () => void) => (
+    <button onClick={onClick} style={{ padding: "7px 13px", borderRadius: 99,
+      border: `1.5px solid ${active ? T.teal : T.border}`,
+      background: active ? "rgba(13,148,136,0.09)" : "#fff",
+      color: active ? T.teal : T.faint, fontSize: 12, fontWeight: 700,
+      cursor: "pointer", fontFamily: "inherit", display: "inline-flex",
+      alignItems: "center", gap: 6 }}>
+      <span style={{ fontSize: 13 }}>{active ? "✓" : "○"}</span>{label}
+    </button>
+  );
+
+  const act = (label: string, onClick: () => void, color: string) => (
+    <button onClick={onClick} style={{ padding: "5px 10px", borderRadius: 8,
+      border: `1.5px solid ${color}30`, background: `${color}0d`, color,
       fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
       {label}
     </button>
   );
 
+  // ── Render ────────────────────────────────────────────────────────────
   return (
     <div style={{ background: T.panelBg, border: `1.5px solid ${T.border}`,
       borderRadius: 14, overflow: "hidden", boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
 
-      {/* Header collassabile */}
-      <button onClick={() => setOpen(o => !o)} style={{ width: "100%", display: "flex",
-        alignItems: "center", justifyContent: "space-between", padding: "13px 16px",
-        background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
-        <div style={{ textAlign: "left" }}>
-          <div style={{ fontWeight: 700, fontSize: 13, color: T.text }}>
-            🖊️ Consensi a distanza
-          </div>
-          <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
-            {loading ? "Caricamento…"
-              : consents.length === 0 ? "Invia privacy e consenso da firmare via link"
-              : `${signedCount} firmati${pendingCount > 0 ? ` · ${pendingCount} in attesa` : ""}`}
-          </div>
-        </div>
-        <span style={{ fontSize: 13, color: T.muted, transform: open ? "rotate(180deg)" : "none",
-          transition: "transform 0.15s" }}>▾</span>
-      </button>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", padding: "12px 14px 12px 16px", gap: 8 }}>
+        <button onClick={() => setOpen(o => !o)} style={{ flex: 1, display: "flex",
+          alignItems: "center", gap: 10, background: "transparent", border: "none",
+          cursor: "pointer", fontFamily: "inherit", padding: 0, textAlign: "left" }}>
+          <span style={{ fontSize: 17 }}>🖊️</span>
+          <span>
+            <span style={{ display: "block", fontWeight: 700, fontSize: 13, color: T.text }}>
+              Consensi a distanza
+            </span>
+            <span style={{ display: "block", fontSize: 11, color: T.faint, marginTop: 1 }}>
+              {loading ? "Caricamento…"
+                : consents.length === 0 ? "Firma via link, direttamente dal telefono del paziente"
+                : [
+                    signedCount > 0 ? `${signedCount} firmat${signedCount === 1 ? "o" : "i"}` : null,
+                    pendingCount > 0 ? `${pendingCount} in attesa` : null,
+                  ].filter(Boolean).join(" · ") || "Nessun consenso attivo"}
+            </span>
+          </span>
+        </button>
+        <button onClick={() => { setShowInfo(s => !s); setOpen(true); }}
+          title="Come funziona"
+          style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0,
+            border: `1.5px solid ${showInfo ? T.blue : T.border}`,
+            background: showInfo ? "rgba(37,99,235,0.08)" : "#fff",
+            color: showInfo ? T.blue : T.faint, fontSize: 12.5, fontWeight: 800,
+            cursor: "pointer", fontFamily: "Georgia,serif", fontStyle: "italic" }}>
+          i
+        </button>
+        <button onClick={() => setOpen(o => !o)} style={{ background: "transparent",
+          border: "none", cursor: "pointer", color: T.faint, fontSize: 13, padding: 4,
+          transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+          ▾
+        </button>
+      </div>
 
       {open && (
         <div style={{ borderTop: `1.5px solid ${T.border}` }}>
+
+          {/* Guida */}
+          {showInfo && (
+            <div style={{ padding: "13px 16px", background: "rgba(37,99,235,0.04)",
+              borderBottom: `1.5px solid ${T.border}`, fontSize: 12, color: T.muted,
+              lineHeight: 1.65 }}>
+              <div style={{ fontWeight: 800, fontSize: 12, color: T.blue, marginBottom: 6 }}>
+                Come funziona
+              </div>
+              <div style={{ marginBottom: 4 }}>
+                <strong>1.</strong> Scegli i documenti e genera: il paziente riceve <strong>un solo
+                link</strong> (WhatsApp o copiato negli appunti).
+              </div>
+              <div style={{ marginBottom: 4 }}>
+                <strong>2.</strong> Il paziente apre il link, conferma la propria <strong>data di
+                nascita</strong> (verifica identità, max 10 tentativi poi il link si blocca),
+                legge, spunta la presa visione e digita nome e cognome. La firma col dito è
+                facoltativa.
+              </div>
+              <div style={{ marginBottom: 4 }}>
+                <strong>3.</strong> Qui compare il pallino verde: da <em>Apri</em> scarichi o
+                stampi il documento firmato con data, ora e IP.
+              </div>
+              <div style={{ color: T.faint }}>
+                Se il link è già in attesa, da <em>WhatsApp</em> o <em>Copia link</em> lo
+                rimandi senza crearne uno nuovo. <strong>Elimina</strong> cancella
+                definitivamente — sui firmati distrugge anche l'evidenza legale, usalo con
+                criterio.
+              </div>
+            </div>
+          )}
 
           {notice && (
             <div style={{ margin: "12px 16px 0", padding: "9px 13px", borderRadius: 10,
@@ -285,81 +345,111 @@ export default function RemoteConsentsSection({
             </div>
           )}
 
-          {/* Invio */}
+          {/* Pannello invio */}
           <div style={{ padding: "14px 16px", background: T.panelSoft }}>
-            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 12 }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 7,
-                fontSize: 12.5, color: T.text, fontWeight: 600, cursor: "pointer" }}>
-                <input type="checkbox" checked={sendPrivacy}
-                  onChange={e => setSendPrivacy(e.target.checked)}
-                  style={{ width: 16, height: 16, accentColor: T.teal }} />
-                Informativa Privacy GDPR
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 7,
-                fontSize: 12.5, color: T.text, fontWeight: 600, cursor: "pointer" }}>
-                <input type="checkbox" checked={sendConsenso}
-                  onChange={e => setSendConsenso(e.target.checked)}
-                  style={{ width: 16, height: 16, accentColor: T.teal }} />
-                Consenso al trattamento
-              </label>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+              {pill("Privacy GDPR", sendPrivacy, () => setSendPrivacy(s => !s))}
+              {pill("Consenso trattamento", sendConsenso, () => setSendConsenso(s => !s))}
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              {patientPhone && (
-                <button onClick={() => sendConsents("wa")} disabled={sending}
-                  style={{ flex: 1, padding: "11px 12px", borderRadius: 10,
-                    border: "none", background: T.gradient, color: "#fff",
-                    fontWeight: 700, fontSize: 12.5, cursor: sending ? "wait" : "pointer",
-                    opacity: sending ? 0.7 : 1, fontFamily: "inherit",
-                    boxShadow: "0 2px 8px rgba(13,148,136,0.25)" }}>
-                  {sending ? "Creazione…" : "📲 Genera + WhatsApp"}
+
+            {/* Data di nascita mancante: serve per la verifica identità */}
+            {needsBirthGate ? (
+              <div style={{ border: `1.5px solid rgba(217,119,6,0.35)`,
+                background: "rgba(217,119,6,0.06)", borderRadius: 10, padding: "12px 14px" }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: T.amber, marginBottom: 4 }}>
+                  🎂 Data di nascita mancante in anagrafica
+                </div>
+                <div style={{ fontSize: 11.5, color: T.muted, lineHeight: 1.55, marginBottom: 10 }}>
+                  Serve per la verifica identità sul link di firma. Inseriscila qui
+                  (viene salvata in anagrafica) oppure genera senza verifica.
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input type="date" value={birthInput}
+                    onChange={e => setBirthInput(e.target.value)}
+                    style={{ flex: 1, padding: "9px 12px", borderRadius: 9,
+                      border: `1.5px solid ${T.border}`, fontSize: 14,
+                      fontFamily: "inherit", color: T.text, background: "#fff",
+                      minWidth: 0 }} />
+                  <button onClick={saveBirthDate} disabled={savingBirth}
+                    style={{ padding: "9px 14px", borderRadius: 9, border: "none",
+                      background: T.teal, color: "#fff", fontWeight: 700, fontSize: 12.5,
+                      cursor: savingBirth ? "wait" : "pointer", fontFamily: "inherit",
+                      opacity: savingBirth ? 0.7 : 1, whiteSpace: "nowrap" }}>
+                    {savingBirth ? "…" : "Salva"}
+                  </button>
+                </div>
+                <button onClick={() => setSkipVerification(true)}
+                  style={{ marginTop: 8, background: "transparent", border: "none",
+                    color: T.faint, fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+                    fontFamily: "inherit", textDecoration: "underline", padding: 0 }}>
+                  Genera comunque senza verifica identità →
                 </button>
-              )}
-              <button onClick={() => sendConsents("copy")} disabled={sending}
-                style={{ flex: 1, padding: "11px 12px", borderRadius: 10,
-                  border: patientPhone ? `1.5px solid ${T.blue}` : "none",
-                  background: patientPhone ? "rgba(37,99,235,0.07)" : T.gradient,
-                  color: patientPhone ? T.blue : "#fff",
-                  fontWeight: 700, fontSize: 12.5, cursor: sending ? "wait" : "pointer",
-                  opacity: sending ? 0.7 : 1, fontFamily: "inherit",
-                  boxShadow: patientPhone ? "none" : "0 2px 8px rgba(13,148,136,0.25)" }}>
-                {sending ? "Creazione…" : "🔗 Genera + copia link"}
-              </button>
-            </div>
-            {!patientPhone && (
-              <div style={{ fontSize: 11, color: T.muted, marginTop: 6, textAlign: "center" }}>
-                Nessun telefono in anagrafica: il link verrà copiato negli appunti.
               </div>
+            ) : (
+              <>
+                {birthDate === null && skipVerification && (
+                  <div style={{ fontSize: 11, color: T.amber, fontWeight: 600, marginBottom: 8 }}>
+                    ⚠️ Verifica identità disattivata (manca la data di nascita)
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 8 }}>
+                  {patientPhone && (
+                    <button onClick={() => sendConsents("wa")} disabled={sending}
+                      style={{ flex: 1, padding: "11px 12px", borderRadius: 10,
+                        border: "none", background: T.gradient, color: "#fff",
+                        fontWeight: 700, fontSize: 12.5, cursor: sending ? "wait" : "pointer",
+                        opacity: sending ? 0.7 : 1, fontFamily: "inherit",
+                        boxShadow: "0 2px 8px rgba(13,148,136,0.25)" }}>
+                      {sending ? "Creazione…" : "📲 Genera + WhatsApp"}
+                    </button>
+                  )}
+                  <button onClick={() => sendConsents("copy")} disabled={sending}
+                    style={{ flex: 1, padding: "11px 12px", borderRadius: 10,
+                      border: patientPhone ? `1.5px solid ${T.blue}` : "none",
+                      background: patientPhone ? "rgba(37,99,235,0.07)" : T.gradient,
+                      color: patientPhone ? T.blue : "#fff",
+                      fontWeight: 700, fontSize: 12.5, cursor: sending ? "wait" : "pointer",
+                      opacity: sending ? 0.7 : 1, fontFamily: "inherit",
+                      boxShadow: patientPhone ? "none" : "0 2px 8px rgba(13,148,136,0.25)" }}>
+                    {sending ? "Creazione…" : "🔗 Genera + copia link"}
+                  </button>
+                </div>
+                {!patientPhone && (
+                  <div style={{ fontSize: 11, color: T.faint, marginTop: 6, textAlign: "center" }}>
+                    Nessun telefono in anagrafica: il link verrà copiato negli appunti.
+                  </div>
+                )}
+              </>
             )}
           </div>
 
           {/* Lista */}
           {consents.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column" }}>
+            <div>
               {consents.map((c, i) => (
-                <div key={c.id} style={{ padding: "12px 16px",
-                  borderTop: i === 0 ? `1.5px solid ${T.border}` : `1px solid ${T.border}` }}>
-                  <div style={{ display: "flex", alignItems: "center",
-                    justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: T.text }}>
+                <div key={c.id} style={{ padding: "11px 16px", display: "flex",
+                  alignItems: "center", gap: 11,
+                  borderTop: i === 0 ? `1.5px solid ${T.border}` : `1px solid #e2e8f0` }}>
+                  {statusDot(c)}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: T.text,
+                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {consentTypeLabel(c.consent_type)}
                     </div>
-                    {badge(c)}
+                    <div style={{ fontSize: 10.5, color: T.faint, marginTop: 1 }}>
+                      {c.status === "signed"
+                        ? `Firmato da ${c.signed_name ?? "—"} · ${fmtD(c.signed_at)}`
+                        : c.status === "pending"
+                          ? `In attesa · inviato ${fmtD(c.sent_at)}`
+                          : `Disattivato · ${fmtD(c.sent_at)}`}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 11, color: T.muted, marginBottom: 9 }}>
-                    {c.status === "signed"
-                      ? `Firmato da ${c.signed_name ?? "—"} · ${fmtDT(c.signed_at)}`
-                      : `Inviato il ${fmtDT(c.sent_at)}`}
-                  </div>
-                  <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-                    {c.status === "signed" && miniBtn("📄 Apri documento", () => openSigned(c), T.green)}
-                    {c.status === "pending" && (
-                      <>
-                        {patientPhone && miniBtn("WhatsApp", () =>
-                          openWhatsApp(patientPhone, buildWaMessage([c])), T.green)}
-                        {miniBtn("Copia link", () => copyLink(c))}
-                        {miniBtn("Disattiva", () => revoke(c), T.red)}
-                      </>
-                    )}
+                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    {c.status === "signed" && act("📄 Apri", () => openSigned(c), T.green)}
+                    {c.status === "pending" && patientPhone &&
+                      act("WhatsApp", () => openWhatsApp(patientPhone, buildWaMessage([c])), T.green)}
+                    {c.status === "pending" && act("Copia", () => copyLink(c), T.blue)}
+                    {act("🗑", () => remove(c), T.red)}
                   </div>
                 </div>
               ))}

@@ -3830,6 +3830,7 @@ ${rows}
                 patientFirstName={patient?.first_name ?? ""}
                 patientLastName={patient?.last_name ?? ""}
                 patientPhone={patient?.phone ?? null}
+                patientBirthDate={patient?.birth_date ?? null}
                 studio={currentStudio}
               />
             </div>

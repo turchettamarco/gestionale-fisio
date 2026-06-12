@@ -1468,6 +1468,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
               patientFirstName={patient?.first_name ?? ""}
               patientLastName={patient?.last_name ?? ""}
               patientPhone={patient?.phone ?? null}
+              patientBirthDate={patient?.birth_date ?? null}
               studio={currentStudio}
             />
 
