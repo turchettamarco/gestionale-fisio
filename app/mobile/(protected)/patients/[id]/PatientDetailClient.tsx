@@ -33,7 +33,7 @@ import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import RemoteConsentsSection from "@/src/components/patient/RemoteConsentsSection";
 import { quickSendRemoteConsents } from "@/src/lib/consents/quickSend";
 import ExerciseProgramSection from "@/src/components/patient/ExerciseProgramSection";
-import { ClinicalScalesSection } from "@/app/(protected)/patients/[id]/ClinicalScales";
+import ScalesSection from "@/src/components/patient/ScalesSection";
 import { SOAPNotesEditor } from "@/app/(protected)/calendar/components/SOAPNotes";
 import { PhotoGallerySection } from "@/app/(protected)/patients/[id]/PhotoGallery";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
@@ -1441,7 +1441,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
         {activeTab === "scales" && (
           <div style={{ padding:"14px 12px" }}>
             <div style={{ fontSize:15, fontWeight:800, color:T.text, marginBottom:14 }}>📊 Scale di valutazione</div>
-            <ClinicalScalesSection patientId={patient.id} />
+            <ScalesSection patientId={patient.id} patientFirstName={patient.first_name ?? ""} patientPhone={patient.phone ?? null} studio={currentStudio} />
           </div>
         )}
 

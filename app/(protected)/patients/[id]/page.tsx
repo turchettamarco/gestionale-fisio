@@ -22,7 +22,7 @@ import { translateError } from "@/src/lib/translateError";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import AttendanceCertificateDialog from "@/src/components/certificates/AttendanceCertificateDialog";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter } from "@/src/lib/pdfHeader";
-import { ClinicalScalesSection } from "./ClinicalScales";
+import ScalesSection from "@/src/components/patient/ScalesSection";
 import { PhotoGallerySection } from "./PhotoGallery";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import PaidPill from "@/src/components/PaidPill";
@@ -3359,7 +3359,7 @@ ${rows}
           />
           {secScales && patient && (
             <div style={cardBody}>
-              <ClinicalScalesSection patientId={patient.id} />
+              <ScalesSection patientId={patient.id} patientFirstName={patient.first_name ?? ""} patientPhone={patient.phone ?? null} studio={currentStudio} />
             </div>
           )}
         </section>
