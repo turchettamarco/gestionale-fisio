@@ -31,6 +31,7 @@ import PatientPackagesSection from "@/src/components/packages/PatientPackagesSec
 import RemoteConsentsSection from "@/src/components/patient/RemoteConsentsSection";
 import { quickSendRemoteConsents } from "@/src/lib/consents/quickSend";
 import ExerciseProgramSection from "@/src/components/patient/ExerciseProgramSection";
+import PatientOverview from "@/src/components/patient/PatientOverview";
 import PackageBadge from "@/src/components/packages/PackageBadge";
 
 function cleanPhoneWA(phone: string): string {
@@ -2557,12 +2558,19 @@ ${rows}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
               {patient.phone && (
-                <span style={{ fontSize: 14, fontWeight: 700, color: THEME.textSoft }}>
+                <a href={`tel:${patient.phone}`} style={{ fontSize: 14, fontWeight: 700, color: THEME.blue, textDecoration: "none" }}>
                   📞 {patient.phone}
-                </span>
+                </a>
               )}
               <span style={{ fontSize: 13, color: THEME.muted, fontWeight: 600 }}>
                 🎂 {ddmmyyyy(patient.birth_date)}
+                {patient.birth_date && (() => {
+                  const b = new Date(patient.birth_date);
+                  const t = new Date();
+                  let age = t.getFullYear() - b.getFullYear();
+                  if (t.getMonth() < b.getMonth() || (t.getMonth() === b.getMonth() && t.getDate() < b.getDate())) age--;
+                  return <strong style={{ color: THEME.textSoft }}> · {age} anni</strong>;
+                })()}
               </span>
               <span style={{ fontSize: 13, color: THEME.muted, fontWeight: 600 }}>
                 🧾 {patient.preferred_plan === "invoice" ? "Fattura" : patient.preferred_plan === "no_invoice" ? "Non fattura" : "—"}
@@ -2819,6 +2827,22 @@ ${rows}
 
           {/* Colonna contenuto: renderizza SOLO la sezione attiva */}
           <div style={{ minWidth: 0 }}>
+
+        {/* ── PANORAMICA ───────────────────────────────────────────────────── */}
+        {activeSection === "panoramica" && patient && (
+        <section style={{ ...cardStyle }}>
+          <SecHeader
+            icon="🏠"
+            title="Panoramica"
+            subtitle={`A che punto siamo con ${patient.first_name ?? "il paziente"}`}
+            open={true}
+            onToggle={() => {}}
+          />
+          <div style={cardBody}>
+            <PatientOverview patientId={patient.id} onNavigate={(t) => setActiveSection(t)} />
+          </div>
+        </section>
+        )}
 
         {/* ── ANAGRAFICA ───────────────────────────────────────────────────── */}
         {activeSection === "anagrafica" && (

@@ -33,6 +33,7 @@ import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import RemoteConsentsSection from "@/src/components/patient/RemoteConsentsSection";
 import { quickSendRemoteConsents } from "@/src/lib/consents/quickSend";
 import ExerciseProgramSection from "@/src/components/patient/ExerciseProgramSection";
+import PatientOverview from "@/src/components/patient/PatientOverview";
 import ScalesSection from "@/src/components/patient/ScalesSection";
 import { SOAPNotesEditor } from "@/app/(protected)/calendar/components/SOAPNotes";
 import { PhotoGallerySection } from "@/app/(protected)/patients/[id]/PhotoGallery";
@@ -380,7 +381,8 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState("");
   const [patient,   setPatient]   = useState<Patient | null>(null);
-  const [activeTab, setActiveTab] = useState<"info" | "clinical" | "packages" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal">("info");
+  const [infoOpen,  setInfoOpen]  = useState(false);
+  const [activeTab, setActiveTab] = useState<"overview" | "info" | "clinical" | "packages" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal">("overview");
   // Modale attestato di presenza cumulativo (Step 5)
   const [showCertDialogMobile, setShowCertDialogMobile] = useState(false);
 
@@ -890,7 +892,9 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
 
       {/* ━━━ HERO ━━━ */}
       <div style={{ background: T.panelBg, borderBottom: `1.5px solid ${T.border}`, padding: "14px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 6 }}>
+        <div
+          onClick={() => setInfoOpen(o => !o)}
+          style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: infoOpen ? 12 : 6, cursor: "pointer" }}>
           {/* Avatar */}
           <div style={{
             width: 56, height: 56, borderRadius: 16, flexShrink: 0,
@@ -900,15 +904,58 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
             {initials(patient)}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 17, color: T.text }}>
+            <div style={{ fontWeight: 800, fontSize: 17, color: T.text, display: "flex", alignItems: "center", gap: 7 }}>
               {patient.last_name} {patient.first_name}
+              <span style={{ fontSize: 13, color: T.muted, transform: infoOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>▾</span>
             </div>
-            <div style={{ fontSize: 12, color: T.muted, marginTop: 3, display: "flex", gap: 10, flexWrap: "wrap" }}>
-              {patient.birth_date && <span>🎂 {ddmmyyyy(patient.birth_date)}{age !== null ? ` · ${age} anni` : ""}</span>}
-              {patient.tax_code   && <span>🪪 {patient.tax_code}</span>}
+            <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>
+              {age !== null ? `${age} anni` : "—"} · {apptStats.done} sedute
             </div>
           </div>
+          <a href={patient.phone ? `tel:${patient.phone}` : undefined}
+            onClick={e => e.stopPropagation()}
+            style={{ width: 38, height: 38, borderRadius: 11, flexShrink: 0,
+              background: patient.phone ? "rgba(13,148,136,0.1)" : T.appBg,
+              color: patient.phone ? T.teal : T.muted, display: "flex", alignItems: "center",
+              justifyContent: "center", fontSize: 17, textDecoration: "none",
+              pointerEvents: patient.phone ? "auto" : "none" }}>
+            📞
+          </a>
         </div>
+
+        {/* Scheda dati espandibile */}
+        {infoOpen && (
+          <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: `1px solid ${T.border}` }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 14px" }}>
+              {[
+                { k: "Telefono", v: patient.phone, link: patient.phone ? `tel:${patient.phone}` : null },
+                { k: "Email", v: patient.email, link: patient.email ? `mailto:${patient.email}` : null },
+                { k: "Nato il", v: patient.birth_date ? ddmmyyyy(patient.birth_date) : null },
+                { k: "Codice fiscale", v: patient.tax_code },
+                { k: "Indirizzo", v: patient.address, full: true },
+              ].filter(x => x.v).map((x, i) => (
+                <div key={i} style={{ gridColumn: x.full ? "1 / -1" : undefined }}>
+                  <div style={{ fontSize: 9.5, fontWeight: 800, color: T.muted,
+                    textTransform: "uppercase", letterSpacing: "0.04em" }}>{x.k}</div>
+                  {x.link
+                    ? <a href={x.link} style={{ fontSize: 13, fontWeight: 700, color: T.blue, textDecoration: "none" }}>{x.v}</a>
+                    : <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{x.v}</div>}
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 13 }}>
+              {patient.phone && (
+                <a href={`tel:${patient.phone}`} style={{ flex: 1, textAlign: "center", padding: 9,
+                  borderRadius: 9, background: "rgba(13,148,136,0.1)", color: T.teal,
+                  fontSize: 12.5, fontWeight: 700, textDecoration: "none" }}>📞 Chiama</a>
+              )}
+              <button onClick={() => setActiveTab("info")} style={{ flex: 1, padding: 9,
+                borderRadius: 9, background: "rgba(37,99,235,0.08)", color: T.blue,
+                fontSize: 12.5, fontWeight: 700, border: "none", cursor: "pointer",
+                fontFamily: "inherit" }}>✏️ Modifica dati</button>
+            </div>
+          </div>
+        )}
 
         {/* Chips sedute + incasso */}
         {apptStats.total > 0 ? (
@@ -1012,17 +1059,17 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
         padding: "0 12px", position: "sticky", top: 54, zIndex: 20,
       }}>
         {([
-          { id: "info",      label: "Info",    icon: "👤" },
-          { id: "clinical",  label: "Clinica", icon: "🩺" },
+          { id: "overview",  label: "Inizio",  icon: "🏠" },
           { id: "therapies", label: "Sedute",  icon: "📋" },
-          { id: "packages",  label: "Pacchetti", icon: "📦" },
-          { id: "docs",      label: "Referti", icon: "📁" },
-          { id: "esercizi",  label: "Esercizi", icon: "🏋️" },
+          { id: "clinical",  label: "Clinica", icon: "🩺" },
           { id: "note",      label: "Note",    icon: "📝" },
           { id: "scales",    label: "Scale",   icon: "📊" },
+          { id: "esercizi",  label: "Esercizi", icon: "🏋️" },
+          { id: "docs",      label: "Referti", icon: "📁" },
+          { id: "packages",  label: "Pacchetti", icon: "📦" },
           { id: "photos",    label: "Foto",    icon: "📷" },
           { id: "portal",    label: "Portale", icon: "🔑" },
-        ] as { id: "info" | "clinical" | "packages" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal"; label: string; icon: string }[]).map(tab => (
+        ] as { id: "overview" | "info" | "clinical" | "packages" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal"; label: string; icon: string }[]).map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
             padding: "11px 14px", background: "none", border: "none",
             borderBottom: `2.5px solid ${activeTab === tab.id ? T.blue : "transparent"}`,
@@ -1042,6 +1089,19 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
         {error && <ErrBox msg={error} />}
 
         {/* ─── TAB INFO ─── */}
+        {activeTab === "overview" && (
+          <PatientOverview
+            patientId={patient.id}
+            onNavigate={(t) => {
+              const map: Record<string, "overview" | "info" | "clinical" | "packages" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal"> = {
+                terapie: "therapies", scale: "scales", esercizi: "esercizi",
+                gdpr: "docs", diario: "note", anagrafica: "info", pacchetti: "packages",
+              };
+              setActiveTab(map[t] ?? "info");
+            }}
+          />
+        )}
+
         {activeTab === "info" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <div style={{ background: T.panelBg, border: `1.5px solid ${T.border}`,

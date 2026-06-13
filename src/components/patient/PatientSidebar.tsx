@@ -29,6 +29,7 @@ import React from "react";
 // ─── Tipi pubblici ──────────────────────────────────────────────────────
 
 export type PatientSectionId =
+  | "panoramica"
   | "anagrafica"
   | "clinica"
   | "mappa-dolore"
@@ -43,13 +44,13 @@ export type PatientSectionId =
   | "gdpr";
 
 export const PATIENT_SECTION_IDS: PatientSectionId[] = [
-  "anagrafica", "clinica", "mappa-dolore", "documenti-clinici",
+  "panoramica", "anagrafica", "clinica", "mappa-dolore", "documenti-clinici",
   "pacchetti",  "terapie", "diario", "esercizi",
   "scale", "foto", "timeline",
   "gdpr",
 ];
 
-export const DEFAULT_PATIENT_SECTION: PatientSectionId = "anagrafica";
+export const DEFAULT_PATIENT_SECTION: PatientSectionId = "panoramica";
 
 export type PatientSidebarBadges = Partial<Record<PatientSectionId, number | string | null>>;
 
@@ -83,6 +84,12 @@ type Item = { id: PatientSectionId; label: string; icon: string };
 type Group = { label: string; items: Item[] };
 
 const GROUPS: Group[] = [
+  {
+    label: "",
+    items: [
+      { id: "panoramica", label: "Panoramica", icon: "🏠" },
+    ],
+  },
   {
     label: "Paziente",
     items: [
@@ -144,7 +151,8 @@ export default function PatientSidebar({
       fontSize: 13,
     }}>
       {GROUPS.map((g, gi) => (
-        <div key={g.label} style={{ marginBottom: gi === GROUPS.length - 1 ? 0 : 6 }}>
+        <div key={g.label || `g${gi}`} style={{ marginBottom: gi === GROUPS.length - 1 ? 0 : 6 }}>
+          {g.label && (
           <div style={{
             fontSize: 10,
             fontWeight: 800,
@@ -155,6 +163,7 @@ export default function PatientSidebar({
           }}>
             {g.label}
           </div>
+          )}
           {g.items.map(item => {
             const active = item.id === activeSection;
             const badge  = badges?.[item.id];
