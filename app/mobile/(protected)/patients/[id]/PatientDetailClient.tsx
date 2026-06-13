@@ -1092,6 +1092,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
         {activeTab === "overview" && (
           <PatientOverview
             patientId={patient.id}
+            variant="mobile"
             onNavigate={(t) => {
               const map: Record<string, "overview" | "info" | "clinical" | "packages" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal"> = {
                 terapie: "therapies", scale: "scales", esercizi: "esercizi",

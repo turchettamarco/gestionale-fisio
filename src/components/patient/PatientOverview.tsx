@@ -4,11 +4,12 @@ import { supabase } from "@/src/lib/supabaseClient";
 import { getScale, type ScaleDef } from "@/src/lib/scales/defs";
 
 // ═══════════════════════════════════════════════════════════════════════
-// src/components/patient/PatientOverview.tsx — clinical-first
+// src/components/patient/PatientOverview.tsx
 // ═══════════════════════════════════════════════════════════════════════
-// Panoramica: andamento clinico protagonista (numero grande + sparkline +
-// delta interpretato), stato sintetico, "dove eravamo". Condivisa
-// desktop/mobile; il layout si adatta (2 col → 1 col sotto i 720px).
+// Panoramica paziente condivisa. Due layout:
+//   • variant="mobile"  → grafico in alto + griglia 2×2 di card tappabili
+//   • variant="desktop" → andamento clinico (colonna larga) + stato (stretta)
+// Andamento clinico = numero grande colorato + sparkline + delta MCID-aware.
 // ═══════════════════════════════════════════════════════════════════════
 
 const T = {
@@ -20,7 +21,11 @@ const T = {
 export type OverviewTarget =
   | "terapie" | "scale" | "esercizi" | "gdpr" | "diario" | "anagrafica" | "pacchetti";
 
-type Props = { patientId: string; onNavigate?: (t: OverviewTarget) => void };
+type Props = {
+  patientId: string;
+  variant?: "mobile" | "desktop";
+  onNavigate?: (t: OverviewTarget) => void;
+};
 
 type Appt = { id: string; start_at: string; status: string | null; is_paid: boolean | null; amount: number | null };
 type ScaleRow = { scale_type: string; score: number; created_at: string };
@@ -36,6 +41,9 @@ function rel(iso: string): string {
   if (abs < 60) return fut ? `tra ${Math.round(abs / 7)} settimane` : `${Math.round(abs / 7)} settimane fa`;
   return fut ? `tra ${Math.round(abs / 30)} mesi` : `${Math.round(abs / 30)} mesi fa`;
 }
+function shortDT(iso: string): string {
+  return new Date(iso).toLocaleDateString("it-IT", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
 function dayLabel(iso: string): string {
   return new Date(iso).toLocaleDateString("it-IT", { weekday: "short", day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" });
 }
@@ -43,7 +51,7 @@ function shortD(iso: string): string {
   return new Date(iso).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" });
 }
 
-function Spark({ def, rows, h = 80 }: { def: ScaleDef; rows: ScaleRow[]; h?: number }) {
+function Spark({ def, rows, h = 70 }: { def: ScaleDef; rows: ScaleRow[]; h?: number }) {
   const w = 320, PX = 6, PY = 12, max = def.maxScore;
   const pts = rows.map((r, i) => ({
     x: rows.length === 1 ? w / 2 : PX + (i * (w - 2 * PX)) / (rows.length - 1),
@@ -61,14 +69,14 @@ function Spark({ def, rows, h = 80 }: { def: ScaleDef; rows: ScaleRow[]; h?: num
       {pts.length > 1 && <path d={line} fill="none" stroke={T.accent} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />}
       {pts.map((p, i) => {
         const last = i === pts.length - 1;
-        return <circle key={i} cx={p.x} cy={p.y} r={last ? 4.5 : 2.5}
-          fill={last ? lastCol : T.accent} stroke="#fff" strokeWidth={1.5} />;
+        return <circle key={i} cx={p.x} cy={p.y} r={last ? 4.5 : 2.5} fill={last ? lastCol : T.accent} stroke="#fff" strokeWidth={1.5} />;
       })}
     </svg>
   );
 }
 
-export default function PatientOverview({ patientId, onNavigate }: Props) {
+export default function PatientOverview({ patientId, variant = "desktop", onNavigate }: Props) {
+  const isMobile = variant === "mobile";
   const [loading, setLoading] = useState(true);
   const [nextAppt, setNextAppt] = useState<Appt | null>(null);
   const [lastAppt, setLastAppt] = useState<Appt | null>(null);
@@ -120,18 +128,20 @@ export default function PatientOverview({ patientId, onNavigate }: Props) {
   useEffect(() => { void load(); }, [load]);
 
   const consentsOk = consents.signed.has("gdpr_informativa_privacy") && consents.signed.has("consenso_trattamento");
+  const consentLabel = consentsOk ? "Firmati" : consents.pending ? "In attesa" : "Mancanti";
+  const consentCol = consentsOk ? T.green : consents.pending ? T.amber : T.red;
   const scaleTypes = [...new Set(scaleRows.map(r => r.scale_type))];
   const activeRows = scaleRows.filter(r => r.scale_type === activeScale);
   const activeDef = activeScale ? getScale(activeScale) : undefined;
 
-  let programLabel: string | null = null, programExpired = false;
+  let programLabel: string | null = null, programExpired = false, programShort = "—";
   if (program?.durata && program.start) {
     const days = Math.floor((Date.now() - new Date(program.start + "T00:00:00").getTime()) / 86400000);
     const w = Math.floor(days / 7) + 1;
-    if (days < 0) programLabel = `inizia ${rel(program.start + "T00:00:00")}`;
-    else if (w > program.durata) { programLabel = "completato"; programExpired = true; }
-    else programLabel = `Settimana ${w} di ${program.durata}`;
-  } else if (program && program.nEx > 0) programLabel = `${program.nEx} esercizi`;
+    if (days < 0) { programLabel = `inizia ${rel(program.start + "T00:00:00")}`; programShort = "da iniziare"; }
+    else if (w > program.durata) { programLabel = "completato"; programShort = "completato"; programExpired = true; }
+    else { programLabel = `Settimana ${w} di ${program.durata}`; programShort = `Sett. ${w}/${program.durata}`; }
+  } else if (program && program.nEx > 0) { programLabel = `${program.nEx} esercizi`; programShort = `${program.nEx} es.`; }
 
   function delta(def: ScaleDef, rows: ScaleRow[]) {
     if (rows.length < 2) return null;
@@ -140,17 +150,128 @@ export default function PatientOverview({ patientId, onNavigate }: Props) {
     if (diff === 0) return { txt: "stabile", col: T.faint, arrow: "=" };
     const improving = def.higherIsBetter ? diff > 0 : diff < 0;
     const mcid = def.mcid && Math.abs(diff) >= def.mcid;
-    return { txt: `${Math.abs(diff)} ${improving ? "in miglioramento" : "in peggioramento"}${mcid ? " · rilevante" : ""}`, col: improving ? T.green : T.red, arrow: diff > 0 ? "↑" : "↓" };
+    return { txt: `${Math.abs(diff)}${mcid ? " · rilevante" : ""} ${improving ? "miglioramento" : "peggioramento"}`, col: improving ? T.green : T.red, arrow: diff > 0 ? "↑" : "↓" };
   }
 
   const alerts: { msg: string; t: OverviewTarget; col: string }[] = [];
   if (!consentsOk) alerts.push({ msg: consents.pending > 0 ? "Consensi in attesa di firma" : "Consensi non firmati", t: "gdpr", col: T.amber });
-  if (unpaid.count > 0) alerts.push({ msg: `${unpaid.count} sedut${unpaid.count === 1 ? "a" : "e"} da incassare · €\u00A0${unpaid.total.toFixed(2).replace(".", ",")}`, t: "terapie", col: T.red });
+  if (unpaid.count > 0) alerts.push({ msg: `€\u00A0${unpaid.total.toFixed(2).replace(".", ",")} da incassare (${unpaid.count} sedut${unpaid.count === 1 ? "a" : "e"})`, t: "terapie", col: T.red });
   if (programExpired) alerts.push({ msg: "Programma esercizi completato", t: "esercizi", col: T.blue });
 
   const plabel = (s: string) => <div style={{ fontSize: 11, fontWeight: 800, color: T.faint, letterSpacing: 0.5, textTransform: "uppercase" }}>{s}</div>;
+  const go = (t: OverviewTarget) => onNavigate ? () => onNavigate(t) : undefined;
+
+  if (loading) return <div style={{ padding: 16, fontSize: 13, color: T.faint }}>Caricamento…</div>;
+
+  // ── Blocco andamento clinico (condiviso) ──
+  const clinicalBlock = (
+    <>
+      {scaleTypes.length === 0 ? (
+        <div style={{ padding: "20px 0", textAlign: "center" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, marginBottom: 4 }}>Nessuna misurazione</div>
+          <div style={{ fontSize: 12.5, color: T.faint, marginBottom: 14 }}>Somministra una scala per tracciare i progressi.</div>
+          {onNavigate && <button onClick={go("scale")} style={{ padding: "9px 16px", borderRadius: 9, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Apri scale di valutazione</button>}
+        </div>
+      ) : (
+        <>
+          {scaleTypes.length > 1 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+              {scaleTypes.map(st => {
+                const def = getScale(st), on = st === activeScale;
+                return <button key={st} onClick={() => setActiveScale(st)} style={{ padding: "5px 11px", borderRadius: 8, fontFamily: "inherit", border: `1px solid ${on ? T.accent : T.line}`, background: on ? T.accentSoft : "transparent", color: on ? T.accent : T.body, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{def?.name ?? st}</button>;
+              })}
+            </div>
+          )}
+          {activeDef && activeRows.length > 0 && (() => {
+            const last = activeRows[activeRows.length - 1], it = activeDef.interpret(last.score), d = delta(activeDef, activeRows);
+            return (
+              <>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 12, marginBottom: 4 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
+                    <span style={{ fontSize: 42, fontWeight: 800, lineHeight: 1, color: it.color, letterSpacing: -1.5 }}>{last.score}</span>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: T.faint }}>/{activeDef.maxScore}</span>
+                  </div>
+                  <div style={{ paddingBottom: 3 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: it.color }}>{it.text}</div>
+                    {d && <div style={{ fontSize: 11, fontWeight: 700, color: d.col }}>{d.arrow} {d.txt}</div>}
+                  </div>
+                </div>
+                <Spark def={activeDef} rows={activeRows} />
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 10, color: T.faint }}>
+                  <span>{shortD(activeRows[0].created_at)}</span><span>{activeRows.length} misurazioni</span><span>{shortD(last.created_at)}</span>
+                </div>
+              </>
+            );
+          })()}
+        </>
+      )}
+    </>
+  );
+
+  // ── Alert (condiviso) ──
+  const alertsBlock = alerts.length > 0 && (
+    <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", flexWrap: "wrap", gap: isMobile ? 9 : 7, marginBottom: isMobile ? 11 : 14 }}>
+      {alerts.map((a, i) => (
+        <button key={i} onClick={go(a.t)}
+          style={{ display: isMobile ? "flex" : "inline-flex", alignItems: "center", gap: 8,
+            padding: isMobile ? "10px 13px" : "7px 13px", borderRadius: isMobile ? 11 : 99,
+            border: `1px solid ${a.col}33`, background: `${a.col}0c`, color: a.col,
+            fontSize: 12.5, fontWeight: 700, cursor: onNavigate ? "pointer" : "default",
+            fontFamily: "inherit", width: isMobile ? "100%" : "auto", textAlign: "left" }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: a.col }} />
+          <span style={{ flex: isMobile ? 1 : "none" }}>{a.msg}</span>
+          {isMobile && onNavigate && <span>→</span>}
+        </button>
+      ))}
+    </div>
+  );
+
+  // ── Note (condiviso) ──
+  const noteBlock = lastNote && (lastNote.quick_note || lastNote.soap_s) && (
+    <button onClick={go("diario")}
+      style={{ width: "100%", textAlign: "left", marginTop: 11, background: T.bg, border: `1px solid ${T.line}`, borderRadius: 15, padding: "14px 16px", cursor: onNavigate ? "pointer" : "default", fontFamily: "inherit" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+        {plabel("Dove eravamo")}<span style={{ fontSize: 10.5, color: T.faint }}>{rel(lastNote.created_at)}</span>
+      </div>
+      <div style={{ fontSize: 12.5, color: T.body, lineHeight: 1.55, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{lastNote.quick_note || lastNote.soap_s}</div>
+    </button>
+  );
+
+  // ═══ MOBILE: grafico + griglia 2×2 ═══
+  if (isMobile) {
+    const statCard = (k: string, v: React.ReactNode, sub: string | null, t: OverviewTarget, vCol?: string, smallV?: boolean) => (
+      <button onClick={go(t)} style={{ textAlign: "left", background: T.bg, border: `1px solid ${T.line}`, borderRadius: 13, padding: "13px 14px", cursor: onNavigate ? "pointer" : "default", fontFamily: "inherit" }}>
+        <div style={{ fontSize: 10, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: "0.04em" }}>{k}</div>
+        <div style={{ fontSize: smallV ? 15 : 17, fontWeight: 800, marginTop: 5, color: vCol ?? T.ink }}>{v}</div>
+        {sub && <div style={{ fontSize: 10.5, color: T.faint, marginTop: 1 }}>{sub}</div>}
+      </button>
+    );
+    return (
+      <div>
+        {alertsBlock}
+        {/* Grafico */}
+        <div style={{ background: T.bg, border: `1px solid ${T.line}`, borderRadius: 15, padding: "15px 16px", marginBottom: 11 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            {plabel(activeDef ? `Andamento — ${activeDef.name}` : "Andamento clinico")}
+            {scaleTypes.length > 0 && onNavigate && <button onClick={go("scale")} style={{ background: "transparent", border: "none", color: T.accent, fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", lineHeight: 1 }}>›</button>}
+          </div>
+          {clinicalBlock}
+        </div>
+        {/* Griglia 2×2 */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+          {statCard("Prossima", nextAppt ? rel(nextAppt.start_at) : "—", nextAppt ? shortDT(nextAppt.start_at) : "nessuna", "terapie", nextAppt ? T.ink : T.faint, true)}
+          {statCard("Esercizi", programShort, program?.nEx ? `${program.nEx} attivi` : null, "esercizi", programExpired ? T.amber : T.accent, true)}
+          {statCard("Insoluti", unpaid.count > 0 ? <span>€&nbsp;{unpaid.total.toFixed(0)}</span> : "0", unpaid.count > 0 ? `${unpaid.count} sedute` : "saldato", "terapie", unpaid.count > 0 ? T.red : T.green)}
+          {statCard("Consensi", consentLabel, null, "gdpr", consentCol, true)}
+        </div>
+        {noteBlock}
+      </div>
+    );
+  }
+
+  // ═══ DESKTOP: due colonne ═══
   const stat = (k: string, v: React.ReactNode, sub: React.ReactNode, t?: OverviewTarget, last = false) => (
-    <button onClick={t && onNavigate ? () => onNavigate(t) : undefined} disabled={!t || !onNavigate}
+    <button onClick={t ? go(t) : undefined} disabled={!t || !onNavigate}
       style={{ width: "100%", textAlign: "left", background: "transparent", border: "none",
         borderBottom: last ? "none" : `1px solid ${T.line}`, padding: "12px 0",
         cursor: t && onNavigate ? "pointer" : "default", fontFamily: "inherit",
@@ -162,94 +283,28 @@ export default function PatientOverview({ patientId, onNavigate }: Props) {
       </span>
     </button>
   );
-
-  if (loading) return <div style={{ padding: 18, fontSize: 13, color: T.faint }}>Caricamento…</div>;
-
   return (
     <div>
-      {alerts.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 14 }}>
-          {alerts.map((a, i) => (
-            <button key={i} onClick={onNavigate ? () => onNavigate(a.t) : undefined}
-              style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 13px",
-                borderRadius: 99, border: `1px solid ${a.col}33`, background: `${a.col}0c`, color: a.col,
-                fontSize: 12, fontWeight: 700, cursor: onNavigate ? "pointer" : "default", fontFamily: "inherit" }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: a.col }} />{a.msg}
-            </button>
-          ))}
-        </div>
-      )}
-
+      {alertsBlock}
       <div className="ov-grid" style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 14 }}>
-        {/* Andamento clinico */}
         <section style={{ background: T.bg, border: `1px solid ${T.line}`, borderRadius: 14, padding: "15px 17px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
             {plabel("Andamento clinico")}
-            {scaleTypes.length > 0 && onNavigate && (
-              <button onClick={() => onNavigate("scale")} style={{ background: "transparent", border: "none", color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Gestisci →</button>
-            )}
+            {scaleTypes.length > 0 && onNavigate && <button onClick={go("scale")} style={{ background: "transparent", border: "none", color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Gestisci →</button>}
           </div>
-          {scaleTypes.length === 0 ? (
-            <div style={{ padding: "22px 0", textAlign: "center" }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, marginBottom: 4 }}>Nessuna misurazione</div>
-              <div style={{ fontSize: 12.5, color: T.faint, marginBottom: 14 }}>Somministra una scala per tracciare i progressi.</div>
-              {onNavigate && <button onClick={() => onNavigate("scale")} style={{ padding: "9px 16px", borderRadius: 9, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Apri scale di valutazione</button>}
-            </div>
-          ) : (
-            <>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-                {scaleTypes.map(st => {
-                  const def = getScale(st), on = st === activeScale;
-                  return <button key={st} onClick={() => setActiveScale(st)} style={{ padding: "5px 11px", borderRadius: 8, fontFamily: "inherit", border: `1px solid ${on ? T.accent : T.line}`, background: on ? T.accentSoft : "transparent", color: on ? T.accent : T.body, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{def?.name ?? st}</button>;
-                })}
-              </div>
-              {activeDef && activeRows.length > 0 && (() => {
-                const last = activeRows[activeRows.length - 1], it = activeDef.interpret(last.score), d = delta(activeDef, activeRows);
-                return (
-                  <>
-                    <div style={{ display: "flex", alignItems: "flex-end", gap: 14, marginBottom: 4 }}>
-                      <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
-                        <span style={{ fontSize: 38, fontWeight: 800, lineHeight: 1, color: it.color, letterSpacing: -1 }}>{last.score}</span>
-                        <span style={{ fontSize: 15, fontWeight: 600, color: T.faint }}>/ {activeDef.maxScore}</span>
-                      </div>
-                      <div style={{ paddingBottom: 3 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: it.color }}>{it.text}</div>
-                        {d && <div style={{ fontSize: 11.5, fontWeight: 700, color: d.col }}>{d.arrow} {d.txt}</div>}
-                      </div>
-                    </div>
-                    <Spark def={activeDef} rows={activeRows} />
-                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2, fontSize: 10.5, color: T.faint }}>
-                      <span>{shortD(activeRows[0].created_at)}</span><span>{activeRows.length} misurazioni</span><span>{shortD(last.created_at)}</span>
-                    </div>
-                  </>
-                );
-              })()}
-            </>
-          )}
+          {clinicalBlock}
         </section>
-
-        {/* Stato */}
         <section style={{ background: T.bg, border: `1px solid ${T.line}`, borderRadius: 14, padding: "15px 17px" }}>
           <div style={{ marginBottom: 4 }}>{plabel("Stato")}</div>
           {stat("Prossima seduta", nextAppt ? rel(nextAppt.start_at) : "—", nextAppt ? dayLabel(nextAppt.start_at) : "nessuna in agenda", "terapie")}
           {stat("Ultima seduta", lastAppt ? rel(lastAppt.start_at) : "—", lastAppt ? (lastAppt.is_paid ? "pagata" : "da incassare") : "nessuna svolta", "terapie")}
           {stat("Insoluti", unpaid.count > 0 ? <span style={{ color: T.red }}>€&nbsp;{unpaid.total.toFixed(2).replace(".", ",")}</span> : <span style={{ color: T.green }}>0</span>, unpaid.count > 0 ? `${unpaid.count} da saldare` : "tutto incassato", "terapie")}
-          {stat("Consensi", <span style={{ color: consentsOk ? T.green : consents.pending ? T.amber : T.red }}>{consentsOk ? "Firmati" : consents.pending ? "In attesa" : "Mancanti"}</span>, null, "gdpr")}
+          {stat("Consensi", <span style={{ color: consentCol }}>{consentLabel}</span>, null, "gdpr")}
           {stat("Sedute svolte", String(doneCount), null, "terapie")}
           {stat("Programma esercizi", programLabel ? <span style={{ color: programExpired ? T.amber : T.accent }}>{programLabel}</span> : "—", programLabel ? null : "nessuno attivo", "esercizi", true)}
         </section>
       </div>
-
-      {lastNote && (lastNote.quick_note || lastNote.soap_s) && (
-        <button onClick={onNavigate ? () => onNavigate("diario") : undefined}
-          style={{ width: "100%", textAlign: "left", marginTop: 14, background: T.soft, border: `1px solid ${T.line}`, borderRadius: 14, padding: "13px 17px", cursor: onNavigate ? "pointer" : "default", fontFamily: "inherit" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
-            {plabel("Dove eravamo")}<span style={{ fontSize: 11, color: T.faint }}>{rel(lastNote.created_at)}</span>
-          </div>
-          <div style={{ fontSize: 13, color: T.body, lineHeight: 1.6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{lastNote.quick_note || lastNote.soap_s}</div>
-        </button>
-      )}
-
+      {noteBlock}
       <style jsx>{`@media (max-width:720px){ .ov-grid{ grid-template-columns:1fr !important; } }`}</style>
     </div>
   );
