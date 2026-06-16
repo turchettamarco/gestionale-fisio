@@ -315,6 +315,7 @@ export default function MobileHomePage() {
   const [qaResults,       setQaResults]       = useState<PatientOption[]>([]);
   const [qaSearching,     setQaSearching]     = useState(false);
   const [qaSaving,        setQaSaving]        = useState(false);
+  const [qaAmount,        setQaAmount]        = useState("");  // prezzo seduta (precompilato)
   const qaSearchTimer     = useRef<ReturnType<typeof setTimeout>>(undefined);
   // New patient inline
   const [qaNewMode,   setQaNewMode]   = useState(false);
@@ -329,6 +330,8 @@ export default function MobileHomePage() {
   const [qaGroupPrice,     setQaGroupPrice]     = useState("15.00");
   /** Default da practice_settings (caricato dopo). Usato per pre-popolare il form. */
   const [defaultGroupPrice, setDefaultGroupPrice] = useState<number>(15);
+  const [defaultSessionPrice, setDefaultSessionPrice] = useState<number | null>(null);
+  const [defaultSessionMethod, setDefaultSessionMethod] = useState<"invoiced" | "cash">("cash");
   const [defaultGroupMax,   setDefaultGroupMax]   = useState<number>(6);
 
   // ─── Partecipanti iniziali per nuovo gruppo (mig. 014, step 6.1) ───
@@ -464,7 +467,7 @@ export default function MobileHomePage() {
       if (!uid) return;
       const { data } = await supabase
         .from("practice_settings")
-        .select("default_group_price, default_group_max_participants")
+        .select("default_group_price, default_group_max_participants, standard_cash, standard_invoice, default_payment_method")
         .eq("owner_id", uid)
         .maybeSingle();
       if (cancelled) return;
@@ -473,6 +476,19 @@ export default function MobileHomePage() {
       }
       if (data?.default_group_max_participants != null) {
         setDefaultGroupMax(Number(data.default_group_max_participants));
+      }
+      // Prezzo standard seduta (stessa fonte del desktop) per pre-popolare il quick-add.
+      // Metodo preferito: se default_payment_method è "invoiced"/fattura usa quello, altrimenti contanti.
+      const prefersInvoice = String(data?.default_payment_method || "").toLowerCase().includes("invoic")
+        || String(data?.default_payment_method || "").toLowerCase().includes("fattur");
+      const method: "invoiced" | "cash" = prefersInvoice ? "invoiced" : "cash";
+      setDefaultSessionMethod(method);
+      const stdPrice = method === "invoiced" ? data?.standard_invoice : data?.standard_cash;
+      if (stdPrice != null && !Number.isNaN(Number(stdPrice))) {
+        setDefaultSessionPrice(Number(stdPrice));
+      } else {
+        // fallback coerente col desktop (seduta: contanti 35 / fatturato 40)
+        setDefaultSessionPrice(method === "invoiced" ? 40 : 35);
       }
     })();
     return () => { cancelled = true; };
@@ -1023,6 +1039,7 @@ export default function MobileHomePage() {
     setQaGroupTitle("");
     setQaGroupMax(String(defaultGroupMax));
     setQaGroupPrice(defaultGroupPrice.toFixed(2));
+    setQaAmount(defaultSessionPrice != null ? String(defaultSessionPrice).replace(".", ",") : "");
     // Reset partecipanti iniziali (step 6.1)
     setQaInitialParticipants([]);
     setQaPartSearchQ("");
@@ -1216,6 +1233,10 @@ export default function MobileHomePage() {
         owner_id: userId,        // per coerenza multi-tenancy
         operator_id: userId,     // assegna all'operatore corrente
         studio_id: studioId,     // richiesto dalle RLS
+        treatment_type: "seduta",
+        price_type: defaultSessionMethod,
+        amount: qaAmount.trim() === "" ? defaultSessionPrice
+          : (isFinite(Number(qaAmount.replace(",", "."))) ? Number(qaAmount.replace(",", ".")) : defaultSessionPrice),
       });
       if (error) throw new Error(`Creazione appuntamento: ${error.message}`);
 
@@ -2882,6 +2903,45 @@ export default function MobileHomePage() {
                       ⚠️ Troppi pazienti. Aumenta il max o rimuovi qualcuno.
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* Prezzo seduta (solo singolo) — precompilato, modificabile */}
+            {!qaIsGroup && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted,
+                  textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+                  Prezzo seduta
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: THEME.text }}>€</span>
+                    <input
+                      type="text" inputMode="decimal" value={qaAmount}
+                      onChange={e => setQaAmount(e.target.value)}
+                      placeholder="0,00"
+                      style={{
+                        flex: 1, padding: "10px 12px", borderRadius: 8,
+                        border: `1px solid ${THEME.border}`, background: THEME.panelSoft,
+                        fontSize: 15, fontWeight: 700, color: THEME.text, fontFamily: "inherit",
+                        WebkitAppearance: "none", appearance: "none",
+                      }}
+                    />
+                  </div>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {([["cash","Contanti"],["invoiced","Fattura"]] as const).map(([m,lbl]) => (
+                      <button key={m} onClick={() => setDefaultSessionMethod(m)} style={{
+                        padding: "8px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+                        border: `1px solid ${defaultSessionMethod===m ? THEME.blue : THEME.border}`,
+                        background: defaultSessionMethod===m ? "rgba(37,99,235,0.08)" : THEME.panelSoft,
+                        color: defaultSessionMethod===m ? THEME.blue : THEME.muted, cursor: "pointer",
+                      }}>{lbl}</button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ fontSize: 10.5, color: THEME.muted, marginTop: 5 }}>
+                  Precompilato col prezzo standard. Modificalo se serve, o lascia 0 per seduta gratuita.
                 </div>
               </div>
             )}
