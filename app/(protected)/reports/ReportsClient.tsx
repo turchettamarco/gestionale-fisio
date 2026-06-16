@@ -194,6 +194,12 @@ export default function ReportsPage(){
   const[revenue,    setRevenue]    =useState(0);
   const[unpaidTot,  setUnpaidTot]  =useState(0);
   const[sessions,   setSessions]   =useState(0);
+  const[doneTotal,  setDoneTotal]  =useState(0);   // svolte totali (incl. gratuite)
+  const[freeSessions, setFreeSessions]=useState(0); // gratuite (amount 0/null)
+  const[freeList, setFreeList]=useState<{id:string;start_at:string;patient_id:string|null;name:string}[]>([]);
+  const[freeModalOpen, setFreeModalOpen]=useState(false);
+  const[freeRowBusy, setFreeRowBusy]=useState<Record<string,boolean>>({});
+  const[unpaidSessions, setUnpaidSessions]=useState(0); // svolte non pagate (con importo)
   const[prevRev,    setPrevRev]    =useState<number|null>(null);
   const[monthBars,  setMonthBars]  =useState<MonthBar[]>([]);
   const[goal,       setGoal]       =useState(2000);
@@ -360,6 +366,21 @@ export default function ReportsPage(){
   },[]);
 
   // ─── Load ──────────────────────────────────────────────────────────────────
+  async function saveFreeAmount(apptId: string, raw: string) {
+    const parsed = raw.trim() === "" ? null : Number(raw.replace(",", "."));
+    if (parsed !== null && !isFinite(parsed)) return;
+    setFreeRowBusy(m => ({ ...m, [apptId]: true }));
+    const res = await supabase.from("appointments").update({ amount: parsed }).eq("id", apptId);
+    setFreeRowBusy(m => ({ ...m, [apptId]: false }));
+    if (res.error) return;
+    // rimuovo dalla lista locale se non è più gratuita, e ricarico i totali
+    if (parsed != null && parsed > 0) {
+      setFreeList(l => l.filter(x => x.id !== apptId));
+      setFreeSessions(n => Math.max(0, n - 1));
+    }
+    void loadData();
+  }
+
   async function loadData(){
     const currentId = ++loadIdRef.current;
     setLoading(true);setError(null);
@@ -592,6 +613,37 @@ export default function ReportsPage(){
       const sess=fullPaidList.length;
       setRevenue(rev);setSessions(sess);
       setRevPerVisit(sess>0?rev/sess:null);
+
+      // ── Scomposizione sedute svolte (per chiarezza pagate/non pagate/gratuite) ──
+      // Conta TUTTE le sedute "done" del periodo (incluse gratuite a 0), per studio.
+      (async () => {
+        const { data: allDone } = await supabase
+          .from("appointments")
+          .select("id, start_at, patient_id, amount, is_paid")
+          .eq("status", "done")
+          .gte("start_at", fs).lte("start_at", ts)
+          .is("guest_practitioner_id", null);
+        const rows = allDone ?? [];
+        const free = rows.filter(r => r.amount == null || Number(r.amount) === 0);
+        const paidCnt = rows.filter(r => Number(r.amount) > 0 && r.is_paid).length;
+        const unpaidCnt = rows.filter(r => Number(r.amount) > 0 && !r.is_paid).length;
+        setDoneTotal(rows.length);
+        setFreeSessions(free.length);
+        setUnpaidSessions(unpaidCnt);
+        void paidCnt;
+        // Lista gratuite con nome paziente
+        const freePatIds = [...new Set(free.map(r => r.patient_id).filter(Boolean))] as string[];
+        const nameMap = new Map<string, string>();
+        if (freePatIds.length > 0) {
+          const { data: pats } = await supabase.from("patients")
+            .select("id, first_name, last_name").in("id", freePatIds);
+          for (const p of (pats ?? [])) nameMap.set(p.id, `${p.last_name ?? ""} ${p.first_name ?? ""}`.trim() || "Paziente");
+        }
+        setFreeList(free.map(r => ({
+          id: r.id, start_at: r.start_at, patient_id: r.patient_id,
+          name: r.patient_id ? (nameMap.get(r.patient_id) || "Paziente") : "Senza paziente",
+        })).sort((a, b) => b.start_at.localeCompare(a.start_at)));
+      })();
 
       // ── Aggregati per metodo di pagamento (sedute fatturate eseguite) ──
       // Solo quelle con price_type === "invoiced" hanno un metodo significativo
@@ -1364,6 +1416,23 @@ export default function ReportsPage(){
                       </span>
                     )}
                   </div>
+                  {!loading && doneTotal > 0 && (
+                    <div style={{marginTop:12,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                      <span style={{fontSize:12,color:"#166534",fontWeight:700}}>{doneTotal} sedute svolte:</span>
+                      {[
+                        {l:"pagate",v:sessions,c:"#15803d"},
+                        {l:"da incassare",v:unpaidSessions,c:T.red},
+                        {l:"gratuite",v:freeSessions,c:T.amber},
+                      ].filter(x=>x.v>0).map(x=>(
+                        <span key={x.l} style={{display:"inline-flex",alignItems:"center",gap:5,
+                          padding:"3px 10px",borderRadius:99,background:"rgba(255,255,255,0.6)",
+                          border:`1px solid ${x.c}33`,fontSize:12,fontWeight:700,color:x.c}}>
+                          <span style={{width:7,height:7,borderRadius:"50%",background:x.c}}/>
+                          {x.v} {x.l}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   {(period==="month"||period==="quarter"||period==="semester"||period==="year")&&(
                     <div style={{marginTop:16}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
@@ -1499,6 +1568,39 @@ export default function ReportsPage(){
                 </div>
               ))}
             </div>
+
+            {/* ── Scomposizione sedute svolte ── */}
+            {!loading && doneTotal > 0 && (
+              <div style={{...card, padding:"22px 24px"}}>
+                <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase" as const,letterSpacing:0.7,marginBottom:4}}>Sedute svolte nel periodo</div>
+                <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:16}}>
+                  <span style={{fontSize:40,fontWeight:900,color:T.teal,lineHeight:1,letterSpacing:-1}}>{doneTotal}</span>
+                  <span style={{fontSize:13,color:T.muted,fontWeight:600}}>lavoro clinico fatto</span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+                  {[
+                    {label:"Pagate",value:sessions,sub:"incassate",color:T.green,bg:"#f0fdf4",click:false},
+                    {label:"Da incassare",value:unpaidSessions,sub:"svolte non saldate",color:T.red,bg:"#fff7f7",click:false},
+                    {label:"Gratuite / a 0€",value:freeSessions,sub:freeSessions>0?"tocca per vedere →":"senza incasso",color:T.amber,bg:"#fffbeb",click:freeSessions>0},
+                  ].map((s,i)=>(
+                    <div key={i}
+                      onClick={s.click?()=>setFreeModalOpen(true):undefined}
+                      style={{background:s.bg,borderRadius:10,padding:"14px 16px",border:`1px solid ${s.color}22`,cursor:s.click?"pointer":"default"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6}}>
+                        <span style={{width:8,height:8,borderRadius:"50%",background:s.color}}/>
+                        <span style={{fontSize:12,fontWeight:700,color:s.color}}>{s.label}</span>
+                      </div>
+                      <div style={{fontSize:24,fontWeight:900,color:s.color,lineHeight:1}}>{s.value}</div>
+                      <div style={{fontSize:10.5,color:T.muted,marginTop:4}}>{s.sub}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{marginTop:12,fontSize:11,color:T.muted,lineHeight:1.5}}>
+                  Pagate + Da incassare + Gratuite = {sessions + unpaidSessions + freeSessions} svolte.
+                  Il ticket medio ({revenuePerVisit!=null?euro.format(revenuePerVisit):"—"}/seduta) è calcolato sulle sole sedute pagate.
+                </div>
+              </div>
+            )}
 
             {/* ── Ripartizione metodi di pagamento ── */}
             {(() => {
@@ -2190,6 +2292,54 @@ export default function ReportsPage(){
           </div>
         );
       })()}
+      {/* ── Modale sedute gratuite ── */}
+      {freeModalOpen && (
+        <div onClick={()=>setFreeModalOpen(false)}
+          style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.45)",zIndex:200,
+            display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div onClick={e=>e.stopPropagation()}
+            style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:560,maxHeight:"80vh",
+              display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+            <div style={{padding:"18px 22px",borderBottom:`1px solid ${T.border}`,display:"flex",
+              justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:16,fontWeight:800,color:T.text}}>Sedute gratuite / a 0€</div>
+                <div style={{fontSize:12,color:T.muted,marginTop:2}}>{freeList.length} sedute svolte senza importo · assegna un importo per spostarle nelle pagate/da incassare</div>
+              </div>
+              <button onClick={()=>setFreeModalOpen(false)} style={{background:"none",border:"none",
+                fontSize:24,color:T.muted,cursor:"pointer",lineHeight:1}}>×</button>
+            </div>
+            <div style={{overflowY:"auto",padding:"8px 0"}}>
+              {freeList.length===0?(
+                <div style={{padding:40,textAlign:"center",color:T.muted,fontSize:13}}>Nessuna seduta gratuita in questo periodo.</div>
+              ):freeList.map((f,idx)=>(
+                <div key={f.id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 22px",
+                  borderBottom:idx<freeList.length-1?`1px solid ${T.border}`:"none"}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:14,fontWeight:700,color:T.text}}>{f.name}</div>
+                    <div style={{fontSize:12,color:T.muted,marginTop:1}}>
+                      {new Date(f.start_at).toLocaleDateString("it-IT",{weekday:"short",day:"2-digit",month:"long",hour:"2-digit",minute:"2-digit"})}
+                    </div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{fontSize:13,color:T.muted,fontWeight:700}}>€</span>
+                    <input type="text" inputMode="decimal" placeholder="0,00" defaultValue=""
+                      disabled={!!freeRowBusy[f.id]}
+                      onKeyDown={e=>{if(e.key==="Enter")saveFreeAmount(f.id,(e.target as HTMLInputElement).value);}}
+                      onBlur={e=>{const v=e.target.value.trim();if(v!=="")saveFreeAmount(f.id,v);}}
+                      style={{width:80,padding:"7px 9px",borderRadius:8,border:`1px solid ${T.border}`,
+                        fontSize:13,fontWeight:700,textAlign:"right",fontFamily:"inherit",color:T.text}}/>
+                    {freeRowBusy[f.id]&&<span style={{fontSize:11,color:T.muted}}>…</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{padding:"12px 22px",borderTop:`1px solid ${T.border}`,fontSize:11.5,color:T.muted,background:T.soft,borderRadius:"0 0 16px 16px"}}>
+              Scrivi un importo e premi Invio (o esci dal campo) per salvare. La seduta passerà automaticamente tra le pagate o da incassare.
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

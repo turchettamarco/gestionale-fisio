@@ -22,7 +22,8 @@ export type MonthlyStats = {
   year: number;
   month: number;            // 0-11
   monthLabel: string;       // "giugno 2026"
-  appointments: { total: number; done: number; confirmed: number; cancelled: number; noShow: number };
+  appointments: { total: number; done: number; confirmed: number; cancelled: number; noShow: number;
+    donePaid: number; doneUnpaid: number; doneFree: number };
   revenue: { collected: number; expected: number; unpaid: number; avgPerSession: number };
   collectionRate: number;   // % incassato su fatturato (0-100)
   presenceRate: number;     // % presentati su (presentati+annullati+noshow)
@@ -106,6 +107,9 @@ export async function computeMonthlyStats(
 
   const appts = apptRes.data ?? [];
   const done = appts.filter(a => a.status === "done");
+  const donePaid = done.filter(a => Number(a.amount || 0) > 0 && a.is_paid).length;
+  const doneUnpaid = done.filter(a => Number(a.amount || 0) > 0 && !a.is_paid).length;
+  const doneFree = done.filter(a => a.amount == null || Number(a.amount) === 0).length;
   const confirmed = appts.filter(a => a.status === "confirmed");
   const cancelled = appts.filter(a => a.status === "cancelled");
   const noShow = appts.filter(a => a.status === "no_show");
@@ -195,7 +199,7 @@ export async function computeMonthlyStats(
   return {
     studioName, year, month,
     monthLabel: `${MESI[month]} ${year}`,
-    appointments: { total: appts.length, done: done.length, confirmed: confirmed.length, cancelled: cancelled.length, noShow: noShow.length },
+    appointments: { total: appts.length, done: done.length, confirmed: confirmed.length, cancelled: cancelled.length, noShow: noShow.length, donePaid, doneUnpaid, doneFree },
     revenue: { collected, expected, unpaid, avgPerSession },
     collectionRate, presenceRate,
     newPatients: newPatRes.count ?? 0,
@@ -268,10 +272,19 @@ export async function renderMonthlyReportPdf(s: MonthlyStats): Promise<Uint8Arra
     text(value, width - M - vw, y, 11, bold, color);
     y -= 22;
   };
+  const rowIndent = (label: string, value: string, color = FAINT) => {
+    text(label, M + 18, y, 10, font, FAINT);
+    const vw = bold.widthOfTextAtSize(value, 10);
+    text(value, width - M - vw, y, 10, bold, color);
+    y -= 19;
+  };
 
   sectionTitle("Sedute del mese");
   row("Totale appuntamenti", String(s.appointments.total));
   row("Svolte", String(s.appointments.done), GREEN);
+  rowIndent("di cui pagate", String(s.appointments.donePaid), GREEN);
+  rowIndent("di cui da incassare", String(s.appointments.doneUnpaid), s.appointments.doneUnpaid > 0 ? RED : FAINT);
+  rowIndent("di cui gratuite / a 0€", String(s.appointments.doneFree), s.appointments.doneFree > 0 ? AMBER : FAINT);
   row("Confermate (da svolgere)", String(s.appointments.confirmed));
   row("Annullate", String(s.appointments.cancelled));
   row("Mancate presentazioni (no-show)", String(s.appointments.noShow), s.appointments.noShow > 0 ? RED : INK);
@@ -433,6 +446,9 @@ export async function computePeriodStats(
 
   const appts = apptRes.data ?? [];
   const done = appts.filter(a => a.status === "done");
+  const donePaid = done.filter(a => Number(a.amount || 0) > 0 && a.is_paid).length;
+  const doneUnpaid = done.filter(a => Number(a.amount || 0) > 0 && !a.is_paid).length;
+  const doneFree = done.filter(a => a.amount == null || Number(a.amount) === 0).length;
   const confirmed = appts.filter(a => a.status === "confirmed");
   const cancelled = appts.filter(a => a.status === "cancelled");
   const noShow = appts.filter(a => a.status === "no_show");
@@ -494,7 +510,7 @@ export async function computePeriodStats(
   return {
     studioName, year: p.startY, month: p.startM,
     monthLabel: p.label, periodKind: kind, periodLabel: p.label,
-    appointments: { total: appts.length, done: done.length, confirmed: confirmed.length, cancelled: cancelled.length, noShow: noShow.length },
+    appointments: { total: appts.length, done: done.length, confirmed: confirmed.length, cancelled: cancelled.length, noShow: noShow.length, donePaid, doneUnpaid, doneFree },
     revenue: { collected, expected, unpaid, avgPerSession },
     collectionRate, presenceRate,
     newPatients: newPatRes.count ?? 0,

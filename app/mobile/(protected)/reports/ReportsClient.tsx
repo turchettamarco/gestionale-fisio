@@ -288,6 +288,10 @@ export default function ReportsMobile() {
   const [error,   setError]   = useState<string|null>(null);
 
   const [statistics,       setStatistics]       = useState<Statistic>({total:0,invoiceCount:0,appointmentCount:0,averageAmount:0,maxAmount:0,minAmount:0,unpaidTotal:0,unpaidCount:0,unpaidAppointmentCount:0,unpaidInvoiceCount:0});
+  const [sessionBreak, setSessionBreak] = useState({ done: 0, paid: 0, unpaid: 0, free: 0 });
+  const [freeList, setFreeList] = useState<{id:string;start_at:string;patient_id:string|null;name:string}[]>([]);
+  const [freeModalOpen, setFreeModalOpen] = useState(false);
+  const [freeRowBusy, setFreeRowBusy] = useState<Record<string,boolean>>({});
   const [series,           setSeries]           = useState<number[]>([]);
   const [unpaidSeries,     setUnpaidSeries]     = useState<number[]>([]);
   const [rawData,          setRawData]          = useState<FinancialItem[]>([]);
@@ -358,6 +362,20 @@ export default function ReportsMobile() {
     return total;
   }
 
+  async function saveFreeAmount(apptId: string, raw: string) {
+    const parsed = raw.trim() === "" ? null : Number(raw.replace(",", "."));
+    if (parsed !== null && !isFinite(parsed)) return;
+    setFreeRowBusy(m => ({ ...m, [apptId]: true }));
+    const res = await supabase.from("appointments").update({ amount: parsed }).eq("id", apptId);
+    setFreeRowBusy(m => ({ ...m, [apptId]: false }));
+    if (res.error) return;
+    if (parsed != null && parsed > 0) {
+      setFreeList(l => l.filter(x => x.id !== apptId));
+      setSessionBreak(b => ({ ...b, free: Math.max(0, b.free - 1) }));
+    }
+    void loadData();
+  }
+
   async function loadData() {
     setLoading(true); setError(null);
     setSelectedDay(null); setDayDetails([]);
@@ -365,6 +383,35 @@ export default function ReportsMobile() {
     try {
       const {from,to}=getRange(period,baseDate);
       const fromStr=from.toISOString(), toStr=to.toISOString();
+
+      // Scomposizione sedute svolte (pagate / da incassare / gratuite)
+      void (async () => {
+        const { data: allDone } = await supabase
+          .from("appointments")
+          .select("id, start_at, patient_id, amount, is_paid")
+          .eq("status", "done")
+          .gte("start_at", fromStr).lte("start_at", toStr)
+          .is("guest_practitioner_id", null);
+        const rows = allDone ?? [];
+        const free = rows.filter(r => r.amount == null || Number(r.amount) === 0);
+        setSessionBreak({
+          done: rows.length,
+          paid: rows.filter(r => Number(r.amount) > 0 && r.is_paid).length,
+          unpaid: rows.filter(r => Number(r.amount) > 0 && !r.is_paid).length,
+          free: free.length,
+        });
+        const freePatIds = [...new Set(free.map(r => r.patient_id).filter(Boolean))] as string[];
+        const nameMap = new Map<string, string>();
+        if (freePatIds.length > 0) {
+          const { data: pats } = await supabase.from("patients")
+            .select("id, first_name, last_name").in("id", freePatIds);
+          for (const p of (pats ?? [])) nameMap.set(p.id, `${p.last_name ?? ""} ${p.first_name ?? ""}`.trim() || "Paziente");
+        }
+        setFreeList(free.map(r => ({
+          id: r.id, start_at: r.start_at, patient_id: r.patient_id,
+          name: r.patient_id ? (nameMap.get(r.patient_id) || "Paziente") : "Senza paziente",
+        })).sort((a, b) => b.start_at.localeCompare(a.start_at)));
+      })();
 
       // Parallel fetches
       const [
@@ -820,6 +867,38 @@ export default function ReportsMobile() {
                   ))}
                 </div>
 
+                {/* Scomposizione sedute svolte */}
+                {sessionBreak.done > 0 && (
+                  <div style={{background:THEME.panelBg,border:`1.5px solid ${THEME.border}`,
+                    borderRadius:14,padding:"16px",boxShadow:"0 1px 4px rgba(15,23,42,0.05)"}}>
+                    <div style={{fontSize:10,fontWeight:700,color:THEME.muted,textTransform:"uppercase",
+                      letterSpacing:"0.07em",marginBottom:6}}>Sedute svolte</div>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:12}}>
+                      <span style={{fontSize:30,fontWeight:800,color:THEME.teal,lineHeight:1}}>{sessionBreak.done}</span>
+                      <span style={{fontSize:11,color:THEME.muted}}>lavoro fatto</span>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                      {[
+                        {l:"Pagate",v:sessionBreak.paid,c:THEME.green,click:false},
+                        {l:"Da incass.",v:sessionBreak.unpaid,c:THEME.red,click:false},
+                        {l:"Gratuite",v:sessionBreak.free,c:THEME.amber,click:sessionBreak.free>0},
+                      ].map(x=>(
+                        <div key={x.l} onClick={x.click?()=>setFreeModalOpen(true):undefined}
+                          style={{textAlign:"center",cursor:x.click?"pointer":"default",
+                            background:x.click?"rgba(245,158,11,0.06)":"transparent",
+                            borderRadius:10,padding:x.click?"6px 2px":"0"}}>
+                          <div style={{fontSize:19,fontWeight:800,color:x.c}}>{x.v}</div>
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4,marginTop:3}}>
+                            <span style={{width:6,height:6,borderRadius:"50%",background:x.c}}/>
+                            <span style={{fontSize:10,color:THEME.muted,fontWeight:600}}>{x.l}</span>
+                          </div>
+                          {x.click&&<div style={{fontSize:9,color:THEME.amber,fontWeight:700,marginTop:2}}>tocca →</div>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Totale generale con confronto */}
                 <div style={{
                   background:THEME.panelBg,border:`1.5px solid ${THEME.border}`,
@@ -1223,6 +1302,51 @@ export default function ReportsMobile() {
           title={previewReport.title}
           onClose={() => setPreviewReport(null)}
         />
+      )}
+
+      {/* Modale sedute gratuite (mobile) */}
+      {freeModalOpen && (
+        <div onClick={()=>setFreeModalOpen(false)}
+          style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.5)",zIndex:300,
+            display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+          <div onClick={e=>e.stopPropagation()}
+            style={{background:"#fff",borderRadius:"20px 20px 0 0",width:"100%",maxHeight:"85vh",
+              display:"flex",flexDirection:"column"}}>
+            <div style={{padding:"16px 18px",borderBottom:`1px solid ${THEME.border}`,
+              display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:800,color:THEME.text}}>Sedute gratuite / a 0€</div>
+                <div style={{fontSize:11,color:THEME.muted,marginTop:2}}>{freeList.length} sedute · assegna un importo per spostarle</div>
+              </div>
+              <button onClick={()=>setFreeModalOpen(false)} style={{background:"none",border:"none",
+                fontSize:24,color:THEME.muted,cursor:"pointer",lineHeight:1,padding:0}}>×</button>
+            </div>
+            <div style={{overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"4px 0 20px"}}>
+              {freeList.length===0?(
+                <div style={{padding:36,textAlign:"center",color:THEME.muted,fontSize:13}}>Nessuna seduta gratuita.</div>
+              ):freeList.map((f,idx)=>(
+                <div key={f.id} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 18px",
+                  borderBottom:idx<freeList.length-1?`1px solid ${THEME.border}`:"none"}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:14,fontWeight:700,color:THEME.text,whiteSpace:"nowrap",
+                      overflow:"hidden",textOverflow:"ellipsis"}}>{f.name}</div>
+                    <div style={{fontSize:11,color:THEME.muted,marginTop:1}}>
+                      {new Date(f.start_at).toLocaleDateString("it-IT",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})}
+                    </div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:5}}>
+                    <span style={{fontSize:13,color:THEME.muted,fontWeight:700}}>€</span>
+                    <input type="text" inputMode="decimal" placeholder="0,00" defaultValue=""
+                      disabled={!!freeRowBusy[f.id]}
+                      onBlur={e=>{const v=e.target.value.trim();if(v!=="")saveFreeAmount(f.id,v);}}
+                      style={{width:78,padding:"8px 9px",borderRadius:8,border:`1px solid ${THEME.border}`,
+                        fontSize:14,fontWeight:700,textAlign:"right",fontFamily:"inherit",color:THEME.text}}/>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
