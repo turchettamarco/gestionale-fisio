@@ -83,6 +83,43 @@ type Props = {
   } | null;
 };
 
+// Estrae gli esercizi da una risposta AI, recuperando anche array JSON troncati
+// (es. se max_tokens taglia l'ultimo oggetto): in tal caso restituisce gli
+// oggetti completi fino al punto di troncamento invece di fallire del tutto.
+function parseEserciziArray(raw: string): Esercizio[] {
+  const clean = (raw || "").replace(/```json|```/g, "").trim();
+  const start = clean.indexOf("[");
+  if (start === -1) return [];
+  const body = clean.slice(start);
+  // 1) tentativo diretto
+  try {
+    const arr = JSON.parse(body);
+    if (Array.isArray(arr)) return arr;
+  } catch { /* prosegue col recupero */ }
+  // 2) recupero oggetti completi bilanciando le parentesi graffe
+  const objs: Esercizio[] = [];
+  let depth = 0, objStart = -1, inStr = false, esc = false;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === "{") { if (depth === 0) objStart = i; depth++; }
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0 && objStart !== -1) {
+        try { objs.push(JSON.parse(body.slice(objStart, i + 1))); } catch { /* salta oggetto rotto */ }
+        objStart = -1;
+      }
+    }
+  }
+  return objs;
+}
+
 export default function ExerciseProgramSection({
   patientId, patientName, patientPhone, studio,
 }: Props) {
@@ -191,9 +228,8 @@ export default function ExerciseProgramSection({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      const match = (data.text ?? "").replace(/```json|```/g, "").trim().match(/\[[\s\S]*\]/);
-      if (!match) throw new Error("Risposta AI non valida, riprova");
-      const parsed: Esercizio[] = JSON.parse(match[0]);
+      const parsed: Esercizio[] = parseEserciziArray(data.text ?? "");
+      if (parsed.length === 0) throw new Error("Risposta AI non valida, riprova");
       const normalized = parsed.map((e, i) => ({
         ...e,
         id: e.id || String(i + 1),

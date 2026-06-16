@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 2048,
+        max_tokens: 8192,
         messages: [{ role: "user", content: prompt }],
       }),
     });
@@ -30,7 +30,9 @@ export async function POST(req: NextRequest) {
     const text = data.content?.[0]?.text ?? "";
     if (!text) return NextResponse.json({ error: "Risposta vuota" }, { status: 500 });
 
-    return NextResponse.json({ text });
+    // Segnala se la risposta è stata troncata (max_tokens raggiunto)
+    const truncated = data.stop_reason === "max_tokens";
+    return NextResponse.json({ text, truncated });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? "Errore server" }, { status: 500 });
   }
