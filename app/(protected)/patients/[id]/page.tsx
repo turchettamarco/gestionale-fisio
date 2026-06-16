@@ -759,6 +759,7 @@ export default function PatientDetailPage({
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState("");
   const [patient, setPatient] = useState<Patient | null>(null);
+  const [consentStatus, setConsentStatus] = useState<{ ok: boolean; pending: number } | null>(null);
   const [quickConsentMsg, setQuickConsentMsg] = useState<string | null>(null);
 
   // ── Template messaggi dalle impostazioni ─────────────────────────────────
@@ -1110,6 +1111,18 @@ export default function PatientDetailPage({
     loadDocs();
     loadClinicalDocs();
     loadSchedaEsercizi();
+    void (async () => {
+      const r = await supabase.from("patient_consents")
+        .select("consent_type, status").eq("patient_id", patientId);
+      if (!r.error) {
+        const rows = r.data ?? [];
+        const signed = new Set(rows.filter(x => x.status === "signed").map(x => x.consent_type));
+        setConsentStatus({
+          ok: signed.has("gdpr_informativa_privacy") && signed.has("consenso_trattamento"),
+          pending: rows.filter(x => x.status === "pending").length,
+        });
+      }
+    })();
   }, [patientId]);
 
   // ── Tappa 4: dati per PatientSummaryPanel ───────────────────────
@@ -2545,24 +2558,27 @@ ${rows}
       </header>
 
       {/* ━━━ MAIN ━━━ */}
-      <main style={{ padding: "28px 32px", maxWidth: 1280, margin: "0 auto" }} className="tab-p">
+      <main style={{ padding: "28px 40px", maxWidth: 1680, margin: "0 auto" }} className="tab-p">
 
         {/* Page header */}
         <div style={{ marginBottom: 24, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-          <div>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
+            <div style={{
+              width: 56, height: 56, borderRadius: 15, flexShrink: 0,
+              background: "linear-gradient(135deg, #0d9488, #2563eb)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              color: "#fff", fontWeight: 800, fontSize: 21, letterSpacing: 0.5,
+            }}>
+              {`${patient.first_name?.[0] ?? ""}${patient.last_name?.[0] ?? ""}`.toUpperCase() || "?"}
+            </div>
+            <div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-              <div style={{ width: 10, height: 10, borderRadius: "50%", background: THEME.teal, boxShadow: `0 0 0 4px rgba(13,148,136,0.15)` }} />
               <h1 style={{ margin: 0, fontWeight: 800, fontSize: 26, color: THEME.text, letterSpacing: -0.5 }}>
                 {headerName}
               </h1>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-              {patient.phone && (
-                <a href={`tel:${patient.phone}`} style={{ fontSize: 14, fontWeight: 700, color: THEME.blue, textDecoration: "none" }}>
-                  📞 {patient.phone}
-                </a>
-              )}
-              <span style={{ fontSize: 13, color: THEME.muted, fontWeight: 600 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 14, color: THEME.muted, fontWeight: 600 }}>
                 🎂 {ddmmyyyy(patient.birth_date)}
                 {patient.birth_date && (() => {
                   const b = new Date(patient.birth_date);
@@ -2572,9 +2588,24 @@ ${rows}
                   return <strong style={{ color: THEME.textSoft }}> · {age} anni</strong>;
                 })()}
               </span>
-              <span style={{ fontSize: 13, color: THEME.muted, fontWeight: 600 }}>
-                🧾 {patient.preferred_plan === "invoice" ? "Fattura" : patient.preferred_plan === "no_invoice" ? "Non fattura" : "—"}
-              </span>
+              {patient.phone && (
+                <a href={`tel:${patient.phone}`} style={{ fontSize: 14, fontWeight: 700, color: THEME.blue, textDecoration: "none" }}>
+                  📞 {patient.phone}
+                </a>
+              )}
+            </div>
+            {consentStatus !== null && (
+              <button onClick={() => setActiveSection("gdpr")}
+                style={{ display: "inline-flex", alignItems: "center", gap: 7, marginTop: 9,
+                  padding: "4px 12px", borderRadius: 99, cursor: "pointer", fontFamily: "inherit",
+                  fontSize: 13, fontWeight: 700, alignSelf: "flex-start",
+                  background: "transparent", border: "none", paddingLeft: 0,
+                  color: consentStatus.ok ? "#15803d" : "#b45309" }}>
+                <span style={{ width: 9, height: 9, borderRadius: "50%",
+                  background: consentStatus.ok ? "#15803d" : "#b45309" }} />
+                {consentStatus.ok ? "Consensi firmati" : consentStatus.pending > 0 ? "Consensi in attesa" : "Consensi mancanti"}
+              </button>
+            )}
             </div>
           </div>
 
@@ -2839,7 +2870,7 @@ ${rows}
             onToggle={() => {}}
           />
           <div style={cardBody}>
-            <PatientOverview patientId={patient.id} onNavigate={(t) => setActiveSection(t)} />
+            <PatientOverview patientId={patient.id} variant="desktop" onNavigate={(t) => setActiveSection(t)} />
           </div>
         </section>
         )}

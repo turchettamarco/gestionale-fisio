@@ -382,7 +382,9 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   const [error,     setError]     = useState("");
   const [patient,   setPatient]   = useState<Patient | null>(null);
   const [infoOpen,  setInfoOpen]  = useState(false);
-  const [activeTab, setActiveTab] = useState<"overview" | "info" | "clinical" | "packages" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal">("overview");
+  const [consentOk, setConsentOk] = useState<boolean | null>(null);  // null=loading
+  const [consentPending, setConsentPending] = useState(0);
+  const [activeTab, setActiveTab] = useState<"overview" | "info" | "clinical" | "packages" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal" | "consensi">("overview");
   // Modale attestato di presenza cumulativo (Step 5)
   const [showCertDialogMobile, setShowCertDialogMobile] = useState(false);
 
@@ -505,6 +507,16 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
     void loadPatient();
     void loadDocs();
     void loadAppointments();
+    void (async () => {
+      const r = await supabase.from("patient_consents")
+        .select("consent_type, status").eq("patient_id", patientId);
+      if (!r.error) {
+        const rows = r.data ?? [];
+        const signed = new Set(rows.filter(x => x.status === "signed").map(x => x.consent_type));
+        setConsentOk(signed.has("gdpr_informativa_privacy") && signed.has("consenso_trattamento"));
+        setConsentPending(rows.filter(x => x.status === "pending").length);
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId]);
 
@@ -1052,6 +1064,41 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
         )}
       </div>
 
+      {/* ━━━ STATO (pastiglie cliccabili) ━━━ */}
+      {(() => {
+        const pills: { label: string; col: string; bg: string; onClick: () => void }[] = [];
+        if (consentOk === false) pills.push({
+          label: consentPending > 0 ? "Consensi in attesa" : "Consensi mancanti",
+          col: "#b45309", bg: "rgba(180,83,9,0.1)",
+          onClick: () => setActiveTab("consensi"),
+        });
+        if (consentOk === true) pills.push({
+          label: "Consensi firmati",
+          col: "#15803d", bg: "rgba(21,128,61,0.1)",
+          onClick: () => setActiveTab("consensi"),
+        });
+        if (apptStats.unpaidRevenue > 0) pills.push({
+          label: `€${apptStats.unpaidRevenue.toFixed(0)} da incassare`,
+          col: "#dc2626", bg: "rgba(220,38,38,0.1)",
+          onClick: () => setActiveTab("therapies"),
+        });
+        if (pills.length === 0) return null;
+        return (
+          <div style={{ background: T.panelBg, borderBottom: `1.5px solid ${T.border}`,
+            padding: "8px 14px 11px", display: "flex", gap: 7, flexWrap: "wrap" }}>
+            {pills.map((p, i) => (
+              <button key={i} onClick={p.onClick} style={{ display: "inline-flex",
+                alignItems: "center", gap: 6, padding: "6px 11px", borderRadius: 99,
+                background: p.bg, color: p.col, border: `1px solid ${p.col}33`,
+                fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: p.col }} />
+                {p.label} →
+              </button>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* ━━━ TABS ━━━ */}
       <div style={{
         display: "flex", overflowX: "auto",
@@ -1065,11 +1112,12 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
           { id: "note",      label: "Note",    icon: "📝" },
           { id: "scales",    label: "Scale",   icon: "📊" },
           { id: "esercizi",  label: "Esercizi", icon: "🏋️" },
+          { id: "consensi",  label: "Consensi", icon: "🖊️" },
           { id: "docs",      label: "Referti", icon: "📁" },
           { id: "packages",  label: "Pacchetti", icon: "📦" },
           { id: "photos",    label: "Foto",    icon: "📷" },
           { id: "portal",    label: "Portale", icon: "🔑" },
-        ] as { id: "overview" | "info" | "clinical" | "packages" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal"; label: string; icon: string }[]).map(tab => (
+        ] as { id: "overview" | "info" | "clinical" | "packages" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal" | "consensi"; label: string; icon: string }[]).map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
             padding: "11px 14px", background: "none", border: "none",
             borderBottom: `2.5px solid ${activeTab === tab.id ? T.blue : "transparent"}`,
@@ -1094,9 +1142,9 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
             patientId={patient.id}
             variant="mobile"
             onNavigate={(t) => {
-              const map: Record<string, "overview" | "info" | "clinical" | "packages" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal"> = {
+              const map: Record<string, "overview" | "info" | "clinical" | "packages" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal" | "consensi"> = {
                 terapie: "therapies", scale: "scales", esercizi: "esercizi",
-                gdpr: "docs", diario: "note", anagrafica: "info", pacchetti: "packages",
+                gdpr: "consensi", diario: "note", anagrafica: "info", pacchetti: "packages",
               };
               setActiveTab(map[t] ?? "info");
             }}
@@ -1526,18 +1574,19 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
           <MobilePortalTab patient={patient} currentStudio={currentStudio ? { name: currentStudio.name, signature_name: currentStudio.signature_name, signature_title: currentStudio.signature_title } : null} />
         )}
 
+        {activeTab === "consensi" && (
+          <RemoteConsentsSection
+            patientId={patientId}
+            patientFirstName={patient?.first_name ?? ""}
+            patientLastName={patient?.last_name ?? ""}
+            patientPhone={patient?.phone ?? null}
+            patientBirthDate={patient?.birth_date ?? null}
+            studio={currentStudio}
+          />
+        )}
+
         {activeTab === "docs" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-
-            {/* Consensi a distanza (firma via link) */}
-            <RemoteConsentsSection
-              patientId={patientId}
-              patientFirstName={patient?.first_name ?? ""}
-              patientLastName={patient?.last_name ?? ""}
-              patientPhone={patient?.phone ?? null}
-              patientBirthDate={patient?.birth_date ?? null}
-              studio={currentStudio}
-            />
 
             {/* Upload */}
             <div style={{ background: T.panelBg, border: `1.5px solid ${T.border}`,
