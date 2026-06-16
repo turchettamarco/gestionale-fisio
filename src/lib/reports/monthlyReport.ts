@@ -50,12 +50,14 @@ export async function computeMonthlyStats(
 
   const [apptRes, prevApptRes, newPatRes, opRes] = await Promise.all([
     db.from("appointments")
-      .select("id, amount, status, is_paid, user_id")
+      .select("id, amount, status, is_paid, operator_id")
       .eq("studio_id", studioId)
+      .is("guest_practitioner_id", null)
       .gte("start_at", start).lt("start_at", end),
     db.from("appointments")
       .select("amount, status")
       .eq("studio_id", studioId)
+      .is("guest_practitioner_id", null)
       .gte("start_at", prevRange.start).lt("start_at", prevRange.end),
     db.from("patients")
       .select("id", { count: "exact", head: true })
@@ -88,7 +90,7 @@ export async function computeMonthlyStats(
   const byOpMap = new Map<string, { name: string; count: number; revenue: number }>();
   for (const a of appts) {
     if (a.status === "cancelled") continue;
-    const uid = a.user_id || "—";
+    const uid = a.operator_id || "—";
     const name = opNames.get(uid) || "Non assegnato";
     const cur = byOpMap.get(uid) || { name, count: 0, revenue: 0 };
     cur.count += 1;
@@ -280,8 +282,9 @@ export async function computePeriodStats(
   const end = new Date(Date.UTC(p.startY, p.startM + p.months, 1)).toISOString();
 
   const [apptRes, newPatRes, opRes] = await Promise.all([
-    db.from("appointments").select("id, amount, status, is_paid, user_id")
-      .eq("studio_id", studioId).gte("start_at", start).lt("start_at", end),
+    db.from("appointments").select("id, amount, status, is_paid, operator_id")
+      .eq("studio_id", studioId).is("guest_practitioner_id", null)
+      .gte("start_at", start).lt("start_at", end),
     db.from("patients").select("id", { count: "exact", head: true })
       .eq("studio_id", studioId).gte("created_at", start).lt("created_at", end),
     db.from("studio_members").select("user_id, display_name").eq("studio_id", studioId),
@@ -298,7 +301,7 @@ export async function computePeriodStats(
   const byOpMap = new Map<string, { name: string; count: number; revenue: number }>();
   for (const a of appts) {
     if (a.status === "cancelled") continue;
-    const uid = a.user_id || "—";
+    const uid = a.operator_id || "—";
     const name = opNames.get(uid) || "Non assegnato";
     const cur = byOpMap.get(uid) || { name, count: 0, revenue: 0 };
     cur.count += 1; cur.revenue += Number(a.amount || 0);
