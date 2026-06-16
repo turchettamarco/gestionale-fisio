@@ -54,6 +54,14 @@ type TemplateDataMap = {
     upcomingCount: number;       // settimana prossima
     appUrl: string;
   };
+  monthly_report: {
+    studioName: string;
+    monthLabel: string;          // "giugno 2026"
+    done: number;
+    collected: number;
+    newPatients: number;
+    appUrl: string;
+  };
 };
 
 export type TemplateName = keyof TemplateDataMap;
@@ -278,7 +286,46 @@ export function renderTemplate<T extends TemplateName>(
       return buildBookingReceived(data as TemplateDataMap["booking_received"]);
     case "weekly_summary":
       return buildWeeklySummary(data as TemplateDataMap["weekly_summary"]);
+    case "monthly_report":
+      return buildMonthlyReport(data as TemplateDataMap["monthly_report"]);
     default:
       throw new Error(`Template sconosciuto: ${template}`);
   }
+}
+
+function buildMonthlyReport(d: TemplateDataMap["monthly_report"]): Rendered {
+  const subject = `Report mensile ${d.monthLabel}: €${d.collected.toFixed(0)} incassati, ${d.done} sedute`;
+  const html = emailLayout(`
+    <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:#0f172a;">📄 Report mensile</h1>
+    <p style="margin:0 0 18px;font-size:14px;color:#64748b;">
+      ${escapeHtml(d.studioName)} · ${escapeHtml(d.monthLabel)}
+    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-bottom:16px;">
+      <tr>
+        <td style="width:33%;padding:12px;background:#f0fdfa;border-radius:8px;text-align:center;">
+          <div style="font-size:24px;font-weight:800;color:#0d9488;">${d.done}</div>
+          <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;">Sedute svolte</div>
+        </td>
+        <td style="width:6px;"></td>
+        <td style="width:33%;padding:12px;background:#ecfdf5;border-radius:8px;text-align:center;">
+          <div style="font-size:24px;font-weight:800;color:#15803d;">€${d.collected.toFixed(0)}</div>
+          <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;">Incassato</div>
+        </td>
+        <td style="width:6px;"></td>
+        <td style="width:33%;padding:12px;background:#eff6ff;border-radius:8px;text-align:center;">
+          <div style="font-size:24px;font-weight:800;color:#2563eb;">${d.newPatients}</div>
+          <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;">Nuovi pazienti</div>
+        </td>
+      </tr>
+    </table>
+    <p style="margin:0 0 14px;font-size:14px;line-height:1.6;color:#334155;">
+      📎 In allegato trovi il <strong>report completo in PDF</strong> con il dettaglio di sedute, incassi, confronto col mese precedente e ripartizione per operatore.
+    </p>
+    ${button(d.appUrl, "Apri il gestionale →")}
+    <p style="margin:14px 0 0;font-size:12px;color:#64748b;line-height:1.5;">
+      Ricevi questo report il primo giorno di ogni mese. Puoi disattivarlo dalle Impostazioni.
+    </p>
+  `);
+  const text = `Report mensile ${d.studioName} - ${d.monthLabel}\n\nSedute svolte: ${d.done}\nIncassato: €${d.collected.toFixed(0)}\nNuovi pazienti: ${d.newPatients}\n\nIl report PDF completo è in allegato.\n\nApri: ${d.appUrl}`;
+  return { subject, html, text };
 }

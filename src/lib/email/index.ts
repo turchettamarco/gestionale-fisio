@@ -31,6 +31,7 @@ type SendEmailParams<T extends TemplateName> = {
   data: TemplateData<T>;
   studioId?: string;          // per logging
   metadata?: Record<string, unknown>;
+  attachments?: { filename: string; content: string }[];  // content = base64
 };
 
 type SendEmailResult = {
@@ -71,6 +72,9 @@ export async function sendEmail<T extends TemplateName>(
         subject,
         html,
         text,
+        ...(params.attachments && params.attachments.length > 0
+          ? { attachments: params.attachments }
+          : {}),
       }),
     });
     const j = await r.json();

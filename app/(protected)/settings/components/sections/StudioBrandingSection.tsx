@@ -28,6 +28,10 @@ export type StudioBrandingSectionProps = {
   notifyEmailEnabled: boolean; setNotifyEmailEnabled: (v: boolean) => void;
   notifyBellEnabled: boolean; setNotifyBellEnabled: (v: boolean) => void;
   notifyWaRedirectEnabled: boolean; setNotifyWaRedirectEnabled: (v: boolean) => void;
+  // Report automatici via email (mig. 039)
+  reportMonthlyEnabled: boolean; setReportMonthlyEnabled: (v: boolean) => void;
+  reportQuarterlyEnabled: boolean; setReportQuarterlyEnabled: (v: boolean) => void;
+  reportYearlyEnabled: boolean; setReportYearlyEnabled: (v: boolean) => void;
   // Toggle UI legacy "Prenotazioni dal sito" (Fase N2.1)
   showBookingCardHome: boolean; setShowBookingCardHome: (v: boolean) => void;
   showBookingBellCalendar: boolean; setShowBookingBellCalendar: (v: boolean) => void;
@@ -292,6 +296,37 @@ export default function StudioBrandingSection(p: StudioBrandingSectionProps) {
                 checked={p.notifyWaRedirectEnabled}
                 onChange={p.setNotifyWaRedirectEnabled}
               />
+            </div>
+
+            {/* ─── Report automatici via email ─── */}
+            <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${THEME.border}` }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: THEME.text, marginBottom: 3 }}>
+                📄 Report automatici via email
+              </div>
+              <div style={{ fontSize: 12.5, color: THEME.muted, marginBottom: 14, lineHeight: 1.5 }}>
+                Ricevi un riepilogo PDF con sedute, incassi e nuovi pazienti. Ogni cadenza è
+                indipendente: attiva quelle che ti servono.
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <ToggleRow
+                  label="Report mensile"
+                  description="Il 1° di ogni mese, riepilogo del mese precedente"
+                  checked={p.reportMonthlyEnabled}
+                  onChange={p.setReportMonthlyEnabled}
+                />
+                <ToggleRow
+                  label="Report trimestrale"
+                  description="A inizio gennaio, aprile, luglio e ottobre"
+                  checked={p.reportQuarterlyEnabled}
+                  onChange={p.setReportQuarterlyEnabled}
+                />
+                <ToggleRow
+                  label="Report annuale"
+                  description="Il 1° gennaio, riepilogo dell'anno appena concluso"
+                  checked={p.reportYearlyEnabled}
+                  onChange={p.setReportYearlyEnabled}
+                />
+              </div>
             </div>
           </div>
 

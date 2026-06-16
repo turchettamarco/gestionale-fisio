@@ -136,6 +136,10 @@ export default function SettingsPage() {
   const [notifyEmailEnabled, setNotifyEmailEnabled]     = useState(true);
   const [notifyBellEnabled, setNotifyBellEnabled]       = useState(true);
   const [notifyWaRedirectEnabled, setNotifyWaRedirectEnabled] = useState(true);
+  // Report automatici (mig. 039)
+  const [reportMonthlyEnabled, setReportMonthlyEnabled]   = useState(true);
+  const [reportQuarterlyEnabled, setReportQuarterlyEnabled] = useState(false);
+  const [reportYearlyEnabled, setReportYearlyEnabled]     = useState(false);
   // Toggle UI legacy Prenotazioni dal sito (Fase N2.1)
   const [showBookingCardHome, setShowBookingCardHome]   = useState(false);
   const [showBookingBellCalendar, setShowBookingBellCalendar] = useState(false);
@@ -223,6 +227,9 @@ export default function SettingsPage() {
     setNotifyEmailEnabled(studio.notify_email_enabled ?? true);
     setNotifyBellEnabled(studio.notify_bell_enabled ?? true);
     setNotifyWaRedirectEnabled(studio.notify_wa_redirect_enabled ?? true);
+    setReportMonthlyEnabled(studio.report_monthly_enabled ?? true);
+    setReportQuarterlyEnabled(studio.report_quarterly_enabled ?? false);
+    setReportYearlyEnabled(studio.report_yearly_enabled ?? false);
     // UI legacy Prenotazioni dal sito (Fase N2.1)
     setShowBookingCardHome(studio.show_booking_card_home ?? false);
     setShowBookingBellCalendar(studio.show_booking_bell_calendar ?? false);
@@ -258,6 +265,9 @@ export default function SettingsPage() {
         notify_email_enabled:        notifyEmailEnabled,
         notify_bell_enabled:         notifyBellEnabled,
         notify_wa_redirect_enabled:  notifyWaRedirectEnabled,
+        report_monthly_enabled:      reportMonthlyEnabled,
+        report_quarterly_enabled:    reportQuarterlyEnabled,
+        report_yearly_enabled:       reportYearlyEnabled,
         // UI legacy Prenotazioni dal sito (Fase N2.1)
         show_booking_card_home:      showBookingCardHome,
         show_booking_bell_calendar:  showBookingBellCalendar,
@@ -1893,6 +1903,9 @@ export default function SettingsPage() {
               notifyEmailEnabled={notifyEmailEnabled} setNotifyEmailEnabled={setNotifyEmailEnabled}
               notifyBellEnabled={notifyBellEnabled} setNotifyBellEnabled={setNotifyBellEnabled}
               notifyWaRedirectEnabled={notifyWaRedirectEnabled} setNotifyWaRedirectEnabled={setNotifyWaRedirectEnabled}
+              reportMonthlyEnabled={reportMonthlyEnabled} setReportMonthlyEnabled={setReportMonthlyEnabled}
+              reportQuarterlyEnabled={reportQuarterlyEnabled} setReportQuarterlyEnabled={setReportQuarterlyEnabled}
+              reportYearlyEnabled={reportYearlyEnabled} setReportYearlyEnabled={setReportYearlyEnabled}
               showBookingCardHome={showBookingCardHome} setShowBookingCardHome={setShowBookingCardHome}
               showBookingBellCalendar={showBookingBellCalendar} setShowBookingBellCalendar={setShowBookingBellCalendar}
               savingStudio={savingStudio}

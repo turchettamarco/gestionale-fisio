@@ -35,6 +35,9 @@ export type Studio = {
   notify_email_enabled?: boolean;
   notify_bell_enabled?: boolean;
   notify_wa_redirect_enabled?: boolean;
+  report_monthly_enabled?: boolean;
+  report_quarterly_enabled?: boolean;
+  report_yearly_enabled?: boolean;
   // Toggle UI feature legacy "Prenotazioni dal sito" (Fase N2.1)
   show_booking_card_home?: boolean;
   show_booking_bell_calendar?: boolean;
