@@ -70,6 +70,12 @@ export default function MobileSettingsPage() {
   const [notifyEmailEnabled, setNotifyEmailEnabled] = useState(true);
   const [notifyBellEnabled, setNotifyBellEnabled] = useState(true);
   const [notifyWaRedirectEnabled, setNotifyWaRedirectEnabled] = useState(true);
+  // Report automatici (mig. 039/040)
+  const [reportMonthlyEnabled, setReportMonthlyEnabled] = useState(true);
+  const [reportQuarterlyEnabled, setReportQuarterlyEnabled] = useState(false);
+  const [reportYearlyEnabled, setReportYearlyEnabled] = useState(false);
+  const [reportEmail, setReportEmail] = useState("");
+  const [savingReport, setSavingReport] = useState(false);
   // UI legacy Prenotazioni dal sito (Fase N2.1)
   const [showBookingCardHome, setShowBookingCardHome] = useState(false);
   const [showBookingBellCalendar, setShowBookingBellCalendar] = useState(false);
@@ -192,6 +198,10 @@ export default function MobileSettingsPage() {
       setNotifyEmailEnabled(currentStudio.notify_email_enabled ?? true);
       setNotifyBellEnabled(currentStudio.notify_bell_enabled ?? true);
       setNotifyWaRedirectEnabled(currentStudio.notify_wa_redirect_enabled ?? true);
+      setReportMonthlyEnabled(currentStudio.report_monthly_enabled ?? true);
+      setReportQuarterlyEnabled(currentStudio.report_quarterly_enabled ?? false);
+      setReportYearlyEnabled(currentStudio.report_yearly_enabled ?? false);
+      setReportEmail(currentStudio.report_email ?? "");
       // UI legacy Prenotazioni dal sito (Fase N2.1)
       setShowBookingCardHome(currentStudio.show_booking_card_home ?? false);
       setShowBookingBellCalendar(currentStudio.show_booking_bell_calendar ?? false);
@@ -305,6 +315,28 @@ export default function MobileSettingsPage() {
   useEffect(() => {
     if (guestEnabled && currentStudioId) void loadGuests();
   }, [guestEnabled, currentStudioId, loadGuests]);
+
+  async function saveReportSettings() {
+    if (!currentStudioId) return;
+    setSavingReport(true); setError(""); setSuccess("");
+    try {
+      const { error: err } = await supabase
+        .from("studios")
+        .update({
+          report_monthly_enabled: reportMonthlyEnabled,
+          report_quarterly_enabled: reportQuarterlyEnabled,
+          report_yearly_enabled: reportYearlyEnabled,
+          report_email: reportEmail.trim() || null,
+        })
+        .eq("id", currentStudioId);
+      if (err) { setError("Errore: " + err.message); return; }
+      await refreshStudio();
+      setSuccess("Impostazioni report salvate.");
+      setTimeout(() => setSuccess(""), 3000);
+    } finally {
+      setSavingReport(false);
+    }
+  }
 
   async function saveGuestToggle() {
     if (!currentStudioId) return;
@@ -1280,6 +1312,54 @@ export default function MobileSettingsPage() {
               checked={notifyWaRedirectEnabled}
               onChange={setNotifyWaRedirectEnabled}
             />
+          </div>
+        </Section>
+
+        <Section id="report" title="📄 Report automatici" sub="Riepiloghi PDF via email">
+          <div style={{ display:"flex", flexDirection:"column", gap:10, paddingTop:14 }}>
+            <div style={{ padding:"10px 12px", borderRadius:8, background:"rgba(148,163,184,0.06)", fontSize:11, color:THEME.muted, lineHeight:1.5 }}>
+              Ricevi un riepilogo PDF con sedute, incassi e nuovi pazienti. Ogni cadenza è indipendente.
+            </div>
+            <MobileToggle
+              label="Report mensile"
+              description="Il 1° di ogni mese, mese precedente"
+              checked={reportMonthlyEnabled}
+              onChange={setReportMonthlyEnabled}
+            />
+            <MobileToggle
+              label="Report trimestrale"
+              description="A inizio gennaio, aprile, luglio e ottobre"
+              checked={reportQuarterlyEnabled}
+              onChange={setReportQuarterlyEnabled}
+            />
+            <MobileToggle
+              label="Report annuale"
+              description="Il 1° gennaio, anno appena concluso"
+              checked={reportYearlyEnabled}
+              onChange={setReportYearlyEnabled}
+            />
+            <div style={{ marginTop:6 }}>
+              <label style={{ display:"block", fontSize:12.5, fontWeight:700, color:THEME.text, marginBottom:5 }}>
+                Invia i report a
+              </label>
+              <input
+                type="email"
+                value={reportEmail}
+                onChange={e => setReportEmail(e.target.value)}
+                placeholder="Vuoto = la tua email di accesso"
+                style={{ width:"100%", boxSizing:"border-box", padding:"11px 12px", borderRadius:9,
+                  border:`1px solid ${THEME.border}`, fontSize:15, fontFamily:"inherit", color:THEME.text }}
+              />
+              <div style={{ fontSize:11, color:THEME.muted, marginTop:5, lineHeight:1.5 }}>
+                Se vuoto arrivano all'indirizzo con cui accedi. Puoi indicarne un altro.
+              </div>
+            </div>
+            <button onClick={saveReportSettings} disabled={savingReport}
+              style={{ marginTop:6, padding:"12px", borderRadius:10, border:"none",
+                background:"linear-gradient(135deg,#0d9488,#2563eb)", color:"#fff", fontWeight:800,
+                fontSize:14, cursor: savingReport ? "wait" : "pointer", fontFamily:"inherit", opacity: savingReport ? 0.7 : 1 }}>
+              {savingReport ? "Salvataggio…" : "Salva impostazioni report"}
+            </button>
           </div>
         </Section>
 

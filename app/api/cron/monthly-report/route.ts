@@ -38,6 +38,7 @@ function verifyCronSecret(req: NextRequest): boolean {
 
 type StudioRow = {
   id: string; name: string;
+  report_email: string | null;
   report_monthly_enabled: boolean | null;
   report_quarterly_enabled: boolean | null;
   report_yearly_enabled: boolean | null;
@@ -62,7 +63,7 @@ export async function GET(req: NextRequest) {
 
     const { data: studios } = await db
       .from("studios")
-      .select("id, name, report_monthly_enabled, report_quarterly_enabled, report_yearly_enabled");
+      .select("id, name, report_email, report_monthly_enabled, report_quarterly_enabled, report_yearly_enabled");
     if (!studios || studios.length === 0) {
       return NextResponse.json({ ok: true, sent: 0, message: "Nessuno studio" });
     }
@@ -81,14 +82,15 @@ export async function GET(req: NextRequest) {
       const kinds = dueKinds.filter(k => enabledFor(studio, k));
       if (kinds.length === 0) continue;
 
-      // Owner email (una volta sola per studio)
+      // Destinatario: report_email se impostata, altrimenti l'owner
       const { data: owner } = await db
         .from("studio_members").select("user_id")
         .eq("studio_id", studio.id).eq("role", "owner").maybeSingle();
       if (!owner) { results.push({ studio: studio.name, kind: "-", status: "no owner" }); continue; }
       const { data: ownerUser } = await db.auth.admin.getUserById(owner.user_id);
-      const ownerEmail = ownerUser?.user?.email;
-      if (!ownerEmail) { results.push({ studio: studio.name, kind: "-", status: "no email" }); continue; }
+      const override = (studio.report_email ?? "").trim();
+      const recipientEmail = override || ownerUser?.user?.email;
+      if (!recipientEmail) { results.push({ studio: studio.name, kind: "-", status: "no email" }); continue; }
 
       for (const kind of kinds) {
         try {
@@ -100,7 +102,7 @@ export async function GET(req: NextRequest) {
           const pdfBytes = await renderPeriodReportPdf(stats);
           const result = await sendEmail({
             template: "monthly_report",
-            to: ownerEmail,
+            to: recipientEmail,
             studioId: studio.id,
             data: {
               studioName: stats.studioName,

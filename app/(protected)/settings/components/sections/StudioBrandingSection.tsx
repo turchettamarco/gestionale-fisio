@@ -32,6 +32,7 @@ export type StudioBrandingSectionProps = {
   reportMonthlyEnabled: boolean; setReportMonthlyEnabled: (v: boolean) => void;
   reportQuarterlyEnabled: boolean; setReportQuarterlyEnabled: (v: boolean) => void;
   reportYearlyEnabled: boolean; setReportYearlyEnabled: (v: boolean) => void;
+  reportEmail: string; setReportEmail: (v: string) => void;
   // Toggle UI legacy "Prenotazioni dal sito" (Fase N2.1)
   showBookingCardHome: boolean; setShowBookingCardHome: (v: boolean) => void;
   showBookingBellCalendar: boolean; setShowBookingBellCalendar: (v: boolean) => void;
@@ -326,6 +327,24 @@ export default function StudioBrandingSection(p: StudioBrandingSectionProps) {
                   checked={p.reportYearlyEnabled}
                   onChange={p.setReportYearlyEnabled}
                 />
+              </div>
+              <div style={{ marginTop: 14 }}>
+                <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: THEME.text, marginBottom: 5 }}>
+                  Invia i report a
+                </label>
+                <input
+                  type="email"
+                  value={p.reportEmail}
+                  onChange={e => p.setReportEmail(e.target.value)}
+                  placeholder="Lascia vuoto per usare la tua email di accesso"
+                  style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px",
+                    borderRadius: 9, border: `1px solid ${THEME.border}`, fontSize: 14,
+                    fontFamily: "inherit", color: THEME.text }}
+                />
+                <div style={{ fontSize: 11.5, color: THEME.muted, marginTop: 5, lineHeight: 1.5 }}>
+                  Se vuoto, i report arrivano all'indirizzo con cui accedi. Puoi indicarne un altro
+                  (es. segreteria o commercialista).
+                </div>
               </div>
             </div>
           </div>

@@ -140,6 +140,7 @@ export default function SettingsPage() {
   const [reportMonthlyEnabled, setReportMonthlyEnabled]   = useState(true);
   const [reportQuarterlyEnabled, setReportQuarterlyEnabled] = useState(false);
   const [reportYearlyEnabled, setReportYearlyEnabled]     = useState(false);
+  const [reportEmail, setReportEmail]                     = useState("");
   // Toggle UI legacy Prenotazioni dal sito (Fase N2.1)
   const [showBookingCardHome, setShowBookingCardHome]   = useState(false);
   const [showBookingBellCalendar, setShowBookingBellCalendar] = useState(false);
@@ -230,6 +231,7 @@ export default function SettingsPage() {
     setReportMonthlyEnabled(studio.report_monthly_enabled ?? true);
     setReportQuarterlyEnabled(studio.report_quarterly_enabled ?? false);
     setReportYearlyEnabled(studio.report_yearly_enabled ?? false);
+    setReportEmail(studio.report_email ?? "");
     // UI legacy Prenotazioni dal sito (Fase N2.1)
     setShowBookingCardHome(studio.show_booking_card_home ?? false);
     setShowBookingBellCalendar(studio.show_booking_bell_calendar ?? false);
@@ -268,6 +270,7 @@ export default function SettingsPage() {
         report_monthly_enabled:      reportMonthlyEnabled,
         report_quarterly_enabled:    reportQuarterlyEnabled,
         report_yearly_enabled:       reportYearlyEnabled,
+        report_email:                reportEmail.trim() || null,
         // UI legacy Prenotazioni dal sito (Fase N2.1)
         show_booking_card_home:      showBookingCardHome,
         show_booking_bell_calendar:  showBookingBellCalendar,
@@ -1906,6 +1909,7 @@ export default function SettingsPage() {
               reportMonthlyEnabled={reportMonthlyEnabled} setReportMonthlyEnabled={setReportMonthlyEnabled}
               reportQuarterlyEnabled={reportQuarterlyEnabled} setReportQuarterlyEnabled={setReportQuarterlyEnabled}
               reportYearlyEnabled={reportYearlyEnabled} setReportYearlyEnabled={setReportYearlyEnabled}
+              reportEmail={reportEmail} setReportEmail={setReportEmail}
               showBookingCardHome={showBookingCardHome} setShowBookingCardHome={setShowBookingCardHome}
               showBookingBellCalendar={showBookingBellCalendar} setShowBookingBellCalendar={setShowBookingBellCalendar}
               savingStudio={savingStudio}
