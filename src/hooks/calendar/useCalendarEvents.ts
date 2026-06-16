@@ -836,6 +836,7 @@ export function useCalendarEvents(
         const isHome = req.service_name.toLowerCase().includes("domicil");
         const locationVal = isHome ? "domicile" : "studio";
 
+        const { data: cbUser } = await supabase.auth.getUser();
         const { error: insErr } = await supabase.from("appointments").insert({
           start_at: startAt,
           end_at: endAt,
@@ -846,6 +847,7 @@ export function useCalendarEvents(
           domicile_address: isHome ? req.notes ?? "da definire" : null,
           calendar_note: note,
           studio_id: currentStudioId, // multi-tenancy
+          operator_id: cbUser?.user?.id ?? null, // assegna al titolare loggato
         });
         if (insErr) {
           alert(`Errore creazione appuntamento: ${translateError(insErr)}`);

@@ -1214,6 +1214,7 @@ export default function MobileHomePage() {
         location: "studio",
         clinic_site: currentStudio?.name || "Studio",
         owner_id: userId,        // per coerenza multi-tenancy
+        operator_id: userId,     // assegna all'operatore corrente
         studio_id: studioId,     // richiesto dalle RLS
       });
       if (error) throw new Error(`Creazione appuntamento: ${error.message}`);

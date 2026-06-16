@@ -590,6 +590,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
       status: newApptStatus,
       amount,
       owner_id: userId,
+      operator_id: userId,
       studio_id: studioId,
     });
     setSavingAppt(false);

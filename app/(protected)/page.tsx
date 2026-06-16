@@ -239,6 +239,7 @@ export default function HomePage() {
     const note    = `[WEB|${req.patient_name}|${req.patient_phone}] ${req.service_name}`;
 
     await supabase.from("booking_requests").update({ status: "confirmed" }).eq("id", req.id);
+    const { data: bkUser } = await supabase.auth.getUser();
     await supabase.from("appointments").insert({
       start_at:  startDt.toISOString(),
       end_at:    endDt.toISOString(),
@@ -249,6 +250,7 @@ export default function HomePage() {
       domicile_address: isHome ? (req.notes ?? "da definire") : null,
       calendar_note: note,
       studio_id: currentStudio?.id,       // FIX multi-tenancy
+      operator_id: bkUser?.user?.id ?? null,  // assegna al titolare loggato
     });
     setWebBookingActionId(null);
     setWebPopup(null);

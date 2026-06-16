@@ -804,6 +804,12 @@ export function useAppointmentMutations(
         (basePayload as Record<string, unknown>).is_paid = false;
       } else {
         (basePayload as Record<string, unknown>).guest_practitioner_id = null;
+        // Se non è stato scelto un operatore, assegna l'utente corrente
+        // (evita appuntamenti orfani senza operatore nei report/calendario).
+        if (!(basePayload as Record<string, unknown>).operator_id) {
+          const { data: u } = await supabase.auth.getUser();
+          if (u?.user?.id) (basePayload as Record<string, unknown>).operator_id = u.user.id;
+        }
       }
 
       try {
