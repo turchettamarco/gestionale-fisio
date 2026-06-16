@@ -1522,6 +1522,14 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
                               compact
                             />
                           )}
+                          {appt.status === "done" && (
+                            <span style={{ fontSize: 10.5, fontWeight: 800, marginLeft: "auto",
+                              color: (appt.amount == null || Number(appt.amount) === 0) ? T.amber
+                                : appt.is_paid ? T.green : T.red }}>
+                              {(appt.amount == null || Number(appt.amount) === 0) ? "Gratuita"
+                                : appt.is_paid ? "Pagata" : "Da incassare"}
+                            </span>
+                          )}
                         </div>
                       </div>
                     );

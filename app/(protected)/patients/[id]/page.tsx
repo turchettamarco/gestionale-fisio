@@ -1368,6 +1368,18 @@ A presto,
     await loadAppointments();
   }
 
+  async function handleUpdateAmount(apptId: string, raw: string) {
+    setError("");
+    const parsed = raw.trim() === "" ? null : Number(raw.replace(",", "."));
+    if (parsed !== null && !isFinite(parsed)) { setError("Importo non valido."); return; }
+    setRowBusy(m => ({ ...m, [apptId]: true }));
+    const res = await supabase.from("appointments")
+      .update({ amount: parsed }).eq("id", apptId);
+    setRowBusy(m => ({ ...m, [apptId]: false }));
+    if (res.error) { setError(translateError(res.error)); return; }
+    await loadAppointments();
+  }
+
   async function uploadDocument() {
     if (!file) { setError("Seleziona un file."); return; }
     setError("");
@@ -3298,7 +3310,7 @@ ${rows}
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    {["Data", "Stato", "Pagata"].map(h => (
+                    {["Data", "Stato", "Pagata", "Importo"].map(h => (
                       <th key={h} style={tableHeaderStyle}>{h}</th>
                     ))}
                   </tr>
@@ -3362,6 +3374,37 @@ ${rows}
                           {a.status !== "done" && (
                             <div style={{ marginTop: 4, fontSize: 11, color: THEME.muted, fontWeight: 600 }}>
                               Pagamento attivo solo se eseguita.
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: "12px 14px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontSize: 13, color: THEME.muted, fontWeight: 700 }}>€</span>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              defaultValue={a.amount != null ? String(a.amount).replace(".", ",") : ""}
+                              placeholder="0,00"
+                              disabled={busy}
+                              onBlur={e => {
+                                const v = e.target.value.trim();
+                                const cur = a.amount != null ? String(a.amount).replace(".", ",") : "";
+                                if (v !== cur) handleUpdateAmount(a.id, v);
+                              }}
+                              style={{
+                                width: 78, padding: "6px 8px", borderRadius: 7,
+                                border: `1px solid ${THEME.border}`, fontSize: 13,
+                                fontWeight: 700, color: THEME.text, fontFamily: "inherit",
+                                textAlign: "right",
+                              }}
+                            />
+                          </div>
+                          {a.status === "done" && (
+                            <div style={{ marginTop: 4, fontSize: 10.5, fontWeight: 700,
+                              color: (a.amount == null || Number(a.amount) === 0) ? THEME.amber
+                                : a.is_paid ? THEME.green : THEME.red }}>
+                              {(a.amount == null || Number(a.amount) === 0) ? "Gratuita"
+                                : a.is_paid ? "Pagata" : "Da incassare"}
                             </div>
                           )}
                         </td>
