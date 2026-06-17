@@ -20,9 +20,8 @@ const BORDER = "#e2e8f0";
 const GRADIENT = "linear-gradient(135deg,#0d9488,#2563eb)";
 
 // Altezza del contenuto della barra (icone + testo), SENZA la safe-area.
-// La safe-area dell'iPhone viene aggiunta sotto come padding extra, così
-// non comprime icone ed etichette.
-const BAR_CONTENT_H = 60;
+// Compatta: le icone siedono in basso, vicino alla home bar arrotondata.
+const BAR_CONTENT_H = 48;
 
 export default function MobileTabBar() {
   const pathname = usePathname() || "/mobile";
@@ -51,13 +50,13 @@ export default function MobileTabBar() {
             href={item.href}
             style={{
               flex: 1, display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center", gap: 3,
-              textDecoration: "none", paddingTop: 8, paddingBottom: 6,
+              alignItems: "center", justifyContent: "center", gap: 2,
+              textDecoration: "none", paddingTop: 5, paddingBottom: 4,
             }}
           >
             <span
               style={{
-                fontSize: 19, lineHeight: 1,
+                fontSize: 18, lineHeight: 1,
                 ...(active
                   ? { background: GRADIENT, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }
                   : { color: GRAY }),

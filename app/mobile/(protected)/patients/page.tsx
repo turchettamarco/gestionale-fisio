@@ -64,7 +64,7 @@ const THEME = {
   gradient:  "linear-gradient(135deg, #0d9488, #2563eb)",
 };
 
-const BOTTOM_TAB_H = 72;
+const BOTTOM_TAB_H = 60;
 
 /* ─── Helpers ─────────────────────────────────────────────────────────── */
 function nameOf(p: Patient) {

@@ -178,7 +178,7 @@ const THEME = {
 };
 
 const PX_PER_HOUR    = 80;
-const BOTTOM_TAB_H = 72;
+const BOTTOM_TAB_H = 60;
 const DEFAULT_START  = 7;
 const DEFAULT_END    = 22;
 // Default neutro per il campo "Sede" nel form di creazione.
