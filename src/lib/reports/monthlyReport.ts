@@ -16,6 +16,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 const MESI = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
   "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
+const MESI_BREVI = ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"];
 
 export type MonthlyStats = {
   studioName: string;
@@ -33,6 +34,12 @@ export type MonthlyStats = {
   byPaymentMethod: { method: string; count: number; amount: number }[];
   unpaidList: { name: string; count: number; amount: number }[];  // insoluti del mese, per paziente
   weekly: { label: string; collected: number; sessions: number }[]; // settimane del mese
+  newVsReturning: { newP: number; returning: number };  // pazienti nuovi vs di ritorno nel periodo
+  topPatients: { name: string; sessions: number; amount: number }[]; // top pazienti per fatturato
+  byLocation: { name: string; sessions: number; amount: number }[];  // sedute per sede
+  rentals: { count: number; collected: number; pending: number };    // noleggi del periodo
+  prevYear: { collected: number; done: number } | null;  // stesso mese anno precedente
+  history6: { label: string; collected: number }[];      // ultimi 6 mesi incassato
   prev: { collected: number; done: number } | null;
 };
 
@@ -190,6 +197,99 @@ export async function computeMonthlyStats(
     .filter(w => weekMap.has(w))
     .map(w => ({ label: `Sett. ${w + 1}`, collected: weekMap.get(w)!.collected, sessions: weekMap.get(w)!.sessions }));
 
+  // ── Pazienti nuovi vs di ritorno ──
+  // Nuovi = pazienti la cui prima seduta in assoluto cade nel periodo.
+  const periodPatIds = [...new Set(appts.filter(a => a.status !== "cancelled" && a.patient_id).map(a => a.patient_id))] as string[];
+  let newP = 0, returning = 0;
+  if (periodPatIds.length > 0) {
+    const { data: firstAppts } = await db.from("appointments")
+      .select("patient_id, start_at")
+      .eq("studio_id", studioId)
+      .in("patient_id", periodPatIds)
+      .neq("status", "cancelled")
+      .order("start_at", { ascending: true });
+    const firstSeen = new Map<string, string>();
+    for (const a of (firstAppts ?? [])) {
+      if (a.patient_id && !firstSeen.has(a.patient_id)) firstSeen.set(a.patient_id, a.start_at);
+    }
+    for (const pid of periodPatIds) {
+      const fs = firstSeen.get(pid);
+      if (fs && fs >= start && fs < end) newP++; else returning++;
+    }
+  }
+
+  // ── Top pazienti per fatturato nel periodo ──
+  const patAgg = new Map<string, { sessions: number; amount: number }>();
+  for (const a of appts) {
+    if (a.status === "cancelled" || !a.patient_id) continue;
+    const cur = patAgg.get(a.patient_id) || { sessions: 0, amount: 0 };
+    if (a.status === "done") cur.sessions += 1;
+    if (a.is_paid) cur.amount += Number(a.amount || 0);
+    patAgg.set(a.patient_id, cur);
+  }
+  let topPatients: { name: string; sessions: number; amount: number }[] = [];
+  const topIds = [...patAgg.entries()].sort((a, b) => b[1].amount - a[1].amount).slice(0, 5).map(e => e[0]);
+  if (topIds.length > 0) {
+    const { data: tp } = await db.from("patients").select("id, first_name, last_name").in("id", topIds);
+    const nm = new Map((tp ?? []).map(p => [p.id, `${p.last_name ?? ""} ${p.first_name ?? ""}`.trim() || "Paziente"]));
+    topPatients = topIds.map(id => ({ name: nm.get(id) || "Paziente", sessions: patAgg.get(id)!.sessions, amount: patAgg.get(id)!.amount }));
+  }
+
+  // ── Sedute per sede ──
+  const locMap = new Map<string, { sessions: number; amount: number }>();
+  for (const a of appts) {
+    if (a.status === "cancelled") continue;
+    const key = (a as Record<string, unknown>).clinic_site as string || "Studio";
+    const cur = locMap.get(key) || { sessions: 0, amount: 0 };
+    if (a.status === "done") cur.sessions += 1;
+    if (a.is_paid) cur.amount += Number(a.amount || 0);
+    locMap.set(key, cur);
+  }
+  const byLocation = [...locMap.entries()].map(([name, v]) => ({ name, sessions: v.sessions, amount: v.amount }))
+    .sort((a, b) => b.amount - a.amount);
+
+  // ── Noleggi del periodo (per end_date) ──
+  const { data: rentRows } = await db.from("noleggios")
+    .select("total_amount, is_paid, end_date")
+    .gte("end_date", start.slice(0, 10)).lte("end_date", end.slice(0, 10));
+  const rentals = {
+    count: (rentRows ?? []).length,
+    collected: (rentRows ?? []).filter(r => r.is_paid).reduce((s, r) => s + Number(r.total_amount || 0), 0),
+    pending: (rentRows ?? []).filter(r => !r.is_paid).reduce((s, r) => s + Number(r.total_amount || 0), 0),
+  };
+
+  // ── Stesso mese anno precedente ──
+  const pyStart = romeStartOfMonth(year - 1, month);
+  const pyEnd = romeStartOfMonth(year - 1, month + 1);
+  const { data: pyRows } = await db.from("appointments")
+    .select("amount, status, is_paid").eq("studio_id", studioId)
+    .is("guest_practitioner_id", null).gte("start_at", pyStart).lt("start_at", pyEnd);
+  const prevYear = (pyRows && pyRows.length > 0) ? {
+    collected: pyRows.filter(a => a.is_paid).reduce((s, a) => s + Number(a.amount || 0), 0),
+    done: pyRows.filter(a => a.status === "done").length,
+  } : null;
+
+  // ── Storico ultimi 6 mesi (incassato) ──
+  const h6Start = romeStartOfMonth(year, month - 5);
+  const { data: h6Rows } = await db.from("appointments")
+    .select("amount, is_paid, start_at").eq("studio_id", studioId)
+    .is("guest_practitioner_id", null).gte("start_at", h6Start).lt("start_at", end);
+  const h6Map = new Map<string, number>();
+  for (let k = 5; k >= 0; k--) {
+    const d = new Date(Date.UTC(year, month - k, 1));
+    h6Map.set(`${d.getUTCFullYear()}-${d.getUTCMonth()}`, 0);
+  }
+  for (const a of (h6Rows ?? [])) {
+    if (!a.is_paid || !a.start_at) continue;
+    const d = new Date(a.start_at);
+    const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
+    if (h6Map.has(key)) h6Map.set(key, h6Map.get(key)! + Number(a.amount || 0));
+  }
+  const history6 = [...h6Map.entries()].map(([key, collected]) => {
+    const m = Number(key.split("-")[1]);
+    return { label: MESI_BREVI[m], collected };
+  });
+
   const prevAppts = prevApptRes.data ?? [];
   const prev = prevApptRes.error ? null : {
     collected: prevAppts.filter(a => a.is_paid).reduce((s, a) => s + Number(a.amount || 0), 0),
@@ -205,6 +305,7 @@ export async function computeMonthlyStats(
     newPatients: newPatRes.count ?? 0,
     activePatients,
     byOperator, byPaymentMethod, unpaidList, weekly,
+    newVsReturning: { newP, returning }, topPatients, byLocation, rentals, prevYear, history6,
     prev,
   };
 }
@@ -231,145 +332,195 @@ export async function renderMonthlyReportPdf(s: MonthlyStats): Promise<Uint8Arra
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const { width, height } = page.getSize();
-  const M = 48;
-  let y = height;
+  const M = 38;
 
   const text = (t: string, x: number, yy: number, size: number, f: PDFFont, color = INK) =>
     page.drawText(t, { x, y: yy, size, font: f, color });
 
-  // Header a banda gradiente (simulato con rettangolo teal)
-  page.drawRectangle({ x: 0, y: height - 120, width, height: 120, color: TEAL });
-  page.drawRectangle({ x: width * 0.5, y: height - 120, width: width * 0.5, height: 120, color: BLUE, opacity: 0.5 });
-  text("REPORT MENSILE", M, height - 50, 11, bold, rgb(1, 1, 1));
-  text(s.studioName, M, height - 78, 22, bold, rgb(1, 1, 1));
-  text(s.monthLabel.toUpperCase(), M, height - 100, 13, font, rgb(0.9, 0.95, 0.97));
-  y = height - 120 - 40;
+  // ── Header compatto ──
+  page.drawRectangle({ x: 0, y: height - 74, width, height: 74, color: TEAL });
+  page.drawRectangle({ x: width * 0.5, y: height - 74, width: width * 0.5, height: 74, color: BLUE, opacity: 0.5 });
+  text("REPORT MENSILE", M, height - 30, 8, bold, rgb(1, 1, 1));
+  text(s.studioName, M, height - 50, 16, bold, rgb(1, 1, 1));
+  const mlbl = s.monthLabel.toUpperCase();
+  const mlw = font.widthOfTextAtSize(mlbl, 10);
+  text(mlbl, width - M - mlw, height - 46, 10, font, rgb(0.92, 0.96, 0.98));
+  let y = height - 74 - 18;
 
   // ── KPI principali (3 box) ──
-  const kpiW = (width - 2 * M - 24) / 3;
+  const kpiW = (width - 2 * M - 16) / 3;
   const kpis = [
     { label: "Incassato", value: eur(s.revenue.collected), color: GREEN },
     { label: "Sedute svolte", value: String(s.appointments.done), color: TEAL },
     { label: "Nuovi pazienti", value: String(s.newPatients), color: BLUE },
   ];
   kpis.forEach((k, i) => {
-    const x = M + i * (kpiW + 12);
-    page.drawRectangle({ x, y: y - 70, width: kpiW, height: 70, color: rgb(0.97, 0.98, 0.99), borderColor: LINE, borderWidth: 1 });
-    text(k.label.toUpperCase(), x + 14, y - 22, 8, bold, FAINT);
-    text(k.value, x + 14, y - 50, 20, bold, k.color);
+    const x = M + i * (kpiW + 8);
+    page.drawRectangle({ x, y: y - 44, width: kpiW, height: 44, color: rgb(0.98, 0.985, 0.99), borderColor: LINE, borderWidth: 1 });
+    text(k.label.toUpperCase(), x + 9, y - 16, 6.5, bold, FAINT);
+    text(k.value, x + 9, y - 37, 15, bold, k.color);
   });
-  y -= 70 + 36;
+  y -= 44 + 16;
 
-  // ── Sezione: Sedute ──
-  const sectionTitle = (t: string) => {
-    text(t.toUpperCase(), M, y, 10, bold, TEAL);
-    page.drawRectangle({ x: M, y: y - 8, width: width - 2 * M, height: 1, color: LINE });
-    y -= 26;
+  // ── Sistema a due colonne ──
+  const colGap = 22;
+  const colW = (width - 2 * M - colGap) / 2;
+  const xL = M;
+  const xR = M + colW + colGap;
+  const topY = y;
+  let yL = y, yR = y;
+
+  // Helper generici parametrizzati su colonna
+  const sectionTitle = (t: string, x: number, yy: number): number => {
+    text(t.toUpperCase(), x, yy, 7.5, bold, TEAL);
+    page.drawRectangle({ x, y: yy - 4, width: colW, height: 0.8, color: LINE });
+    return yy - 14;
   };
-  const row = (label: string, value: string, color = INK) => {
-    text(label, M, y, 11, font, BODY);
-    const vw = bold.widthOfTextAtSize(value, 11);
-    text(value, width - M - vw, y, 11, bold, color);
-    y -= 22;
+  const row = (label: string, value: string, x: number, yy: number, color = INK, size = 9): number => {
+    text(label, x, yy, size, font, BODY);
+    const vw = bold.widthOfTextAtSize(value, size);
+    text(value, x + colW - vw, yy, size, bold, color);
+    return yy - (size + 4.5);
   };
-  const rowIndent = (label: string, value: string, color = FAINT) => {
-    text(label, M + 18, y, 10, font, FAINT);
-    const vw = bold.widthOfTextAtSize(value, 10);
-    text(value, width - M - vw, y, 10, bold, color);
-    y -= 19;
+  const rowIndent = (label: string, value: string, x: number, yy: number, color = INK): number => {
+    text(label, x + 11, yy, 8.3, font, FAINT);
+    const vw = bold.widthOfTextAtSize(value, 8.3);
+    text(value, x + colW - vw, yy, 8.3, bold, color);
+    return yy - 12.5;
+  };
+  const caption = (t: string, x: number, yy: number): number => {
+    text(t, x, yy, 7.5, bold, FAINT);
+    return yy - 13;
+  };
+  // mini bar chart in una colonna
+  const barChart = (
+    x: number, yy: number,
+    data: { label: string; value: number; sub?: string }[],
+    opts: { highlightLast?: boolean } = {}
+  ): number => {
+    const chartH = 48;
+    const maxV = Math.max(...data.map(d => d.value), 1);
+    const slot = colW / data.length;
+    const baseY = yy - chartH;
+    data.forEach((d, i) => {
+      const h = Math.max(1.5, (d.value / maxV) * chartH);
+      const bw = slot * 0.6;
+      const bx = x + i * slot + (slot - bw) / 2;
+      const isLast = opts.highlightLast && i === data.length - 1;
+      page.drawRectangle({ x: bx, y: baseY, width: bw, height: h, color: isLast ? GREEN : (opts.highlightLast ? BLUE : TEAL), opacity: opts.highlightLast && !isLast ? 0.55 : 1 });
+      const vlab = d.value.toFixed(0);
+      const vw = font.widthOfTextAtSize(vlab, 6);
+      text(vlab, bx + bw / 2 - vw / 2, baseY + h + 2.5, 6, font, BODY);
+      const lw = font.widthOfTextAtSize(d.label, 6);
+      text(d.label, bx + slot / 2 - lw / 2 - (slot - bw) / 2 + (slot - bw) / 2, baseY - 9, 6, font, FAINT);
+      if (d.sub) {
+        const sw = font.widthOfTextAtSize(d.sub, 5.3);
+        text(d.sub, bx + bw / 2 - sw / 2, baseY - 16, 5.3, font, FAINT);
+      }
+    });
+    return baseY - 22;
   };
 
-  sectionTitle("Sedute del mese");
-  row("Totale appuntamenti", String(s.appointments.total));
-  row("Svolte", String(s.appointments.done), GREEN);
-  rowIndent("di cui pagate", String(s.appointments.donePaid), GREEN);
-  rowIndent("di cui da incassare", String(s.appointments.doneUnpaid), s.appointments.doneUnpaid > 0 ? RED : FAINT);
-  rowIndent("di cui gratuite / a 0€", String(s.appointments.doneFree), s.appointments.doneFree > 0 ? AMBER : FAINT);
-  row("Confermate (da svolgere)", String(s.appointments.confirmed));
-  row("Annullate", String(s.appointments.cancelled));
-  row("Mancate presentazioni (no-show)", String(s.appointments.noShow), s.appointments.noShow > 0 ? RED : INK);
-  row("Tasso di presentazione", `${s.presenceRate}%`, s.presenceRate >= 85 ? GREEN : s.presenceRate >= 70 ? AMBER : RED);
-  y -= 14;
+  // ════════ COLONNA SINISTRA ════════
+  yL = sectionTitle("Sedute del mese", xL, yL);
+  yL = row("Totale appuntamenti", String(s.appointments.total), xL, yL);
+  yL = row("Svolte", String(s.appointments.done), xL, yL, GREEN);
+  yL = rowIndent("di cui pagate", String(s.appointments.donePaid), xL, yL, GREEN);
+  yL = rowIndent("di cui da incassare", String(s.appointments.doneUnpaid), xL, yL, s.appointments.doneUnpaid > 0 ? RED : FAINT);
+  yL = rowIndent("di cui gratuite / a 0", String(s.appointments.doneFree), xL, yL, s.appointments.doneFree > 0 ? AMBER : FAINT);
+  yL = row("Confermate (da svolgere)", String(s.appointments.confirmed), xL, yL);
+  yL = row("Annullate", String(s.appointments.cancelled), xL, yL);
+  yL = row("No-show", String(s.appointments.noShow), xL, yL, s.appointments.noShow > 0 ? RED : INK);
+  yL = row("Tasso presentazione", `${s.presenceRate}%`, xL, yL, s.presenceRate >= 85 ? GREEN : AMBER);
+  yL -= 4;
 
-  sectionTitle("Incassi");
-  row("Incassato nel mese", eur(s.revenue.collected), GREEN);
-  row("Ticket medio a seduta", eur(s.revenue.avgPerSession));
-  row("Valore atteso (sedute non annullate)", eur(s.revenue.expected));
-  row("Tasso di incasso", `${s.collectionRate}%`, s.collectionRate >= 90 ? GREEN : AMBER);
-  row("Da incassare (insoluti)", eur(s.revenue.unpaid), s.revenue.unpaid > 0 ? RED : INK);
-  y -= 14;
+  yL = sectionTitle("Incassi", xL, yL);
+  yL = row("Incassato nel mese", eur(s.revenue.collected), xL, yL, GREEN);
+  yL = row("Ticket medio a seduta", eur(s.revenue.avgPerSession), xL, yL);
+  yL = row("Valore atteso", eur(s.revenue.expected), xL, yL);
+  yL = row("Tasso di incasso", `${s.collectionRate}%`, xL, yL, s.collectionRate >= 90 ? GREEN : AMBER);
+  yL = row("Da incassare (insoluti)", eur(s.revenue.unpaid), xL, yL, s.revenue.unpaid > 0 ? RED : INK);
+  yL -= 4;
 
-  // ── Incasso per metodo di pagamento ──
   if (s.byPaymentMethod.length > 0) {
-    sectionTitle("Incasso per metodo di pagamento");
-    for (const pm of s.byPaymentMethod) {
-      row(pm.method, `${pm.count} pag. · ${eur(pm.amount)}`);
-      if (y < 90) break;
-    }
-    y -= 14;
+    yL = sectionTitle("Metodo di pagamento", xL, yL);
+    for (const pm of s.byPaymentMethod) yL = row(pm.method, `${pm.count} · ${eur(pm.amount)}`, xL, yL);
+    yL -= 4;
   }
 
-  // ── Confronto mese precedente ──
   if (s.prev) {
-    sectionTitle("Confronto con il mese precedente");
+    yL = sectionTitle("Confronto mese precedente", xL, yL);
     const dRev = s.revenue.collected - s.prev.collected;
     const dDone = s.appointments.done - s.prev.done;
-    const arrow = (n: number) => (n > 0 ? "+ " : n < 0 ? "- " : "");
-    row("Variazione incassato", `${arrow(dRev)}${eur(Math.abs(dRev))}`, dRev >= 0 ? GREEN : RED);
-    row("Variazione sedute svolte", `${dDone > 0 ? "+" : ""}${dDone}`, dDone >= 0 ? GREEN : RED);
-    y -= 14;
+    yL = row("Var. incassato", `${dRev >= 0 ? "+ " : "- "}${eur(Math.abs(dRev))}`, xL, yL, dRev >= 0 ? GREEN : RED);
+    yL = row("Var. sedute svolte", `${dDone > 0 ? "+" : ""}${dDone}`, xL, yL, dDone >= 0 ? GREEN : RED);
+    yL -= 4;
   }
 
-  // ── Grafico settimanale (incassato per settimana) ──
-  if (s.weekly.length > 0 && y > 200) {
-    sectionTitle("Andamento settimanale (incassato)");
-    const maxW = Math.max(...s.weekly.map(w => w.collected), 1);
-    const chartW = width - 2 * M;
-    const barMaxH = 70;
-    const slot = chartW / s.weekly.length;
-    const baseY = y - barMaxH;
-    s.weekly.forEach((w, i) => {
-      const h = Math.max(2, (w.collected / maxW) * barMaxH);
-      const bx = M + i * slot + slot * 0.2;
-      const bw = slot * 0.6;
-      page.drawRectangle({ x: bx, y: baseY, width: bw, height: h, color: TEAL });
-      // valore sopra
-      const vlabel = "EUR " + w.collected.toFixed(0);
-      const vw = font.widthOfTextAtSize(vlabel, 8);
-      text(vlabel, bx + bw / 2 - vw / 2, baseY + h + 4, 8, font, BODY);
-      // etichetta settimana sotto
-      const lw = font.widthOfTextAtSize(w.label, 8);
-      text(w.label, bx + bw / 2 - lw / 2, baseY - 12, 8, font, FAINT);
-      // sedute
-      const sLabel = `${w.sessions} sed.`;
-      const sw = font.widthOfTextAtSize(sLabel, 7);
-      text(sLabel, bx + bw / 2 - sw / 2, baseY - 22, 7, font, FAINT);
-    });
-    y = baseY - 38;
+  if (s.prevYear) {
+    yL = sectionTitle("Confronto anno scorso", xL, yL);
+    const dRev = s.revenue.collected - s.prevYear.collected;
+    const dDone = s.appointments.done - s.prevYear.done;
+    yL = row("Incassato anno scorso", eur(s.prevYear.collected), xL, yL);
+    yL = row("Var. incassato", `${dRev >= 0 ? "+ " : "- "}${eur(Math.abs(dRev))}`, xL, yL, dRev >= 0 ? GREEN : RED);
+    yL = row("Var. sedute", `${dDone > 0 ? "+" : ""}${dDone}`, xL, yL, dDone >= 0 ? GREEN : RED);
+    yL -= 4;
   }
 
-  // ── Per operatore (solo se multi-operatore reale) ──
-  const realOps = s.byOperator.filter(o => o.name !== "Non assegnato");
-  if (realOps.length > 1 && y > 120) {
-    sectionTitle("Ripartizione per operatore");
-    for (const op of s.byOperator) {
-      row(op.name, `${op.count} sedute · ${eur(op.revenue)}`);
-      if (y < 90) break;
-    }
-    y -= 14;
+  // ════════ COLONNA DESTRA ════════
+  if (s.weekly.length > 0) {
+    yR = sectionTitle("Andamento settimanale (incassato)", xR, yR);
+    yR = barChart(xR, yR, s.weekly.map(w => ({ label: w.label.replace("Sett. ", "S"), value: w.collected, sub: `${w.sessions}` })));
+    yR -= 2;
   }
 
-  // ── Insoluti da sollecitare (con nomi) ──
-  if (s.unpaidList.length > 0 && y > 120) {
-    sectionTitle("Insoluti da sollecitare");
-    for (const u of s.unpaidList) {
-      row(u.name, `${u.count} sed. · ${eur(u.amount)}`, RED);
-      if (y < 80) break;
-    }
+  if (s.history6.length > 0 && s.history6.some(h => h.collected > 0)) {
+    yR = sectionTitle("Ultimi 6 mesi (incassato)", xR, yR);
+    yR = barChart(xR, yR, s.history6.map(h => ({ label: h.label, value: h.collected })), { highlightLast: true });
+    yR -= 2;
   }
+
+  yR = sectionTitle("Pazienti", xR, yR);
+  yR = row("Attivi nel periodo", String(s.activePatients), xR, yR);
+  yR = row("Nuovi", String(s.newVsReturning.newP), xR, yR, GREEN);
+  yR = row("Di ritorno", String(s.newVsReturning.returning), xR, yR, BLUE);
+  if (s.topPatients.length > 0) {
+    yR = caption("Top pazienti per fatturato:", xR, yR);
+    for (const p of s.topPatients.slice(0, 3)) yR = rowIndent(p.name, `${p.sessions} · ${eur(p.amount)}`, xR, yR);
+  }
+  yR -= 4;
+
+  if (s.byLocation.length > 1) {
+    yR = sectionTitle("Sedute per sede", xR, yR);
+    for (const loc of s.byLocation.slice(0, 4)) yR = row(loc.name, `${loc.sessions} · ${eur(loc.amount)}`, xR, yR);
+    yR -= 4;
+  }
+
+  if (s.rentals.count > 0) {
+    yR = sectionTitle("Noleggi", xR, yR);
+    yR = row("Conclusi nel periodo", String(s.rentals.count), xR, yR);
+    yR = row("Incassato", eur(s.rentals.collected), xR, yR, GREEN);
+    if (s.rentals.pending > 0) yR = row("Da incassare", eur(s.rentals.pending), xR, yR, RED);
+    yR -= 4;
+  }
+
+  if (s.byOperator.filter(o => o.name !== "Non assegnato").length > 1) {
+    yR = sectionTitle("Per operatore", xR, yR);
+    for (const op of s.byOperator.slice(0, 4)) yR = row(op.name, `${op.count} · ${eur(op.revenue)}`, xR, yR);
+    yR -= 4;
+  }
+
+  if (s.unpaidList.length > 0) {
+    yR = sectionTitle("Insoluti da sollecitare", xR, yR);
+    for (const u of s.unpaidList.slice(0, 5)) yR = row(u.name, `${u.count} · ${eur(u.amount)}`, xR, yR, RED);
+  }
+
+  // separatore verticale tra colonne
+  const sepBottom = Math.min(yL, yR) + 6;
+  page.drawRectangle({ x: xR - colGap / 2, y: sepBottom, width: 0.6, height: topY - sepBottom, color: LINE });
 
   // ── Footer ──
-  text(`FisioHub · report generato il ${new Date().toLocaleDateString("it-IT")}`, M, 36, 8, font, FAINT);
+  text(`FisioHub · report generato il ${new Date().toLocaleDateString("it-IT")}`, M, 28, 7, font, FAINT);
 
   return doc.save();
 }
@@ -517,6 +668,9 @@ export async function computePeriodStats(
     activePatients,
     byOperator, byPaymentMethod, unpaidList,
     weekly: [],  // grafico settimanale solo per il report mensile
+    newVsReturning: { newP: 0, returning: 0 },
+    topPatients: [], byLocation: [], rentals: { count: 0, collected: 0, pending: 0 },
+    prevYear: null, history6: [],
     prev: null,
   };
 }
