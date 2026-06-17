@@ -24,7 +24,7 @@ const THEME = {
   gradient:  "linear-gradient(135deg, #0d9488, #2563eb)",
 };
 
-const BOTTOM_TAB_H = 62;
+const BOTTOM_TAB_H = 72;
 
 const currency = new Intl.NumberFormat("it-IT", {
   style: "currency", currency: "EUR",

@@ -19,7 +19,10 @@ const GRAY = "#94a3b8";
 const BORDER = "#e2e8f0";
 const GRADIENT = "linear-gradient(135deg,#0d9488,#2563eb)";
 
-const BAR_HEIGHT = 58;
+// Altezza del contenuto della barra (icone + testo), SENZA la safe-area.
+// La safe-area dell'iPhone viene aggiunta sotto come padding extra, così
+// non comprime icone ed etichette.
+const BAR_CONTENT_H = 60;
 
 export default function MobileTabBar() {
   const pathname = usePathname() || "/mobile";
@@ -33,9 +36,10 @@ export default function MobileTabBar() {
     <nav
       style={{
         position: "fixed", bottom: 0, left: 0, right: 0,
-        height: BAR_HEIGHT, background: "#fff",
+        background: "#fff",
         borderTop: `1px solid ${BORDER}`, display: "flex", zIndex: 40,
-        paddingBottom: "max(env(safe-area-inset-bottom,0px),0px)",
+        height: `calc(${BAR_CONTENT_H}px + env(safe-area-inset-bottom,0px))`,
+        paddingBottom: "env(safe-area-inset-bottom,0px)",
         boxShadow: "0 -1px 8px rgba(15,23,42,0.04)",
       }}
     >
@@ -47,13 +51,13 @@ export default function MobileTabBar() {
             href={item.href}
             style={{
               flex: 1, display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center", gap: 2,
-              textDecoration: "none",
+              alignItems: "center", justifyContent: "center", gap: 3,
+              textDecoration: "none", paddingTop: 8, paddingBottom: 6,
             }}
           >
             <span
               style={{
-                fontSize: 18, lineHeight: 1,
+                fontSize: 19, lineHeight: 1,
                 ...(active
                   ? { background: GRADIENT, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }
                   : { color: GRAY }),
@@ -74,5 +78,5 @@ export default function MobileTabBar() {
 // Spaziatore da inserire in fondo al contenuto di ogni pagina, così l'ultimo
 // elemento non finisce sotto la barra fissa (include la safe-area iOS).
 export function MobileTabBarSpacer() {
-  return <div style={{ height: `calc(${BAR_HEIGHT}px + env(safe-area-inset-bottom,0px))` }} />;
+  return <div style={{ height: `calc(${BAR_CONTENT_H}px + env(safe-area-inset-bottom,0px))` }} />;
 }
