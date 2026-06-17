@@ -338,14 +338,14 @@ export async function renderMonthlyReportPdf(s: MonthlyStats): Promise<Uint8Arra
     page.drawText(t, { x, y: yy, size, font: f, color });
 
   // ── Header compatto ──
-  page.drawRectangle({ x: 0, y: height - 74, width, height: 74, color: TEAL });
-  page.drawRectangle({ x: width * 0.5, y: height - 74, width: width * 0.5, height: 74, color: BLUE, opacity: 0.5 });
-  text("REPORT MENSILE", M, height - 30, 8, bold, rgb(1, 1, 1));
-  text(s.studioName, M, height - 50, 16, bold, rgb(1, 1, 1));
+  page.drawRectangle({ x: 0, y: height - 92, width, height: 92, color: TEAL });
+  page.drawRectangle({ x: width * 0.5, y: height - 92, width: width * 0.5, height: 92, color: BLUE, opacity: 0.5 });
+  text("REPORT MENSILE", M, height - 34, 9, bold, rgb(1, 1, 1));
+  text(s.studioName, M, height - 60, 19, bold, rgb(1, 1, 1));
   const mlbl = s.monthLabel.toUpperCase();
-  const mlw = font.widthOfTextAtSize(mlbl, 10);
-  text(mlbl, width - M - mlw, height - 46, 10, font, rgb(0.92, 0.96, 0.98));
-  let y = height - 74 - 18;
+  const mlw = font.widthOfTextAtSize(mlbl, 11);
+  text(mlbl, width - M - mlw, height - 56, 11, font, rgb(0.92, 0.96, 0.98));
+  let y = height - 92 - 22;
 
   // ── KPI principali (3 box) ──
   const kpiW = (width - 2 * M - 16) / 3;
@@ -356,11 +356,11 @@ export async function renderMonthlyReportPdf(s: MonthlyStats): Promise<Uint8Arra
   ];
   kpis.forEach((k, i) => {
     const x = M + i * (kpiW + 8);
-    page.drawRectangle({ x, y: y - 44, width: kpiW, height: 44, color: rgb(0.98, 0.985, 0.99), borderColor: LINE, borderWidth: 1 });
-    text(k.label.toUpperCase(), x + 9, y - 16, 6.5, bold, FAINT);
-    text(k.value, x + 9, y - 37, 15, bold, k.color);
+    page.drawRectangle({ x, y: y - 58, width: kpiW, height: 58, color: rgb(0.98, 0.985, 0.99), borderColor: LINE, borderWidth: 1 });
+    text(k.label.toUpperCase(), x + 12, y - 19, 7.5, bold, FAINT);
+    text(k.value, x + 12, y - 47, 19, bold, k.color);
   });
-  y -= 44 + 16;
+  y -= 58 + 22;
 
   // ── Sistema a due colonne ──
   const colGap = 22;
@@ -372,25 +372,25 @@ export async function renderMonthlyReportPdf(s: MonthlyStats): Promise<Uint8Arra
 
   // Helper generici parametrizzati su colonna
   const sectionTitle = (t: string, x: number, yy: number): number => {
-    text(t.toUpperCase(), x, yy, 7.5, bold, TEAL);
-    page.drawRectangle({ x, y: yy - 4, width: colW, height: 0.8, color: LINE });
-    return yy - 14;
+    text(t.toUpperCase(), x, yy, 9, bold, TEAL);
+    page.drawRectangle({ x, y: yy - 5, width: colW, height: 0.8, color: LINE });
+    return yy - 18;
   };
-  const row = (label: string, value: string, x: number, yy: number, color = INK, size = 9): number => {
+  const row = (label: string, value: string, x: number, yy: number, color = INK, size = 10.5): number => {
     text(label, x, yy, size, font, BODY);
     const vw = bold.widthOfTextAtSize(value, size);
     text(value, x + colW - vw, yy, size, bold, color);
-    return yy - (size + 4.5);
+    return yy - (size + 7);
   };
   const rowIndent = (label: string, value: string, x: number, yy: number, color = INK): number => {
-    text(label, x + 11, yy, 8.3, font, FAINT);
-    const vw = bold.widthOfTextAtSize(value, 8.3);
-    text(value, x + colW - vw, yy, 8.3, bold, color);
-    return yy - 12.5;
+    text(label, x + 13, yy, 9.5, font, FAINT);
+    const vw = bold.widthOfTextAtSize(value, 9.5);
+    text(value, x + colW - vw, yy, 9.5, bold, color);
+    return yy - 16;
   };
   const caption = (t: string, x: number, yy: number): number => {
-    text(t, x, yy, 7.5, bold, FAINT);
-    return yy - 13;
+    text(t, x, yy, 9, bold, FAINT);
+    return yy - 16;
   };
   // mini bar chart in una colonna
   const barChart = (
@@ -398,7 +398,7 @@ export async function renderMonthlyReportPdf(s: MonthlyStats): Promise<Uint8Arra
     data: { label: string; value: number; sub?: string }[],
     opts: { highlightLast?: boolean } = {}
   ): number => {
-    const chartH = 48;
+    const chartH = 76;
     const maxV = Math.max(...data.map(d => d.value), 1);
     const slot = colW / data.length;
     const baseY = yy - chartH;
@@ -409,16 +409,16 @@ export async function renderMonthlyReportPdf(s: MonthlyStats): Promise<Uint8Arra
       const isLast = opts.highlightLast && i === data.length - 1;
       page.drawRectangle({ x: bx, y: baseY, width: bw, height: h, color: isLast ? GREEN : (opts.highlightLast ? BLUE : TEAL), opacity: opts.highlightLast && !isLast ? 0.55 : 1 });
       const vlab = d.value.toFixed(0);
-      const vw = font.widthOfTextAtSize(vlab, 6);
-      text(vlab, bx + bw / 2 - vw / 2, baseY + h + 2.5, 6, font, BODY);
-      const lw = font.widthOfTextAtSize(d.label, 6);
-      text(d.label, bx + slot / 2 - lw / 2 - (slot - bw) / 2 + (slot - bw) / 2, baseY - 9, 6, font, FAINT);
+      const vw = font.widthOfTextAtSize(vlab, 7.5);
+      text(vlab, bx + bw / 2 - vw / 2, baseY + h + 3, 7.5, font, BODY);
+      const lw = font.widthOfTextAtSize(d.label, 7.5);
+      text(d.label, bx + slot / 2 - lw / 2, baseY - 11, 7.5, font, FAINT);
       if (d.sub) {
-        const sw = font.widthOfTextAtSize(d.sub, 5.3);
-        text(d.sub, bx + bw / 2 - sw / 2, baseY - 16, 5.3, font, FAINT);
+        const sw = font.widthOfTextAtSize(d.sub, 6.5);
+        text(d.sub, bx + bw / 2 - sw / 2, baseY - 20, 6.5, font, FAINT);
       }
     });
-    return baseY - 22;
+    return baseY - 28;
   };
 
   // ════════ COLONNA SINISTRA ════════
