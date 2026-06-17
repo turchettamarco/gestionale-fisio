@@ -35,6 +35,7 @@ import { quickSendRemoteConsents } from "@/src/lib/consents/quickSend";
 import ExerciseProgramSection from "@/src/components/patient/ExerciseProgramSection";
 import PatientOverview from "@/src/components/patient/PatientOverview";
 import ScalesSection from "@/src/components/patient/ScalesSection";
+import PainMapMobile from "./PainMapMobile";
 import { SOAPNotesEditor } from "@/app/(protected)/calendar/components/SOAPNotes";
 import { PhotoGallerySection } from "@/app/(protected)/patients/[id]/PhotoGallery";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
@@ -357,6 +358,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
       const { data: userData } = await supabase.auth.getUser();
       const ownerId = userData?.user?.id;
       if (!ownerId) return;
+      setOwnerId(ownerId);
 
       const { data } = await supabase
         .from("practice_settings")
@@ -387,6 +389,9 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   const [activeTab, setActiveTab] = useState<"overview" | "info" | "clinical" | "packages" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal" | "consensi">("overview");
   // Modale attestato di presenza cumulativo (Step 5)
   const [showCertDialogMobile, setShowCertDialogMobile] = useState(false);
+  // Mappa del dolore
+  const [painMapOpen, setPainMapOpen] = useState(false);
+  const [ownerId, setOwnerId] = useState<string | null>(null);
 
   /* user */
   const [userEmail,    setUserEmail]    = useState<string | null>(null);
@@ -1277,6 +1282,23 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
                 </div>
               )}
             </div>
+
+            {/* Box Mappa del dolore */}
+            <div style={{ background: T.panelBg, border: `1.5px solid ${T.border}`,
+              borderRadius: 14, padding: 16, boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>🗺 Mappa del dolore</span>
+              </div>
+              <div style={{ fontSize: 12, color: T.muted, marginBottom: 12, lineHeight: 1.4 }}>
+                Segna le zone dolorose sul corpo, intensità e VAS. Le mappe restano salvate nello storico del paziente.
+              </div>
+              <button onClick={() => setPainMapOpen(true)} disabled={!currentStudio?.id || !ownerId}
+                style={{ width: "100%", padding: "13px 0", borderRadius: 11, fontSize: 14, fontWeight: 800,
+                  border: "none", background: `linear-gradient(100deg,${T.teal},${T.blue})`, color: "#fff",
+                  cursor: "pointer", opacity: (!currentStudio?.id || !ownerId) ? 0.5 : 1 }}>
+                Apri mappa del dolore
+              </button>
+            </div>
           </div>
         )}
 
@@ -1724,6 +1746,16 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
       />
 
       {/* Attestato di presenza cumulativo (Step 5) */}
+      {painMapOpen && currentStudio?.id && ownerId && (
+        <PainMapMobile
+          patientId={patientId}
+          studioId={currentStudio.id}
+          ownerId={ownerId}
+          patientName={patient ? `${patient.last_name ?? ""} ${patient.first_name ?? ""}`.trim() : "Paziente"}
+          onClose={() => setPainMapOpen(false)}
+        />
+      )}
+
       {showCertDialogMobile && (
         <AttendanceCertificateDialog
           patientId={patientId}
