@@ -221,7 +221,7 @@ export default function NoleggioPage() {
     // Ricalcola durata e totale
     const days = Math.max(1, Math.round(
       (new Date(editEnd + "T12:00:00").getTime() - new Date(editStart + "T12:00:00").getTime()) / 86400000
-    ));
+    )+1);
     const total = Math.round(days * pday * 100) / 100;
 
     setEditSaving(true);
@@ -346,7 +346,7 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
     const oggi = new Date().toLocaleDateString("it-IT",{day:"2-digit",month:"long",year:"numeric"});
     const startStr = new Date(n.start_date+"T12:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"long",year:"numeric"});
     const scadStr  = new Date(n.end_date+"T12:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"long",year:"numeric"});
-    const days = Math.max(1,Math.round((new Date(n.end_date+"T12:00:00").getTime()-new Date(n.start_date+"T12:00:00").getTime())/86400000));
+    const days = Math.max(1,Math.round((new Date(n.end_date+"T12:00:00").getTime()-new Date(n.start_date+"T12:00:00").getTime())/86400000)+1);
     const html = `<!DOCTYPE html><html lang="it"><head><meta charset="utf-8"><title>Contratto Noleggio</title>
 <style>
   body{font-family:'Segoe UI',Arial,sans-serif;padding:48px;color:#0f172a;max-width:700px;margin:0 auto;font-size:13px;}
@@ -686,7 +686,7 @@ ${studioPdfHeader(currentStudio,{docTitle:"Contratto di Noleggio",docSubtitle:"M
                       const d1 = new Date(editStart + "T12:00:00");
                       const d2 = new Date(editEnd + "T12:00:00");
                       if (d2 < d1) return <div style={{ fontSize:11, color:THEME.red, fontWeight:600 }}>⚠ Fine prima dell'inizio</div>;
-                      const days = Math.max(1, Math.round((d2.getTime() - d1.getTime()) / 86400000));
+                      const days = Math.max(1, Math.round((d2.getTime() - d1.getTime()) / 86400000)+1);
                       const pday = parseFloat(editPricePerDay) || 0;
                       const total = Math.round(days * pday * 100) / 100;
                       return <div style={{ fontSize:11, color:THEME.teal, fontWeight:600 }}>→ {days} giorni · Totale €{total.toFixed(2)}</div>;

@@ -123,7 +123,7 @@ export default function MobileNoleggioPage() {
     if(new Date(editEnd)<new Date(editStart)){showToast.warning("La data di fine non può essere prima della data di inizio.");return;}
     const pday = parseFloat(editPricePerDay)||0;
     if(pday<=0){showToast.warning("Prezzo al giorno non valido.");return;}
-    const days = Math.max(1, Math.round((new Date(editEnd+"T12:00:00").getTime()-new Date(editStart+"T12:00:00").getTime())/86400000));
+    const days = Math.max(1, Math.round((new Date(editEnd+"T12:00:00").getTime()-new Date(editStart+"T12:00:00").getTime())/86400000)+1);
     const total = Math.round(days*pday*100)/100;
 
     setEditSaving(true);
@@ -316,7 +316,7 @@ export default function MobileNoleggioPage() {
                         const d1 = new Date(editStart + "T12:00:00");
                         const d2 = new Date(editEnd + "T12:00:00");
                         if (d2 < d1) return <div style={{fontSize:11,color:THEME.red,fontWeight:600}}>⚠ Fine prima dell&apos;inizio</div>;
-                        const days = Math.max(1, Math.round((d2.getTime()-d1.getTime())/86400000));
+                        const days = Math.max(1, Math.round((d2.getTime()-d1.getTime())/86400000)+1);
                         const pday = parseFloat(editPricePerDay)||0;
                         const total = Math.round(days*pday*100)/100;
                         return <div style={{fontSize:11,color:THEME.teal,fontWeight:600}}>→ {days} giorni · Totale €{total.toFixed(2)}</div>;
