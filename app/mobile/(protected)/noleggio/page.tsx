@@ -393,15 +393,7 @@ export default function MobileNoleggioPage() {
         })}
       </div>
 
-      {/* Bottom nav */}
-      <nav style={{position:"fixed",bottom:0,left:0,right:0,height:58,background:"#fff",borderTop:`1px solid ${THEME.border}`,display:"flex",zIndex:30,paddingBottom:"max(env(safe-area-inset-bottom,0px),0px)"}}>
-        {[{href:"/mobile",l:"Home",i:"⌂"},{href:"/mobile/calendar",l:"Calendario",i:"▦"},{href:"/mobile/patients",l:"Pazienti",i:"◉"},{href:"/mobile/reports",l:"Report",i:"◈"},{href:"/mobile/noleggio",l:"Noleggio",i:"🔌",active:true},{href:"/mobile/settings",l:"Impost.",i:"⚙"}].map(item=>(
-          <Link key={item.href} href={item.href} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,textDecoration:"none"}}>
-            <span style={{fontSize:18,lineHeight:1,...((item as any).active?{background:THEME.gradient,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}:{color:THEME.gray})}}>{item.i}</span>
-            <span style={{fontSize:10,fontWeight:(item as any).active?700:500,color:(item as any).active?THEME.blue:THEME.gray}}>{item.l}</span>
-          </Link>
-        ))}
-      </nav>
+      {/* Bottom nav: ora gestita da MobileTabBar nel layout condiviso */}
     </div>
   );
 }

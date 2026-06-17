@@ -7,6 +7,7 @@ import { StudioProvider } from "@/src/contexts/StudioContext";
 import { ToastProvider } from "@/src/components/mobile/ToastProvider";
 import WelcomeTour from "@/app/(protected)/components/WelcomeTour";
 import ActivityTracker from "@/app/(protected)/components/ActivityTracker";
+import MobileTabBar from "./components/MobileTabBar";
 
 export default function MobileProtectedLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -33,6 +34,7 @@ export default function MobileProtectedLayout({ children }: { children: React.Re
     <StudioProvider>
       <ToastProvider>
         {children}
+        <MobileTabBar />
         <WelcomeTour />
         <ActivityTracker />
       </ToastProvider>

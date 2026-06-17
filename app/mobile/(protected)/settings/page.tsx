@@ -1784,15 +1784,7 @@ export default function MobileSettingsPage() {
         </div>
       )}
 
-      {/* Bottom nav */}
-      <nav style={{ position:"fixed", bottom:0, left:0, right:0, height:58, background:"#fff", borderTop:`1px solid ${THEME.border}`, display:"flex", zIndex:30 }}>
-        {[{href:"/mobile",label:"Home",icon:"⌂"},{href:"/mobile/calendar",label:"Calendario",icon:"▦"},{href:"/mobile/patients",label:"Pazienti",icon:"◉"},{href:"/mobile/reports",label:"Report",icon:"◈"},{href:"/mobile/settings",label:"Impost.",icon:"⚙",active:true}].map(item=>(
-          <Link key={item.href} href={item.href} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, textDecoration:"none" }}>
-            <span style={{ fontSize:18, lineHeight:1, ...(item as any).active?{background:THEME.gradient,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}:{color:THEME.gray} }}>{item.icon}</span>
-            <span style={{ fontSize:10, fontWeight:(item as any).active?700:500, color:(item as any).active?THEME.blue:THEME.gray }}>{item.label}</span>
-          </Link>
-        ))}
-      </nav>
+      {/* Bottom nav: gestita da MobileTabBar nel layout */}
 
       {/* Modale modifica ospite (full-screen) */}
       {editingGuest && currentStudioId && (

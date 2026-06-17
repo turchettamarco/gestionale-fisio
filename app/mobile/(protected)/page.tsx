@@ -1589,40 +1589,7 @@ export default function MobileHomePage() {
         </div>
       </header>
 
-      {/* ━━━ BOTTOM TAB BAR ━━━ */}
-      <nav style={{
-        position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 30,
-        background: THEME.panelBg, borderTop: `1px solid ${THEME.border}`,
-        display: "flex", boxShadow: "0 -2px 12px rgba(15,23,42,0.06)",
-        paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)",
-        paddingLeft: "env(safe-area-inset-left, 0px)",
-        paddingRight: "env(safe-area-inset-right, 0px)",
-      }}>
-        {[
-          { href: "/mobile",          label: "Home",       icon: "⌂",  active: true },
-          { href: "/mobile/calendar", label: "Calendario", icon: "▦" },
-          { href: "/mobile/patients", label: "Pazienti",   icon: "◉" },
-          { href: "/mobile/reports",  label: "Report",     icon: "◈" },
-          { href: "/mobile/noleggio", label: "Noleggio",   icon: "🔌" },
-          { href: "/mobile/settings", label: "Impost.",    icon: "⚙" },
-        ].map(item => (
-          <Link key={item.href} href={item.href} style={{
-            flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
-            justifyContent: "center", padding: "8px 4px 6px", textDecoration: "none", gap: 2,
-          }}>
-            <span style={{
-              fontSize: 18, lineHeight: 1,
-              ...((item as any).active
-                ? { background: THEME.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }
-                : { color: THEME.gray }),
-            }}>{item.icon}</span>
-            <span style={{
-              fontSize: 10, fontWeight: (item as any).active ? 700 : 500,
-              color: (item as any).active ? THEME.blue : THEME.gray,
-            }}>{item.label}</span>
-          </Link>
-        ))}
-      </nav>
+      {/* Bottom nav: gestita da MobileTabBar nel layout */}
 
       {/* ━━━ FAB ━━━ */}
       <button

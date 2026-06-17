@@ -710,39 +710,7 @@ export default function ReportsMobile() {
         </div>
       </header>
 
-      {/* ━━━ BOTTOM TAB BAR ━━━ */}
-      <nav style={{
-        position:"fixed",bottom:0,left:0,right:0,zIndex:30,
-        background:THEME.panelBg,borderTop:`1.5px solid ${THEME.border}`,
-        display:"flex",boxShadow:"0 -4px 16px rgba(15,23,42,0.08)",
-        paddingBottom:"env(safe-area-inset-bottom,0px)",
-      }}>
-        {[
-          {href:"/mobile",          label:"Home",      icon:"⌂"},
-          {href:"/mobile/calendar", label:"Calendario",icon:"▦"},
-          {href:"/mobile/patients", label:"Pazienti",  icon:"◉"},
-          {href:"/mobile/reports",  label:"Report",    icon:"◈",active:true},
-        ].map(item=>(
-          <Link key={item.href} href={item.href} style={{
-            flex:1,display:"flex",flexDirection:"column",alignItems:"center",
-            justifyContent:"center",padding:"10px 4px 9px",textDecoration:"none",
-            gap:3,position:"relative",
-          }}>
-            <span style={{fontSize:18,lineHeight:1,
-              ...(item.active
-                ?{background:THEME.gradient,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}
-                :{color:THEME.muted})}}>
-              {item.icon}
-            </span>
-            <span style={{fontSize:10,fontWeight:item.active?700:600,
-              color:item.active?THEME.blue:THEME.muted}}>{item.label}</span>
-            {item.active&&(
-              <div style={{position:"absolute",top:0,left:"50%",transform:"translateX(-50%)",
-                width:28,height:2.5,borderRadius:999,background:THEME.gradient}}/>
-            )}
-          </Link>
-        ))}
-      </nav>
+      {/* Bottom nav: gestita da MobileTabBar nel layout */}
 
       {/* ━━━ PERIOD CONTROLS ━━━ */}
       <div style={{
