@@ -35,7 +35,7 @@ import { quickSendRemoteConsents } from "@/src/lib/consents/quickSend";
 import ExerciseProgramSection from "@/src/components/patient/ExerciseProgramSection";
 import PatientOverview from "@/src/components/patient/PatientOverview";
 import ScalesSection from "@/src/components/patient/ScalesSection";
-import PainMapMobile from "./PainMapMobile";
+import PainMap from "@/src/components/patient/PainMap";
 import { SOAPNotesEditor } from "@/app/(protected)/calendar/components/SOAPNotes";
 import { PhotoGallerySection } from "@/app/(protected)/patients/[id]/PhotoGallery";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
@@ -1747,7 +1747,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
 
       {/* Attestato di presenza cumulativo (Step 5) */}
       {painMapOpen && currentStudio?.id && ownerId && (
-        <PainMapMobile
+        <PainMap
           patientId={patientId}
           studioId={currentStudio.id}
           ownerId={ownerId}

@@ -13,6 +13,7 @@ import PatientSidebar, {
   DEFAULT_PATIENT_SECTION,
 } from "@/src/components/patient/PatientSidebar";
 import PatientSummaryPanel from "@/src/components/patient/PatientSummaryPanel";
+import PainMap from "@/src/components/patient/PainMap";
 import StructuredAnamnesis from "@/src/components/patient/clinical/StructuredAnamnesis";
 import StructuredDiagnosis from "@/src/components/patient/clinical/StructuredDiagnosis";
 import StructuredTreatmentPlan from "@/src/components/patient/clinical/StructuredTreatmentPlan";
@@ -184,373 +185,21 @@ function PMiniCanvas({ zones, view }: { zones: Record<string,PMZoneData>; view: 
   return <canvas ref={ref} width={40} height={80} style={{position:"absolute",inset:0,width:"100%",height:"100%",mixBlendMode:"multiply",borderRadius:4}}/>;
 }
 
-function PainMapSection({ patientName, gender, studio }: { patientName: string; gender?: "M"|"F"; studio?: any }) {
-  const currentStudio = studio;
-  const [pmView, setPmView] = useState<PMView>("front");
-  const [pmTool, setPmTool] = useState<"paint"|"erase"|"arrow">("paint");
-  const [pmPainType, setPmPainType] = useState("burning");
-  const [pmIntensity, setPmIntensity] = useState(2);
-  const [pmBrush, setPmBrush] = useState(2);
-  const [pmZones, setPmZones] = useState<PMZones>({ front:{}, back:{}, left:{}, right:{} });
-  const [pmArrows, setPmArrows] = useState<PMArrow[]>([]);
-  const [pmArrowStart, setPmArrowStart] = useState<{x:number;y:number}|null>(null);
-  const [pmShowLabels, setPmShowLabels] = useState(false);
-  const [pmVas, setPmVas] = useState(5);
-  const [pmNotes, setPmNotes] = useState("");
-  const [pmGender, setPmGender] = useState<"M"|"F">(gender ?? "M");
-  const [pmActiveTab, setPmActiveTab] = useState<"map"|"summary">("map");
-  // Undo/Redo
-  const pmHist = useRef<string[]>([JSON.stringify({z:{front:{},back:{},left:{},right:{}},a:[]})]);
-  const pmHidx = useRef(0);
-  const [pmCanUndo, setPmCanUndo] = useState(false);
-  const [pmCanRedo, setPmCanRedo] = useState(false);
-  const isPainting = useRef(false);
-
-  const CW = 200, CH = 500;
-
-  const pmBodyComponents: Record<PMView, React.ReactNode> = {
-    front: <BodyPhoto view="front"/>,
-    back:  <BodyPhoto view="back"/>,
-    left:  <BodyPhoto view="left"/>,
-    right: <BodyPhoto view="right"/>,
-  };
-
-  const pushHistory = useCallback((z: PMZones, a: PMArrow[]) => {
-    const snap = JSON.stringify({z,a});
-    const h = pmHist.current.slice(0, pmHidx.current+1);
-    h.push(snap);
-    if (h.length > 50) h.shift();
-    pmHist.current = h;
-    pmHidx.current = h.length-1;
-    setPmCanUndo(pmHidx.current > 0);
-    setPmCanRedo(false);
-  }, []);
-
-  const doUndo = () => {
-    if (pmHidx.current <= 0) return;
-    pmHidx.current--;
-    const s = JSON.parse(pmHist.current[pmHidx.current]);
-    setPmZones(s.z); setPmArrows(s.a);
-    setPmCanUndo(pmHidx.current > 0);
-    setPmCanRedo(true);
-  };
-  const doRedo = () => {
-    if (pmHidx.current >= pmHist.current.length-1) return;
-    pmHidx.current++;
-    const s = JSON.parse(pmHist.current[pmHidx.current]);
-    setPmZones(s.z); setPmArrows(s.a);
-    setPmCanUndo(true);
-    setPmCanRedo(pmHidx.current < pmHist.current.length-1);
-  };
-
-  const getPos = useCallback((e: React.MouseEvent, el: HTMLDivElement) => {
-    const r = el.getBoundingClientRect();
-    return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
-  }, []);
-
-  const paintAt = useCallback((px: number, py: number) => {
-    const gx0 = Math.floor(px * PM_GRID), gy0 = Math.floor(py * PM_ROWS);
-    const r = pmBrush;
-    setPmZones(prev => {
-      const vd = { ...prev[pmView] };
-      for (let dx=-r; dx<=r; dx++) for (let dy=-r; dy<=r; dy++) {
-        if (dx*dx+dy*dy > r*r) continue;
-        const gx=gx0+dx, gy=gy0+dy;
-        if (gx<0||gx>=PM_GRID||gy<0||gy>=PM_ROWS) continue;
-        if (pmTool==="erase") delete vd[`${gx},${gy}`];
-        else vd[`${gx},${gy}`] = { painType: pmPainType, intensity: pmIntensity };
-      }
-      return { ...prev, [pmView]: vd };
-    });
-  }, [pmView, pmPainType, pmTool, pmBrush, pmIntensity]);
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    const el = e.currentTarget as HTMLDivElement;
-    const {x,y} = getPos(e, el);
-    if (pmTool === "arrow") {
-      if (!pmArrowStart) {
-        setPmArrowStart({x,y});
-      } else {
-        const lbl = prompt("Etichetta irradiazione (es. sciatalgia L5):", "") ?? "";
-        const newArrow: PMArrow = { id: Date.now(), view: pmView, x1: pmArrowStart.x, y1: pmArrowStart.y, x2: x, y2: y, label: lbl };
-        setPmArrows(prev => { const next = [...prev, newArrow]; pushHistory(pmZones, next); return next; });
-        setPmArrowStart(null);
-      }
-      return;
-    }
-    isPainting.current = true;
-    paintAt(x, y);
-  }, [pmTool, pmArrowStart, pmView, pmZones, paintAt, pushHistory, getPos]);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!isPainting.current || pmTool==="arrow") return;
-    const {x,y} = getPos(e, e.currentTarget as HTMLDivElement);
-    paintAt(x,y);
-  }, [pmTool, paintAt, getPos]);
-
-  const handleMouseUp = useCallback(() => {
-    if (isPainting.current) {
-      isPainting.current = false;
-      setPmZones(prev => { pushHistory(prev, pmArrows); return prev; });
-    }
-  }, [pmArrows, pushHistory]);
-
-  const handleMouseLeave = useCallback(() => {
-    if (isPainting.current) {
-      isPainting.current = false;
-      setPmZones(prev => { pushHistory(prev, pmArrows); return prev; });
-    }
-  }, [pmArrows, pushHistory]);
-
-  const totalCells = Object.values(pmZones).reduce((s,v)=>s+Object.keys(v).length,0);
-  const summaryByType = PAIN_TYPES_PM.map(pt => ({
-    ...pt, cells: Object.values(pmZones).reduce((s,v)=>s+Object.values(v).filter((z:any)=>z.painType===pt.id).length,0)
-  })).filter(p=>p.cells>0);
-
-  const vasColor = pmVas<=3?"#16a34a":pmVas<=6?"#f97316":"#dc2626";
-  const vasLabel = pmVas===0?"Assente":pmVas<=3?"Lieve":pmVas<=6?"Moderato":pmVas<=8?"Severo":"Insopportabile";
-
-  const exportPDF = () => {
-    const by = summaryByType;
-    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Body Chart – ${patientName}</title>
-    <style>body{font-family:system-ui,sans-serif;padding:40px;color:#0f172a;max-width:800px;margin:0 auto}
-    .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px}
-    .card{background:#f8fafc;border-radius:10px;padding:14px;border:1px solid #e2e8f0}
-    .lbl{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
-    .val{font-size:20px;font-weight:800}.bar{height:7px;background:#e2e8f0;border-radius:4px;overflow:hidden;margin-top:6px}
-    .bf{height:100%;border-radius:4px}table{width:100%;border-collapse:collapse;font-size:13px}
-    td,th{padding:8px 12px;border-bottom:1px solid #e2e8f0}th{background:#f1f5f9;font-size:11px;font-weight:700;text-transform:uppercase}
-    @media print{button{display:none!important}}
-    ${studioHeaderCss}</style></head><body>
-    ${studioPdfHeader(currentStudio,{docTitle:"Body Chart",docSubtitle:`Mappa del Dolore — ${patientName}`})}
-    <div class="g3">
-      <div class="card"><div class="lbl">VAS</div><div class="val" style="color:${vasColor}">${pmVas}/10</div>
-        <div style="font-size:12px;color:${vasColor};font-weight:700">${vasLabel}</div>
-        <div class="bar"><div class="bf" style="width:${pmVas*10}%;background:${vasColor}"></div></div></div>
-      <div class="card"><div class="lbl">Paziente</div><div class="val">${pmGender==="M"?"♂ Uomo":"♀ Donna"}</div></div>
-      <div class="card"><div class="lbl">Zone segnate</div><div class="val" style="color:#2563eb">${totalCells}</div></div>
-    </div>
-    ${by.length>0?`<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:700;margin-bottom:10px">Distribuzione per tipo di dolore</div>
-    ${by.map(p=>`<div style="display:flex;align-items:center;gap:10px;margin-bottom:7px">
-      <div style="width:13px;height:13px;border-radius:3px;background:${p.color};flex-shrink:0"></div>
-      <span style="font-size:12px;font-weight:600;width:100px">${p.emoji} ${p.label}</span>
-      <div class="bar" style="flex:1"><div class="bf" style="width:${totalCells?Math.round(p.cells/totalCells*100):0}%;background:${p.color}"></div></div>
-      <span style="font-size:11px;color:#64748b;width:32px;text-align:right">${totalCells?Math.round(p.cells/totalCells*100):0}%</span></div>`).join("")}</div>`:""}
-    ${pmArrows.length>0?`<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:700;margin-bottom:8px">Irradiazioni</div>
-    <table><thead><tr><th>Vista</th><th>Descrizione</th></tr></thead><tbody>
-    ${pmArrows.map(a=>`<tr><td>${PM_VIEW_LABELS[a.view]}</td><td>${a.label||"—"}</td></tr>`).join("")}</tbody></table></div>`:""}
-    ${pmNotes?`<div><div style="font-size:13px;font-weight:700;margin-bottom:6px">Note cliniche</div>
-    <div style="font-size:13px;color:#334155;line-height:1.7;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">${pmNotes}</div></div>`:""}
-    ${studioPdfFooter(currentStudio)}
-    <button onclick="window.print()" style="margin-top:20px;padding:10px 28px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🖨 Stampa referto</button>
-    </body></html>`;
-    const w = window.open("","_blank","width=900,height=700");
-    if (w) { w.document.write(html); w.document.close(); }
-  };
-
-  const btnSm = (label: string, active: boolean, onClick: ()=>void, color="#2563eb") => (
-    <button onClick={onClick} style={{ padding:"5px 12px", borderRadius:7, border:`1.5px solid ${active?color:"#e2e8f0"}`,
-      background:active?color:"#fff", color:active?"#fff":"#475569", fontWeight:700, fontSize:11, cursor:"pointer" }}>
-      {label}
-    </button>
-  );
-
+// ─── Pain Map: ora usa il componente condiviso src/components/patient/PainMap ───
+function PainMapSection({ patientId, patientName, studio, ownerId }: { patientId: string; patientName: string; studio?: any; ownerId: string }) {
+  if (!patientId || !studio?.id || !ownerId) {
+    return <div style={{ padding: 24, color: "#94a3b8", fontSize: 13 }}>Caricamento mappa del dolore…</div>;
+  }
   return (
-    <section style={{ background:"#fff", borderRadius:14, padding:28, marginBottom:20, border:"1px solid #e2e8f0", boxShadow:"0 1px 4px rgba(15,23,42,0.05), 0 4px 20px rgba(15,23,42,0.04)" }}>
-      {/* Header */}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, marginBottom:18 }}>
-        <div>
-          <h2 style={{ margin:0, fontWeight:800, fontSize:17, color:"#1e1b4b" }}>🗺 Body Chart – Mappa del Dolore</h2>
-          <p style={{ margin:"4px 0 0", fontSize:12, color:"#64748b", fontWeight:600 }}>Dipingi le zone dolorose · usa il pennello · aggiungi frecce di irradiazione</p>
-        </div>
-        <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
-          <button onClick={doUndo} disabled={!pmCanUndo} style={{ padding:"5px 11px", borderRadius:7, border:"1px solid #e2e8f0", background:"#fff", color: pmCanUndo?"#0f172a":"#cbd5e1", fontWeight:700, fontSize:11, cursor: pmCanUndo?"pointer":"default" }}>↩</button>
-          <button onClick={doRedo} disabled={!pmCanRedo} style={{ padding:"5px 11px", borderRadius:7, border:"1px solid #e2e8f0", background:"#fff", color: pmCanRedo?"#0f172a":"#cbd5e1", fontWeight:700, fontSize:11, cursor: pmCanRedo?"pointer":"default" }}>↪</button>
-          <button onClick={() => { if(confirm("Cancellare tutta la mappa?")) { setPmZones({front:{},back:{},left:{},right:{}}); setPmArrows([]); pushHistory({front:{},back:{},left:{},right:{}},[]);} }} style={{ padding:"5px 12px", borderRadius:7, border:"1px solid #fecaca", background:"#fff5f5", color:"#dc2626", fontWeight:700, fontSize:11, cursor:"pointer" }}>Pulisci</button>
-          <button onClick={exportPDF} style={{ padding:"7px 16px", borderRadius:8, border:"none", background:"linear-gradient(135deg,#7c3aed,#2563eb)", color:"#fff", fontWeight:700, fontSize:12, cursor:"pointer" }}>📄 Referto PDF</button>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div style={{ display:"flex", borderBottom:"1px solid #e2e8f0", marginBottom:16 }}>
-        {([["map","🖌 Mappa"],["summary","📊 Riepilogo"]] as const).map(([k,l])=>(
-          <button key={k} onClick={()=>setPmActiveTab(k)} style={{ padding:"8px 18px", border:"none", background:"transparent", fontWeight:700, fontSize:12, color:pmActiveTab===k?"#7c3aed":"#94a3b8", borderBottom:pmActiveTab===k?"2px solid #7c3aed":"2px solid transparent", cursor:"pointer", marginBottom:-1 }}>{l}</button>
-        ))}
-      </div>
-
-      {pmActiveTab === "map" ? (
-        <div style={{ display:"grid", gridTemplateColumns:"auto 1fr", gap:20, alignItems:"start" }}>
-
-          {/* Colonna sinistra: toolbar + corpo */}
-          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-            {/* Vista + genere */}
-            <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
-              <div style={{ display:"flex", border:"1px solid #e2e8f0", borderRadius:8, overflow:"hidden" }}>
-                {PM_VIEWS.map(v=>(
-                  <button key={v} onClick={()=>setPmView(v)} style={{ padding:"5px 12px", border:"none", cursor:"pointer", fontSize:11, fontWeight:700, background:pmView===v?"#7c3aed":"#fff", color:pmView===v?"#fff":"#64748b" }}>{PM_VIEW_LABELS[v]}</button>
-                ))}
-              </div>
-            </div>
-
-            {/* Tool + brush + etichette */}
-            <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
-              {btnSm("🖌 Pennello", pmTool==="paint", ()=>{setPmTool("paint");setPmArrowStart(null);},"#7c3aed")}
-              {btnSm("⬜ Gomma", pmTool==="erase", ()=>{setPmTool("erase");setPmArrowStart(null);},"#64748b")}
-              {btnSm("→ Irradiazione", pmTool==="arrow", ()=>setPmTool("arrow"),"#1e40af")}
-              <div style={{ display:"flex", gap:3, alignItems:"center", marginLeft:4 }}>
-                {[1,2,3,4].map(s=>(
-                  <button key={s} onClick={()=>setPmBrush(s)} style={{ width:s*7+10, height:s*7+10, borderRadius:"50%", border:`2px solid ${pmBrush===s?"#7c3aed":"#e2e8f0"}`, background:pmBrush===s?"#7c3aed":"#f8fafc", cursor:"pointer" }}/>
-                ))}
-              </div>
-              <button onClick={()=>setPmShowLabels(p=>!p)} style={{ padding:"5px 10px", borderRadius:7, border:`1.5px solid ${pmShowLabels?"#7c3aed":"#e2e8f0"}`, background:pmShowLabels?"rgba(124,58,237,0.08)":"#fff", color:pmShowLabels?"#7c3aed":"#64748b", fontWeight:700, fontSize:11, cursor:"pointer" }}>🏷 Etichette</button>
-            </div>
-
-            {/* Tipo dolore */}
-            <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
-              {PAIN_TYPES_PM.map(pt=>(
-                <button key={pt.id} onClick={()=>setPmPainType(pt.id)} style={{ padding:"4px 10px", borderRadius:99, border:`2px solid ${pmPainType===pt.id?pt.color:"#e2e8f0"}`, background:pmPainType===pt.id?pt.color+"18":"#fff", color:pmPainType===pt.id?pt.color:"#64748b", fontWeight:700, fontSize:11, cursor:"pointer", transform:pmPainType===pt.id?"scale(1.06)":"scale(1)" }}>
-                  {pt.emoji} {pt.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Intensità */}
-            <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-              <span style={{ fontSize:11, color:"#64748b", fontWeight:700 }}>Intensità:</span>
-              {([["Lieve","#16a34a",1],["Moderato","#f97316",2],["Severo","#dc2626",3]] as [string,string,number][]).map(([l,c,v])=>(
-                <button key={v} onClick={()=>setPmIntensity(v)} style={{ padding:"4px 12px", borderRadius:99, border:`2px solid ${pmIntensity===v?c:"#e2e8f0"}`, background:pmIntensity===v?c+"18":"#fff", color:c, fontWeight:700, fontSize:11, cursor:"pointer" }}>{l}</button>
-              ))}
-            </div>
-
-            {/* Corpo interattivo */}
-            {pmTool==="arrow" && (
-              <div style={{ fontSize:11, color:"#c2410c", fontWeight:700, padding:"6px 10px", background:"#fff7ed", borderRadius:7, border:"1px solid #fed7aa" }}>
-                {pmArrowStart ? "→ Clicca il punto di arrivo" : "→ Clicca il punto di partenza dell'irradiazione"}
-              </div>
-            )}
-            <div style={{ position:"relative", width:CW, height:CH, cursor:pmTool==="erase"?"cell":"crosshair", borderRadius:10, overflow:"hidden", boxShadow:"0 2px 12px rgba(0,0,0,0.1)" }}>
-              <div style={{ position:"absolute", inset:0, zIndex:1, pointerEvents:"none", background:"#f5f0eb" }}>
-                {pmBodyComponents[pmView]}
-              </div>
-              <PainMapCanvasSection
-                canvasW={CW} canvasH={CH}
-                zones={pmZones} view={pmView}
-                arrowStart={pmArrowStart} arrows={pmArrows}
-                showLabels={pmShowLabels}
-                onMouseDown={handleMouseDown} onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp} onMouseLeave={handleMouseLeave}
-              />
-            </div>
-          </div>
-
-          {/* Pannello destra */}
-          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-
-            {/* Preview 4 viste */}
-            <div style={{ background:"#f8fafc", borderRadius:10, border:"1px solid #e2e8f0", padding:"12px 14px" }}>
-              <div style={{ fontSize:11, fontWeight:700, color:"#0f172a", marginBottom:8 }}>Vista globale</div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
-                {PM_VIEWS.map(v=>(
-                  <button key={v} onClick={()=>setPmView(v)} style={{ background:pmView===v?"rgba(124,58,237,0.07)":"#fff", border:`1.5px solid ${pmView===v?"#7c3aed":"#e2e8f0"}`, borderRadius:8, padding:"6px 4px", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
-                    <div style={{ width:40, height:80, position:"relative", borderRadius:4, overflow:"hidden", background:"#f5f0eb" }}>
-                      <div style={{ position:"absolute", inset:0, pointerEvents:"none" }}>{pmBodyComponents[v]}</div>
-                      <PMiniCanvas zones={pmZones[v]} view={v}/>
-                    </div>
-                    <span style={{ fontSize:9, fontWeight:700, color:pmView===v?"#7c3aed":"#64748b" }}>{PM_VIEW_LABELS[v]}</span>
-                    <span style={{ fontSize:9, color:"#94a3b8" }}>{Object.keys(pmZones[v]).length}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* VAS */}
-            <div style={{ background:"#f8fafc", borderRadius:10, border:"1px solid #e2e8f0", padding:"12px 14px" }}>
-              <div style={{ fontSize:11, fontWeight:700, color:"#0f172a", marginBottom:6 }}>VAS – Scala del dolore</div>
-              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}>
-                <span style={{ fontSize:10, color:"#94a3b8" }}>0</span>
-                <div style={{ textAlign:"center" }}>
-                  <span style={{ fontSize:24, fontWeight:900, color:vasColor }}>{pmVas}</span>
-                  <div style={{ fontSize:10, fontWeight:700, color:vasColor }}>{vasLabel}</div>
-                </div>
-                <span style={{ fontSize:10, color:"#94a3b8" }}>10</span>
-              </div>
-              <input type="range" min="0" max="10" step="1" value={pmVas} onChange={e=>setPmVas(+e.target.value)} style={{ width:"100%", accentColor:vasColor }}/>
-            </div>
-
-            {/* Irradiazioni */}
-            {pmArrows.length > 0 && (
-              <div style={{ background:"#f8fafc", borderRadius:10, border:"1px solid #e2e8f0", padding:"12px 14px" }}>
-                <div style={{ fontSize:11, fontWeight:700, color:"#0f172a", marginBottom:8 }}>Irradiazioni ({pmArrows.length})</div>
-                {pmArrows.map((a,i)=>(
-                  <div key={a.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"4px 8px", background:"#fff", borderRadius:6, border:"1px solid #e2e8f0", marginBottom:4 }}>
-                    <span style={{ fontSize:11, color:"#334155" }}>{a.label||`Irradiazione ${i+1}`} <span style={{ color:"#94a3b8" }}>({PM_VIEW_LABELS[a.view]})</span></span>
-                    <button onClick={()=>setPmArrows(prev=>{const n=prev.filter(x=>x.id!==a.id);pushHistory(pmZones,n);return n;})} style={{ border:"none", background:"none", cursor:"pointer", color:"#dc2626", fontSize:14, padding:"0 2px" }}>×</button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Legenda */}
-            <div style={{ background:"#f8fafc", borderRadius:10, border:"1px solid #e2e8f0", padding:"12px 14px" }}>
-              <div style={{ fontSize:11, fontWeight:700, color:"#0f172a", marginBottom:8 }}>Legenda</div>
-              {PAIN_TYPES_PM.map(pt=>(
-                <div key={pt.id} style={{ display:"flex", alignItems:"center", gap:7, marginBottom:5 }}>
-                  <div style={{ width:12, height:12, borderRadius:3, background:pt.color+"99", border:`2px solid ${pt.color}`, flexShrink:0 }}/>
-                  <span style={{ fontSize:11, fontWeight:600, color:"#334155" }}>{pt.emoji} {pt.label}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Note */}
-            <div style={{ background:"#f8fafc", borderRadius:10, border:"1px solid #e2e8f0", padding:"12px 14px" }}>
-              <div style={{ fontSize:11, fontWeight:700, color:"#0f172a", marginBottom:6 }}>Note cliniche</div>
-              <textarea value={pmNotes} onChange={e=>setPmNotes(e.target.value)} placeholder="Tipo di dolore, quando compare, irradiazione, aggravanti/allevianti, durata..." rows={4}
-                style={{ width:"100%", border:"1px solid #e2e8f0", borderRadius:8, padding:"8px 10px", fontSize:12, resize:"vertical", outline:"none", color:"#0f172a", boxSizing:"border-box", fontFamily:"inherit", background:"#fff" }}/>
-            </div>
-          </div>
-        </div>
-      ) : (
-        /* Summary */
-        <div style={{ maxWidth:680 }}>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:20 }}>
-            {[{l:"VAS",v:`${pmVas}/10`,c:vasColor},{l:"Tipo dominante",v:summaryByType[0]?`${summaryByType[0].emoji} ${summaryByType[0].label}`:"—",c:"#0f172a"},{l:"Zone affette",v:`${totalCells}`,c:"#7c3aed"}].map(k=>(
-              <div key={k.l} style={{ background:"#f8fafc", borderRadius:10, padding:"12px 14px", border:"1px solid #e2e8f0" }}>
-                <div style={{ fontSize:10, color:"#94a3b8", fontWeight:700, textTransform:"uppercase", letterSpacing:0.5, marginBottom:4 }}>{k.l}</div>
-                <div style={{ fontSize:18, fontWeight:800, color:k.c }}>{k.v}</div>
-              </div>
-            ))}
-          </div>
-          {summaryByType.length > 0 && (
-            <div style={{ background:"#f8fafc", borderRadius:10, padding:"14px", border:"1px solid #e2e8f0", marginBottom:16 }}>
-              <div style={{ fontSize:12, fontWeight:700, color:"#0f172a", marginBottom:10 }}>Distribuzione per tipo</div>
-              {summaryByType.map(pt=>(
-                <div key={pt.id} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
-                  <span style={{ fontSize:13 }}>{pt.emoji}</span>
-                  <span style={{ fontSize:11, fontWeight:600, color:"#334155", width:88 }}>{pt.label}</span>
-                  <div style={{ flex:1, height:7, background:"#e2e8f0", borderRadius:4, overflow:"hidden" }}>
-                    <div style={{ height:"100%", width:`${Math.round(pt.cells/totalCells*100)}%`, background:pt.color, borderRadius:4 }}/>
-                  </div>
-                  <span style={{ fontSize:10, color:"#94a3b8", fontWeight:700, width:36, textAlign:"right" }}>{Math.round(pt.cells/totalCells*100)}%</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {pmNotes && (
-            <div style={{ background:"#f8fafc", borderRadius:10, padding:"14px", border:"1px solid #e2e8f0" }}>
-              <div style={{ fontSize:11, fontWeight:700, color:"#94a3b8", textTransform:"uppercase", letterSpacing:0.5, marginBottom:6 }}>Note cliniche</div>
-              <div style={{ fontSize:13, color:"#334155", lineHeight:1.6 }}>{pmNotes}</div>
-            </div>
-          )}
-          {totalCells===0 && !pmNotes && (
-            <div style={{ textAlign:"center", padding:"40px 0", color:"#94a3b8", fontSize:13 }}>Nessuna zona segnata.</div>
-          )}
-        </div>
-      )}
-    </section>
+    <PainMap
+      patientId={patientId}
+      studioId={studio.id}
+      ownerId={ownerId}
+      patientName={patientName}
+      embedded
+    />
   );
 }
-
-// ─── Fine Pain Map ─────────────────────────────────────────────────────────────
 
 
 type Plan   = "invoice" | "no_invoice";
@@ -711,6 +360,8 @@ export default function PatientDetailPage({
 
   // Studio corrente (multi-tenancy) — per firma e indirizzo nei messaggi
   const { studio: currentStudio } = useCurrentStudio();
+  const [ownerId, setOwnerId] = useState<string | null>(null);
+  useEffect(() => { supabase.auth.getUser().then(({ data }) => setOwnerId(data?.user?.id ?? null)); }, []);
 
   // Helper: costruisce la firma per i messaggi WA
   const buildFirma = useCallback((withTitle: boolean = true): string => {
@@ -3164,7 +2815,7 @@ ${rows}
           <SecHeader icon="🗺" title="Body Chart — Mappa del Dolore" subtitle="Dipingi le zone dolorose · irradiazioni · referto PDF" open={secBodyChart} onToggle={()=>setSecBodyChart(s=>!s)}/>
           {secBodyChart && (
             <div style={cardBody}>
-              <PainMapSection patientName={patient ? `${patient.last_name} ${patient.first_name}`.trim() : "Paziente"} studio={currentStudio}/>
+              <PainMapSection patientId={patientId} patientName={patient ? `${patient.last_name} ${patient.first_name}`.trim() : "Paziente"} studio={currentStudio} ownerId={ownerId ?? ""}/>
             </div>
           )}
         </section>
