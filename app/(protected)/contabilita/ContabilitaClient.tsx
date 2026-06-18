@@ -9,11 +9,12 @@ import {
   buildTsCsv,
   downloadTextFile,
   isPagamentoTracciato,
-  paymentLabel,
   effectiveOpposizione,
   patientFullName,
   type SpesaRow,
 } from "@/src/lib/contabilita/tsExport";
+import PaidPill from "@/src/components/PaidPill";
+import type { PaymentMethod } from "@/src/components/PaidPopover";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const T = {
@@ -51,6 +52,7 @@ export default function ContabilitaClient() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc"); // default: piu' recenti prima
 
   const [rows, setRows] = useState<SpesaRow[]>([]);
+  const [editRow, setEditRow] = useState<SpesaRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -119,11 +121,40 @@ export default function ContabilitaClient() {
 
   useEffect(() => { void load(); }, [load]);
 
+  // Ricarica quando si torna sulla pagina (es. dopo aver corretto l'appuntamento
+  // nel calendario), così le modifiche compaiono senza azioni manuali.
+  useEffect(() => {
+    const onVis = () => { if (document.visibilityState === "visible") void load(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [load]);
+
   // ─── Aggiornamenti per-riga (ottimistici) ─────────────────────────────
   async function patchRow(id: string, patch: Partial<SpesaRow>) {
     setRows(prev => prev.map(r => (r.id === id ? { ...r, ...patch } : r)));
     const { error: e } = await supabase.from("appointments").update(patch as any).eq("id", id);
     if (e) { setError(e.message); void load(); }
+  }
+
+  // Aggiornamento pagamento dal PaidPill (inline, senza lasciare Contabilità).
+  async function onPaidUpdate(id: string, next: { is_paid: boolean; paid_at: string | null; payment_method: PaymentMethod | null }) {
+    setRows(prev => prev.map(r => (r.id === id ? { ...r, payment_method: next.payment_method, paid_at: next.paid_at } : r)));
+    const { error: e } = await supabase.from("appointments").update({
+      is_paid: next.is_paid,
+      paid_at: next.paid_at,
+      payment_method: next.payment_method,
+    } as any).eq("id", id);
+    if (e) { setError(e.message); void load(); return; }
+    // Se l'appuntamento non è più "pagato" esce dall'elenco: ricarico.
+    if (!next.is_paid) void load();
+  }
+
+  // Salvataggio dalla finestra "Modifica spesa" (apre l'appuntamento in Contabilità).
+  async function saveEditRow(id: string, patch: Record<string, unknown>): Promise<boolean> {
+    const { error: e } = await supabase.from("appointments").update(patch as any).eq("id", id);
+    if (e) { setError(e.message); return false; }
+    await load();
+    return true;
   }
 
   // ─── Insiemi derivati ─────────────────────────────────────────────────
@@ -369,11 +400,20 @@ export default function ContabilitaClient() {
                           ) : (
                             <span style={{ fontWeight: 600, color: T.text }}>{patientFullName(r.patient) || "—"}</span>
                           )}
+                          <button
+                            onClick={() => setEditRow(r)}
+                            title="Apri e modifica la spesa (resti in Contabilità)"
+                            style={{ marginLeft: 8, border: "none", background: "transparent", color: T.teal, cursor: "pointer", fontWeight: 800, fontSize: 13 }}
+                          >✎</button>
                         </Td>
                         <Td>{cf ? <span style={{ fontFamily: "monospace", fontSize: 12, color: T.text }}>{cf.toUpperCase()}</span> : <span style={{ color: T.red, fontSize: 11, fontWeight: 700 }}>mancante</span>}</Td>
                         <Td><span style={{ fontWeight: 700, color: T.text }}>{euro2.format(r.amount ?? 0)}</span></Td>
                         <Td>
-                          <span style={{ fontWeight: 600, color: tracciato ? T.text : T.amber }}>{paymentLabel(r.payment_method)}</span>
+                          <PaidPill
+                            compact
+                            data={{ is_paid: true, paid_at: r.paid_at, payment_method: (r.payment_method as PaymentMethod | null), price_type: r.price_type }}
+                            onUpdate={(next) => onPaidUpdate(r.id, next)}
+                          />
                           {!tracciato && r.payment_method === "cash" && (
                             <span style={{ display: "block", fontSize: 10, color: T.muted }}>non detraibile</span>
                           )}
@@ -416,6 +456,15 @@ export default function ContabilitaClient() {
           <div style={{ marginTop: 6 }}>Cadenza 2026 annuale (dati {year} entro il 31 gennaio {year + 1}), con invii parziali possibili. La generazione dell&rsquo;XML conforme all&rsquo;XSD ufficiale è il passo successivo.</div>
         </div>
       </div>
+
+      {editRow && (
+        <EditSpesaModal
+          row={editRow}
+          tsDefault={tsDefault}
+          onClose={() => setEditRow(null)}
+          onSave={saveEditRow}
+        />
+      )}
     </div>
   );
 }
@@ -474,4 +523,128 @@ function SortableTh({ label, col, sortKey, sortDir, onSort }: {
 }
 function Td({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return <td style={{ padding: "9px 12px", whiteSpace: "nowrap", color: T.text, ...style }}>{children}</td>;
+}
+
+// ─── Finestra "Modifica spesa": apre l'appuntamento dentro Contabilità ─────────
+function toDateInputValue(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function isoWithDate(originalIso: string | null, ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const base = originalIso ? new Date(originalIso) : new Date();
+  if (isNaN(base.getTime())) base.setTime(Date.now());
+  base.setFullYear(y, (m || 1) - 1, d || 1);
+  return base.toISOString();
+}
+
+function EditSpesaModal({ row, tsDefault, onClose, onSave }: {
+  row: SpesaRow;
+  tsDefault: string;
+  onClose: () => void;
+  onSave: (id: string, patch: Record<string, unknown>) => Promise<boolean>;
+}) {
+  const [importo, setImporto] = useState(row.amount != null ? String(row.amount) : "");
+  const [fatturata, setFatturata] = useState(row.price_type === "invoiced");
+  const [metodo, setMetodo] = useState<string>(row.payment_method ?? "cash");
+  const [dataPag, setDataPag] = useState(toDateInputValue(row.paid_at));
+  const [tipoSpesa, setTipoSpesa] = useState(row.ts_tipo_spesa || tsDefault);
+  const [opp, setOpp] = useState(!!row.ts_opposizione);
+  const [escludi, setEscludi] = useState(!!row.ts_exclude);
+  const [busy, setBusy] = useState(false);
+
+  async function handleSave() {
+    setBusy(true);
+    const amountNum = parseFloat(importo.replace(",", "."));
+    const patch: Record<string, unknown> = {
+      amount: isNaN(amountNum) ? 0 : amountNum,
+      price_type: fatturata ? "invoiced" : "cash",
+      payment_method: fatturata ? metodo : "cash",
+      paid_at: dataPag ? isoWithDate(row.paid_at, dataPag) : row.paid_at,
+      ts_tipo_spesa: tipoSpesa,
+      ts_opposizione: opp,
+      ts_exclude: escludi,
+    };
+    const ok = await onSave(row.id, patch);
+    setBusy(false);
+    if (ok) onClose();
+  }
+
+  const labelS: React.CSSProperties = { display: "block", fontSize: 11, fontWeight: 700, color: T.muted, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.4 };
+  const inputS: React.CSSProperties = { width: "100%", padding: "9px 12px", borderRadius: 8, border: `1.5px solid ${T.border}`, fontSize: 14, color: T.text, background: "#fff", boxSizing: "border-box" };
+
+  return (
+    <div
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(15,23,42,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+    >
+      <div style={{ width: "100%", maxWidth: 460, background: "#fff", borderRadius: 16, boxShadow: "0 24px 64px rgba(15,23,42,0.3)", overflow: "hidden" }}>
+        <div style={{ padding: "16px 20px", background: T.gradient, color: "#fff" }}>
+          <div style={{ fontSize: 15, fontWeight: 800 }}>{patientFullName(row.patient) || "Spesa"}</div>
+          <div style={{ fontSize: 12, opacity: 0.9, marginTop: 2 }}>Seduta del {dateITA(row.ts_doc_date || row.paid_at)}</div>
+        </div>
+
+        <div style={{ padding: 20, display: "grid", gap: 14 }}>
+          <div>
+            <label style={labelS}>Importo (€)</label>
+            <input value={importo} onChange={e => setImporto(e.target.value)} placeholder="0,00" style={inputS} inputMode="decimal" />
+          </div>
+
+          <div>
+            <label style={labelS}>Tipo</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              {[{ k: true, l: "Fatturata" }, { k: false, l: "Contante (non fatturata)" }].map(o => (
+                <button
+                  key={String(o.k)}
+                  onClick={() => setFatturata(o.k)}
+                  style={{ flex: 1, padding: "9px 10px", borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+                    border: `1.5px solid ${fatturata === o.k ? T.teal : T.border}`,
+                    background: fatturata === o.k ? "rgba(13,148,136,0.10)" : "#fff",
+                    color: fatturata === o.k ? T.teal : T.muted }}
+                >{o.l}</button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ opacity: fatturata ? 1 : 0.5 }}>
+            <label style={labelS}>Metodo di pagamento</label>
+            <select value={metodo} onChange={e => setMetodo(e.target.value)} disabled={!fatturata} style={{ ...inputS, cursor: fatturata ? "pointer" : "not-allowed" }}>
+              <option value="cash">Contanti</option>
+              <option value="pos">POS</option>
+              <option value="bank_transfer">Bonifico</option>
+            </select>
+            {!fatturata && <div style={{ fontSize: 11, color: T.muted, marginTop: 5 }}>Le sedute non fatturate sono sempre in contanti.</div>}
+          </div>
+
+          <div>
+            <label style={labelS}>Data pagamento</label>
+            <input type="date" value={dataPag} onChange={e => setDataPag(e.target.value)} style={inputS} />
+          </div>
+
+          <div style={{ opacity: fatturata ? 1 : 0.5 }}>
+            <label style={labelS}>Tipo spesa (Sistema TS)</label>
+            <select value={tipoSpesa} onChange={e => setTipoSpesa(e.target.value)} disabled={!fatturata} style={{ ...inputS, cursor: fatturata ? "pointer" : "not-allowed" }}>
+              {TIPI_SPESA.map(t => <option key={t.code} value={t.code}>{t.code} · {t.label}</option>)}
+            </select>
+          </div>
+
+          <div style={{ display: "flex", gap: 18 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, cursor: "pointer" }}>
+              <input type="checkbox" checked={opp} onChange={e => setOpp(e.target.checked)} style={{ width: 16, height: 16, accentColor: T.amber }} /> Opposizione
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, cursor: "pointer" }}>
+              <input type="checkbox" checked={escludi} onChange={e => setEscludi(e.target.checked)} style={{ width: 16, height: 16, accentColor: T.gray }} /> Escludi dal TS
+            </label>
+          </div>
+        </div>
+
+        <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
+          <button onClick={onClose} disabled={busy} style={{ padding: "9px 16px", borderRadius: 9, fontSize: 13, fontWeight: 700, border: `1.5px solid ${T.border}`, background: "#fff", color: T.text, cursor: "pointer" }}>Annulla</button>
+          <button onClick={() => void handleSave()} disabled={busy} style={{ padding: "9px 18px", borderRadius: 9, fontSize: 13, fontWeight: 700, border: "none", background: T.teal, color: "#fff", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "Salvataggio…" : "Salva"}</button>
+        </div>
+      </div>
+    </div>
+  );
 }

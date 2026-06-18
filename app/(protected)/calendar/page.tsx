@@ -422,6 +422,10 @@ function CalendarPageInner() {
     package_id?: string | null;
   } | null>(null);
 
+  // Deep-link da Contabilità: ?appt=<id> → apre la scheda dell'appuntamento
+  // come un click normale, una volta caricati gli eventi del periodo.
+  const [pendingApptId, setPendingApptId] = useState<string | null>(null);
+
   // ─── Group operations: partecipanti, modifica/duplica/elimina (refactor B3.5) ───
   const groupOps = useGroupOperations({
     events,
@@ -725,7 +729,10 @@ function CalendarPageInner() {
     if (!clientReady) return;
     const dateStr = params.get("date");
     const view    = params.get("view");
-    if (!dateStr && !view) return;
+    const appt    = params.get("appt");
+    if (!dateStr && !view && !appt) return;
+
+    if (appt) setPendingApptId(appt);
 
     if (view && view !== "week") {
       setViewType(view === "month" ? "month" : "day");
@@ -739,6 +746,7 @@ function CalendarPageInner() {
     if (!params.get("new")) {
       url.searchParams.delete("date");
       url.searchParams.delete("view");
+      url.searchParams.delete("appt");
       window.history.replaceState({}, "", url.toString());
     }
   }, [clientReady]);
@@ -1726,6 +1734,18 @@ function CalendarPageInner() {
       }
     }
   }, [selectedEvent, events]);
+
+  // Deep-link ?appt=<id>: appena gli eventi del periodo sono caricati e
+  // contengono l'appuntamento, lo apriamo come un click normale.
+  useEffect(() => {
+    if (!pendingApptId) return;
+    const ev = events.find(e => e.id === pendingApptId);
+    if (!ev) return; // eventi del periodo non ancora caricati: riprova al prossimo cambio
+    setCurrentDate(new Date(ev.start));
+    setViewType("day");
+    handleSelectEventForModal(ev);
+    setPendingApptId(null);
+  }, [pendingApptId, events, handleSelectEventForModal]);
 
   // Nuova funzione per il drag and drop su slot di 30 minuti
 useEffect(() => {
