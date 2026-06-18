@@ -64,6 +64,9 @@ export type PracticeSettingsRow = {
   // Appuntamenti di gruppo (default per nuovi gruppi)
   default_group_price?: number | null;
   default_group_max_participants?: number | null;
+  // Sistema Tessera Sanitaria (mig. 042)
+  ts_enabled?: boolean | null;
+  ts_tipo_spesa_default?: string | null;
   created_at?: string;
   updated_at?: string;
 };

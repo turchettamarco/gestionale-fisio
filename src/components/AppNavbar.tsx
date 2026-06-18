@@ -1,19 +1,14 @@
 // src/components/AppNavbar.tsx
 // ═══════════════════════════════════════════════════════════════════════
-// Navbar globale unificata, usata da tutte le pagine protected eccetto
-// /calendar (che mantiene la sua CalendarTopBar dedicata per via della
-// campanella prenotazioni dal sito + click-to-navigate appuntamenti).
+// Navbar globale UNICA, usata da TUTTE le pagine protected, calendario incluso.
 //
-// Pagine che la usano:
-//   - / (Home)
-//   - /reports (riga 1, sotto c'è il sub-header Report)
-//   - /patients
-//   - /noleggio
-//   - /settings (sopra la sub-nav delle sezioni)
-//   - /piano (sopra la sub-nav dei piani)
+// Il calendario passa due prop opzionali (onNotificationAppointmentClick +
+// bookingSection) per: saltare alla data dell'appuntamento in-pagina quando si
+// clicca una notifica, e mostrare la sezione "Prenotazioni dal sito" nella
+// campanella. Le altre pagine non le passano e si comportano normalmente.
 //
-// Per uniformità futura: qualsiasi modifica alla nav globale (nuovo link,
-// badge, scorciatoia) si fa qui in un solo posto.
+// REGOLA: qualsiasi modifica alla nav globale (nuovo link, badge, scorciatoia)
+// si fa QUI, in un solo posto. Non esistono più altre navbar duplicate.
 // ═══════════════════════════════════════════════════════════════════════
 
 "use client";
@@ -27,16 +22,20 @@ import { useCurrentStudio } from "@/src/contexts/StudioContext";
 
 export type AppNavbarSection =
   | "home" | "calendar" | "reports" | "noleggio" | "patients"
-  | "settings" | "piano" | "none";
+  | "contabilita" | "settings" | "piano" | "none";
 
 export type AppNavbarProps = {
   /** Sezione attiva — evidenzia il link corrispondente nella nav */
   active: AppNavbarSection;
   /** Callback opzionale per il bottone refresh — se omesso il bottone non appare */
   onRefresh?: () => void;
+  /** Solo calendario: click su notifica appuntamento → salta alla data in-pagina. */
+  onNotificationAppointmentClick?: (appointmentId: string) => void;
+  /** Solo calendario: sezione "Prenotazioni dal sito" nella campanella. */
+  bookingSection?: { enabled: boolean; pendingCount: number; onOpenPanel: () => void };
 };
 
-export default function AppNavbar({ active, onRefresh }: AppNavbarProps) {
+export default function AppNavbar({ active, onRefresh, onNotificationAppointmentClick, bookingSection }: AppNavbarProps) {
   // ── User menu (gestione interna: ogni pagina non deve preoccuparsene) ──
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -123,6 +122,7 @@ export default function AppNavbar({ active, onRefresh }: AppNavbarProps) {
     { href: "/reports",  label: "Report",     key: "reports"  },
     { href: "/noleggio", label: "Noleggio",   key: "noleggio" },
     { href: "/patients", label: "Pazienti",   key: "patients" },
+    { href: "/contabilita", label: "Contabilità", key: "contabilita" },
   ];
 
   // Color tokens hardcoded per indipendenza dal contesto theme di una pagina
@@ -219,7 +219,11 @@ export default function AppNavbar({ active, onRefresh }: AppNavbarProps) {
             >↺</button>
           )}
 
-          <NotificationsBell enabled={bellEnabled} />
+          <NotificationsBell
+            enabled={bellEnabled}
+            onAppointmentClick={onNotificationAppointmentClick}
+            bookingSection={bookingSection}
+          />
 
           <div ref={userMenuRef} style={{ position: "relative" }}>
             <button

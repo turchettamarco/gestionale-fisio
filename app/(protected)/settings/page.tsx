@@ -1121,6 +1121,8 @@ export default function SettingsPage() {
   const [ownerFullName, setOwnerFullName]     = useState("");
   const [vatNumber, setVatNumber]             = useState("");
   const [pecEmail, setPecEmail]               = useState("");
+  const [tsEnabled, setTsEnabled]             = useState(false);
+  const [tsTipoSpesaDefault, setTsTipoSpesaDefault] = useState("SP");
 
   // Tariffe
   const [standardInvoice, setStandardInvoice] = useState("40.00");
@@ -1174,7 +1176,7 @@ export default function SettingsPage() {
       const uid = await requireUserId();
       const { data, error } = await supabase
         .from("practice_settings")
-        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, logo_base64, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices, reminder_message, weekly_reminder_message, payment_message, birthday_message, satisfaction_message, default_appointment_status, overlap_mode, monthly_revenue_goal, inactive_threshold_days, reminder_hours_before, welcome_message, booking_confirm_message, duration_seduta, duration_macchinario, duration_laser, duration_tecar, duration_onde_urto, duration_tens, default_group_price, default_group_max_participants, payment_method_required, default_payment_method")
+        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, logo_base64, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices, reminder_message, weekly_reminder_message, payment_message, birthday_message, satisfaction_message, default_appointment_status, overlap_mode, monthly_revenue_goal, inactive_threshold_days, reminder_hours_before, welcome_message, booking_confirm_message, duration_seduta, duration_macchinario, duration_laser, duration_tecar, duration_onde_urto, duration_tens, default_group_price, default_group_max_participants, payment_method_required, default_payment_method, ts_enabled, ts_tipo_spesa_default")
         .eq("owner_id", uid)
         .maybeSingle();
       if (error) throw new Error(error.message);
@@ -1212,6 +1214,7 @@ export default function SettingsPage() {
           payment_method_required: true, default_payment_method: "pos",
           monthly_revenue_goal: 2000, inactive_threshold_days: 45,
           reminder_hours_before: 24, auto_apply_prices: true,
+          ts_enabled: false, ts_tipo_spesa_default: "SP",
         };
         const { error: upsertErr } = await supabase.from("practice_settings").upsert(seed, { onConflict: "owner_id" });
         if (upsertErr) throw new Error(upsertErr.message);
@@ -1225,6 +1228,8 @@ export default function SettingsPage() {
       setOwnerFullName(data.owner_full_name ?? "");
       setVatNumber(data.vat_number ?? "");
       setPecEmail(data.pec_email ?? "");
+      setTsEnabled(Boolean((data as PracticeSettingsRow).ts_enabled));
+      setTsTipoSpesaDefault((data as PracticeSettingsRow).ts_tipo_spesa_default ?? "SP");
       setStandardInvoice(toMoneyString(data.standard_invoice, "40.00"));
       setStandardCash(toMoneyString(data.standard_cash, "35.00"));
       setMachineInvoice(toMoneyString(data.machine_invoice, "25.00"));
@@ -1293,6 +1298,9 @@ export default function SettingsPage() {
         owner_full_name: ownerFullName.trim() || "Titolare",
         vat_number:      vatNumber.trim() || "",
         pec_email:       pecEmail.trim() || "",
+        // Sistema Tessera Sanitaria (mig. 042)
+        ts_enabled:            tsEnabled,
+        ts_tipo_spesa_default: (tsTipoSpesaDefault || "SP").trim(),
         // Tariffe trattamenti (preferenze utente)
         standard_invoice:  toNumberSafe(standardInvoice, 40),
         standard_cash:     toNumberSafe(standardCash, 35),
@@ -1937,6 +1945,8 @@ export default function SettingsPage() {
               ownerFullName={ownerFullName} setOwnerFullName={setOwnerFullName}
               vatNumber={vatNumber} setVatNumber={setVatNumber}
               pecEmail={pecEmail} setPecEmail={setPecEmail}
+              tsEnabled={tsEnabled} setTsEnabled={setTsEnabled}
+              tsTipoSpesaDefault={tsTipoSpesaDefault} setTsTipoSpesaDefault={setTsTipoSpesaDefault}
               onReload={() => void loadPracticeSettings()}
               onSave={() => void savePracticeSettings()}
             />

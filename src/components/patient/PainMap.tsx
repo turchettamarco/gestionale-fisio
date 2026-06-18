@@ -7,10 +7,12 @@ import { supabase } from "@/src/lib/supabaseClient";
 type View = "front" | "back" | "right" | "left";
 type Intensity = 1 | 2 | 3;
 type PainPoint = { id: string; x: number; y: number; view: View; intensity: Intensity };
+// Catena di irradiazione: sequenza di tappe (x,y normalizzati) su una vista
+type RadChain = { id: string; view: View; nodes: { x: number; y: number }[] };
 
 type SavedMap = {
   id: string;
-  data: { points: PainPoint[]; zone?: string; view?: View };
+  data: { points: PainPoint[]; chains?: RadChain[]; zone?: string; view?: View };
   vas: number | null;
   notes: string | null;
   created_at: string;
@@ -39,7 +41,10 @@ export default function PainMap({
   const [view, setView] = useState<View>("front");
   const [intensity, setIntensity] = useState<Intensity>(2);
   const [erase, setErase] = useState(false);
+  const [radMode, setRadMode] = useState(false);          // modalità irradiazione (catena di tap)
   const [points, setPoints] = useState<PainPoint[]>([]);
+  const [chains, setChains] = useState<RadChain[]>([]);   // catene completate
+  const [activeChain, setActiveChain] = useState<RadChain | null>(null); // catena in costruzione
   const [vas, setVas] = useState(5);
   const [notes, setNotes] = useState("");
   const [zone, setZone] = useState("");
@@ -74,6 +79,17 @@ export default function PainMap({
     const y = (clientY - rect.top) / rect.height;
     if (x < 0 || x > 1 || y < 0 || y > 1) return;
 
+    // Modalità irradiazione: ogni tap aggiunge una tappa alla catena in corso
+    if (radMode) {
+      setActiveChain(c => {
+        if (c && c.view === view) return { ...c, nodes: [...c.nodes, { x, y }] };
+        // nuova catena (o cambio vista → chiudo la precedente)
+        if (c && c.nodes.length >= 2) setChains(cs => [...cs, c]);
+        return { id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, view, nodes: [{ x, y }] };
+      });
+      return;
+    }
+
     // Se c'è già un punto vicino (nella stessa vista) → rimuovilo
     const HIT = 0.045;
     const near = points.find(p => p.view === view && Math.abs(p.x - x) < HIT && Math.abs(p.y - y) < HIT);
@@ -84,24 +100,34 @@ export default function PainMap({
     setPoints(ps => [...ps, { id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, x, y, view, intensity }]);
   };
 
-  const clearAll = () => setPoints([]);
+  // Chiude la catena di irradiazione in costruzione
+  const endChain = () => {
+    setActiveChain(c => {
+      if (c && c.nodes.length >= 2) setChains(cs => [...cs, c]);
+      return null;
+    });
+  };
+
+  const clearAll = () => { setPoints([]); setChains([]); setActiveChain(null); };
 
   // ── Salva la mappa nello storico ──
   const save = async () => {
-    if (points.length === 0) return;
+    // chiudo eventuale catena in costruzione
+    const allChains = activeChain && activeChain.nodes.length >= 2 ? [...chains, activeChain] : chains;
+    if (points.length === 0 && allChains.length === 0) return;
     setSaving(true);
     const { error } = await supabase.from("pain_maps").insert({
       patient_id: patientId,
       studio_id: studioId,
       owner_id: ownerId,
-      data: { points, zone: zone.trim() || null, view },
+      data: { points, chains: allChains, zone: zone.trim() || null, view },
       vas,
       notes: notes.trim() || null,
     });
     setSaving(false);
     if (error) { alert("Errore nel salvataggio: " + error.message); return; }
     // reset e passa allo storico
-    setPoints([]); setNotes(""); setZone(""); setVas(5);
+    setPoints([]); setChains([]); setActiveChain(null); setNotes(""); setZone(""); setVas(5);
     setTab("history");
   };
 
@@ -112,6 +138,8 @@ export default function PainMap({
   };
 
   const visiblePoints = points.filter(p => p.view === view);
+  // catene da disegnare nella vista corrente (completate + quella attiva)
+  const visibleChains = [...chains, ...(activeChain ? [activeChain] : [])].filter(c => c.view === view);
 
   // Stile sfondo per ciascuna vista. Fronte/Retro = metà dell'immagine affiancata;
   // Laterale dx = immagine di profilo; Laterale sx = stessa immagine specchiata.
@@ -158,7 +186,10 @@ export default function PainMap({
       </div>
 
       {tab === "edit" ? (
-        <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+        <div style={{ flex: 1, overflowY: "auto", display: "flex",
+          flexDirection: embedded ? "row" : "column", alignItems: embedded ? "stretch" : undefined }}>
+          {/* Colonna corpo (vista + immagine) */}
+          <div style={{ display: "flex", flexDirection: "column", flex: embedded ? "1 1 auto" : undefined }}>
           {/* Toggle vista */}
           <div style={{ display: "flex", gap: 6, padding: "12px 16px 4px" }}>
             {([["front", "Fronte"], ["back", "Retro"], ["right", "Lat. Dx"], ["left", "Lat. Sx"]] as [View, string][]).map(([v, label]) => (
@@ -172,18 +203,42 @@ export default function PainMap({
           </div>
 
           {/* Immagine corpo con punti */}
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 8, position: "relative" }}>
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: embedded ? 18 : 8, position: "relative" }}>
             <div
               ref={imgWrapRef}
               onClick={handleTap}
               style={{
-                position: "relative", height: "min(52vh, 440px)", aspectRatio: aspectFor(view),
+                position: "relative", height: embedded ? "min(72vh, 720px)" : "min(52vh, 440px)", aspectRatio: aspectFor(view),
                 cursor: "crosshair", userSelect: "none", touchAction: "manipulation",
                 borderRadius: 12, overflow: "hidden", background: "#fff",
               }}
             >
               {/* sfondo (eventualmente specchiato per la vista sinistra) */}
               <div style={{ position: "absolute", inset: 0, ...bodyBg(view) }} />
+              {/* catene di irradiazione */}
+              {visibleChains.length > 0 && (
+                <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
+                  <defs>
+                    <marker id="radArrow" markerWidth="5" markerHeight="5" refX="3.5" refY="2.5" orient="auto">
+                      <path d="M0,0 L5,2.5 L0,5 Z" fill="#7c3aed" />
+                    </marker>
+                  </defs>
+                  {visibleChains.map(c => (
+                    <polyline key={c.id}
+                      points={c.nodes.map(n => `${n.x * 100},${n.y * 100}`).join(" ")}
+                      fill="none" stroke="#7c3aed" strokeWidth="0.9" strokeLinecap="round" strokeLinejoin="round"
+                      strokeDasharray="2.5 1.5" markerEnd="url(#radArrow)" vectorEffect="non-scaling-stroke" />
+                  ))}
+                </svg>
+              )}
+              {/* nodi delle catene (pallini viola piccoli) */}
+              {visibleChains.flatMap(c => c.nodes.map((n, i) => (
+                <div key={`${c.id}-${i}`} style={{
+                  position: "absolute", left: `${n.x * 100}%`, top: `${n.y * 100}%`,
+                  width: 11, height: 11, borderRadius: "50%", transform: "translate(-50%,-50%)",
+                  background: "#7c3aed", border: "2px solid #fff", boxShadow: "0 1px 3px rgba(0,0,0,.3)", pointerEvents: "none",
+                }} />
+              )))}
               {/* punti */}
               {visiblePoints.map(p => (
                 <div key={p.id} style={{
@@ -201,25 +256,49 @@ export default function PainMap({
               )}
             </div>
           </div>
+          </div>{/* fine colonna corpo */}
 
           {/* Strumenti */}
-          <div style={{ background: PANEL, borderTop: `1px solid ${LINE}`, padding: "14px 16px" }}>
+          <div style={{ background: PANEL,
+            borderTop: embedded ? "none" : `1px solid ${LINE}`,
+            borderLeft: embedded ? `1px solid ${LINE}` : "none",
+            padding: "14px 16px",
+            width: embedded ? 320 : undefined, flexShrink: 0,
+            display: "flex", flexDirection: "column", justifyContent: embedded ? "center" : undefined }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: .4, width: 62 }}>Intensità</span>
               <div style={{ display: "flex", gap: 7, flex: 1 }}>
                 {([1, 2, 3] as Intensity[]).map(lv => (
-                  <button key={lv} onClick={() => { setIntensity(lv); setErase(false); }} style={{
+                  <button key={lv} onClick={() => { setIntensity(lv); setErase(false); setRadMode(false); }} style={{
                     flex: 1, padding: "9px 0", borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: "pointer",
-                    border: intensity === lv && !erase ? "none" : `1.5px solid ${LINE}`,
-                    background: intensity === lv && !erase ? INTENSITY_COLOR[lv] : "#fff",
-                    color: intensity === lv && !erase ? "#fff" : BODY,
+                    border: intensity === lv && !erase && !radMode ? "none" : `1.5px solid ${LINE}`,
+                    background: intensity === lv && !erase && !radMode ? INTENSITY_COLOR[lv] : "#fff",
+                    color: intensity === lv && !erase && !radMode ? "#fff" : BODY,
                   }}>{INTENSITY_LABEL[lv]}</button>
                 ))}
-                <button onClick={() => setErase(e => !e)} style={{
+                <button onClick={() => { setErase(e => !e); setRadMode(false); }} style={{
                   flex: 1, padding: "9px 0", borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: "pointer",
                   border: erase ? "none" : `1.5px solid ${LINE}`,
                   background: erase ? "#64748b" : "#fff", color: erase ? "#fff" : BODY,
                 }}>Cancella</button>
+              </div>
+            </div>
+
+            {/* Irradiazione (catena di tap) */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: .4, width: 62 }}>Irradiaz.</span>
+              <div style={{ display: "flex", gap: 7, flex: 1 }}>
+                <button onClick={() => { setRadMode(m => !m); setErase(false); }} style={{
+                  flex: 2, padding: "9px 0", borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: "pointer",
+                  border: radMode ? "none" : `1.5px solid ${LINE}`,
+                  background: radMode ? "#7c3aed" : "#fff", color: radMode ? "#fff" : BODY,
+                }}>{radMode ? "Tocca le tappe…" : "Traccia irradiazione"}</button>
+                <button onClick={endChain} disabled={!activeChain || activeChain.nodes.length < 2} style={{
+                  flex: 1, padding: "9px 0", borderRadius: 9, fontSize: 12, fontWeight: 700,
+                  border: `1.5px solid ${LINE}`, background: "#fff", color: BODY,
+                  cursor: (!activeChain || activeChain.nodes.length < 2) ? "not-allowed" : "pointer",
+                  opacity: (!activeChain || activeChain.nodes.length < 2) ? 0.5 : 1,
+                }}>Fine</button>
               </div>
             </div>
 
@@ -242,11 +321,16 @@ export default function PainMap({
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={clearAll} style={{ flex: 1, padding: "13px 0", borderRadius: 11, fontSize: 14, fontWeight: 800,
                 border: `1.5px solid ${LINE}`, background: "#fff", color: BODY, cursor: "pointer" }}>Pulisci</button>
-              <button onClick={save} disabled={saving || points.length === 0} style={{
-                flex: 2, padding: "13px 0", borderRadius: 11, fontSize: 14, fontWeight: 800, border: "none",
-                background: points.length === 0 ? "#cbd5e1" : `linear-gradient(100deg,${TEAL},${BLUE})`,
-                color: "#fff", cursor: points.length === 0 ? "not-allowed" : "pointer", opacity: saving ? .6 : 1,
-              }}>{saving ? "Salvo…" : "💾 Salva nella scheda"}</button>
+              {(() => {
+                const hasContent = points.length > 0 || chains.length > 0 || (activeChain?.nodes.length ?? 0) >= 2;
+                return (
+                  <button onClick={save} disabled={saving || !hasContent} style={{
+                    flex: 2, padding: "13px 0", borderRadius: 11, fontSize: 14, fontWeight: 800, border: "none",
+                    background: !hasContent ? "#cbd5e1" : `linear-gradient(100deg,${TEAL},${BLUE})`,
+                    color: "#fff", cursor: !hasContent ? "not-allowed" : "pointer", opacity: saving ? .6 : 1,
+                  }}>{saving ? "Salvo…" : "💾 Salva nella scheda"}</button>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -265,6 +349,14 @@ export default function PainMap({
               {/* miniatura */}
               <div style={{ position: "relative", height: 96, aspectRatio: aspectFor((m.data?.view as View) ?? "front"), borderRadius: 8, overflow: "hidden", flexShrink: 0, background: "#fff" }}>
                 <div style={{ position: "absolute", inset: 0, ...bodyBg((m.data?.view as View) ?? "front") }} />
+                {(m.data?.chains ?? []).filter(c => c.view === (m.data?.view ?? "front")).length > 0 && (
+                  <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+                    {(m.data?.chains ?? []).filter(c => c.view === (m.data?.view ?? "front")).map(c => (
+                      <polyline key={c.id} points={c.nodes.map(n => `${n.x * 100},${n.y * 100}`).join(" ")}
+                        fill="none" stroke="#7c3aed" strokeWidth="1.4" strokeDasharray="3 2" vectorEffect="non-scaling-stroke" />
+                    ))}
+                  </svg>
+                )}
                 {(m.data?.points ?? []).filter(p => p.view === (m.data?.view ?? "front")).map(p => (
                   <div key={p.id} style={{ position: "absolute", left: `${p.x * 100}%`, top: `${p.y * 100}%`,
                     width: 9, height: 9, borderRadius: "50%", transform: "translate(-50%,-50%)",

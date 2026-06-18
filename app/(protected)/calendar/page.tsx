@@ -85,7 +85,7 @@ import QuickActionsMenu from "./components/popovers/QuickActionsMenu";
 // ─── Panels (B2.3, B2.4, B2.5) ───────────────────────────────────────────────
 import BookingRequestsPanel from "./components/panels/BookingRequestsPanel";
 import RightSidebar from "./components/panels/RightSidebar";
-import CalendarTopBar from "./components/panels/CalendarTopBar";
+import AppNavbar from "@/src/components/AppNavbar";
 import FiltersPopover from "./components/panels/FiltersPopover";
 import CalendarToolbar from "./components/panels/CalendarToolbar";
 import OperatorLegend from "./components/OperatorLegend";
@@ -1825,38 +1825,21 @@ return (
       `}</style>
 
       {/* ━━━ TOP NAVIGATION BAR ━━━ */}
-      <CalendarTopBar
-        pendingBookingsCount={bookingRequests.filter(r => r.status === "pending").length}
-        onOpenBookingPanel={() => setBookingPanel(v => !v)}
-        showBookingBell={currentStudio?.show_booking_bell_calendar === true}
-        notificationsBellEnabled={currentStudio?.notify_bell_enabled !== false}
+      <AppNavbar
+        active="calendar"
         onNotificationAppointmentClick={(apptId) => {
-          // Naviga il calendario alla data dell'appuntamento.
-          // Se l'appuntamento è visibile l'utente lo trova subito.
+          // Salta alla data dell'appuntamento dentro il calendario.
           const ev = events.find(e => e.id === apptId);
           if (ev?.start) {
             setCurrentDate(new Date(ev.start));
-            // Switch a vista giorno per focus immediato
             setViewType("day");
           }
         }}
-        userMenuOpen={userMenuOpen}
-        setUserMenuOpen={setUserMenuOpen}
-        userMenuRef={userMenuRef}
-        userInitials={userInitials}
-        onLogout={handleLogout}
-        guestPractitionersForMenu={
-          guestPractitionersEnabled && studioGuests.length > 0
-            ? studioGuests.map(g => ({
-                id: g.id,
-                first_name: g.first_name,
-                last_name: g.last_name,
-                specialty: g.specialty,
-                display_color: g.display_color,
-              }))
-            : undefined
-        }
-        useGuestIndexPage={(currentStudio as { use_guest_index_page?: boolean })?.use_guest_index_page === true}
+        bookingSection={{
+          enabled: currentStudio?.show_booking_bell_calendar === true,
+          pendingCount: bookingRequests.filter(r => r.status === "pending").length,
+          onOpenPanel: () => setBookingPanel(v => !v),
+        }}
       />
 
       {/* ━━━ PANNELLO PRENOTAZIONI DAL SITO ━━━ */}
