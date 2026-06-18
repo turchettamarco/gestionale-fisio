@@ -68,6 +68,9 @@ export type PracticeSettingsRow = {
   ts_enabled?: boolean | null;
   ts_tipo_spesa_default?: string | null;
   ts_numbering_mode?: string | null;
+  ts_cf_proprietario?: string | null;
+  ts_regime_forfettario?: boolean | null;
+  ts_dispositivo?: number | null;
   created_at?: string;
   updated_at?: string;
 };

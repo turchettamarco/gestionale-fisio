@@ -23,6 +23,9 @@ export type PracticeSectionProps = {
   tsEnabled: boolean; setTsEnabled: (v: boolean) => void;
   tsTipoSpesaDefault: string; setTsTipoSpesaDefault: (v: string) => void;
   tsNumberingMode: string; setTsNumberingMode: (v: string) => void;
+  tsCfProprietario: string; setTsCfProprietario: (v: string) => void;
+  tsRegimeForfettario: boolean; setTsRegimeForfettario: (v: boolean) => void;
+  tsDispositivo: number; setTsDispositivo: (v: number) => void;
   onReload: () => void;
   onSave: () => void;
 };
@@ -127,6 +130,52 @@ export default function PracticeSection(p: PracticeSectionProps) {
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            <div style={{ maxWidth: 520, marginTop: 18, opacity: p.tsEnabled ? 1 : 0.5 }}>
+              <label style={labelStyle}>Dati per il file XML (Sistema TS)</label>
+              <div style={{ display: "grid", gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 4 }}>Codice fiscale del professionista (tuo)</div>
+                  <input
+                    value={p.tsCfProprietario}
+                    onChange={e => p.setTsCfProprietario(e.target.value.toUpperCase())}
+                    disabled={!p.tsEnabled}
+                    placeholder="RSSMRA80A01H501U"
+                    maxLength={16}
+                    style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1.5px solid ${THEME.border}`, fontSize: 14, color: THEME.text, background: "#fff", boxSizing: "border-box", textTransform: "uppercase", letterSpacing: 1 }}
+                  />
+                  <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>Va nella radice del file (cfProprietario). Verrà cifrato con il certificato SOGEI in fase di generazione.</div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 4 }}>Regime fiscale</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {[
+                      { k: true, t: "Forfettario", d: "naturaIVA N2.2" },
+                      { k: false, t: "Ordinario (esente art.10)", d: "naturaIVA N4" },
+                    ].map(o => {
+                      const sel = p.tsRegimeForfettario === o.k;
+                      return (
+                        <button
+                          key={String(o.k)}
+                          onClick={() => p.tsEnabled && p.setTsRegimeForfettario(o.k)}
+                          disabled={!p.tsEnabled}
+                          style={{
+                            flex: "1 1 200px", textAlign: "left", padding: "10px 12px", borderRadius: 10,
+                            cursor: p.tsEnabled ? "pointer" : "not-allowed",
+                            border: `1.5px solid ${sel ? THEME.teal : THEME.border}`,
+                            background: sel ? "rgba(13,148,136,0.08)" : "#fff",
+                          }}
+                        >
+                          <div style={{ fontSize: 13, fontWeight: 700, color: sel ? THEME.teal : THEME.text }}>{o.t}</div>
+                          <div style={{ fontSize: 11, color: THEME.muted, marginTop: 3 }}>{o.d}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
