@@ -26,6 +26,10 @@ export type PracticeSectionProps = {
   tsCfProprietario: string; setTsCfProprietario: (v: string) => void;
   tsRegimeForfettario: boolean; setTsRegimeForfettario: (v: boolean) => void;
   tsDispositivo: number; setTsDispositivo: (v: number) => void;
+  tsWsUser: string; setTsWsUser: (v: string) => void;
+  tsWsPassword: string; setTsWsPassword: (v: string) => void;
+  tsWsPincode: string; setTsWsPincode: (v: string) => void;
+  tsWsAmbiente: "test" | "prod"; setTsWsAmbiente: (v: "test" | "prod") => void;
   onReload: () => void;
   onSave: () => void;
 };
@@ -175,6 +179,76 @@ export default function PracticeSection(p: PracticeSectionProps) {
                       );
                     })}
                   </div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ maxWidth: 520, marginTop: 18, opacity: p.tsEnabled ? 1 : 0.5 }}>
+              <label style={labelStyle}>Invio automatico al Sistema TS (Web Service)</label>
+              <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 10 }}>
+                Credenziali del Web Service Sistema TS, salvate solo nel tuo profilo. Il pincode viene cifrato al momento dell&apos;invio.
+              </div>
+              <div style={{ display: "grid", gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 4 }}>Ambiente</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {([
+                      { k: "test" as const, t: "Test (collaudo)", d: "ambiente di prova SOGEI" },
+                      { k: "prod" as const, t: "Produzione", d: "invio reale" },
+                    ]).map(o => {
+                      const sel = p.tsWsAmbiente === o.k;
+                      const accent = o.k === "prod" ? THEME.red : THEME.teal;
+                      return (
+                        <button
+                          key={o.k}
+                          onClick={() => p.tsEnabled && p.setTsWsAmbiente(o.k)}
+                          disabled={!p.tsEnabled}
+                          style={{
+                            flex: "1 1 200px", textAlign: "left", padding: "10px 12px", borderRadius: 10,
+                            cursor: p.tsEnabled ? "pointer" : "not-allowed",
+                            border: `1.5px solid ${sel ? accent : THEME.border}`,
+                            background: sel ? (o.k === "prod" ? "rgba(220,38,38,0.06)" : "rgba(13,148,136,0.08)") : "#fff",
+                          }}
+                        >
+                          <div style={{ fontSize: 13, fontWeight: 700, color: sel ? accent : THEME.text }}>{o.t}</div>
+                          <div style={{ fontSize: 11, color: THEME.muted, marginTop: 3 }}>{o.d}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 4 }}>Utente (userid Sistema TS)</div>
+                  <input
+                    value={p.tsWsUser}
+                    onChange={e => p.setTsWsUser(e.target.value)}
+                    disabled={!p.tsEnabled}
+                    placeholder="es. MTOMRA66A41G224M"
+                    style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1.5px solid ${THEME.border}`, fontSize: 14, color: THEME.text, background: "#fff", boxSizing: "border-box" }}
+                  />
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 4 }}>Password</div>
+                  <input
+                    type="password"
+                    value={p.tsWsPassword}
+                    onChange={e => p.setTsWsPassword(e.target.value)}
+                    disabled={!p.tsEnabled}
+                    placeholder="password web service"
+                    autoComplete="new-password"
+                    style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1.5px solid ${THEME.border}`, fontSize: 14, color: THEME.text, background: "#fff", boxSizing: "border-box" }}
+                  />
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 4 }}>Pincode</div>
+                  <input
+                    value={p.tsWsPincode}
+                    onChange={e => p.setTsWsPincode(e.target.value)}
+                    disabled={!p.tsEnabled}
+                    placeholder="pincode Sistema TS"
+                    style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1.5px solid ${THEME.border}`, fontSize: 14, color: THEME.text, background: "#fff", boxSizing: "border-box" }}
+                  />
+                  <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>Lo trovi sul portale: Profilo utente → Stampa pincode.</div>
                 </div>
               </div>
             </div>

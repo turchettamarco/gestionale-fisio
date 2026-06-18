@@ -71,6 +71,10 @@ export type PracticeSettingsRow = {
   ts_cf_proprietario?: string | null;
   ts_regime_forfettario?: boolean | null;
   ts_dispositivo?: number | null;
+  ts_ws_user?: string | null;
+  ts_ws_password?: string | null;
+  ts_ws_pincode?: string | null;
+  ts_ws_ambiente?: string | null;
   created_at?: string;
   updated_at?: string;
 };
