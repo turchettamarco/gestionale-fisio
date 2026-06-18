@@ -44,7 +44,7 @@ export default function ContabilitaClient() {
   const [year, setYear] = useState<number>(NOW_YEAR);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState<"" | "assign" | "export" | "sent">("");
+  const [busy, setBusy] = useState<"" | "assign" | "export" | "sent" | "reset" | "import">("");
 
   const [tsEnabled, setTsEnabled] = useState(false);
   const [tsDefault, setTsDefault] = useState("SP");
@@ -56,6 +56,7 @@ export default function ContabilitaClient() {
 
   const [rows, setRows] = useState<SpesaRow[]>([]);
   const [editRow, setEditRow] = useState<SpesaRow | null>(null);
+  const [showImport, setShowImport] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -79,7 +80,7 @@ export default function ContabilitaClient() {
       const { data, error: e } = await supabase
         .from("appointments")
         .select(
-          "id, paid_at, amount, payment_method, price_type, is_paid, guest_practitioner_id, patient_id, ts_exclude, ts_opposizione, ts_tipo_spesa, ts_doc_number, ts_doc_ref, ts_doc_year, ts_doc_date, ts_sent_at, patient:patients(first_name, last_name, tax_code, ts_opposizione)"
+          "id, paid_at, start_at, amount, payment_method, price_type, is_paid, guest_practitioner_id, patient_id, ts_exclude, ts_opposizione, ts_tipo_spesa, ts_doc_number, ts_doc_ref, ts_doc_year, ts_doc_date, ts_sent_at, patient:patients(first_name, last_name, tax_code, ts_opposizione)"
         )
         .eq("is_paid", true)
         .is("guest_practitioner_id", null)
@@ -95,6 +96,7 @@ export default function ContabilitaClient() {
           id: r.id,
           patient_id: r.patient_id ?? null,
           paid_at: r.paid_at ?? null,
+          session_at: r.start_at ?? null,
           amount: r.amount ?? null,
           payment_method: r.payment_method ?? null,
           price_type: r.price_type ?? null,
@@ -243,7 +245,7 @@ export default function ContabilitaClient() {
     }
     setBusy("export");
     try {
-      const sorted = [...numerate].sort((a, b) => (a.ts_doc_number ?? 0) - (b.ts_doc_number ?? 0));
+      const sorted = [...numerate].sort((a, b) => docNumber(a).localeCompare(docNumber(b), undefined, { numeric: true }));
       const csv = buildTsCsv(sorted, tsDefault);
       const suffix = month > 0 ? `-${String(month).padStart(2, "0")}` : "";
       downloadTextFile(`spese-sanitarie-TS-${year}${suffix}.csv`, csv);
@@ -271,7 +273,62 @@ export default function ContabilitaClient() {
     }
   }
 
-  // ─── Render ─────────────────────────────────────────────────────────────
+  // Azzera la numerazione dell'anno mostrato (NON tocca le sedute già inviate al TS).
+  async function doReset() {
+    const target = rows.filter(r => hasDocNumber(r) && !r.ts_sent_at);
+    if (target.length === 0) { alert("Niente da azzerare: nessuna seduta numerata e non ancora inviata in questo anno."); return; }
+    if (!confirm(`Azzeri la numerazione di ${target.length} sedute del ${year}?\nLe sedute già inviate al Sistema TS NON vengono toccate.`)) return;
+    setBusy("reset");
+    setError("");
+    try {
+      const ids = target.map(r => r.id);
+      const { error: e } = await supabase
+        .from("appointments")
+        .update({ ts_doc_number: null, ts_doc_ref: null, ts_doc_year: null, ts_doc_date: null } as any)
+        .in("id", ids);
+      if (e) throw new Error(e.message);
+      // In modalità FisioHub riallineo il contatore: riparte dopo l'ultimo numero già INVIATO (se c'è), altrimenti da 0.
+      if (numberingMode === "fisiohub") {
+        const { data: uid } = await supabase.auth.getUser();
+        const ownerId = uid?.user?.id;
+        if (ownerId) {
+          const maxSent = rows
+            .filter(r => r.ts_sent_at && r.ts_doc_number != null && r.ts_doc_year === year)
+            .reduce((m, r) => Math.max(m, r.ts_doc_number ?? 0), 0);
+          await supabase.from("ts_doc_counters")
+            .upsert({ owner_id: ownerId, year, last_number: maxSent } as any, { onConflict: "owner_id,year" });
+        }
+      }
+      await load();
+      alert("Numerazione azzerata.");
+    } catch (err: any) {
+      setError(err?.message || "Errore azzeramento numerazione");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  // Applica i numeri abbinati dall'import Xolo.
+  async function applyXoloImport(updates: { id: string; ts_doc_ref: string; ts_doc_date: string }[]): Promise<boolean> {
+    setBusy("import");
+    setError("");
+    try {
+      for (const u of updates) {
+        const { error: e } = await supabase
+          .from("appointments")
+          .update({ ts_doc_ref: u.ts_doc_ref, ts_doc_date: u.ts_doc_date } as any)
+          .eq("id", u.id);
+        if (e) throw new Error(e.message);
+      }
+      await load();
+      return true;
+    } catch (err: any) {
+      setError(err?.message || "Errore durante l'import");
+      return false;
+    } finally {
+      setBusy("");
+    }
+  }
   return (
     <div style={{ minHeight: "100vh", background: T.appBg }}>
       <AppNavbar active="contabilita" onRefresh={() => void load()} />
@@ -348,11 +405,19 @@ export default function ContabilitaClient() {
                 {busy === "assign" ? "Assegno…" : `Assegna numeri documento${daNumerareYear ? ` (${daNumerareYear})` : ""}`}
               </Btn>
             )}
+            {numberingMode === "external" && (
+              <Btn onClick={() => setShowImport(true)} disabled={busy !== ""} tone="teal">
+                Importa numeri da Xolo
+              </Btn>
+            )}
             <Btn onClick={doExport} disabled={busy !== "" || numerate.length === 0} tone="blue">
               {busy === "export" ? "Genero…" : `Genera file Sistema TS (CSV)`}
             </Btn>
             <Btn onClick={() => void doMarkSent()} disabled={busy !== "" || numerate.filter(r => r.ts_sent_at == null).length === 0} tone="outline">
               {busy === "sent" ? "Aggiorno…" : "Segna come inviate"}
+            </Btn>
+            <Btn onClick={() => void doReset()} disabled={busy !== "" || numerate.filter(r => r.ts_sent_at == null).length === 0} tone="outline">
+              {busy === "reset" ? "Azzero…" : "Azzera numerazione"}
             </Btn>
           </div>
         )}
@@ -475,6 +540,15 @@ export default function ContabilitaClient() {
           onSave={saveEditRow}
         />
       )}
+
+      {showImport && (
+        <ImportXoloModal
+          rows={rows}
+          year={year}
+          onClose={() => setShowImport(false)}
+          onApply={applyXoloImport}
+        />
+      )}
     </div>
   );
 }
@@ -590,7 +664,7 @@ function EditSpesaModal({ row, tsDefault, numberingMode, onClose, onSave }: {
     if (ok) onClose();
   }
 
-  const labelS: React.CSSProperties = { display: "block", fontSize: 11, fontWeight: 700, color: T.muted, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.4 };
+  const labelS: React.CSSProperties = { display: "block", fontSize: 11, fontWeight: 700, color: T.sub, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.4 };
   const inputS: React.CSSProperties = { width: "100%", padding: "9px 12px", borderRadius: 8, border: `1.5px solid ${T.border}`, fontSize: 14, color: T.text, background: "#fff", boxSizing: "border-box" };
 
   return (
@@ -601,7 +675,7 @@ function EditSpesaModal({ row, tsDefault, numberingMode, onClose, onSave }: {
       <div style={{ width: "100%", maxWidth: 460, background: "#fff", borderRadius: 16, boxShadow: "0 24px 64px rgba(15,23,42,0.3)", overflow: "hidden" }}>
         <div style={{ padding: "16px 20px", background: T.gradient, color: "#fff" }}>
           <div style={{ fontSize: 15, fontWeight: 800 }}>{patientFullName(row.patient) || "Spesa"}</div>
-          <div style={{ fontSize: 12, opacity: 0.9, marginTop: 2 }}>Seduta del {dateITA(row.ts_doc_date || row.paid_at)}</div>
+          <div style={{ fontSize: 12, opacity: 0.9, marginTop: 2 }}>Seduta del {dateITA(row.session_at || row.paid_at)}</div>
         </div>
 
         <div style={{ padding: 20, display: "grid", gap: 14 }}>
@@ -680,6 +754,353 @@ function EditSpesaModal({ row, tsDefault, numberingMode, onClose, onSave }: {
         <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
           <button onClick={onClose} disabled={busy} style={{ padding: "9px 16px", borderRadius: 9, fontSize: 13, fontWeight: 700, border: `1.5px solid ${T.border}`, background: "#fff", color: T.text, cursor: "pointer" }}>Annulla</button>
           <button onClick={() => void handleSave()} disabled={busy} style={{ padding: "9px 18px", borderRadius: 9, fontSize: 13, fontWeight: 700, border: "none", background: T.teal, color: "#fff", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "Salvataggio…" : "Salva"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══ Import numeri documento da Xolo (CSV) ════════════════════════════════
+type XoloInvoice = { cliente: string; numero: string; data: string; importo: number };
+
+function normName(s: string): string {
+  return (s || "")
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+function nameTokens(s: string): string {
+  return normName(s).split(" ").filter(Boolean).sort().join(" ");
+}
+function parseImporto(s: string): number {
+  if (!s) return NaN;
+  let t = s.trim().replace(/[€\s]/g, "");
+  if (t.includes(",") && t.includes(".")) t = t.replace(/\./g, "").replace(",", ".");
+  else if (t.includes(",")) t = t.replace(",", ".");
+  return parseFloat(t);
+}
+function dayDiff(iso: string | null, ymd: string): number {
+  if (!iso || !ymd) return 99999;
+  const a = new Date(iso).getTime();
+  const b = new Date(ymd + "T12:00:00").getTime();
+  if (isNaN(a) || isNaN(b)) return 99999;
+  return Math.round((a - b) / 86400000);
+}
+function splitCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = "", inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQ) {
+      if (c === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else inQ = false; }
+      else cur += c;
+    } else {
+      if (c === '"') inQ = true;
+      else if (c === ",") { out.push(cur); cur = ""; }
+      else cur += c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+function parseXoloCsv(text: string): XoloInvoice[] {
+  const lines = text.replace(/\r/g, "").split("\n").filter(l => l.trim() !== "");
+  if (lines.length === 0) return [];
+  const header = splitCsvLine(lines[0]).map(h => normName(h));
+  const iCliente = header.findIndex(h => h.includes("cliente"));
+  const iNumero  = header.findIndex(h => h.includes("numero"));
+  const iData    = header.findIndex(h => h === "data");
+  const iImporto = header.findIndex(h => h.includes("importo"));
+  const inv: XoloInvoice[] = [];
+  for (let k = 1; k < lines.length; k++) {
+    const cells = splitCsvLine(lines[k]);
+    const numero = (cells[iNumero >= 0 ? iNumero : 2] || "").trim();
+    if (!numero) continue;
+    inv.push({
+      cliente: (cells[iCliente >= 0 ? iCliente : 0] || "").trim(),
+      numero,
+      data: (cells[iData >= 0 ? iData : 3] || "").trim().slice(0, 10),
+      importo: parseImporto(cells[iImporto >= 0 ? iImporto : 5] || ""),
+    });
+  }
+  return inv;
+}
+
+// Cerca il sottoinsieme di sedute la cui somma (in centesimi) fa ESATTAMENTE il
+// totale fattura, preferendo le sedute più vicine alla data fattura (diff minore)
+// e, a parità, il minor numero di sedute. Ritorna gli id, o null se non esiste.
+function bestSubsetIds(items: { id: string; cents: number; diff: number }[], target: number): string[] | null {
+  const list = [...items].sort((a, b) => a.diff - b.diff).slice(0, 22);
+  const bestRef: { v: { ids: string[]; diff: number } | null } = { v: null };
+  const chosen: string[] = [];
+  let steps = 0;
+  function rec(idx: number, sum: number, diffSum: number) {
+    if (steps++ > 300000) return; // guardia anti-esplosione combinatoria
+    if (sum === target) {
+      const b = bestRef.v;
+      if (!b || diffSum < b.diff || (diffSum === b.diff && chosen.length < b.ids.length)) {
+        bestRef.v = { ids: chosen.slice(), diff: diffSum };
+      }
+      return;
+    }
+    if (sum > target || idx >= list.length) return; // importi positivi: pota
+    chosen.push(list[idx].id);
+    rec(idx + 1, sum + list[idx].cents, diffSum + list[idx].diff);
+    chosen.pop();
+    rec(idx + 1, sum, diffSum);
+  }
+  rec(0, 0, 0);
+  return bestRef.v ? bestRef.v.ids : null;
+}
+
+function ImportXoloModal({ rows, year, onClose, onApply }: {
+  rows: SpesaRow[];
+  year: number;
+  onClose: () => void;
+  onApply: (updates: { id: string; ts_doc_ref: string; ts_doc_date: string }[]) => Promise<boolean>;
+}) {
+  const [invoices, setInvoices] = useState<XoloInvoice[] | null>(null);
+  const [fileName, setFileName] = useState("");
+  const [parseErr, setParseErr] = useState("");
+  // assegnazione: id seduta -> indice fattura (una seduta appartiene a UNA sola fattura)
+  const [assign, setAssign] = useState<Record<string, number>>({});
+  const [onlyReview, setOnlyReview] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const pool = useMemo(
+    () => rows.filter(r => r.price_type === "invoiced" && r.patient && (r.amount ?? 0) > 0),
+    [rows]
+  );
+  const poolByName = useMemo(() => {
+    const m = new Map<string, SpesaRow[]>();
+    for (const r of pool) {
+      const k = nameTokens(patientFullName(r.patient));
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(r);
+    }
+    // ordino le sedute per data seduta crescente
+    for (const arr of m.values()) arr.sort((a, b) => (a.session_at || "").localeCompare(b.session_at || ""));
+    return m;
+  }, [pool]);
+
+  // numeri documento GIÀ presenti sulle sedute (per riconoscere i re-import)
+  const existingRefs = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of rows) if (r.ts_doc_ref && r.ts_doc_ref.trim()) s.add(r.ts_doc_ref.trim());
+    return s;
+  }, [rows]);
+
+  // abbinamento automatico: per ogni fattura cerca la COMBINAZIONE ESATTA di sedute
+  // che somma al totale fattura (preferendo le date più vicine). Se non c'è una
+  // combinazione esatta, lascia un parziale (greedy) da rivedere a mano.
+  useEffect(() => {
+    if (!invoices) return;
+    const next: Record<string, number> = {};
+    const used = new Set<string>();
+    const order = invoices.map((inv, i) => ({ inv, i })).sort((a, b) => a.inv.data.localeCompare(b.inv.data));
+    for (const { inv, i } of order) {
+      if (existingRefs.has(inv.numero.trim())) continue; // già importata: non riabbinare
+      const target = Math.round((inv.importo || 0) * 100);
+      if (!isFinite(target) || target <= 0) continue;
+      const avail = (poolByName.get(nameTokens(inv.cliente)) || [])
+        .filter(r => !used.has(r.id) && !(r.ts_doc_ref && r.ts_doc_ref.trim()));
+      const items = avail
+        .map(r => ({ id: r.id, cents: Math.round((r.amount ?? 0) * 100), diff: Math.abs(dayDiff(r.session_at, inv.data)) }))
+        .filter(it => it.cents > 0 && it.cents <= target);
+      let ids = bestSubsetIds(items, target);
+      if (!ids) {
+        // fallback parziale: aggiunge per data più vicina fino a raggiungere il totale
+        const greedy: string[] = [];
+        let sum = 0;
+        for (const it of [...items].sort((a, b) => a.diff - b.diff)) {
+          if (sum >= target) break;
+          greedy.push(it.id); sum += it.cents;
+        }
+        ids = greedy.length ? greedy : null;
+      }
+      if (ids) for (const id of ids) { next[id] = i; used.add(id); }
+    }
+    setAssign(next);
+    setOnlyReview(invoices.length > 12);
+  }, [invoices, poolByName, existingRefs]);
+
+  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    setParseErr("");
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const inv = parseXoloCsv(String(reader.result || ""));
+        if (inv.length === 0) { setParseErr("Nessuna fattura trovata nel file."); setInvoices(null); return; }
+        setInvoices(inv);
+      } catch {
+        setParseErr("File non leggibile. Carica il CSV scaricato da Xolo.");
+      }
+    };
+    reader.readAsText(file, "utf-8");
+  }
+
+  function toggle(sessionId: string, i: number, checked: boolean) {
+    setAssign(a => {
+      const n = { ...a };
+      if (checked) n[sessionId] = i; else delete n[sessionId];
+      return n;
+    });
+  }
+
+  const assignedSessions = useMemo(() => Object.keys(assign).length, [assign]);
+
+  // Stato per ogni fattura: ok (somma quadra) / attention (somma non quadra) / none (nessuna seduta).
+  const status = useMemo<("ok" | "attention" | "none" | "already")[]>(() => {
+    if (!invoices) return [];
+    return invoices.map((inv, i) => {
+      if (existingRefs.has(inv.numero.trim())) return "already";
+      const cands = poolByName.get(nameTokens(inv.cliente)) || [];
+      if (cands.length === 0) return "none";
+      const sumSel = cands.filter(r => assign[r.id] === i).reduce((s, r) => s + (r.amount ?? 0), 0);
+      if (Math.abs(sumSel - inv.importo) < 0.01 && sumSel > 0) return "ok";
+      return "attention";
+    });
+  }, [invoices, poolByName, assign, existingRefs]);
+  const okCount = useMemo(() => status.filter(s => s === "ok").length, [status]);
+  const attentionCount = useMemo(() => status.filter(s => s === "attention").length, [status]);
+  const noneCount = useMemo(() => status.filter(s => s === "none").length, [status]);
+  const alreadyCount = useMemo(() => status.filter(s => s === "already").length, [status]);
+  const reviewCount = useMemo(() => status.filter(s => s === "attention" || s === "none").length, [status]);
+
+  async function handleApply() {
+    if (!invoices) return;
+    const updates = Object.entries(assign).map(([id, i]) => ({
+      id,
+      ts_doc_ref: invoices[i].numero,
+      ts_doc_date: invoices[i].data,
+    }));
+    if (updates.length === 0) return;
+    setBusy(true);
+    const ok = await onApply(updates);
+    setBusy(false);
+    if (ok) onClose();
+  }
+
+  const labelS: React.CSSProperties = { display: "block", fontSize: 11, fontWeight: 700, color: T.sub, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.4 };
+
+  return (
+    <div
+      onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}
+      style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(15,23,42,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+    >
+      <div style={{ width: "100%", maxWidth: 720, maxHeight: "90vh", display: "flex", flexDirection: "column", background: "#fff", borderRadius: 16, boxShadow: "0 24px 64px rgba(15,23,42,0.3)", overflow: "hidden", color: T.text }}>
+        <div style={{ padding: "16px 20px", background: T.gradient, color: "#fff" }}>
+          <div style={{ fontSize: 16, fontWeight: 800 }}>Importa numeri da Xolo</div>
+          <div style={{ fontSize: 12, opacity: 0.95, marginTop: 2 }}>Carica il CSV del fatturato: abbino le fatture alle sedute del {year} per paziente e <strong>data della seduta</strong>. Una fattura può coprire più sedute.</div>
+        </div>
+
+        <div style={{ padding: 20, overflowY: "auto" }}>
+          <div style={{ marginBottom: 14 }}>
+            <label style={labelS}>File CSV (fatturato Xolo)</label>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <label style={{ display: "inline-flex", alignItems: "center", padding: "9px 16px", borderRadius: 9, fontSize: 13, fontWeight: 700, color: "#fff", background: T.teal, cursor: "pointer" }}>
+                Scegli file CSV
+                <input type="file" accept=".csv,text/csv" onChange={onFile} style={{ display: "none" }} />
+              </label>
+              <span style={{ fontSize: 13, color: fileName ? T.sub : T.muted, fontWeight: fileName ? 600 : 400 }}>
+                {fileName || "Nessun file selezionato"}
+              </span>
+            </div>
+            {parseErr && <div style={{ marginTop: 8, fontSize: 12.5, color: T.red }}>{parseErr}</div>}
+          </div>
+
+          {invoices && (
+            <>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+                <div style={{ fontSize: 12.5, color: T.sub }}>
+                  {invoices.length} fatture · <strong style={{ color: T.green }}>{okCount} ok ✓</strong>
+                  {attentionCount > 0 && <> · <strong style={{ color: T.amber }}>{attentionCount} da controllare</strong></>}
+                  {noneCount > 0 && <> · <strong style={{ color: T.muted }}>{noneCount} senza paziente in FisioHub</strong></>}
+                  {alreadyCount > 0 && <> · <strong style={{ color: T.blue }}>{alreadyCount} già importate</strong></>}
+                  {" · "}{assignedSessions} sedute selezionate
+                </div>
+                {reviewCount > 0 && (
+                  <div style={{ display: "inline-flex", border: `1.5px solid ${T.border}`, borderRadius: 9, overflow: "hidden", background: "#fff" }}>
+                    <button onClick={() => setOnlyReview(false)} style={{ padding: "6px 11px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: !onlyReview ? T.teal : "#fff", color: !onlyReview ? "#fff" : T.muted }}>Tutte ({invoices.length})</button>
+                    <button onClick={() => setOnlyReview(true)} style={{ padding: "6px 11px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: onlyReview ? T.teal : "#fff", color: onlyReview ? "#fff" : T.muted }}>Da controllare ({reviewCount})</button>
+                  </div>
+                )}
+              </div>
+
+              {onlyReview && reviewCount === 0 && (
+                <div style={{ fontSize: 13, color: T.green, fontWeight: 700, padding: "10px 0" }}>Tutte le fatture abbinate correttamente. Premi Applica.</div>
+              )}
+
+              <div style={{ display: "grid", gap: 12 }}>
+                {invoices.map((inv, i) => ({ inv, i })).filter(({ i }) => !onlyReview || (status[i] !== "ok" && status[i] !== "already")).map(({ inv, i }) => {
+                  const cands = poolByName.get(nameTokens(inv.cliente)) || [];
+                  const sumSel = cands.filter(r => assign[r.id] === i).reduce((s, r) => s + (r.amount ?? 0), 0);
+                  const ok = status[i] === "ok";
+                  const already = status[i] === "already";
+                  const partial = sumSel > 0 && !ok;
+                  return (
+                    <div key={i} style={{ border: `1.5px solid ${already ? T.blue : ok ? T.green : partial ? T.amber : T.border}`, borderRadius: 12, overflow: "hidden" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "10px 12px", background: T.soft }}>
+                        <div style={{ fontSize: 13, fontWeight: 800 }}>
+                          Fattura {inv.numero} · {dateITA(inv.data)} · {inv.cliente}
+                        </div>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: already ? T.blue : ok ? T.green : partial ? T.amber : T.muted }}>
+                          {already ? "già importata" : `${`€ ${sumSel.toFixed(2)} / € ${isNaN(inv.importo) ? "?" : inv.importo.toFixed(2)}`} ${ok ? "✓" : partial ? "⚠" : ""}`}
+                        </div>
+                      </div>
+                      <div style={{ padding: "8px 12px" }}>
+                        {already ? (
+                          <div style={{ fontSize: 12.5, color: T.sub }}>Numero <strong>{inv.numero}</strong> già presente su una seduta: la fattura non viene reimportata (nessun doppione).</div>
+                        ) : cands.length === 0 ? (
+                          <div style={{ fontSize: 12.5, color: T.muted, fontStyle: "italic" }}>Nessun paziente con sedute in FisioHub per «{inv.cliente}». Se è una cooperativa/società o un cliente non registrato, non viene importata (e le fatture B2B non vanno comunque nel Sistema TS).</div>
+                        ) : (
+                          <div style={{ display: "grid", gap: 4 }}>
+                            {cands.map(r => {
+                              const mine = assign[r.id] === i;
+                              const elseIdx = assign[r.id] != null && assign[r.id] !== i ? assign[r.id] : null;
+                              const taken = elseIdx != null;
+                              return (
+                                <label key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: taken ? T.muted : T.text, cursor: taken ? "not-allowed" : "pointer", padding: "2px 0" }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={mine}
+                                    disabled={taken}
+                                    onChange={e => toggle(r.id, i, e.target.checked)}
+                                    style={{ width: 15, height: 15, accentColor: T.teal }}
+                                  />
+                                  <span><strong>{dateITA(r.session_at)}</strong> · € {(r.amount ?? 0).toFixed(2)}</span>
+                                  {r.ts_doc_ref && <span style={{ color: T.muted }}>(già: {r.ts_doc_ref})</span>}
+                                  {taken && <span style={{ color: T.amber }}>→ fattura {invoices[elseIdx as number].numero}</span>}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ fontSize: 11.5, color: T.muted, marginTop: 12, lineHeight: 1.6 }}>
+                Le date mostrate sono quelle <strong>della seduta</strong>. Spunta le sedute coperte da ciascuna fattura: la somma deve combaciare col totale fattura (✓). Più sedute della stessa fattura verranno inviate al TS come <strong>un&rsquo;unica riga</strong> col totale. Le sedute già inviate non vanno toccate.
+              </div>
+            </>
+          )}
+        </div>
+
+        <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
+          <button onClick={onClose} disabled={busy} style={{ padding: "9px 16px", borderRadius: 9, fontSize: 13, fontWeight: 700, border: `1.5px solid ${T.border}`, background: "#fff", color: T.text, cursor: "pointer" }}>Annulla</button>
+          <button
+            onClick={() => void handleApply()}
+            disabled={busy || !invoices || assignedSessions === 0}
+            style={{ padding: "9px 18px", borderRadius: 9, fontSize: 13, fontWeight: 700, border: "none", background: T.teal, color: "#fff", cursor: (busy || assignedSessions === 0) ? "default" : "pointer", opacity: (busy || !invoices || assignedSessions === 0) ? 0.55 : 1 }}
+          >{busy ? "Importo…" : `Applica${assignedSessions ? ` (${assignedSessions})` : ""}`}</button>
         </div>
       </div>
     </div>

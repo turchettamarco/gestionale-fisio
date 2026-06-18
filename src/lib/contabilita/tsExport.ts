@@ -25,6 +25,7 @@ export type SpesaRow = {
   id: string;
   patient_id: string | null;
   paid_at: string | null;
+  session_at: string | null;
   amount: number | null;
   payment_method: string | null;       // 'cash' | 'pos' | 'bank_transfer' | null
   price_type: string | null;           // 'invoiced' (fatturata) | 'cash' | null
@@ -111,20 +112,33 @@ export function buildTsCsv(rows: SpesaRow[], defaultTipoSpesa: string): string {
     .map(csvCell)
     .join(";");
 
-  const lines = rows.map((r) =>
-    [
-      docNumber(r),
-      formatDateITA(r.ts_doc_date),
-      (r.patient?.tax_code || "").toUpperCase(),
-      patientFullName(r.patient),
-      effectiveTipoSpesa(r, defaultTipoSpesa),
-      formatImporto(r.amount),
-      isPagamentoTracciato(r.payment_method) ? "SI" : "NO",
-      effectiveOpposizione(r) ? "SI" : "NO",
+  const lines = Array.from(
+    rows.reduce((m, r) => {
+      const key = `${docNumber(r)}||${(r.patient?.tax_code || "").toUpperCase()}`;
+      if (!m.has(key)) m.set(key, []);
+      m.get(key)!.push(r);
+      return m;
+    }, new Map<string, SpesaRow[]>()).values()
+  ).map((g) => {
+    // Una stessa fattura può coprire PIÙ sedute: si aggregano in un'unica riga
+    // col totale sommato (regola Sistema TS: 1 documento = 1 riga).
+    const first = g[0];
+    const totale = g.reduce((s, r) => s + (r.amount ?? 0), 0);
+    const tracciato = g.every((r) => isPagamentoTracciato(r.payment_method));
+    const opposizione = g.some((r) => effectiveOpposizione(r));
+    return [
+      docNumber(first),
+      formatDateITA(first.ts_doc_date),
+      (first.patient?.tax_code || "").toUpperCase(),
+      patientFullName(first.patient),
+      effectiveTipoSpesa(first, defaultTipoSpesa),
+      formatImporto(totale),
+      tracciato ? "SI" : "NO",
+      opposizione ? "SI" : "NO",
     ]
       .map((c) => csvCell(String(c)))
-      .join(";")
-  );
+      .join(";");
+  });
 
   return "\uFEFF" + [header, ...lines].join("\r\n");
 }
