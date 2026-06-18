@@ -37,6 +37,8 @@ export type SpesaRow = {
   ts_doc_year: number | null;
   ts_doc_date: string | null;           // 'YYYY-MM-DD'
   ts_sent_at: string | null;
+  ts_protocollo?: string | null;
+  ts_esito?: string | null;
   patient: SpesaPatient | null;
 };
 

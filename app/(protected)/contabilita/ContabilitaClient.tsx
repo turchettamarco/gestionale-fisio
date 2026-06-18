@@ -45,7 +45,7 @@ export default function ContabilitaClient() {
   const [year, setYear] = useState<number>(NOW_YEAR);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState<"" | "assign" | "export" | "sent" | "reset" | "import" | "xml">("");
+  const [busy, setBusy] = useState<"" | "assign" | "export" | "sent" | "reset" | "import" | "xml" | "invio" | "esito">("");
 
   const [tsEnabled, setTsEnabled] = useState(false);
   const [tsDefault, setTsDefault] = useState("SP");
@@ -54,6 +54,11 @@ export default function ContabilitaClient() {
   const [tsPiva, setTsPiva] = useState("");
   const [tsDispositivo, setTsDispositivo] = useState(1);
   const [tsRegimeForfettario, setTsRegimeForfettario] = useState(true);
+  const [tsWsUser, setTsWsUser] = useState("");
+  const [tsWsPassword, setTsWsPassword] = useState("");
+  const [tsWsPincode, setTsWsPincode] = useState("");
+  const [tsWsAmbiente, setTsWsAmbiente] = useState<"test" | "prod">("test");
+  const [invioMsg, setInvioMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [onlyInvoiced, setOnlyInvoiced] = useState(true);
   const [month, setMonth] = useState<number>(0); // 0 = tutti i mesi
   const [sortKey, setSortKey] = useState<"date" | "name" | "payment">("date");
@@ -73,7 +78,7 @@ export default function ContabilitaClient() {
       if (uid) {
         const { data: ps } = await supabase
           .from("practice_settings")
-          .select("ts_enabled, ts_tipo_spesa_default, ts_numbering_mode, ts_cf_proprietario, ts_dispositivo, ts_regime_forfettario, vat_number")
+          .select("ts_enabled, ts_tipo_spesa_default, ts_numbering_mode, ts_cf_proprietario, ts_dispositivo, ts_regime_forfettario, vat_number, ts_ws_user, ts_ws_password, ts_ws_pincode, ts_ws_ambiente")
           .eq("owner_id", uid)
           .maybeSingle();
         setTsEnabled(Boolean((ps as any)?.ts_enabled));
@@ -83,13 +88,17 @@ export default function ContabilitaClient() {
         setTsPiva(((ps as any)?.vat_number as string || "").trim());
         setTsDispositivo(Number((ps as any)?.ts_dispositivo ?? 1) || 1);
         setTsRegimeForfettario((ps as any)?.ts_regime_forfettario !== false);
+        setTsWsUser(((ps as any)?.ts_ws_user as string || "").trim());
+        setTsWsPassword(((ps as any)?.ts_ws_password as string) || "");
+        setTsWsPincode(((ps as any)?.ts_ws_pincode as string || "").trim());
+        setTsWsAmbiente((ps as any)?.ts_ws_ambiente === "prod" ? "prod" : "test");
       }
 
       // Spese dell'anno: sedute pagate, non ospiti, con paziente
       const { data, error: e } = await supabase
         .from("appointments")
         .select(
-          "id, paid_at, start_at, amount, payment_method, price_type, is_paid, guest_practitioner_id, patient_id, ts_exclude, ts_opposizione, ts_tipo_spesa, ts_doc_number, ts_doc_ref, ts_doc_year, ts_doc_date, ts_sent_at, patient:patients(first_name, last_name, tax_code, ts_opposizione)"
+          "id, paid_at, start_at, amount, payment_method, price_type, is_paid, guest_practitioner_id, patient_id, ts_exclude, ts_opposizione, ts_tipo_spesa, ts_doc_number, ts_doc_ref, ts_doc_year, ts_doc_date, ts_sent_at, ts_protocollo, ts_esito, patient:patients(first_name, last_name, tax_code, ts_opposizione)"
         )
         .eq("is_paid", true)
         .is("guest_practitioner_id", null)
@@ -117,6 +126,8 @@ export default function ContabilitaClient() {
           ts_doc_year: r.ts_doc_year ?? null,
           ts_doc_date: r.ts_doc_date ?? null,
           ts_sent_at: r.ts_sent_at ?? null,
+          ts_protocollo: r.ts_protocollo ?? null,
+          ts_esito: r.ts_esito ?? null,
           patient: pat
             ? {
                 first_name: pat.first_name ?? null,
@@ -263,6 +274,38 @@ export default function ContabilitaClient() {
     }
   }
 
+  // Costruisce l'elenco documenti per TS (raggruppati per numero documento).
+  function buildTsDocuments(): { documents: any[]; skippedNoCf: number; includedIds: string[] } {
+    const map = new Map<string, SpesaRow[]>();
+    for (const r of numerate) {
+      const key = docNumber(r);
+      if (!key) continue;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(r);
+    }
+    let skippedNoCf = 0;
+    const documents: any[] = [];
+    const includedIds: string[] = [];
+    for (const g of Array.from(map.values())) {
+      const first = g[0];
+      const opp = g.some(effectiveOpposizione);
+      const cf = (first.patient?.tax_code || "").trim().toUpperCase();
+      if (!cf && !opp) { skippedNoCf++; continue; }
+      for (const x of g) includedIds.push(x.id);
+      documents.push({
+        numDocumento: docNumber(first),
+        dataEmissione: toDateInputValue(first.ts_doc_date || first.paid_at),
+        dataPagamento: toDateInputValue(first.paid_at),
+        cfCittadino: cf,
+        pagamentoTracciato: g.every(x => isPagamentoTracciato(x.payment_method)) ? "SI" : "NO",
+        flagOpposizione: opp ? "1" : "0",
+        tipoSpesa: effectiveTipoSpesa(first, tsDefault),
+        importo: g.reduce((s, x) => s + (x.amount ?? 0), 0),
+      });
+    }
+    return { documents, skippedNoCf, includedIds };
+  }
+
   // Genera il file XML ufficiale Sistema TS (CF cifrati lato server con SanitelCF.cer).
   async function doExportXml() {
     if (numerate.length === 0) {
@@ -276,32 +319,7 @@ export default function ContabilitaClient() {
     setBusy("xml");
     setError("");
     try {
-      // raggruppa per numero documento (una fattura = un documentoSpesa, importo sommato)
-      const map = new Map<string, SpesaRow[]>();
-      for (const r of numerate) {
-        const key = docNumber(r);
-        if (!key) continue;
-        if (!map.has(key)) map.set(key, []);
-        map.get(key)!.push(r);
-      }
-      let skippedNoCf = 0;
-      const documents = [];
-      for (const g of Array.from(map.values())) {
-        const first = g[0];
-        const opp = g.some(effectiveOpposizione);
-        const cf = (first.patient?.tax_code || "").trim().toUpperCase();
-        if (!cf && !opp) { skippedNoCf++; continue; } // CF obbligatorio salvo opposizione
-        documents.push({
-          numDocumento: docNumber(first),
-          dataEmissione: toDateInputValue(first.ts_doc_date || first.paid_at),
-          dataPagamento: toDateInputValue(first.paid_at),
-          cfCittadino: cf,
-          pagamentoTracciato: g.every(x => isPagamentoTracciato(x.payment_method)) ? "SI" : "NO",
-          flagOpposizione: opp ? "1" : "0",
-          tipoSpesa: effectiveTipoSpesa(first, tsDefault),
-          importo: g.reduce((s, x) => s + (x.amount ?? 0), 0),
-        });
-      }
+      const { documents, skippedNoCf } = buildTsDocuments();
       if (documents.length === 0) {
         setError("Nessun documento inviabile: mancano i codici fiscali dei pazienti.");
         return;
@@ -338,6 +356,126 @@ export default function ContabilitaClient() {
       }
     } catch (e: any) {
       setError(e?.message || "Errore nella generazione dell'XML");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  // Invia il file direttamente al Sistema TS via Web Service (SOAP MTOM).
+  async function doInvio() {
+    if (numerate.length === 0) {
+      alert("Nessuna spesa numerata da inviare. Numera/abbina prima i documenti.");
+      return;
+    }
+    if (!tsCfProprietario || !tsPiva) {
+      setError("Per l'invio servono il tuo codice fiscale e la partita IVA in Impostazioni → Sistema TS.");
+      return;
+    }
+    if (!tsWsUser || !tsWsPassword || !tsWsPincode) {
+      setError("Credenziali Web Service mancanti: inseriscile in Impostazioni → Sistema TS.");
+      return;
+    }
+    const ambienteLabel = tsWsAmbiente === "prod" ? "PRODUZIONE (invio reale)" : "TEST (collaudo)";
+    if (!confirm(`Invio al Sistema TS in ambiente ${ambienteLabel}.\n\nDocumenti numerati del periodo selezionato. Procedere?`)) return;
+
+    setBusy("invio");
+    setError("");
+    setInvioMsg(null);
+    try {
+      const { documents, skippedNoCf, includedIds } = buildTsDocuments();
+      if (documents.length === 0) {
+        setError("Nessun documento inviabile: mancano i codici fiscali dei pazienti.");
+        return;
+      }
+      const suffix = month > 0 ? `-${String(month).padStart(2, "0")}` : "";
+      const base = `spese-sanitarie-TS-${year}${suffix}`;
+      const res = await fetch("/api/ts-invio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cfProprietario: tsCfProprietario,
+          pIva: tsPiva,
+          dispositivo: tsDispositivo,
+          naturaIVA: tsRegimeForfettario ? "N2.2" : "N4",
+          fileName: base,
+          documents,
+          wsUser: tsWsUser,
+          wsPassword: tsWsPassword,
+          wsPincode: tsWsPincode,
+          ambiente: tsWsAmbiente,
+        }),
+      });
+      const j = await res.json().catch(() => ({} as any));
+      if (!res.ok || j.error) {
+        setInvioMsg({ ok: false, text: j.error || `Errore invio (HTTP ${res.status}).` });
+        return;
+      }
+      if (j.ok) {
+        // Punto 2: marca come inviate le spese incluse e salva il protocollo
+        if (includedIds.length > 0) {
+          const ts = new Date().toISOString();
+          await supabase.from("appointments").update({ ts_sent_at: ts, ts_protocollo: j.protocollo ?? null } as any).in("id", includedIds);
+          await load();
+        }
+        const extra = skippedNoCf > 0 ? ` — ${skippedNoCf} senza CF esclusi.` : "";
+        const prot = j.protocollo ? `Protocollo ${j.protocollo}. ` : "";
+        const det = j.descrizioneEsito || "In attesa di elaborazione: usa \"Verifica esito\" tra qualche minuto.";
+        setInvioMsg({ ok: true, text: `File accolto dal Sistema TS (${j.ambiente === "prod" ? "produzione" : "test"}). ${prot}${det}${extra}` });
+      } else {
+        const det = [j.codiceEsito && `esito ${j.codiceEsito}`, j.descrizioneEsito, j.idErrore && `idErrore ${j.idErrore}`].filter(Boolean).join(" — ");
+        setInvioMsg({ ok: false, text: `Il Sistema TS non ha accolto il file${det ? ": " + det : "."}` });
+      }
+    } catch (e: any) {
+      setInvioMsg({ ok: false, text: e?.message || "Errore di rete nell'invio." });
+    } finally {
+      setBusy("");
+    }
+  }
+
+  // Punto 1: verifica l'esito (ricevuta) degli invii del periodo tramite protocollo.
+  async function doVerificaEsito() {
+    const protos = Array.from(new Set(eligible.map(r => (r.ts_protocollo || "").trim()).filter(Boolean)));
+    if (protos.length === 0) {
+      setError("Nessun protocollo da verificare: invia prima le spese al Sistema TS.");
+      return;
+    }
+    if (!tsWsUser || !tsWsPassword || !tsWsPincode) {
+      setError("Credenziali Web Service mancanti: inseriscile in Impostazioni → Sistema TS.");
+      return;
+    }
+    setBusy("esito");
+    setError("");
+    setInvioMsg(null);
+    try {
+      const parts: string[] = [];
+      let anyErr = false;
+      for (const protocollo of protos) {
+        const res = await fetch("/api/ts-esito", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ protocollo, wsUser: tsWsUser, wsPassword: tsWsPassword, wsPincode: tsWsPincode, ambiente: tsWsAmbiente }),
+        });
+        const j = await res.json().catch(() => ({} as any));
+        if (!res.ok || j.error) { parts.push(`${protocollo}: ${j.error || "errore"}`); anyErr = true; continue; }
+        if (j.trovato && j.dettaglio) {
+          const d = j.dettaglio;
+          const sintesi = `inviati ${d.nInviati ?? "?"}, accolti ${d.nAccolti ?? "?"}` + (d.nErrori ? `, errori ${d.nErrori}` : "") + (d.nWarnings ? `, warning ${d.nWarnings}` : "");
+          parts.push(`${protocollo}: ${d.descrizione || j.descrizioneEsito || "esito"} (${sintesi})`);
+          if (d.nErrori) anyErr = true;
+          // salva esito sintetico sulle spese di quel protocollo
+          const esitoTxt = `${d.descrizione || j.descrizioneEsito || "esito"} — ${sintesi}`;
+          const ids = eligible.filter(r => (r.ts_protocollo || "").trim() === protocollo).map(r => r.id);
+          if (ids.length > 0) {
+            await supabase.from("appointments").update({ ts_esito: esitoTxt.slice(0, 300), ts_esito_at: new Date().toISOString() } as any).in("id", ids);
+          }
+        } else {
+          parts.push(`${protocollo}: ${j.descrizioneEsito || "ancora in elaborazione"}`);
+        }
+      }
+      await load();
+      setInvioMsg({ ok: !anyErr, text: "Esito Sistema TS — " + parts.join(" · ") });
+    } catch (e: any) {
+      setInvioMsg({ ok: false, text: e?.message || "Errore nella verifica esito." });
     } finally {
       setBusy("");
     }
@@ -476,6 +614,19 @@ export default function ContabilitaClient() {
           <div style={{ padding: "12px 16px", borderRadius: 10, background: "rgba(220,38,38,0.08)", border: `1px solid ${T.red}`, marginBottom: 16, fontSize: 13, color: T.red }}>{error}</div>
         )}
 
+        {invioMsg && (
+          <div style={{
+            padding: "12px 16px", borderRadius: 10, marginBottom: 16, fontSize: 13,
+            background: invioMsg.ok ? "rgba(22,163,74,0.08)" : "rgba(220,38,38,0.08)",
+            border: `1px solid ${invioMsg.ok ? T.green : T.red}`,
+            color: invioMsg.ok ? T.green : T.red,
+            display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start",
+          }}>
+            <span>{invioMsg.text}</span>
+            <button onClick={() => setInvioMsg(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontWeight: 700 }}>×</button>
+          </div>
+        )}
+
         {/* Cards riepilogo */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 18 }}>
           <Card label="Spese (anno)" value={String(eligible.length)} />
@@ -505,6 +656,14 @@ export default function ContabilitaClient() {
             <Btn onClick={() => void doExportXml()} disabled={busy !== "" || numerate.length === 0} tone="blue">
               {busy === "xml" ? "Genero…" : "Genera file Sistema TS (.zip XML)"}
             </Btn>
+            <Btn onClick={() => void doInvio()} disabled={busy !== "" || numerate.length === 0} tone={tsWsAmbiente === "prod" ? "red" : "teal"}>
+              {busy === "invio" ? "Invio…" : `Invia al Sistema TS${tsWsAmbiente === "test" ? " (test)" : ""}`}
+            </Btn>
+            {eligible.some(r => (r.ts_protocollo || "").trim()) && (
+              <Btn onClick={() => void doVerificaEsito()} disabled={busy !== ""} tone="outline">
+                {busy === "esito" ? "Verifico…" : "Verifica esito"}
+              </Btn>
+            )}
             <Btn onClick={() => void doMarkSent()} disabled={busy !== "" || numerate.filter(r => r.ts_sent_at == null).length === 0} tone="outline">
               {busy === "sent" ? "Aggiorno…" : "Segna come inviate"}
             </Btn>
@@ -656,11 +815,12 @@ function Card({ label, value, tone = "muted" }: { label: string; value: string; 
   );
 }
 
-function Btn({ children, onClick, disabled, tone }: { children: React.ReactNode; onClick: () => void; disabled?: boolean; tone: "teal" | "blue" | "outline" }) {
+function Btn({ children, onClick, disabled, tone }: { children: React.ReactNode; onClick: () => void; disabled?: boolean; tone: "teal" | "blue" | "outline" | "red" }) {
   const base: React.CSSProperties = { padding: "9px 16px", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer", border: "none", opacity: disabled ? 0.5 : 1 };
   const styles: React.CSSProperties =
     tone === "teal" ? { background: T.teal, color: "#fff" }
     : tone === "blue" ? { background: T.blue, color: "#fff" }
+    : tone === "red" ? { background: T.red, color: "#fff" }
     : { background: "#fff", color: T.text, border: `1.5px solid ${T.border}` };
   return <button onClick={onClick} disabled={disabled} style={{ ...base, ...styles }}>{children}</button>;
 }
