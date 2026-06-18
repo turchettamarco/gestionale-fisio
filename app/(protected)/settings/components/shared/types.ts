@@ -67,6 +67,7 @@ export type PracticeSettingsRow = {
   // Sistema Tessera Sanitaria (mig. 042)
   ts_enabled?: boolean | null;
   ts_tipo_spesa_default?: string | null;
+  ts_numbering_mode?: string | null;
   created_at?: string;
   updated_at?: string;
 };

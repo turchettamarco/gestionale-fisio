@@ -32,6 +32,7 @@ export type SpesaRow = {
   ts_tipo_spesa: string | null;
   ts_opposizione: boolean | null;
   ts_doc_number: number | null;
+  ts_doc_ref: string | null;
   ts_doc_year: number | null;
   ts_doc_date: string | null;           // 'YYYY-MM-DD'
   ts_sent_at: string | null;
@@ -63,6 +64,16 @@ export function effectiveOpposizione(row: SpesaRow): boolean {
 export function patientFullName(p: SpesaPatient | null): string {
   if (!p) return "";
   return [p.last_name, p.first_name].filter(Boolean).join(" ").trim();
+}
+
+/** Numero documento "ufficiale": testo (Xolo) se presente, altrimenti il progressivo. */
+export function docNumber(r: SpesaRow): string {
+  if (r.ts_doc_ref && r.ts_doc_ref.trim()) return r.ts_doc_ref.trim();
+  return r.ts_doc_number != null ? String(r.ts_doc_number) : "";
+}
+
+export function hasDocNumber(r: SpesaRow): boolean {
+  return docNumber(r) !== "";
 }
 
 function formatDateITA(ymd: string | null): string {
@@ -102,7 +113,7 @@ export function buildTsCsv(rows: SpesaRow[], defaultTipoSpesa: string): string {
 
   const lines = rows.map((r) =>
     [
-      r.ts_doc_number != null ? String(r.ts_doc_number) : "",
+      docNumber(r),
       formatDateITA(r.ts_doc_date),
       (r.patient?.tax_code || "").toUpperCase(),
       patientFullName(r.patient),

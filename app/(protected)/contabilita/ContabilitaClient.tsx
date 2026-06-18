@@ -11,6 +11,8 @@ import {
   isPagamentoTracciato,
   effectiveOpposizione,
   patientFullName,
+  docNumber,
+  hasDocNumber,
   type SpesaRow,
 } from "@/src/lib/contabilita/tsExport";
 import PaidPill from "@/src/components/PaidPill";
@@ -46,6 +48,7 @@ export default function ContabilitaClient() {
 
   const [tsEnabled, setTsEnabled] = useState(false);
   const [tsDefault, setTsDefault] = useState("SP");
+  const [numberingMode, setNumberingMode] = useState<"external" | "fisiohub">("external");
   const [onlyInvoiced, setOnlyInvoiced] = useState(true);
   const [month, setMonth] = useState<number>(0); // 0 = tutti i mesi
   const [sortKey, setSortKey] = useState<"date" | "name" | "payment">("date");
@@ -64,18 +67,19 @@ export default function ContabilitaClient() {
       if (uid) {
         const { data: ps } = await supabase
           .from("practice_settings")
-          .select("ts_enabled, ts_tipo_spesa_default")
+          .select("ts_enabled, ts_tipo_spesa_default, ts_numbering_mode")
           .eq("owner_id", uid)
           .maybeSingle();
         setTsEnabled(Boolean((ps as any)?.ts_enabled));
         setTsDefault(((ps as any)?.ts_tipo_spesa_default as string) || "SP");
+        setNumberingMode(((ps as any)?.ts_numbering_mode as string) === "fisiohub" ? "fisiohub" : "external");
       }
 
       // Spese dell'anno: sedute pagate, non ospiti, con paziente
       const { data, error: e } = await supabase
         .from("appointments")
         .select(
-          "id, paid_at, amount, payment_method, price_type, is_paid, guest_practitioner_id, patient_id, ts_exclude, ts_opposizione, ts_tipo_spesa, ts_doc_number, ts_doc_year, ts_doc_date, ts_sent_at, patient:patients(first_name, last_name, tax_code, ts_opposizione)"
+          "id, paid_at, amount, payment_method, price_type, is_paid, guest_practitioner_id, patient_id, ts_exclude, ts_opposizione, ts_tipo_spesa, ts_doc_number, ts_doc_ref, ts_doc_year, ts_doc_date, ts_sent_at, patient:patients(first_name, last_name, tax_code, ts_opposizione)"
         )
         .eq("is_paid", true)
         .is("guest_practitioner_id", null)
@@ -98,6 +102,7 @@ export default function ContabilitaClient() {
           ts_tipo_spesa: r.ts_tipo_spesa ?? null,
           ts_opposizione: r.ts_opposizione ?? false,
           ts_doc_number: r.ts_doc_number ?? null,
+          ts_doc_ref: r.ts_doc_ref ?? null,
           ts_doc_year: r.ts_doc_year ?? null,
           ts_doc_date: r.ts_doc_date ?? null,
           ts_sent_at: r.ts_sent_at ?? null,
@@ -194,14 +199,14 @@ export default function ContabilitaClient() {
   );
   const senza_cf   = useMemo(() => eligible.filter(r => !r.patient?.tax_code), [eligible]);
   const contanti   = useMemo(() => eligible.filter(r => !isPagamentoTracciato(r.payment_method)), [eligible]);
-  const da_numerare = useMemo(() => eligible.filter(r => r.ts_doc_number == null), [eligible]);
-  const numerate   = useMemo(() => eligible.filter(r => r.ts_doc_number != null), [eligible]);
+  const da_numerare = useMemo(() => eligible.filter(r => !hasDocNumber(r)), [eligible]);
+  const numerate   = useMemo(() => eligible.filter(r => hasDocNumber(r)), [eligible]);
   const inviate    = useMemo(() => eligible.filter(r => r.ts_sent_at != null), [eligible]);
   const totale     = useMemo(() => eligible.reduce((s, r) => s + (r.amount ?? 0), 0), [eligible]);
 
   // Da numerare a livello ANNO (l'assegnazione numeri e' sempre annuale).
   const daNumerareYear = useMemo(
-    () => rows.filter(r => r.price_type === "invoiced" && !r.ts_exclude && (r.amount ?? 0) > 0 && r.patient && r.ts_doc_number == null).length,
+    () => rows.filter(r => r.price_type === "invoiced" && !r.ts_exclude && (r.amount ?? 0) > 0 && r.patient && !hasDocNumber(r)).length,
     [rows]
   );
 
@@ -338,9 +343,11 @@ export default function ContabilitaClient() {
         {/* Azioni */}
         {tsEnabled && (
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-            <Btn onClick={() => void doAssign()} disabled={busy !== ""} tone="teal">
-              {busy === "assign" ? "Assegno…" : `Assegna numeri documento${daNumerareYear ? ` (${daNumerareYear})` : ""}`}
-            </Btn>
+            {numberingMode === "fisiohub" && (
+              <Btn onClick={() => void doAssign()} disabled={busy !== ""} tone="teal">
+                {busy === "assign" ? "Assegno…" : `Assegna numeri documento${daNumerareYear ? ` (${daNumerareYear})` : ""}`}
+              </Btn>
+            )}
             <Btn onClick={doExport} disabled={busy !== "" || numerate.length === 0} tone="blue">
               {busy === "export" ? "Genero…" : `Genera file Sistema TS (CSV)`}
             </Btn>
@@ -390,7 +397,7 @@ export default function ContabilitaClient() {
                     const locked = excluded || !fatturata;
                     return (
                       <tr key={r.id} style={{ borderTop: `1px solid ${T.border}`, opacity: (excluded || !fatturata) ? 0.5 : 1, background: sent ? "rgba(22,163,74,0.04)" : "transparent" }}>
-                        <Td><span style={{ fontWeight: 700, color: r.ts_doc_number != null ? T.text : T.gray }}>{r.ts_doc_number ?? "—"}</span></Td>
+                        <Td><span style={{ fontWeight: 700, color: hasDocNumber(r) ? T.text : T.gray }}>{docNumber(r) || "—"}</span></Td>
                         <Td><span style={{ color: T.text }}>{dateITA(r.ts_doc_date || r.paid_at)}</span></Td>
                         <Td>
                           {r.patient_id ? (
@@ -440,7 +447,7 @@ export default function ContabilitaClient() {
                             onChange={e => void patchRow(r.id, { ts_exclude: e.target.checked })}
                             style={{ width: 16, height: 16, cursor: !fatturata ? "not-allowed" : "pointer", accentColor: T.gray }} />
                         </Td>
-                        <Td>{!fatturata ? <Badge tone="gray">Non fatturata</Badge> : sent ? <Badge tone="green">Inviata</Badge> : excluded ? <Badge tone="gray">Esclusa</Badge> : r.ts_doc_number != null ? <Badge tone="blue">Numerata</Badge> : <Badge tone="gray">Da numerare</Badge>}</Td>
+                        <Td>{!fatturata ? <Badge tone="gray">Non fatturata</Badge> : sent ? <Badge tone="green">Inviata</Badge> : excluded ? <Badge tone="gray">Esclusa</Badge> : hasDocNumber(r) ? <Badge tone="blue">Numerata</Badge> : <Badge tone="gray">Da numerare</Badge>}</Td>
                       </tr>
                     );
                   })}
@@ -451,7 +458,9 @@ export default function ContabilitaClient() {
         </div>
 
         <div style={{ marginTop: 14, fontSize: 11.5, color: T.muted, lineHeight: 1.7 }}>
-          <div><strong style={{ color: T.sub }}>Come funziona:</strong> al Sistema TS vanno solo le sedute <strong>fatturate</strong>; le sedute in contanti non fatturate non si numerano e non vengono inviate. Premi <strong>Assegna numeri documento</strong> per dare il numero progressivo alle fatturate dell&rsquo;anno, poi <strong>Genera file Sistema TS</strong>.</div>
+          <div><strong style={{ color: T.sub }}>Come funziona:</strong> al Sistema TS vanno solo le sedute <strong>fatturate</strong>; le sedute in contanti non fatturate non si numerano e non vengono inviate. {numberingMode === "external"
+            ? <>Inserisci il <strong>numero della ricevuta</strong> (es. da Xolo) con la ✎ su ogni riga, poi <strong>Genera file Sistema TS</strong>.</>
+            : <>Premi <strong>Assegna numeri documento</strong> per il progressivo, poi <strong>Genera file Sistema TS</strong>.</>}</div>
           <div style={{ marginTop: 6 }}><strong style={{ color: T.sub }}>Opposiz.</strong> = il paziente si oppone all&rsquo;invio della spesa all&rsquo;Agenzia delle Entrate (resta nei tuoi documenti ma non finisce nel suo 730 precompilato). <strong style={{ color: T.sub }}>Escludi</strong> = togli la singola seduta dall&rsquo;invio (es. fattura B2B a società/assicurazione).</div>
           <div style={{ marginTop: 6 }}>Cadenza 2026 annuale (dati {year} entro il 31 gennaio {year + 1}), con invii parziali possibili. La generazione dell&rsquo;XML conforme all&rsquo;XSD ufficiale è il passo successivo.</div>
         </div>
@@ -461,6 +470,7 @@ export default function ContabilitaClient() {
         <EditSpesaModal
           row={editRow}
           tsDefault={tsDefault}
+          numberingMode={numberingMode}
           onClose={() => setEditRow(null)}
           onSave={saveEditRow}
         />
@@ -540,9 +550,10 @@ function isoWithDate(originalIso: string | null, ymd: string): string {
   return base.toISOString();
 }
 
-function EditSpesaModal({ row, tsDefault, onClose, onSave }: {
+function EditSpesaModal({ row, tsDefault, numberingMode, onClose, onSave }: {
   row: SpesaRow;
   tsDefault: string;
+  numberingMode: "external" | "fisiohub";
   onClose: () => void;
   onSave: (id: string, patch: Record<string, unknown>) => Promise<boolean>;
 }) {
@@ -553,6 +564,8 @@ function EditSpesaModal({ row, tsDefault, onClose, onSave }: {
   const [tipoSpesa, setTipoSpesa] = useState(row.ts_tipo_spesa || tsDefault);
   const [opp, setOpp] = useState(!!row.ts_opposizione);
   const [escludi, setEscludi] = useState(!!row.ts_exclude);
+  const [numDoc, setNumDoc] = useState(row.ts_doc_ref ?? (row.ts_doc_number != null ? String(row.ts_doc_number) : ""));
+  const [dataDoc, setDataDoc] = useState(toDateInputValue(row.ts_doc_date));
   const [busy, setBusy] = useState(false);
 
   async function handleSave() {
@@ -567,6 +580,11 @@ function EditSpesaModal({ row, tsDefault, onClose, onSave }: {
       ts_opposizione: opp,
       ts_exclude: escludi,
     };
+    // In modalità Esterna (Xolo) il numero/data documento si inseriscono a mano.
+    if (numberingMode === "external") {
+      patch.ts_doc_ref = numDoc.trim() || null;
+      patch.ts_doc_date = (dataDoc || dataPag) || null;
+    }
     const ok = await onSave(row.id, patch);
     setBusy(false);
     if (ok) onClose();
@@ -629,6 +647,25 @@ function EditSpesaModal({ row, tsDefault, onClose, onSave }: {
               {TIPI_SPESA.map(t => <option key={t.code} value={t.code}>{t.code} · {t.label}</option>)}
             </select>
           </div>
+
+          {fatturata && (
+            numberingMode === "external" ? (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={labelS}>Numero documento</label>
+                  <input value={numDoc} onChange={e => setNumDoc(e.target.value)} placeholder="es. 2026/123 (Xolo)" style={inputS} />
+                </div>
+                <div>
+                  <label style={labelS}>Data documento</label>
+                  <input type="date" value={dataDoc} onChange={e => setDataDoc(e.target.value)} style={inputS} />
+                </div>
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: T.muted, background: "rgba(148,163,184,0.08)", border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 12px" }}>
+                Numero documento: <strong style={{ color: T.text }}>{numDoc || "verrà assegnato da FisioHub"}</strong>
+              </div>
+            )
+          )}
 
           <div style={{ display: "flex", gap: 18 }}>
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, cursor: "pointer" }}>

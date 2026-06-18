@@ -22,6 +22,7 @@ export type PracticeSectionProps = {
   pecEmail: string; setPecEmail: (v: string) => void;
   tsEnabled: boolean; setTsEnabled: (v: boolean) => void;
   tsTipoSpesaDefault: string; setTsTipoSpesaDefault: (v: string) => void;
+  tsNumberingMode: string; setTsNumberingMode: (v: string) => void;
   onReload: () => void;
   onSave: () => void;
 };
@@ -98,6 +99,34 @@ export default function PracticeSection(p: PracticeSectionProps) {
               </select>
               <div style={{ fontSize: 11, color: THEME.muted, marginTop: 6 }}>
                 Per fisioterapista/osteopata la prestazione tipica è <strong>SP</strong>. Conferma il codice corretto con il tuo commercialista.
+              </div>
+            </div>
+
+            <div style={{ maxWidth: 520, marginTop: 18, opacity: p.tsEnabled ? 1 : 0.5 }}>
+              <label style={labelStyle}>Numerazione documenti</label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {[
+                  { k: "external", t: "Esterna (Xolo / commercialista)", d: "Fatturi fuori: inserisci tu il numero della ricevuta in Contabilità." },
+                  { k: "fisiohub", t: "FisioHub", d: "FisioHub genera il numero progressivo (e in futuro la ricevuta)." },
+                ].map(o => {
+                  const sel = p.tsNumberingMode === o.k;
+                  return (
+                    <button
+                      key={o.k}
+                      onClick={() => p.tsEnabled && p.setTsNumberingMode(o.k)}
+                      disabled={!p.tsEnabled}
+                      style={{
+                        flex: "1 1 220px", textAlign: "left", padding: "10px 12px", borderRadius: 10,
+                        cursor: p.tsEnabled ? "pointer" : "not-allowed",
+                        border: `1.5px solid ${sel ? THEME.teal : THEME.border}`,
+                        background: sel ? "rgba(13,148,136,0.08)" : "#fff",
+                      }}
+                    >
+                      <div style={{ fontSize: 13, fontWeight: 700, color: sel ? THEME.teal : THEME.text }}>{o.t}</div>
+                      <div style={{ fontSize: 11, color: THEME.muted, marginTop: 3 }}>{o.d}</div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
