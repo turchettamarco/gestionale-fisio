@@ -10,6 +10,7 @@ import {
   downloadTextFile,
   isPagamentoTracciato,
   effectiveOpposizione,
+  effectiveTipoSpesa,
   patientFullName,
   docNumber,
   hasDocNumber,
@@ -44,11 +45,15 @@ export default function ContabilitaClient() {
   const [year, setYear] = useState<number>(NOW_YEAR);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState<"" | "assign" | "export" | "sent" | "reset" | "import">("");
+  const [busy, setBusy] = useState<"" | "assign" | "export" | "sent" | "reset" | "import" | "xml">("");
 
   const [tsEnabled, setTsEnabled] = useState(false);
   const [tsDefault, setTsDefault] = useState("SP");
   const [numberingMode, setNumberingMode] = useState<"external" | "fisiohub">("external");
+  const [tsCfProprietario, setTsCfProprietario] = useState("");
+  const [tsPiva, setTsPiva] = useState("");
+  const [tsDispositivo, setTsDispositivo] = useState(1);
+  const [tsRegimeForfettario, setTsRegimeForfettario] = useState(true);
   const [onlyInvoiced, setOnlyInvoiced] = useState(true);
   const [month, setMonth] = useState<number>(0); // 0 = tutti i mesi
   const [sortKey, setSortKey] = useState<"date" | "name" | "payment">("date");
@@ -68,12 +73,16 @@ export default function ContabilitaClient() {
       if (uid) {
         const { data: ps } = await supabase
           .from("practice_settings")
-          .select("ts_enabled, ts_tipo_spesa_default, ts_numbering_mode")
+          .select("ts_enabled, ts_tipo_spesa_default, ts_numbering_mode, ts_cf_proprietario, ts_dispositivo, ts_regime_forfettario, vat_number")
           .eq("owner_id", uid)
           .maybeSingle();
         setTsEnabled(Boolean((ps as any)?.ts_enabled));
         setTsDefault(((ps as any)?.ts_tipo_spesa_default as string) || "SP");
         setNumberingMode(((ps as any)?.ts_numbering_mode as string) === "fisiohub" ? "fisiohub" : "external");
+        setTsCfProprietario(((ps as any)?.ts_cf_proprietario as string || "").toUpperCase());
+        setTsPiva(((ps as any)?.vat_number as string || "").trim());
+        setTsDispositivo(Number((ps as any)?.ts_dispositivo ?? 1) || 1);
+        setTsRegimeForfettario((ps as any)?.ts_regime_forfettario !== false);
       }
 
       // Spese dell'anno: sedute pagate, non ospiti, con paziente
@@ -254,6 +263,86 @@ export default function ContabilitaClient() {
     }
   }
 
+  // Genera il file XML ufficiale Sistema TS (CF cifrati lato server con SanitelCF.cer).
+  async function doExportXml() {
+    if (numerate.length === 0) {
+      alert("Nessuna spesa numerata da esportare. Numera/abbina prima i documenti.");
+      return;
+    }
+    if (!tsCfProprietario || !tsPiva) {
+      setError("Per l'XML servono il tuo codice fiscale e la partita IVA in Impostazioni → Sistema TS.");
+      return;
+    }
+    setBusy("xml");
+    setError("");
+    try {
+      // raggruppa per numero documento (una fattura = un documentoSpesa, importo sommato)
+      const map = new Map<string, SpesaRow[]>();
+      for (const r of numerate) {
+        const key = docNumber(r);
+        if (!key) continue;
+        if (!map.has(key)) map.set(key, []);
+        map.get(key)!.push(r);
+      }
+      let skippedNoCf = 0;
+      const documents = [];
+      for (const g of Array.from(map.values())) {
+        const first = g[0];
+        const opp = g.some(effectiveOpposizione);
+        const cf = (first.patient?.tax_code || "").trim().toUpperCase();
+        if (!cf && !opp) { skippedNoCf++; continue; } // CF obbligatorio salvo opposizione
+        documents.push({
+          numDocumento: docNumber(first),
+          dataEmissione: toDateInputValue(first.ts_doc_date || first.paid_at),
+          dataPagamento: toDateInputValue(first.paid_at),
+          cfCittadino: cf,
+          pagamentoTracciato: g.every(x => isPagamentoTracciato(x.payment_method)) ? "SI" : "NO",
+          flagOpposizione: opp ? "1" : "0",
+          tipoSpesa: effectiveTipoSpesa(first, tsDefault),
+          importo: g.reduce((s, x) => s + (x.amount ?? 0), 0),
+        });
+      }
+      if (documents.length === 0) {
+        setError("Nessun documento inviabile: mancano i codici fiscali dei pazienti.");
+        return;
+      }
+      const suffix = month > 0 ? `-${String(month).padStart(2, "0")}` : "";
+      const base = `spese-sanitarie-TS-${year}${suffix}`;
+      const res = await fetch("/api/ts-xml", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cfProprietario: tsCfProprietario,
+          pIva: tsPiva,
+          dispositivo: tsDispositivo,
+          naturaIVA: tsRegimeForfettario ? "N2.2" : "N4",
+          fileName: base,
+          documents,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({} as any));
+        throw new Error(j.error || "Errore nella generazione dell'XML");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${base}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      if (skippedNoCf > 0) {
+        setError(`File ZIP generato. Nota: ${skippedNoCf} document${skippedNoCf > 1 ? "i" : "o"} senza codice fiscale ${skippedNoCf > 1 ? "esclusi" : "escluso"} (CF obbligatorio salvo opposizione).`);
+      }
+    } catch (e: any) {
+      setError(e?.message || "Errore nella generazione dell'XML");
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function doMarkSent() {
     const target = numerate.filter(r => r.ts_sent_at == null);
     if (target.length === 0) { alert("Nessuna spesa numerata da marcare."); return; }
@@ -412,6 +501,9 @@ export default function ContabilitaClient() {
             )}
             <Btn onClick={doExport} disabled={busy !== "" || numerate.length === 0} tone="blue">
               {busy === "export" ? "Genero…" : `Genera file Sistema TS (CSV)`}
+            </Btn>
+            <Btn onClick={() => void doExportXml()} disabled={busy !== "" || numerate.length === 0} tone="blue">
+              {busy === "xml" ? "Genero…" : "Genera file Sistema TS (.zip XML)"}
             </Btn>
             <Btn onClick={() => void doMarkSent()} disabled={busy !== "" || numerate.filter(r => r.ts_sent_at == null).length === 0} tone="outline">
               {busy === "sent" ? "Aggiorno…" : "Segna come inviate"}
