@@ -62,17 +62,17 @@ type TemplateDataMap = {
     newPatients: number;
     appUrl: string;
   };
-  ts_ricevuta: {
-    studioName: string;
-    periodo: string;             // es. "2026" o "maggio 2026"
-    protocollo: string;
-    esitoText: string;           // es. "File elaborato correttamente — inviati 6, accolti 6"
-    appUrl: string;
-  };
   ts_reminder: {
     studioName: string;
-    periodoLabel: string;        // es. "il mese di maggio 2026" / "il 2° trimestre 2026"
-    daInviare: number | null;    // documenti ancora da inviare (se noto)
+    periodoLabel: string;        // "il mese di maggio 2026" / "il trimestre appena concluso"
+    daInviare: number | null;    // numero ricevute da trasmettere (se noto)
+    appUrl: string;
+  };
+  ts_ricevuta: {
+    studioName: string;
+    periodo: string;
+    protocollo: string;
+    esitoText: string;
     appUrl: string;
   };
   ts_invio_report: {
@@ -81,7 +81,7 @@ type TemplateDataMap = {
     protocollo: string;
     esitoText: string;
     ambiente: string;            // "produzione" | "test"
-    righe: Array<{ paziente: string; numero: string; importo: number }>;
+    righe: { paziente: string; numero: string; importo: number }[];
     ricevutaInclusa: boolean;
     appUrl: string;
   };
@@ -311,15 +311,90 @@ export function renderTemplate<T extends TemplateName>(
       return buildWeeklySummary(data as TemplateDataMap["weekly_summary"]);
     case "monthly_report":
       return buildMonthlyReport(data as TemplateDataMap["monthly_report"]);
-    case "ts_ricevuta":
-      return buildTsRicevuta(data as TemplateDataMap["ts_ricevuta"]);
     case "ts_reminder":
       return buildTsReminder(data as TemplateDataMap["ts_reminder"]);
+    case "ts_ricevuta":
+      return buildTsRicevuta(data as TemplateDataMap["ts_ricevuta"]);
     case "ts_invio_report":
       return buildTsInvioReport(data as TemplateDataMap["ts_invio_report"]);
     default:
       throw new Error(`Template sconosciuto: ${template}`);
   }
+}
+
+function buildTsReminder(d: TemplateDataMap["ts_reminder"]): Rendered {
+  const subject = `Promemoria Sistema TS — ${d.studioName}`;
+  const html = emailLayout(`
+    <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:#0f172a;">📋 Promemoria Sistema TS</h1>
+    <p style="margin:0 0 18px;font-size:14px;color:#64748b;">${escapeHtml(d.studioName)}</p>
+    <p style="margin:0 0 14px;font-size:14px;line-height:1.6;color:#334155;">
+      È il momento di trasmettere al <strong>Sistema Tessera Sanitaria</strong> le spese sanitarie per ${escapeHtml(d.periodoLabel)}.
+      ${d.daInviare !== null ? `Risultano <strong>${d.daInviare}</strong> ricevute da inviare.` : ""}
+    </p>
+    ${button(d.appUrl, "Apri il gestionale →")}
+    <p style="margin:14px 0 0;font-size:12px;color:#64748b;line-height:1.5;">
+      Puoi cambiare la cadenza o disattivare questo promemoria dalle Impostazioni → Contabilità &amp; Fiscale.
+    </p>
+  `);
+  const text = `Promemoria Sistema TS - ${d.studioName}\n\nTrasmetti le spese sanitarie per ${d.periodoLabel}.${d.daInviare !== null ? `\nRicevute da inviare: ${d.daInviare}.` : ""}\n\nApri: ${d.appUrl}`;
+  return { subject, html, text };
+}
+
+function buildTsRicevuta(d: TemplateDataMap["ts_ricevuta"]): Rendered {
+  const subject = `Ricevuta Sistema TS — protocollo ${d.protocollo}`;
+  const html = emailLayout(`
+    <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:#0f172a;">✅ Ricevuta Sistema TS</h1>
+    <p style="margin:0 0 18px;font-size:14px;color:#64748b;">${escapeHtml(d.studioName)}${d.periodo ? ` · ${escapeHtml(d.periodo)}` : ""}</p>
+    <p style="margin:0 0 14px;font-size:14px;line-height:1.6;color:#334155;">${escapeHtml(d.esitoText)}</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-bottom:16px;">
+      <tr><td style="padding:12px;background:#f0fdfa;border-radius:8px;">
+        <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Protocollo</div>
+        <div style="font-size:16px;font-weight:800;color:#0d9488;margin-top:2px;">${escapeHtml(d.protocollo)}</div>
+      </td></tr>
+    </table>
+    <p style="margin:0 0 14px;font-size:14px;line-height:1.6;color:#334155;">📎 In allegato trovi la <strong>ricevuta PDF</strong> rilasciata dal Sistema TS.</p>
+    ${button(d.appUrl, "Apri il gestionale →")}
+  `);
+  const text = `Ricevuta Sistema TS - ${d.studioName}\nProtocollo: ${d.protocollo}\n\n${d.esitoText}\n\nLa ricevuta PDF è in allegato.\n\nApri: ${d.appUrl}`;
+  return { subject, html, text };
+}
+
+function buildTsInvioReport(d: TemplateDataMap["ts_invio_report"]): Rendered {
+  const totale = d.righe.reduce((s, r) => s + (Number(r.importo) || 0), 0);
+  const rowsHtml = d.righe.length
+    ? d.righe.map(r => `
+        <tr>
+          <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#334155;">${escapeHtml(r.paziente)}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#64748b;">${escapeHtml(r.numero)}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#0f172a;text-align:right;font-weight:700;">€${(Number(r.importo) || 0).toFixed(2)}</td>
+        </tr>`).join("")
+    : `<tr><td colspan="3" style="padding:10px;font-size:13px;color:#64748b;">Nessuna riga.</td></tr>`;
+
+  const subject = `Invio Sistema TS (${d.ambiente}) — protocollo ${d.protocollo}`;
+  const html = emailLayout(`
+    <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:#0f172a;">📤 Invio Sistema TS</h1>
+    <p style="margin:0 0 18px;font-size:14px;color:#64748b;">${escapeHtml(d.studioName)}${d.periodo ? ` · ${escapeHtml(d.periodo)}` : ""} · ambiente <strong>${escapeHtml(d.ambiente)}</strong></p>
+    <p style="margin:0 0 14px;font-size:14px;line-height:1.6;color:#334155;">${escapeHtml(d.esitoText)}</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-bottom:14px;">
+      <tr><td style="padding:12px;background:#f0fdfa;border-radius:8px;">
+        <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Protocollo</div>
+        <div style="font-size:16px;font-weight:800;color:#0d9488;margin-top:2px;">${escapeHtml(d.protocollo)}</div>
+      </td></tr>
+    </table>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-bottom:8px;border-collapse:collapse;">
+      <thead><tr>
+        <th style="padding:8px 10px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Paziente</th>
+        <th style="padding:8px 10px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Numero</th>
+        <th style="padding:8px 10px;text-align:right;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Importo</th>
+      </tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+    <p style="margin:0 0 16px;font-size:14px;color:#0f172a;text-align:right;">Totale trasmesso: <strong>€${totale.toFixed(2)}</strong></p>
+    ${d.ricevutaInclusa ? `<p style="margin:0 0 14px;font-size:14px;line-height:1.6;color:#334155;">📎 In allegato la <strong>ricevuta PDF</strong> del Sistema TS.</p>` : `<p style="margin:0 0 14px;font-size:13px;line-height:1.6;color:#64748b;">La ricevuta PDF non era ancora disponibile al momento dell'invio: la trovi nel gestionale appena pronta.</p>`}
+    ${button(d.appUrl, "Apri il gestionale →")}
+  `);
+  const text = `Invio Sistema TS (${d.ambiente}) - ${d.studioName}\nProtocollo: ${d.protocollo}\n${d.esitoText}\n\nRighe: ${d.righe.length} - Totale €${totale.toFixed(2)}\n${d.ricevutaInclusa ? "Ricevuta PDF in allegato." : "Ricevuta PDF non ancora disponibile."}\n\nApri: ${d.appUrl}`;
+  return { subject, html, text };
 }
 
 function buildMonthlyReport(d: TemplateDataMap["monthly_report"]): Rendered {
@@ -356,78 +431,5 @@ function buildMonthlyReport(d: TemplateDataMap["monthly_report"]): Rendered {
     </p>
   `);
   const text = `Report mensile ${d.studioName} - ${d.monthLabel}\n\nSedute svolte: ${d.done}\nIncassato: €${d.collected.toFixed(0)}\nNuovi pazienti: ${d.newPatients}\n\nIl report PDF completo è in allegato.\n\nApri: ${d.appUrl}`;
-  return { subject, html, text };
-}
-
-function buildTsRicevuta(d: TemplateDataMap["ts_ricevuta"]): Rendered {
-  const subject = `Ricevuta Sistema TS — protocollo ${d.protocollo}`;
-  const html = emailLayout(`
-    <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:#0f172a;">Ricevuta Sistema TS</h1>
-    <p style="margin:0 0 18px;font-size:14px;color:#64748b;">
-      ${escapeHtml(d.studioName)} · spese sanitarie ${escapeHtml(d.periodo)}
-    </p>
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-bottom:16px;">
-      <tr><td style="padding:12px;background:#f0fdfa;border-radius:8px;">
-        <div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Protocollo</div>
-        <div style="font-size:16px;font-weight:800;color:#0d9488;margin-top:2px;">${escapeHtml(d.protocollo)}</div>
-        <div style="font-size:13px;color:#0f172a;margin-top:10px;">${escapeHtml(d.esitoText)}</div>
-      </td></tr>
-    </table>
-    <p style="margin:0 0 4px;font-size:13px;color:#475569;">La ricevuta ufficiale in PDF è in allegato: conservala come prova di trasmissione.</p>
-  `);
-  const text = `Ricevuta Sistema TS\n${d.studioName} - spese sanitarie ${d.periodo}\n\nProtocollo: ${d.protocollo}\nEsito: ${d.esitoText}\n\nLa ricevuta PDF è in allegato.\n\nApri: ${d.appUrl}`;
-  return { subject, html, text };
-}
-
-function buildTsReminder(d: TemplateDataMap["ts_reminder"]): Rendered {
-  const subject = `Promemoria: invio spese sanitarie al Sistema TS`;
-  const daInviareRow = d.daInviare && d.daInviare > 0
-    ? `<div style="font-size:13px;color:#0f172a;margin-top:10px;">Risultano <b>${d.daInviare}</b> document${d.daInviare > 1 ? "i" : "o"} ancora da inviare.</div>`
-    : "";
-  const html = emailLayout(`
-    <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:#0f172a;">Promemoria Sistema TS</h1>
-    <p style="margin:0 0 18px;font-size:14px;color:#64748b;">${escapeHtml(d.studioName)}</p>
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-bottom:16px;">
-      <tr><td style="padding:12px;background:#eff6ff;border-radius:8px;">
-        <div style="font-size:14px;color:#0f172a;">È il momento di inviare al Sistema Tessera Sanitaria le spese sanitarie per ${escapeHtml(d.periodoLabel)}.</div>
-        ${daInviareRow}
-      </td></tr>
-    </table>
-    <p style="margin:0;font-size:13px;color:#475569;">Apri FisioHub → Contabilità per numerare e inviare.</p>
-  `);
-  const text = `Promemoria Sistema TS\n${d.studioName}\n\nÈ il momento di inviare le spese sanitarie per ${d.periodoLabel}.${d.daInviare && d.daInviare > 0 ? `\nDocumenti da inviare: ${d.daInviare}.` : ""}\n\nApri: ${d.appUrl}`;
-  return { subject, html, text };
-}
-
-function buildTsInvioReport(d: TemplateDataMap["ts_invio_report"]): Rendered {
-  const subject = `Invio Sistema TS effettuato — protocollo ${d.protocollo}`;
-  const rows = d.righe.map(r => `
-    <tr>
-      <td style="padding:7px 10px;border-bottom:1px solid #eef2f7;font-size:13px;color:#0f172a;">${escapeHtml(r.paziente)}</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #eef2f7;font-size:13px;color:#0f172a;">${escapeHtml(r.numero)}</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #eef2f7;font-size:13px;color:#0f172a;text-align:right;">€${(r.importo || 0).toFixed(2)}</td>
-    </tr>`).join("");
-  const html = emailLayout(`
-    <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:#0f172a;">Invio al Sistema TS effettuato</h1>
-    <p style="margin:0 0 16px;font-size:14px;color:#64748b;">${escapeHtml(d.studioName)} · spese sanitarie ${escapeHtml(d.periodo)} · ambiente ${escapeHtml(d.ambiente)}</p>
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-bottom:16px;">
-      <tr><td style="padding:12px;background:#f0fdfa;border-radius:8px;">
-        <div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Protocollo</div>
-        <div style="font-size:16px;font-weight:800;color:#0d9488;margin-top:2px;">${escapeHtml(d.protocollo)}</div>
-        <div style="font-size:13px;color:#0f172a;margin-top:8px;">${escapeHtml(d.esitoText)}</div>
-      </td></tr>
-    </table>
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border:1px solid #eef2f7;border-radius:8px;border-collapse:separate;overflow:hidden;">
-      <tr style="background:#f8fafc;">
-        <th style="padding:8px 10px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;">Paziente</th>
-        <th style="padding:8px 10px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;">N. documento</th>
-        <th style="padding:8px 10px;text-align:right;font-size:11px;color:#64748b;text-transform:uppercase;">Importo</th>
-      </tr>
-      ${rows}
-    </table>
-    <p style="margin:14px 0 0;font-size:13px;color:#475569;">${d.ricevutaInclusa ? "In allegato la ricevuta PDF ufficiale." : "La ricevuta PDF sarà disponibile a breve dal pulsante \u201cRicevuta PDF\u201d in Contabilità."}</p>
-  `);
-  const textRows = d.righe.map(r => `- ${r.paziente} | ${r.numero} | €${(r.importo || 0).toFixed(2)}`).join("\n");
-  const text = `Invio al Sistema TS effettuato\n${d.studioName} - spese sanitarie ${d.periodo} (${d.ambiente})\n\nProtocollo: ${d.protocollo}\nEsito: ${d.esitoText}\n\nDocumenti:\n${textRows}\n\n${d.ricevutaInclusa ? "Ricevuta PDF in allegato." : "Ricevuta PDF disponibile a breve in Contabilità."}\n\nApri: ${d.appUrl}`;
   return { subject, html, text };
 }

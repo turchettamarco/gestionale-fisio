@@ -43,7 +43,6 @@ import AppNavbar from "@/src/components/AppNavbar";
 import StudioBrandingSection from "./components/sections/StudioBrandingSection";
 import LocationsSection from "./components/sections/LocationsSection";
 import PracticeSection from "./components/sections/PracticeSection";
-import PricesSection from "./components/sections/PricesSection";
 import TreatmentsSection from "./components/sections/TreatmentsSection";
 import WorkingHoursSection from "./components/sections/WorkingHoursSection";
 import TemplatesSection from "./components/sections/TemplatesSection";
@@ -80,7 +79,7 @@ export default function SettingsPage() {
   const [showStudio,    setShowStudio]    = useState(true);
   const [showLocations, setShowLocations] = useState(false);
   const [showPractice,  setShowPractice]  = useState(true);
-  const [showPrices,    setShowPrices]    = useState(true);
+  const [showCalPrefs,  setShowCalPrefs]  = useState(true);
   const [showTreatments, setShowTreatments] = useState(true);
   const [showHours,     setShowHours]     = useState(true);
   const [showTemplates, setShowTemplates] = useState(true);
@@ -99,7 +98,7 @@ export default function SettingsPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const saved = localStorage.getItem("settings_active_tab");
-    if (saved === "studio" || saved === "team" || saved === "calendar" || saved === "communications" || saved === "account") {
+    if (saved === "studio" || saved === "team" || saved === "calendar" || saved === "accounting" || saved === "communications" || saved === "account") {
       setActiveTab(saved);
     }
   }, []);
@@ -291,7 +290,7 @@ export default function SettingsPage() {
 
   // ── Salvataggio toggle statistiche gruppo (su tabella studios, mig. 014) ─
   // Funzione separata da saveStudio() perché viene chiamata dal pulsante
-  // "Salva impostazioni gruppo" in PricesSection (insieme a savePracticeSettings).
+  // "Salva impostazioni gruppo" in CalendarPrefsSection (insieme a savePracticeSettings).
   const saveGroupStats = useCallback(async () => {
     if (!studio?.id) return;
     setSavingGroupStats(true);
@@ -1131,8 +1130,6 @@ export default function SettingsPage() {
   const [tsWsPassword, setTsWsPassword] = useState("");
   const [tsWsPincode, setTsWsPincode] = useState("");
   const [tsWsAmbiente, setTsWsAmbiente] = useState<"test" | "prod">("test");
-  const [tsReminderCadence, setTsReminderCadence] = useState<"off" | "monthly" | "quarterly" | "semiannual">("monthly");
-  const [tsInvioEmailEnabled, setTsInvioEmailEnabled] = useState(true);
 
   // Tariffe
   const [standardInvoice, setStandardInvoice] = useState("40.00");
@@ -1186,7 +1183,7 @@ export default function SettingsPage() {
       const uid = await requireUserId();
       const { data, error } = await supabase
         .from("practice_settings")
-        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, logo_base64, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices, reminder_message, weekly_reminder_message, payment_message, birthday_message, satisfaction_message, default_appointment_status, overlap_mode, monthly_revenue_goal, inactive_threshold_days, reminder_hours_before, welcome_message, booking_confirm_message, duration_seduta, duration_macchinario, duration_laser, duration_tecar, duration_onde_urto, duration_tens, default_group_price, default_group_max_participants, payment_method_required, default_payment_method, ts_enabled, ts_tipo_spesa_default, ts_numbering_mode, ts_cf_proprietario, ts_regime_forfettario, ts_dispositivo, ts_ws_user, ts_ws_password, ts_ws_pincode, ts_ws_ambiente, ts_reminder_cadence, ts_invio_email_enabled")
+        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, logo_base64, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices, reminder_message, weekly_reminder_message, payment_message, birthday_message, satisfaction_message, default_appointment_status, overlap_mode, monthly_revenue_goal, inactive_threshold_days, reminder_hours_before, welcome_message, booking_confirm_message, duration_seduta, duration_macchinario, duration_laser, duration_tecar, duration_onde_urto, duration_tens, default_group_price, default_group_max_participants, payment_method_required, default_payment_method, ts_enabled, ts_tipo_spesa_default, ts_numbering_mode, ts_cf_proprietario, ts_regime_forfettario, ts_dispositivo, ts_ws_user, ts_ws_password, ts_ws_pincode, ts_ws_ambiente")
         .eq("owner_id", uid)
         .maybeSingle();
       if (error) throw new Error(error.message);
@@ -1224,7 +1221,7 @@ export default function SettingsPage() {
           payment_method_required: true, default_payment_method: "pos",
           monthly_revenue_goal: 2000, inactive_threshold_days: 45,
           reminder_hours_before: 24, auto_apply_prices: true,
-          ts_enabled: false, ts_tipo_spesa_default: "SP", ts_numbering_mode: "external", ts_cf_proprietario: "", ts_regime_forfettario: true, ts_dispositivo: 1, ts_ws_user: "", ts_ws_password: "", ts_ws_pincode: "", ts_ws_ambiente: "test", ts_reminder_cadence: "monthly", ts_invio_email_enabled: true,
+          ts_enabled: false, ts_tipo_spesa_default: "SP", ts_numbering_mode: "external", ts_cf_proprietario: "", ts_regime_forfettario: true, ts_dispositivo: 1, ts_ws_user: "", ts_ws_password: "", ts_ws_pincode: "", ts_ws_ambiente: "test",
         };
         const { error: upsertErr } = await supabase.from("practice_settings").upsert(seed, { onConflict: "owner_id" });
         if (upsertErr) throw new Error(upsertErr.message);
@@ -1248,11 +1245,6 @@ export default function SettingsPage() {
       setTsWsPassword((data as PracticeSettingsRow).ts_ws_password ?? "");
       setTsWsPincode(((data as PracticeSettingsRow).ts_ws_pincode ?? "").trim());
       setTsWsAmbiente((data as PracticeSettingsRow).ts_ws_ambiente === "prod" ? "prod" : "test");
-      {
-        const c = (data as PracticeSettingsRow).ts_reminder_cadence;
-        setTsReminderCadence(c === "off" || c === "quarterly" || c === "semiannual" ? c : "monthly");
-      }
-      setTsInvioEmailEnabled((data as PracticeSettingsRow).ts_invio_email_enabled !== false);
       setStandardInvoice(toMoneyString(data.standard_invoice, "40.00"));
       setStandardCash(toMoneyString(data.standard_cash, "35.00"));
       setMachineInvoice(toMoneyString(data.machine_invoice, "25.00"));
@@ -1332,8 +1324,6 @@ export default function SettingsPage() {
         ts_ws_password:        tsWsPassword || null,
         ts_ws_pincode:         (tsWsPincode || "").trim() || null,
         ts_ws_ambiente:        tsWsAmbiente === "prod" ? "prod" : "test",
-        ts_reminder_cadence:   tsReminderCadence,
-        ts_invio_email_enabled: tsInvioEmailEnabled,
         // Tariffe trattamenti (preferenze utente)
         standard_invoice:  toNumberSafe(standardInvoice, 40),
         standard_cash:     toNumberSafe(standardCash, 35),
@@ -1972,67 +1962,14 @@ export default function SettingsPage() {
               onSetPrimary={setPrimaryLocation}
             />
 
-            <PracticeSection
-              show={showPractice} onToggle={() => setShowPractice(!showPractice)}
-              loadingPractice={loadingPractice} savingPractice={savingPractice}
-              ownerFullName={ownerFullName} setOwnerFullName={setOwnerFullName}
-              vatNumber={vatNumber} setVatNumber={setVatNumber}
-              pecEmail={pecEmail} setPecEmail={setPecEmail}
-              tsEnabled={tsEnabled} setTsEnabled={setTsEnabled}
-              tsTipoSpesaDefault={tsTipoSpesaDefault} setTsTipoSpesaDefault={setTsTipoSpesaDefault}
-              tsNumberingMode={tsNumberingMode} setTsNumberingMode={setTsNumberingMode}
-              tsCfProprietario={tsCfProprietario} setTsCfProprietario={setTsCfProprietario}
-              tsRegimeForfettario={tsRegimeForfettario} setTsRegimeForfettario={setTsRegimeForfettario}
-              tsDispositivo={tsDispositivo} setTsDispositivo={setTsDispositivo}
-              tsWsUser={tsWsUser} setTsWsUser={setTsWsUser}
-              tsWsPassword={tsWsPassword} setTsWsPassword={setTsWsPassword}
-              tsWsPincode={tsWsPincode} setTsWsPincode={setTsWsPincode}
-              tsWsAmbiente={tsWsAmbiente} setTsWsAmbiente={setTsWsAmbiente}
-              tsReminderCadence={tsReminderCadence} setTsReminderCadence={setTsReminderCadence}
-              tsInvioEmailEnabled={tsInvioEmailEnabled} setTsInvioEmailEnabled={setTsInvioEmailEnabled}
-              onReload={() => void loadPracticeSettings()}
-              onSave={() => void savePracticeSettings()}
+            <WorkingHoursSection
+              show={showHours} onToggle={() => setShowHours(!showHours)}
+              loadingHours={loadingHours} savingHours={savingHours}
+              workingHours={workingHours}
+              onUpdateHour={updateHour}
+              onReload={() => void loadWorkingHours()}
+              onSave={() => void saveWorkingHours()}
             />
-
-            <PricesSection
-              show={showPrices} onToggle={() => setShowPrices(!showPrices)}
-              loadingPractice={loadingPractice} savingPractice={savingPractice}
-              standardInvoice={standardInvoice} setStandardInvoice={setStandardInvoice}
-              standardCash={standardCash} setStandardCash={setStandardCash}
-              machineInvoice={machineInvoice} setMachineInvoice={setMachineInvoice}
-              machineCash={machineCash} setMachineCash={setMachineCash}
-              laserInvoice={laserInvoice} setLaserInvoice={setLaserInvoice}
-              laserCash={laserCash} setLaserCash={setLaserCash}
-              tecarInvoice={tecarInvoice} setTecarInvoice={setTecarInvoice}
-              tecarCash={tecarCash} setTecarCash={setTecarCash}
-              ondeUrtoInvoice={ondeUrtoInvoice} setOndeUrtoInvoice={setOndeUrtoInvoice}
-              ondeUrtoCash={ondeUrtoCash} setOndeUrtoCash={setOndeUrtoCash}
-              tensInvoice={tensInvoice} setTensInvoice={setTensInvoice}
-              tensCash={tensCash} setTensCash={setTensCash}
-              autoApplyPrices={autoApplyPrices} setAutoApplyPrices={setAutoApplyPrices}
-              defaultGroupPrice={defaultGroupPrice} setDefaultGroupPrice={setDefaultGroupPrice}
-              defaultGroupMaxParticipants={defaultGroupMaxParticipants} setDefaultGroupMaxParticipants={setDefaultGroupMaxParticipants}
-              groupStatsCountAsSeparate={groupStatsCountAsSeparate} setGroupStatsCountAsSeparate={setGroupStatsCountAsSeparate}
-              onSaveGroupStats={() => void saveGroupStats()}
-              savingStudio={savingGroupStats}
-              onReload={() => void loadPracticeSettings()}
-              onSave={() => void savePracticeSettings()}
-            />
-
-            <TreatmentsSection
-          show={showTreatments}
-          onToggle={() => setShowTreatments(!showTreatments)}
-          studioId={studio?.id ?? null}
-        />
-
-        <WorkingHoursSection
-          show={showHours} onToggle={() => setShowHours(!showHours)}
-          loadingHours={loadingHours} savingHours={savingHours}
-          workingHours={workingHours}
-          onUpdateHour={updateHour}
-          onReload={() => void loadWorkingHours()}
-          onSave={() => void saveWorkingHours()}
-        />
           </>
         )}
 
@@ -2119,17 +2056,30 @@ export default function SettingsPage() {
           </>
         )}
 
-        {/* ─── Tab "Calendario": Durate + CalendarPrefs + Servizi + Giorni bloccati ─── */}
+        {/* ─── Tab "Calendario": Catalogo + Preferenze + Servizi + Giorni bloccati ─── */}
         {activeTab === "calendar" && (
           <>
+            <TreatmentsSection
+              show={showTreatments}
+              onToggle={() => setShowTreatments(!showTreatments)}
+              studioId={studio?.id ?? null}
+            />
+
             <CalendarPrefsSection
-              savingPractice={savingPractice}
+              show={showCalPrefs} onToggle={() => setShowCalPrefs(!showCalPrefs)}
+              loadingPractice={loadingPractice} savingPractice={savingPractice}
               defaultApptStatus={defaultApptStatus} setDefaultApptStatus={setDefaultApptStatus}
               overlapMode={overlapMode} setOverlapMode={setOverlapMode}
               paymentMethodRequired={paymentMethodRequired}
               setPaymentMethodRequired={setPaymentMethodRequired}
               defaultPaymentMethod={defaultPaymentMethod}
               setDefaultPaymentMethod={setDefaultPaymentMethod}
+              autoApplyPrices={autoApplyPrices} setAutoApplyPrices={setAutoApplyPrices}
+              defaultGroupPrice={defaultGroupPrice} setDefaultGroupPrice={setDefaultGroupPrice}
+              defaultGroupMaxParticipants={defaultGroupMaxParticipants} setDefaultGroupMaxParticipants={setDefaultGroupMaxParticipants}
+              groupStatsCountAsSeparate={groupStatsCountAsSeparate} setGroupStatsCountAsSeparate={setGroupStatsCountAsSeparate}
+              onSaveGroupStats={() => void saveGroupStats()}
+              savingGroupStats={savingGroupStats}
               onSave={() => void savePracticeSettings()}
             />
 
@@ -2151,6 +2101,31 @@ export default function SettingsPage() {
               newBlockLabel={newBlockLabel} setNewBlockLabel={setNewBlockLabel}
               onAdd={() => void addBlockDay()}
               onDelete={(id) => void deleteBlockDay(id)}
+            />
+          </>
+        )}
+
+        {/* ─── Tab "Contabilità & Fiscale": dati fiscali + Sistema TS ─── */}
+        {activeTab === "accounting" && (
+          <>
+            <PracticeSection
+              show={showPractice} onToggle={() => setShowPractice(!showPractice)}
+              loadingPractice={loadingPractice} savingPractice={savingPractice}
+              ownerFullName={ownerFullName} setOwnerFullName={setOwnerFullName}
+              vatNumber={vatNumber} setVatNumber={setVatNumber}
+              pecEmail={pecEmail} setPecEmail={setPecEmail}
+              tsEnabled={tsEnabled} setTsEnabled={setTsEnabled}
+              tsTipoSpesaDefault={tsTipoSpesaDefault} setTsTipoSpesaDefault={setTsTipoSpesaDefault}
+              tsNumberingMode={tsNumberingMode} setTsNumberingMode={setTsNumberingMode}
+              tsCfProprietario={tsCfProprietario} setTsCfProprietario={setTsCfProprietario}
+              tsRegimeForfettario={tsRegimeForfettario} setTsRegimeForfettario={setTsRegimeForfettario}
+              tsDispositivo={tsDispositivo} setTsDispositivo={setTsDispositivo}
+              tsWsUser={tsWsUser} setTsWsUser={setTsWsUser}
+              tsWsPassword={tsWsPassword} setTsWsPassword={setTsWsPassword}
+              tsWsPincode={tsWsPincode} setTsWsPincode={setTsWsPincode}
+              tsWsAmbiente={tsWsAmbiente} setTsWsAmbiente={setTsWsAmbiente}
+              onReload={() => void loadPracticeSettings()}
+              onSave={() => void savePracticeSettings()}
             />
           </>
         )}

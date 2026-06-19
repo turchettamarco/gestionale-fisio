@@ -2,11 +2,13 @@
 // app/(protected)/settings/components/SettingsTabs.tsx
 // ═══════════════════════════════════════════════════════════════════════
 //
-// Tab bar che raggruppa le 12 sezioni di impostazioni in 4 categorie:
-//   • Studio       — Branding, Pratica, Prezzi, Orari di lavoro
-//   • Calendario   — Durate, Preferenze, Servizi prenotabili, Giorni bloccati
-//   • Comunicazioni — Templates messaggi, Integrazioni (WA, Google)
-//   • Account      — Password, Gestione account
+// Tab bar che raggruppa le sezioni di impostazioni in categorie:
+//   • Studio        — Anagrafica/branding, sedi, orari di lavoro
+//   • Team          — Operatori, stanze, ospiti, assenze
+//   • Calendario    — Catalogo trattamenti, preferenze, prenotazioni, blocchi
+//   • Contabilità   — Dati fiscali, Sistema TS (Tessera Sanitaria)
+//   • Comunicazioni — Templates messaggi, integrazioni (WA, Google)
+//   • Account       — Password, gestione account
 //
 // L'utente vede solo la categoria attiva — riduce drasticamente la
 // scrollabilità della pagina e la confusione iniziale.
@@ -17,7 +19,7 @@
 
 import { THEME } from "./shared/theme";
 
-export type SettingsTab = "studio" | "team" | "calendar" | "communications" | "account";
+export type SettingsTab = "studio" | "team" | "calendar" | "accounting" | "communications" | "account";
 
 export type SettingsTabsProps = {
   activeTab: SettingsTab;
@@ -27,7 +29,8 @@ export type SettingsTabsProps = {
 const TABS: Array<{ id: SettingsTab; icon: string; label: string; description: string }> = [
   { id: "studio",          icon: "🏥", label: "Studio",          description: "Anagrafica, prezzi, orari" },
   { id: "team",            icon: "👥", label: "Team",            description: "Operatori e stanze" },
-  { id: "calendar",        icon: "📅", label: "Calendario",      description: "Durate, prenotazioni, blocchi" },
+  { id: "calendar",        icon: "📅", label: "Calendario",      description: "Catalogo, prezzi, prenotazioni" },
+  { id: "accounting",      icon: "💶", label: "Contabilità",     description: "Dati fiscali e Sistema TS" },
   { id: "communications",  icon: "💬", label: "Comunicazioni",   description: "Messaggi e integrazioni" },
   { id: "account",         icon: "👤", label: "Account",         description: "Password e gestione" },
 ];

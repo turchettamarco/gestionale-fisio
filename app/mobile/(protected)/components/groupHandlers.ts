@@ -235,7 +235,6 @@ export async function duplicateGroupApi(
       clinic_site: sourceEvent.clinic_site ?? "Studio",
       domicile_address: sourceEvent.domicile_address ?? null,
       owner_id: userId,
-      operator_id: userId,   // assegna all'operatore corrente (no orfani)
       studio_id: sourceEvent.studio_id,
       is_group: true,
       group_title: sourceEvent.group_title,

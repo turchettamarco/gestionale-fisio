@@ -1153,7 +1153,6 @@ export default function MobileHomePage() {
           location: "studio",
           clinic_site: currentStudio?.name || "Studio",
           owner_id: userId,
-          operator_id: userId,     // assegna all'operatore corrente (no orfani)
           studio_id: studioId,
           // Campi gruppo
           is_group: true,

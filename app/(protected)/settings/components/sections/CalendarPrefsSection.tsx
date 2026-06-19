@@ -6,10 +6,14 @@
 
 "use client";
 
-import { THEME, cardStyle, sectionHead, labelStyle } from "../shared/theme";
+import { THEME, cardStyle, sectionHead, labelStyle, inputStyle } from "../shared/theme";
 import { BtnPrimary } from "../shared/Buttons";
+import { validatePrice } from "../shared/utils";
 
 export type CalendarPrefsSectionProps = {
+  show: boolean;
+  onToggle: () => void;
+  loadingPractice: boolean;
   savingPractice: boolean;
   defaultApptStatus: "confirmed" | "booked";
   setDefaultApptStatus: (v: "confirmed" | "booked") => void;
@@ -20,6 +24,19 @@ export type CalendarPrefsSectionProps = {
   setPaymentMethodRequired: (v: boolean) => void;
   defaultPaymentMethod: "cash" | "pos" | "bank_transfer";
   setDefaultPaymentMethod: (v: "cash" | "pos" | "bank_transfer") => void;
+  // Auto-applica prezzi (dal catalogo trattamenti)
+  autoApplyPrices: boolean;
+  setAutoApplyPrices: (v: boolean) => void;
+  // Appuntamenti di gruppo (mig. 014)
+  defaultGroupPrice: string;
+  setDefaultGroupPrice: (v: string) => void;
+  defaultGroupMaxParticipants: string;
+  setDefaultGroupMaxParticipants: (v: string) => void;
+  groupStatsCountAsSeparate: boolean;
+  setGroupStatsCountAsSeparate: (v: boolean) => void;
+  /** Salva il toggle statistiche gruppo (su studios). Diverso da onSave (practice_settings). */
+  onSaveGroupStats: () => void;
+  savingGroupStats: boolean;
   onSave: () => void;
 };
 
@@ -37,13 +54,15 @@ export default function CalendarPrefsSection(p: CalendarPrefsSectionProps) {
 
   return (
     <div style={cardStyle}>
-      <div style={{ ...sectionHead, cursor: "default" }}>
+      <div style={sectionHead} onClick={p.onToggle}>
         <div>
           <div style={{ fontWeight: 700, fontSize: 15, color: THEME.text }}>Preferenze Calendario</div>
-          <div style={{ fontSize: 12, color: THEME.muted, marginTop: 2 }}>Stato predefinito dei nuovi appuntamenti</div>
+          <div style={{ fontSize: 12, color: THEME.muted, marginTop: 2 }}>Stato appuntamenti, sovrapposizioni, pagamenti, gruppi</div>
         </div>
+        <span style={{ color: THEME.muted, fontSize: 12, transform: p.show ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
       </div>
-      <div style={{ padding: "18px 20px" }}>
+      {p.show && (
+      <div style={{ padding: "18px 20px", opacity: p.loadingPractice ? 0.7 : 1 }}>
         <label style={labelStyle}>Quando creo un nuovo appuntamento, impostalo come:</label>
         <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
           {statusOptions.map(opt => (
@@ -163,7 +182,61 @@ export default function CalendarPrefsSection(p: CalendarPrefsSectionProps) {
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
           <BtnPrimary label={p.savingPractice ? "Salvataggio…" : "Salva preferenze"} onClick={p.onSave} disabled={p.savingPractice} />
         </div>
+
+        {/* ── Auto-applica prezzi dal catalogo ── */}
+        <div style={{ marginTop: 20, paddingTop: 18, borderTop: `1px dashed ${THEME.border}` }}>
+          <label style={labelStyle}>Prezzi dei nuovi appuntamenti</label>
+          <div style={{ marginTop: 8, display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 14px", borderRadius: 8, border: `1px solid ${THEME.border}`, background: "#fff" }}>
+            <input type="checkbox" id="auto-apply" checked={p.autoApplyPrices} onChange={e => p.setAutoApplyPrices(e.target.checked)} style={{ width: 16, height: 16, marginTop: 2, cursor: "pointer" }} />
+            <label htmlFor="auto-apply" style={{ cursor: "pointer" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: THEME.text }}>Applica automaticamente il prezzo del trattamento</div>
+              <div style={{ fontSize: 12, color: THEME.muted, marginTop: 3 }}>Pre-compila il prezzo dal Catalogo Trattamenti quando crei un appuntamento. Se disattivato, lo imposti a mano ogni volta.</div>
+            </label>
+          </div>
+        </div>
+
+        {/* ── Appuntamenti di gruppo (mig. 014) ── */}
+        <div style={{ marginTop: 20, padding: 16, borderRadius: 10, border: `2px solid ${THEME.teal}33`, background: `${THEME.teal}08` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <span style={{ fontSize: 18 }}>👥</span>
+            <div style={{ fontWeight: 700, fontSize: 14, color: THEME.teal }}>Appuntamenti di gruppo</div>
+          </div>
+          <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 14 }}>
+            Default per gli appuntamenti di gruppo (Posturale, Pilates, ecc.). Modificabili per singolo appuntamento e per singolo paziente.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+            <div>
+              <label style={labelStyle}>Prezzo per persona</label>
+              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: THEME.muted }}>€</span>
+                <input value={p.defaultGroupPrice} onChange={e => p.setDefaultGroupPrice(validatePrice(e.target.value))} style={{ ...inputStyle, textAlign: "right", fontWeight: 700, fontSize: 14, padding: "7px 10px" }} />
+              </div>
+            </div>
+            <div>
+              <label style={labelStyle}>Max partecipanti</label>
+              <input type="number" min={2} max={50} value={p.defaultGroupMaxParticipants} onChange={e => p.setDefaultGroupMaxParticipants(e.target.value.replace(/[^0-9]/g, ""))} style={{ ...inputStyle, fontWeight: 700, fontSize: 14, padding: "7px 10px" }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 14px", borderRadius: 8, border: `1px solid ${THEME.teal}33`, background: "#fff", marginBottom: 14 }}>
+            <input type="checkbox" id="group-stats-separate" checked={p.groupStatsCountAsSeparate} onChange={e => p.setGroupStatsCountAsSeparate(e.target.checked)} style={{ width: 16, height: 16, marginTop: 2, cursor: "pointer" }} />
+            <label htmlFor="group-stats-separate" style={{ cursor: "pointer", flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: THEME.text }}>Conta come appuntamenti separati nelle statistiche</div>
+              <div style={{ fontSize: 12, color: THEME.muted, marginTop: 3, lineHeight: 1.5 }}>
+                <strong>OFF:</strong> 1 gruppo da 75€ = 1 appuntamento nei report.<br />
+                <strong>ON:</strong> 5 partecipanti × 15€ = 5 appuntamenti separati nei report.
+              </div>
+            </label>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <BtnPrimary
+              label={(p.savingPractice || p.savingGroupStats) ? "Salvataggio…" : "Salva impostazioni gruppo"}
+              onClick={() => { p.onSave(); p.onSaveGroupStats(); }}
+              disabled={p.loadingPractice || p.savingPractice || p.savingGroupStats}
+            />
+          </div>
+        </div>
       </div>
+      )}
     </div>
   );
 }
