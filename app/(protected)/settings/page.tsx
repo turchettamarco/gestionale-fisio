@@ -43,6 +43,7 @@ import AppNavbar from "@/src/components/AppNavbar";
 import StudioBrandingSection from "./components/sections/StudioBrandingSection";
 import LocationsSection from "./components/sections/LocationsSection";
 import PracticeSection from "./components/sections/PracticeSection";
+import AccountingSection from "./components/sections/AccountingSection";
 import TreatmentsSection from "./components/sections/TreatmentsSection";
 import WorkingHoursSection from "./components/sections/WorkingHoursSection";
 import TemplatesSection from "./components/sections/TemplatesSection";
@@ -80,6 +81,7 @@ export default function SettingsPage() {
   const [showLocations, setShowLocations] = useState(false);
   const [showPractice,  setShowPractice]  = useState(true);
   const [showCalPrefs,  setShowCalPrefs]  = useState(true);
+  const [showAccounting, setShowAccounting] = useState(true);
   const [showTreatments, setShowTreatments] = useState(true);
   const [showHours,     setShowHours]     = useState(true);
   const [showTemplates, setShowTemplates] = useState(true);
@@ -2070,10 +2072,6 @@ export default function SettingsPage() {
               loadingPractice={loadingPractice} savingPractice={savingPractice}
               defaultApptStatus={defaultApptStatus} setDefaultApptStatus={setDefaultApptStatus}
               overlapMode={overlapMode} setOverlapMode={setOverlapMode}
-              paymentMethodRequired={paymentMethodRequired}
-              setPaymentMethodRequired={setPaymentMethodRequired}
-              defaultPaymentMethod={defaultPaymentMethod}
-              setDefaultPaymentMethod={setDefaultPaymentMethod}
               autoApplyPrices={autoApplyPrices} setAutoApplyPrices={setAutoApplyPrices}
               defaultGroupPrice={defaultGroupPrice} setDefaultGroupPrice={setDefaultGroupPrice}
               defaultGroupMaxParticipants={defaultGroupMaxParticipants} setDefaultGroupMaxParticipants={setDefaultGroupMaxParticipants}
@@ -2125,6 +2123,17 @@ export default function SettingsPage() {
               tsWsPincode={tsWsPincode} setTsWsPincode={setTsWsPincode}
               tsWsAmbiente={tsWsAmbiente} setTsWsAmbiente={setTsWsAmbiente}
               onReload={() => void loadPracticeSettings()}
+              onSave={() => void savePracticeSettings()}
+            />
+
+            <AccountingSection
+              show={showAccounting} onToggle={() => setShowAccounting(!showAccounting)}
+              savingPractice={savingPractice}
+              paymentMethodRequired={paymentMethodRequired}
+              setPaymentMethodRequired={setPaymentMethodRequired}
+              defaultPaymentMethod={defaultPaymentMethod}
+              setDefaultPaymentMethod={setDefaultPaymentMethod}
+              monthlyGoal={monthlyGoal} setMonthlyGoal={setMonthlyGoal}
               onSave={() => void savePracticeSettings()}
             />
           </>
@@ -2183,7 +2192,6 @@ export default function SettingsPage() {
             <ManagementSection
               show={showGestione} onToggle={() => setShowGestione(!showGestione)}
               savingPractice={savingPractice}
-              monthlyGoal={monthlyGoal} setMonthlyGoal={setMonthlyGoal}
               inactiveThresh={inactiveThresh} setInactiveThresh={setInactiveThresh}
               reminderHours={reminderHours} setReminderHours={setReminderHours}
               onSave={() => void savePracticeSettings()}
