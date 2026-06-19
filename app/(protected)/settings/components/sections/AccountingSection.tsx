@@ -40,7 +40,9 @@ export default function AccountingSection(p: AccountingSectionProps) {
 
       {p.show && (
         <div style={{ padding: "18px 20px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 24, alignItems: "start" }}>
           {/* ── Metodo pagamento (mig. 015) ── */}
+          <div>
           <label style={labelStyle}>Metodo di pagamento sui fatturati</label>
           <div style={{
             marginTop: 8,
@@ -109,9 +111,10 @@ export default function AccountingSection(p: AccountingSectionProps) {
               </div>
             </div>
           )}
+          </div>
 
           {/* ── Obiettivo fatturato ── */}
-          <div style={{ marginTop: 20, paddingTop: 18, borderTop: `1px dashed ${THEME.border}` }}>
+          <div>
             <label style={labelStyle}>Obiettivo fatturato mensile</label>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, maxWidth: 220 }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: THEME.muted }}>€</span>
@@ -125,6 +128,7 @@ export default function AccountingSection(p: AccountingSectionProps) {
               />
             </div>
             <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>Usato nella barra di progressione nei Report</div>
+          </div>
           </div>
 
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>

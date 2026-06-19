@@ -43,7 +43,7 @@ export default function NotificationsSection(p: NotificationsSectionProps) {
           <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 14, lineHeight: 1.5 }}>
             Quando un paziente conferma o annulla un appuntamento dal link WhatsApp, scegli come venire avvisato.
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 10 }}>
             <ToggleRow
               label="Campanella nel calendario"
               description="Mostra le notifiche nel calendario con un badge"
@@ -72,7 +72,7 @@ export default function NotificationsSection(p: NotificationsSectionProps) {
             <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 14, lineHeight: 1.5 }}>
               Per studi con sito pubblico che riceve prenotazioni online. Disattiva queste opzioni per nascondere la UI dal gestionale (la feature continua a funzionare sul backend).
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 10 }}>
               <ToggleRow
                 label="Card in home"
                 description="Mostra la card 'Prenotazioni dal sito' nella home (sostituisce la card notifiche)"

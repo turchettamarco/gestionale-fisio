@@ -58,6 +58,8 @@ export default function CalendarPrefsSection(p: CalendarPrefsSectionProps) {
       </div>
       {p.show && (
       <div style={{ padding: "18px 20px", opacity: p.loadingPractice ? 0.7 : 1 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 22, alignItems: "start" }}>
+        <div>
         <label style={labelStyle}>Quando creo un nuovo appuntamento, impostalo come:</label>
         <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
           {statusOptions.map(opt => (
@@ -76,9 +78,10 @@ export default function CalendarPrefsSection(p: CalendarPrefsSectionProps) {
         <div style={{ marginTop: 14, padding: "10px 14px", borderRadius: 8, background: "rgba(13,148,136,0.04)", border: `1px solid rgba(13,148,136,0.15)`, fontSize: 11, color: THEME.muted }}>
           Vale sia per desktop che per mobile. Puoi sempre modificare lo stato di un singolo appuntamento dopo averlo creato.
         </div>
+        </div>
 
         {/* ── Gestione sovrapposizione ── */}
-        <div style={{ marginTop: 20 }}>
+        <div>
           <label style={labelStyle}>Gestione sovrapposizione appuntamenti</label>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
             {overlapOptions.map(opt => (
@@ -98,6 +101,7 @@ export default function CalendarPrefsSection(p: CalendarPrefsSectionProps) {
               </button>
             ))}
           </div>
+        </div>
         </div>
 
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>

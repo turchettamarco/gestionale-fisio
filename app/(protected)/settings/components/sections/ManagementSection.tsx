@@ -30,7 +30,7 @@ export default function ManagementSection(p: ManagementSectionProps) {
       </div>
       {p.show && (
         <div style={{ padding: "20px" }}>
-          <div className="settings-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
+          <div className="settings-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14, marginBottom: 16 }}>
             <div>
               <label style={labelStyle}>Soglia paziente inattivo (giorni)</label>
               <input type="number" value={p.inactiveThresh} onChange={e => p.setInactiveThresh(e.target.value)} min={7} max={365} style={{ ...inputStyle, textAlign: "right", fontWeight: 700 }} />

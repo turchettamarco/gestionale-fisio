@@ -49,7 +49,7 @@ export default function StudioBrandingSection(p: StudioBrandingSectionProps) {
             <strong style={{ color: THEME.teal }}>💡 Suggerimento:</strong> questi dati vengono usati automaticamente nei messaggi WhatsApp, nei PDF e nelle pagine pubbliche (portale paziente, conferma appuntamenti). Compila soprattutto la firma — sarà il nome mostrato ai tuoi pazienti.
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
             <div style={{ gridColumn: "1 / -1" }}>
               <label style={labelStyle}>Nome studio *</label>
               <input

@@ -32,7 +32,7 @@ export default function IntegrationsSection(p: IntegrationsSectionProps) {
         <span style={{ color: THEME.muted, fontSize: 12, transform: p.show ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
       </div>
       {p.show && (
-        <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ padding: "20px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 14, alignItems: "start" }}>
 
           {/* ── Backup CSV ── */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderRadius: 10, border: `1px solid ${THEME.border}`, background: THEME.panelSoft }}>

@@ -33,7 +33,7 @@ export default function PasswordSection(p: PasswordSectionProps) {
         <div style={{ padding: "20px" }}>
           {p.pwError && <div style={{ marginBottom: 12, padding: "9px 14px", borderRadius: 7, background: "rgba(220,38,38,0.05)", border: "1px solid rgba(220,38,38,0.2)", color: THEME.red, fontWeight: 600, fontSize: 13 }}>{p.pwError}</div>}
           {p.pwSuccess && <div style={{ marginBottom: 12, padding: "9px 14px", borderRadius: 7, background: "rgba(22,163,74,0.06)", border: "1px solid rgba(22,163,74,0.2)", color: THEME.green, fontWeight: 600, fontSize: 13 }}>{p.pwSuccess}</div>}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14, marginBottom: 16 }}>
             <div style={{ gridColumn: "1/-1" }}>
               <label style={labelStyle}>Nuova password</label>
               <input type="password" value={p.pwNew} onChange={e => p.setPwNew(e.target.value)} placeholder="Minimo 8 caratteri" style={inputStyle} />

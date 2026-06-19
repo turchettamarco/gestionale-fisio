@@ -38,7 +38,7 @@ export default function AutoReportsSection(p: AutoReportsSectionProps) {
           <div style={{ fontSize: 12.5, color: THEME.muted, marginBottom: 14, lineHeight: 1.5 }}>
             Ricevi un riepilogo PDF con sedute, incassi e nuovi pazienti. Ogni cadenza è indipendente: attiva quelle che ti servono.
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 10 }}>
             <ToggleRow
               label="Report mensile"
               description="Il 1° di ogni mese, riepilogo del mese precedente"
