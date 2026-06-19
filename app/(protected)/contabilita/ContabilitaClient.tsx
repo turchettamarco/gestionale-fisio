@@ -45,7 +45,7 @@ export default function ContabilitaClient() {
   const [year, setYear] = useState<number>(NOW_YEAR);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState<"" | "assign" | "export" | "sent" | "reset" | "import" | "xml" | "invio" | "esito">("");
+  const [busy, setBusy] = useState<"" | "assign" | "export" | "sent" | "reset" | "import" | "xml" | "invio" | "esito" | "ricevuta">("");
 
   const [tsEnabled, setTsEnabled] = useState(false);
   const [tsDefault, setTsDefault] = useState("SP");
@@ -481,6 +481,57 @@ export default function ContabilitaClient() {
     }
   }
 
+  // Punto 1: scarica la ricevuta PDF ufficiale e la invia via email.
+  async function doRicevuta() {
+    const protos = Array.from(new Set(eligible.map(r => (r.ts_protocollo || "").trim()).filter(Boolean)));
+    if (protos.length === 0) {
+      setError("Nessun protocollo: invia prima le spese al Sistema TS.");
+      return;
+    }
+    if (!tsWsUser || !tsWsPassword || !tsWsPincode) {
+      setError("Credenziali Web Service mancanti: inseriscile in Impostazioni → Sistema TS.");
+      return;
+    }
+    setBusy("ricevuta");
+    setError("");
+    setInvioMsg(null);
+    try {
+      const { data: u } = await supabase.auth.getUser();
+      const email = u?.user?.email || "";
+      const periodo = month > 0 ? `${String(month).padStart(2, "0")}/${year}` : String(year);
+      const parts: string[] = [];
+      let anyErr = false;
+      for (const protocollo of protos) {
+        const esitoText = (eligible.find(r => (r.ts_protocollo || "").trim() === protocollo)?.ts_esito) || "";
+        const res = await fetch("/api/ts-ricevuta", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ protocollo, wsUser: tsWsUser, wsPassword: tsWsPassword, wsPincode: tsWsPincode, ambiente: tsWsAmbiente, email, periodo, esitoText }),
+        });
+        const j = await res.json().catch(() => ({} as any));
+        if (!res.ok || j.error || !j.pdf) { parts.push(`${protocollo}: ${j.error || "ricevuta non disponibile"}`); anyErr = true; continue; }
+        // download PDF
+        try {
+          const bin = atob(j.pdf);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          const blob = new Blob([bytes], { type: "application/pdf" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url; a.download = `ricevuta-TS-${protocollo}.pdf`;
+          document.body.appendChild(a); a.click(); a.remove();
+          URL.revokeObjectURL(url);
+        } catch { /* download non bloccante */ }
+        parts.push(`${protocollo}: ricevuta scaricata${j.emailed ? ` e inviata a ${email}` : (email ? " (email non riuscita)" : "")}`);
+      }
+      setInvioMsg({ ok: !anyErr, text: "Ricevuta PDF — " + parts.join(" · ") });
+    } catch (e: any) {
+      setInvioMsg({ ok: false, text: e?.message || "Errore nel recupero della ricevuta." });
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function doMarkSent() {
     const target = numerate.filter(r => r.ts_sent_at == null);
     if (target.length === 0) { alert("Nessuna spesa numerata da marcare."); return; }
@@ -662,6 +713,11 @@ export default function ContabilitaClient() {
             {eligible.some(r => (r.ts_protocollo || "").trim()) && (
               <Btn onClick={() => void doVerificaEsito()} disabled={busy !== ""} tone="outline">
                 {busy === "esito" ? "Verifico…" : "Verifica esito"}
+              </Btn>
+            )}
+            {eligible.some(r => (r.ts_protocollo || "").trim()) && (
+              <Btn onClick={() => void doRicevuta()} disabled={busy !== ""} tone="outline">
+                {busy === "ricevuta" ? "Scarico…" : "Ricevuta PDF (email)"}
               </Btn>
             )}
             <Btn onClick={() => void doMarkSent()} disabled={busy !== "" || numerate.filter(r => r.ts_sent_at == null).length === 0} tone="outline">

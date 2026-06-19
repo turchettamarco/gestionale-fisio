@@ -75,6 +75,7 @@ export type PracticeSettingsRow = {
   ts_ws_password?: string | null;
   ts_ws_pincode?: string | null;
   ts_ws_ambiente?: string | null;
+  ts_reminder_cadence?: string | null;
   created_at?: string;
   updated_at?: string;
 };

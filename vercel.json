@@ -13,6 +13,10 @@
       "schedule": "0 7 1 * *"
     },
     {
+      "path": "/api/cron/ts-reminder",
+      "schedule": "0 8 1 * *"
+    },
+    {
       "path": "/api/cron/cleanup-error-logs",
       "schedule": "0 3 * * *"
     }

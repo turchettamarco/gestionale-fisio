@@ -62,6 +62,19 @@ type TemplateDataMap = {
     newPatients: number;
     appUrl: string;
   };
+  ts_ricevuta: {
+    studioName: string;
+    periodo: string;             // es. "2026" o "maggio 2026"
+    protocollo: string;
+    esitoText: string;           // es. "File elaborato correttamente — inviati 6, accolti 6"
+    appUrl: string;
+  };
+  ts_reminder: {
+    studioName: string;
+    periodoLabel: string;        // es. "il mese di maggio 2026" / "il 2° trimestre 2026"
+    daInviare: number | null;    // documenti ancora da inviare (se noto)
+    appUrl: string;
+  };
 };
 
 export type TemplateName = keyof TemplateDataMap;
@@ -288,6 +301,10 @@ export function renderTemplate<T extends TemplateName>(
       return buildWeeklySummary(data as TemplateDataMap["weekly_summary"]);
     case "monthly_report":
       return buildMonthlyReport(data as TemplateDataMap["monthly_report"]);
+    case "ts_ricevuta":
+      return buildTsRicevuta(data as TemplateDataMap["ts_ricevuta"]);
+    case "ts_reminder":
+      return buildTsReminder(data as TemplateDataMap["ts_reminder"]);
     default:
       throw new Error(`Template sconosciuto: ${template}`);
   }
@@ -327,5 +344,45 @@ function buildMonthlyReport(d: TemplateDataMap["monthly_report"]): Rendered {
     </p>
   `);
   const text = `Report mensile ${d.studioName} - ${d.monthLabel}\n\nSedute svolte: ${d.done}\nIncassato: €${d.collected.toFixed(0)}\nNuovi pazienti: ${d.newPatients}\n\nIl report PDF completo è in allegato.\n\nApri: ${d.appUrl}`;
+  return { subject, html, text };
+}
+
+function buildTsRicevuta(d: TemplateDataMap["ts_ricevuta"]): Rendered {
+  const subject = `Ricevuta Sistema TS — protocollo ${d.protocollo}`;
+  const html = emailLayout(`
+    <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:#0f172a;">Ricevuta Sistema TS</h1>
+    <p style="margin:0 0 18px;font-size:14px;color:#64748b;">
+      ${escapeHtml(d.studioName)} · spese sanitarie ${escapeHtml(d.periodo)}
+    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-bottom:16px;">
+      <tr><td style="padding:12px;background:#f0fdfa;border-radius:8px;">
+        <div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Protocollo</div>
+        <div style="font-size:16px;font-weight:800;color:#0d9488;margin-top:2px;">${escapeHtml(d.protocollo)}</div>
+        <div style="font-size:13px;color:#0f172a;margin-top:10px;">${escapeHtml(d.esitoText)}</div>
+      </td></tr>
+    </table>
+    <p style="margin:0 0 4px;font-size:13px;color:#475569;">La ricevuta ufficiale in PDF è in allegato: conservala come prova di trasmissione.</p>
+  `);
+  const text = `Ricevuta Sistema TS\n${d.studioName} - spese sanitarie ${d.periodo}\n\nProtocollo: ${d.protocollo}\nEsito: ${d.esitoText}\n\nLa ricevuta PDF è in allegato.\n\nApri: ${d.appUrl}`;
+  return { subject, html, text };
+}
+
+function buildTsReminder(d: TemplateDataMap["ts_reminder"]): Rendered {
+  const subject = `Promemoria: invio spese sanitarie al Sistema TS`;
+  const daInviareRow = d.daInviare && d.daInviare > 0
+    ? `<div style="font-size:13px;color:#0f172a;margin-top:10px;">Risultano <b>${d.daInviare}</b> document${d.daInviare > 1 ? "i" : "o"} ancora da inviare.</div>`
+    : "";
+  const html = emailLayout(`
+    <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:#0f172a;">Promemoria Sistema TS</h1>
+    <p style="margin:0 0 18px;font-size:14px;color:#64748b;">${escapeHtml(d.studioName)}</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-bottom:16px;">
+      <tr><td style="padding:12px;background:#eff6ff;border-radius:8px;">
+        <div style="font-size:14px;color:#0f172a;">È il momento di inviare al Sistema Tessera Sanitaria le spese sanitarie per ${escapeHtml(d.periodoLabel)}.</div>
+        ${daInviareRow}
+      </td></tr>
+    </table>
+    <p style="margin:0;font-size:13px;color:#475569;">Apri FisioHub → Contabilità per numerare e inviare.</p>
+  `);
+  const text = `Promemoria Sistema TS\n${d.studioName}\n\nÈ il momento di inviare le spese sanitarie per ${d.periodoLabel}.${d.daInviare && d.daInviare > 0 ? `\nDocumenti da inviare: ${d.daInviare}.` : ""}\n\nApri: ${d.appUrl}`;
   return { subject, html, text };
 }
