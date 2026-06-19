@@ -75,6 +75,16 @@ type TemplateDataMap = {
     daInviare: number | null;    // documenti ancora da inviare (se noto)
     appUrl: string;
   };
+  ts_invio_report: {
+    studioName: string;
+    periodo: string;
+    protocollo: string;
+    esitoText: string;
+    ambiente: string;            // "produzione" | "test"
+    righe: Array<{ paziente: string; numero: string; importo: number }>;
+    ricevutaInclusa: boolean;
+    appUrl: string;
+  };
 };
 
 export type TemplateName = keyof TemplateDataMap;
@@ -305,6 +315,8 @@ export function renderTemplate<T extends TemplateName>(
       return buildTsRicevuta(data as TemplateDataMap["ts_ricevuta"]);
     case "ts_reminder":
       return buildTsReminder(data as TemplateDataMap["ts_reminder"]);
+    case "ts_invio_report":
+      return buildTsInvioReport(data as TemplateDataMap["ts_invio_report"]);
     default:
       throw new Error(`Template sconosciuto: ${template}`);
   }
@@ -384,5 +396,38 @@ function buildTsReminder(d: TemplateDataMap["ts_reminder"]): Rendered {
     <p style="margin:0;font-size:13px;color:#475569;">Apri FisioHub → Contabilità per numerare e inviare.</p>
   `);
   const text = `Promemoria Sistema TS\n${d.studioName}\n\nÈ il momento di inviare le spese sanitarie per ${d.periodoLabel}.${d.daInviare && d.daInviare > 0 ? `\nDocumenti da inviare: ${d.daInviare}.` : ""}\n\nApri: ${d.appUrl}`;
+  return { subject, html, text };
+}
+
+function buildTsInvioReport(d: TemplateDataMap["ts_invio_report"]): Rendered {
+  const subject = `Invio Sistema TS effettuato — protocollo ${d.protocollo}`;
+  const rows = d.righe.map(r => `
+    <tr>
+      <td style="padding:7px 10px;border-bottom:1px solid #eef2f7;font-size:13px;color:#0f172a;">${escapeHtml(r.paziente)}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #eef2f7;font-size:13px;color:#0f172a;">${escapeHtml(r.numero)}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #eef2f7;font-size:13px;color:#0f172a;text-align:right;">€${(r.importo || 0).toFixed(2)}</td>
+    </tr>`).join("");
+  const html = emailLayout(`
+    <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:#0f172a;">Invio al Sistema TS effettuato</h1>
+    <p style="margin:0 0 16px;font-size:14px;color:#64748b;">${escapeHtml(d.studioName)} · spese sanitarie ${escapeHtml(d.periodo)} · ambiente ${escapeHtml(d.ambiente)}</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-bottom:16px;">
+      <tr><td style="padding:12px;background:#f0fdfa;border-radius:8px;">
+        <div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Protocollo</div>
+        <div style="font-size:16px;font-weight:800;color:#0d9488;margin-top:2px;">${escapeHtml(d.protocollo)}</div>
+        <div style="font-size:13px;color:#0f172a;margin-top:8px;">${escapeHtml(d.esitoText)}</div>
+      </td></tr>
+    </table>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border:1px solid #eef2f7;border-radius:8px;border-collapse:separate;overflow:hidden;">
+      <tr style="background:#f8fafc;">
+        <th style="padding:8px 10px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;">Paziente</th>
+        <th style="padding:8px 10px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;">N. documento</th>
+        <th style="padding:8px 10px;text-align:right;font-size:11px;color:#64748b;text-transform:uppercase;">Importo</th>
+      </tr>
+      ${rows}
+    </table>
+    <p style="margin:14px 0 0;font-size:13px;color:#475569;">${d.ricevutaInclusa ? "In allegato la ricevuta PDF ufficiale." : "La ricevuta PDF sarà disponibile a breve dal pulsante \u201cRicevuta PDF\u201d in Contabilità."}</p>
+  `);
+  const textRows = d.righe.map(r => `- ${r.paziente} | ${r.numero} | €${(r.importo || 0).toFixed(2)}`).join("\n");
+  const text = `Invio al Sistema TS effettuato\n${d.studioName} - spese sanitarie ${d.periodo} (${d.ambiente})\n\nProtocollo: ${d.protocollo}\nEsito: ${d.esitoText}\n\nDocumenti:\n${textRows}\n\n${d.ricevutaInclusa ? "Ricevuta PDF in allegato." : "Ricevuta PDF disponibile a breve in Contabilità."}\n\nApri: ${d.appUrl}`;
   return { subject, html, text };
 }

@@ -58,6 +58,7 @@ export default function ContabilitaClient() {
   const [tsWsPassword, setTsWsPassword] = useState("");
   const [tsWsPincode, setTsWsPincode] = useState("");
   const [tsWsAmbiente, setTsWsAmbiente] = useState<"test" | "prod">("test");
+  const [tsInvioEmailEnabled, setTsInvioEmailEnabled] = useState(true);
   const [invioMsg, setInvioMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [onlyInvoiced, setOnlyInvoiced] = useState(true);
@@ -79,7 +80,7 @@ export default function ContabilitaClient() {
       if (uid) {
         const { data: ps } = await supabase
           .from("practice_settings")
-          .select("ts_enabled, ts_tipo_spesa_default, ts_numbering_mode, ts_cf_proprietario, ts_dispositivo, ts_regime_forfettario, vat_number, ts_ws_user, ts_ws_password, ts_ws_pincode, ts_ws_ambiente")
+          .select("ts_enabled, ts_tipo_spesa_default, ts_numbering_mode, ts_cf_proprietario, ts_dispositivo, ts_regime_forfettario, vat_number, ts_ws_user, ts_ws_password, ts_ws_pincode, ts_ws_ambiente, ts_invio_email_enabled")
           .eq("owner_id", uid)
           .maybeSingle();
         setTsEnabled(Boolean((ps as any)?.ts_enabled));
@@ -93,6 +94,7 @@ export default function ContabilitaClient() {
         setTsWsPassword(((ps as any)?.ts_ws_password as string) || "");
         setTsWsPincode(((ps as any)?.ts_ws_pincode as string || "").trim());
         setTsWsAmbiente((ps as any)?.ts_ws_ambiente === "prod" ? "prod" : "test");
+        setTsInvioEmailEnabled((ps as any)?.ts_invio_email_enabled !== false);
       }
 
       // Spese dell'anno: sedute pagate, non ospiti, con paziente
@@ -294,6 +296,7 @@ export default function ContabilitaClient() {
       if (!cf && !opp) { skippedNoCf++; continue; }
       for (const x of g) includedIds.push(x.id);
       documents.push({
+        paziente: patientFullName(first.patient) || "—",
         numDocumento: docNumber(first),
         dataEmissione: toDateInputValue(first.ts_doc_date || first.paid_at),
         dataPagamento: toDateInputValue(first.paid_at),
@@ -420,8 +423,30 @@ export default function ContabilitaClient() {
         }
         const extra = skippedNoCf > 0 ? ` — ${skippedNoCf} senza CF esclusi.` : "";
         const prot = j.protocollo ? `Protocollo ${j.protocollo}. ` : "";
-        const det = j.descrizioneEsito || "In attesa di elaborazione: usa \"Verifica esito\" tra qualche minuto.";
-        setInvioMsg({ ok: true, text: `File accolto dal Sistema TS (${j.ambiente === "prod" ? "produzione" : "test"}). ${prot}${det}${extra}` });
+        const det = j.descrizioneEsito || "In attesa di elaborazione.";
+
+        // Email di riepilogo: accodata lato server (cron) e inviata fra qualche minuto,
+        // quando la ricevuta SOGEI è pronta. Robusto anche a scheda chiusa.
+        let emailNote = "";
+        if (tsInvioEmailEnabled && j.protocollo) {
+          const { data: u } = await supabase.auth.getUser();
+          const ownerId = u?.user?.id;
+          const email = u?.user?.email || "";
+          if (ownerId) {
+            const sendAfter = new Date(Date.now() + 3 * 60 * 1000).toISOString(); // ~3 minuti
+            const { error: qErr } = await supabase.from("ts_email_queue").insert({
+              owner_id: ownerId,
+              protocollo: j.protocollo,
+              periodo: month > 0 ? `${String(month).padStart(2, "0")}/${year}` : String(year),
+              esito: det,
+              ambiente: tsWsAmbiente,
+              righe: documents.map((d: any) => ({ paziente: d.paziente, numero: d.numDocumento, importo: d.importo })),
+              send_after: sendAfter,
+            } as any);
+            if (!qErr) emailNote = ` Il report con ricevuta PDF arriverà via email tra qualche minuto${email ? ` a ${email}` : ""}.`;
+          }
+        }
+        setInvioMsg({ ok: true, text: `File accolto dal Sistema TS (${j.ambiente === "prod" ? "produzione" : "test"}). ${prot}${det}${extra}${emailNote}` });
       } else {
         const det = [j.codiceEsito && `esito ${j.codiceEsito}`, j.descrizioneEsito, j.idErrore && `idErrore ${j.idErrore}`].filter(Boolean).join(" — ");
         setInvioMsg({ ok: false, text: `Il Sistema TS non ha accolto il file${det ? ": " + det : "."}` });
@@ -797,7 +822,7 @@ export default function ContabilitaClient() {
                     const locked = excluded || !fatturata;
                     return (
                       <tr key={r.id} style={{ borderTop: `1px solid ${T.border}`, opacity: (excluded || !fatturata) ? 0.5 : 1, background: sent ? "rgba(22,163,74,0.04)" : "transparent" }}>
-                        <Td><span style={{ fontWeight: 700, color: hasDocNumber(r) ? T.text : T.gray }}>{docNumber(r) || "—"}</span></Td>
+                        <Td><NumeroCell row={r} editable={numberingMode === "external" && !sent && fatturata && !excluded} onSave={(id, ref) => void saveEditRow(id, { ts_doc_ref: ref || null, ts_doc_date: r.ts_doc_date || toDateInputValue(r.paid_at) || null })} /></Td>
                         <Td><span style={{ color: T.text }}>{dateITA(r.ts_doc_date || r.paid_at)}</span></Td>
                         <Td>
                           {r.patient_id ? (
@@ -923,6 +948,26 @@ function MenuItem({ children, onClick, disabled, danger }: { children: React.Rea
     >
       {children}
     </button>
+  );
+}
+
+// Cella "N." modificabile al volo: scrivi il numero documento direttamente in riga.
+function NumeroCell({ row, editable, onSave }: { row: SpesaRow; editable: boolean; onSave: (id: string, ref: string) => void }) {
+  const current = docNumber(row) || "";
+  const [val, setVal] = useState(current);
+  useEffect(() => { setVal(docNumber(row) || ""); }, [row.id, row.ts_doc_ref, row.ts_doc_number]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!editable) {
+    return <span style={{ fontWeight: 700, color: hasDocNumber(row) ? T.text : T.gray }}>{current || "—"}</span>;
+  }
+  return (
+    <input
+      value={val}
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={() => { if (val.trim() !== current) onSave(row.id, val.trim()); }}
+      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+      placeholder="n. doc"
+      style={{ width: 92, padding: "4px 7px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, fontWeight: 700, color: T.text, background: "#fff" }}
+    />
   );
 }
 

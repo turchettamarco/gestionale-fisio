@@ -31,6 +31,7 @@ export type PracticeSectionProps = {
   tsWsPincode: string; setTsWsPincode: (v: string) => void;
   tsWsAmbiente: "test" | "prod"; setTsWsAmbiente: (v: "test" | "prod") => void;
   tsReminderCadence: "off" | "monthly" | "quarterly" | "semiannual"; setTsReminderCadence: (v: "off" | "monthly" | "quarterly" | "semiannual") => void;
+  tsInvioEmailEnabled: boolean; setTsInvioEmailEnabled: (v: boolean) => void;
   onReload: () => void;
   onSave: () => void;
 };
@@ -280,6 +281,34 @@ export default function PracticeSection(p: PracticeSectionProps) {
                     })}
                   </div>
                   <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>Ricevi un&apos;email che ti ricorda di inviare le spese al Sistema TS.</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 4 }}>Email di riepilogo dopo l&apos;invio</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {([
+                      { k: true, t: "Attiva", d: "report + ricevuta PDF via email" },
+                      { k: false, t: "Disattiva", d: "nessuna email automatica" },
+                    ]).map(o => {
+                      const sel = p.tsInvioEmailEnabled === o.k;
+                      return (
+                        <button
+                          key={String(o.k)}
+                          onClick={() => p.tsEnabled && p.setTsInvioEmailEnabled(o.k)}
+                          disabled={!p.tsEnabled}
+                          style={{
+                            flex: "1 1 200px", textAlign: "left", padding: "10px 12px", borderRadius: 10,
+                            cursor: p.tsEnabled ? "pointer" : "not-allowed",
+                            border: `1.5px solid ${sel ? THEME.teal : THEME.border}`,
+                            background: sel ? "rgba(13,148,136,0.08)" : "#fff",
+                          }}
+                        >
+                          <div style={{ fontSize: 13, fontWeight: 700, color: sel ? THEME.teal : THEME.text }}>{o.t}</div>
+                          <div style={{ fontSize: 11, color: THEME.muted, marginTop: 3 }}>{o.d}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>L&apos;email parte qualche minuto dopo l&apos;invio, così la ricevuta PDF è già pronta.</div>
                 </div>
               </div>
             </div>
