@@ -204,13 +204,20 @@ export default function PainMap({
             ))}
           </div>
 
-          {/* Immagine corpo con punti */}
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: embedded ? 18 : 8, position: "relative" }}>
+          {/* Immagine corpo con punti — dimensionata in LARGHEZZA così riempie lo schermo;
+              la figura (1:3) resta alta, quindi la colonna scorre in verticale. */}
+          <div style={{
+            display: "flex", alignItems: "flex-start", justifyContent: "center",
+            padding: embedded ? 18 : 8, position: "relative",
+            ...(embedded ? { maxHeight: "80vh", overflowY: "auto" as const } : {}),
+          }}>
             <div
               ref={imgWrapRef}
               onClick={handleTap}
               style={{
-                position: "relative", height: embedded ? "min(74vh, 760px)" : "min(72vh, 700px)", aspectRatio: aspectFor(view),
+                position: "relative",
+                width: embedded ? "min(100%, 420px)" : "min(100%, 480px)",
+                aspectRatio: aspectFor(view),
                 cursor: "crosshair", userSelect: "none", touchAction: "manipulation",
                 borderRadius: 12, overflow: "hidden", background: "#fff",
               }}
