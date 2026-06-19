@@ -52,6 +52,8 @@ export default function PainMap({
   const [tab, setTab] = useState<"edit" | "history">("edit");
   const [history, setHistory] = useState<SavedMap[]>([]);
   const [loadingHist, setLoadingHist] = useState(false);
+  const [viewing, setViewing] = useState<SavedMap | null>(null);   // mappa aperta a schermo intero
+  const [viewerView, setViewerView] = useState<View>("front");
   const imgWrapRef = useRef<HTMLDivElement>(null);
 
   // ── Carica storico mappe ──
@@ -208,7 +210,7 @@ export default function PainMap({
               ref={imgWrapRef}
               onClick={handleTap}
               style={{
-                position: "relative", height: embedded ? "min(72vh, 720px)" : "min(52vh, 440px)", aspectRatio: aspectFor(view),
+                position: "relative", height: embedded ? "min(74vh, 760px)" : "min(72vh, 700px)", aspectRatio: aspectFor(view),
                 cursor: "crosshair", userSelect: "none", touchAction: "manipulation",
                 borderRadius: 12, overflow: "hidden", background: "#fff",
               }}
@@ -346,8 +348,10 @@ export default function PainMap({
           ) : history.map(m => (
             <div key={m.id} style={{ background: PANEL, border: `1px solid ${LINE}`, borderRadius: 14,
               padding: 14, marginBottom: 12, display: "flex", gap: 14, alignItems: "center" }}>
-              {/* miniatura */}
-              <div style={{ position: "relative", height: 96, aspectRatio: aspectFor((m.data?.view as View) ?? "front"), borderRadius: 8, overflow: "hidden", flexShrink: 0, background: "#fff" }}>
+              {/* miniatura → tocca per aprire a schermo intero */}
+              <div onClick={() => { setViewerView((m.data?.view as View) ?? "front"); setViewing(m); }}
+                title="Apri a schermo intero"
+                style={{ position: "relative", height: 96, aspectRatio: aspectFor((m.data?.view as View) ?? "front"), borderRadius: 8, overflow: "hidden", flexShrink: 0, background: "#fff", cursor: "pointer", border: `1px solid ${LINE}` }}>
                 <div style={{ position: "absolute", inset: 0, ...bodyBg((m.data?.view as View) ?? "front") }} />
                 {(m.data?.chains ?? []).filter(c => c.view === (m.data?.view ?? "front")).length > 0 && (
                   <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
@@ -371,13 +375,98 @@ export default function PainMap({
                   {new Date(m.created_at).toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" })}
                 </div>
                 {m.notes && <div style={{ fontSize: 12, color: BODY, marginTop: 6 }}>{m.notes}</div>}
-                <button onClick={() => deleteMap(m.id)} style={{ marginTop: 8, background: "none", border: "none",
-                  color: "#dc2626", fontSize: 12, fontWeight: 700, cursor: "pointer", padding: 0 }}>Elimina</button>
+                <div style={{ display: "flex", gap: 14, marginTop: 8 }}>
+                  <button onClick={() => { setViewerView((m.data?.view as View) ?? "front"); setViewing(m); }}
+                    style={{ background: "none", border: "none", color: BLUE, fontSize: 12, fontWeight: 700, cursor: "pointer", padding: 0 }}>Apri grande</button>
+                  <button onClick={() => deleteMap(m.id)} style={{ background: "none", border: "none",
+                    color: "#dc2626", fontSize: 12, fontWeight: 700, cursor: "pointer", padding: 0 }}>Elimina</button>
+                </div>
               </div>
             </div>
           ))}
         </div>
       )}
+
+      {/* ── Visualizzatore mappa a schermo intero ── */}
+      {viewing && (() => {
+        const vPoints = (viewing.data?.points ?? []).filter(p => p.view === viewerView);
+        const vChains = (viewing.data?.chains ?? []).filter(c => c.view === viewerView);
+        const countFor = (v: View) =>
+          (viewing.data?.points ?? []).filter(p => p.view === v).length +
+          (viewing.data?.chains ?? []).filter(c => c.view === v).length;
+        return (
+          <div style={{ position: "fixed", inset: 0, background: BG, zIndex: 400,
+            display: "flex", flexDirection: "column", paddingBottom: "env(safe-area-inset-bottom,0px)" }}>
+            {/* Header */}
+            <div style={{ background: `linear-gradient(100deg,${TEAL},${BLUE})`, padding: "16px 18px 14px", color: "#fff" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontSize: 16, fontWeight: 800 }}>
+                  {viewing.data?.zone || "Mappa del dolore"}{viewing.vas != null ? ` · VAS ${viewing.vas}` : ""}
+                </div>
+                <button onClick={() => setViewing(null)} style={{ background: "rgba(255,255,255,.18)", border: "none", color: "#fff",
+                  width: 34, height: 34, borderRadius: 10, fontSize: 18, cursor: "pointer" }}>✕</button>
+              </div>
+              <div style={{ fontSize: 12, opacity: .9, marginTop: 3 }}>
+                {patientName} · {new Date(viewing.created_at).toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" })}
+              </div>
+            </div>
+
+            {/* Toggle vista (solo viste con contenuto evidenziate) */}
+            <div style={{ display: "flex", gap: 6, padding: "12px 16px 4px", background: PANEL, borderBottom: `1px solid ${LINE}` }}>
+              {([["front", "Fronte"], ["back", "Retro"], ["right", "Lat. Dx"], ["left", "Lat. Sx"]] as [View, string][]).map(([v, label]) => {
+                const n = countFor(v);
+                return (
+                  <button key={v} onClick={() => setViewerView(v)} style={{
+                    flex: 1, padding: "9px 0", borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: "pointer",
+                    border: viewerView === v ? "none" : `1px solid ${LINE}`,
+                    background: viewerView === v ? `linear-gradient(100deg,${TEAL},${BLUE})` : PANEL,
+                    color: viewerView === v ? "#fff" : (n > 0 ? BODY : FAINT),
+                  }}>{label}{n > 0 ? ` · ${n}` : ""}</button>
+                );
+              })}
+            </div>
+
+            {/* Corpo grande in sola lettura */}
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, overflow: "auto" }}>
+              <div style={{ position: "relative", height: "min(78vh, 820px)", aspectRatio: aspectFor(viewerView),
+                borderRadius: 12, overflow: "hidden", background: "#fff", border: `1px solid ${LINE}` }}>
+                <div style={{ position: "absolute", inset: 0, ...bodyBg(viewerView) }} />
+                {vChains.length > 0 && (
+                  <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
+                    <defs>
+                      <marker id="radArrowBig" markerWidth="5" markerHeight="5" refX="3.5" refY="2.5" orient="auto">
+                        <path d="M0,0 L5,2.5 L0,5 Z" fill="#7c3aed" />
+                      </marker>
+                    </defs>
+                    {vChains.map(c => (
+                      <polyline key={c.id} points={c.nodes.map(n => `${n.x * 100},${n.y * 100}`).join(" ")}
+                        fill="none" stroke="#7c3aed" strokeWidth="0.9" strokeLinecap="round" strokeLinejoin="round"
+                        strokeDasharray="2.5 1.5" markerEnd="url(#radArrowBig)" vectorEffect="non-scaling-stroke" />
+                    ))}
+                  </svg>
+                )}
+                {vChains.flatMap(c => c.nodes.map((n, i) => (
+                  <div key={`${c.id}-${i}`} style={{ position: "absolute", left: `${n.x * 100}%`, top: `${n.y * 100}%`,
+                    width: 11, height: 11, borderRadius: "50%", transform: "translate(-50%,-50%)",
+                    background: "#7c3aed", border: "2px solid #fff", boxShadow: "0 1px 3px rgba(0,0,0,.3)" }} />
+                )))}
+                {vPoints.map(p => (
+                  <div key={p.id} style={{ position: "absolute", left: `${p.x * 100}%`, top: `${p.y * 100}%`,
+                    width: 22, height: 22, borderRadius: "50%", transform: "translate(-50%,-50%)",
+                    background: INTENSITY_COLOR[p.intensity], border: "2px solid #fff", boxShadow: "0 1px 5px rgba(0,0,0,.35)" }} />
+                ))}
+              </div>
+            </div>
+
+            {/* Note */}
+            {viewing.notes && (
+              <div style={{ background: PANEL, borderTop: `1px solid ${LINE}`, padding: "14px 18px", fontSize: 13, color: BODY }}>
+                {viewing.notes}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
