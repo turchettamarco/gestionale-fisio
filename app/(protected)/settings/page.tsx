@@ -44,6 +44,8 @@ import StudioBrandingSection from "./components/sections/StudioBrandingSection";
 import LocationsSection from "./components/sections/LocationsSection";
 import PracticeSection from "./components/sections/PracticeSection";
 import AccountingSection from "./components/sections/AccountingSection";
+import AutoReportsSection from "./components/sections/AutoReportsSection";
+import NotificationsSection from "./components/sections/NotificationsSection";
 import TreatmentsSection from "./components/sections/TreatmentsSection";
 import WorkingHoursSection from "./components/sections/WorkingHoursSection";
 import TemplatesSection from "./components/sections/TemplatesSection";
@@ -82,6 +84,8 @@ export default function SettingsPage() {
   const [showPractice,  setShowPractice]  = useState(true);
   const [showCalPrefs,  setShowCalPrefs]  = useState(true);
   const [showAccounting, setShowAccounting] = useState(true);
+  const [showReports,   setShowReports]   = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
   const [showTreatments, setShowTreatments] = useState(true);
   const [showHours,     setShowHours]     = useState(true);
   const [showTemplates, setShowTemplates] = useState(true);
@@ -1936,15 +1940,6 @@ export default function SettingsPage() {
               professionalRegisterNumber={professionalRegisterNumber} setProfessionalRegisterNumber={setProfessionalRegisterNumber}
               professionalRegisterName={professionalRegisterName} setProfessionalRegisterName={setProfessionalRegisterName}
               logoBase64={logoBase64} setLogoBase64={setLogoBase64}
-              notifyEmailEnabled={notifyEmailEnabled} setNotifyEmailEnabled={setNotifyEmailEnabled}
-              notifyBellEnabled={notifyBellEnabled} setNotifyBellEnabled={setNotifyBellEnabled}
-              notifyWaRedirectEnabled={notifyWaRedirectEnabled} setNotifyWaRedirectEnabled={setNotifyWaRedirectEnabled}
-              reportMonthlyEnabled={reportMonthlyEnabled} setReportMonthlyEnabled={setReportMonthlyEnabled}
-              reportQuarterlyEnabled={reportQuarterlyEnabled} setReportQuarterlyEnabled={setReportQuarterlyEnabled}
-              reportYearlyEnabled={reportYearlyEnabled} setReportYearlyEnabled={setReportYearlyEnabled}
-              reportEmail={reportEmail} setReportEmail={setReportEmail}
-              showBookingCardHome={showBookingCardHome} setShowBookingCardHome={setShowBookingCardHome}
-              showBookingBellCalendar={showBookingBellCalendar} setShowBookingBellCalendar={setShowBookingBellCalendar}
               savingStudio={savingStudio}
               onSave={() => void saveStudio()}
             />
@@ -2136,12 +2131,33 @@ export default function SettingsPage() {
               monthlyGoal={monthlyGoal} setMonthlyGoal={setMonthlyGoal}
               onSave={() => void savePracticeSettings()}
             />
+
+            <AutoReportsSection
+              show={showReports} onToggle={() => setShowReports(!showReports)}
+              savingStudio={savingStudio}
+              reportMonthlyEnabled={reportMonthlyEnabled} setReportMonthlyEnabled={setReportMonthlyEnabled}
+              reportQuarterlyEnabled={reportQuarterlyEnabled} setReportQuarterlyEnabled={setReportQuarterlyEnabled}
+              reportYearlyEnabled={reportYearlyEnabled} setReportYearlyEnabled={setReportYearlyEnabled}
+              reportEmail={reportEmail} setReportEmail={setReportEmail}
+              onSave={() => void saveStudio()}
+            />
           </>
         )}
 
         {/* ─── Tab "Comunicazioni": Templates messaggi + Integrazioni ─── */}
         {activeTab === "communications" && (
           <>
+            <NotificationsSection
+              show={showNotifications} onToggle={() => setShowNotifications(!showNotifications)}
+              savingStudio={savingStudio}
+              notifyBellEnabled={notifyBellEnabled} setNotifyBellEnabled={setNotifyBellEnabled}
+              notifyEmailEnabled={notifyEmailEnabled} setNotifyEmailEnabled={setNotifyEmailEnabled}
+              notifyWaRedirectEnabled={notifyWaRedirectEnabled} setNotifyWaRedirectEnabled={setNotifyWaRedirectEnabled}
+              showBookingCardHome={showBookingCardHome} setShowBookingCardHome={setShowBookingCardHome}
+              showBookingBellCalendar={showBookingBellCalendar} setShowBookingBellCalendar={setShowBookingBellCalendar}
+              onSave={() => void saveStudio()}
+            />
+
             <TemplatesSection
               show={showTemplates} onToggle={() => setShowTemplates(!showTemplates)}
               loadingTemplates={loadingTemplates} savingPractice={savingPractice}
