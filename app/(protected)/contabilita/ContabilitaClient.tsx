@@ -59,6 +59,7 @@ export default function ContabilitaClient() {
   const [tsWsPincode, setTsWsPincode] = useState("");
   const [tsWsAmbiente, setTsWsAmbiente] = useState<"test" | "prod">("test");
   const [invioMsg, setInvioMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [onlyInvoiced, setOnlyInvoiced] = useState(true);
   const [month, setMonth] = useState<number>(0); // 0 = tutti i mesi
   const [sortKey, setSortKey] = useState<"date" | "name" | "payment">("date");
@@ -690,42 +691,69 @@ export default function ContabilitaClient() {
 
         {/* Azioni */}
         {tsEnabled && (
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
             {numberingMode === "fisiohub" && (
               <Btn onClick={() => void doAssign()} disabled={busy !== ""} tone="teal">
-                {busy === "assign" ? "Assegno…" : `Assegna numeri documento${daNumerareYear ? ` (${daNumerareYear})` : ""}`}
+                {busy === "assign" ? "Assegno…" : `Assegna numeri${daNumerareYear ? ` (${daNumerareYear})` : ""}`}
               </Btn>
             )}
             {numberingMode === "external" && (
               <Btn onClick={() => setShowImport(true)} disabled={busy !== ""} tone="teal">
-                Importa numeri da Xolo
+                Importa da Xolo
               </Btn>
             )}
-            <Btn onClick={doExport} disabled={busy !== "" || numerate.length === 0} tone="blue">
-              {busy === "export" ? "Genero…" : `Genera file Sistema TS (CSV)`}
-            </Btn>
-            <Btn onClick={() => void doExportXml()} disabled={busy !== "" || numerate.length === 0} tone="blue">
-              {busy === "xml" ? "Genero…" : "Genera file Sistema TS (.zip XML)"}
-            </Btn>
             <Btn onClick={() => void doInvio()} disabled={busy !== "" || numerate.length === 0} tone={tsWsAmbiente === "prod" ? "red" : "teal"}>
               {busy === "invio" ? "Invio…" : `Invia al Sistema TS${tsWsAmbiente === "test" ? " (test)" : ""}`}
             </Btn>
-            {eligible.some(r => (r.ts_protocollo || "").trim()) && (
-              <Btn onClick={() => void doVerificaEsito()} disabled={busy !== ""} tone="outline">
-                {busy === "esito" ? "Verifico…" : "Verifica esito"}
-              </Btn>
-            )}
-            {eligible.some(r => (r.ts_protocollo || "").trim()) && (
-              <Btn onClick={() => void doRicevuta()} disabled={busy !== ""} tone="outline">
-                {busy === "ricevuta" ? "Scarico…" : "Ricevuta PDF (email)"}
-              </Btn>
-            )}
-            <Btn onClick={() => void doMarkSent()} disabled={busy !== "" || numerate.filter(r => r.ts_sent_at == null).length === 0} tone="outline">
-              {busy === "sent" ? "Aggiorno…" : "Segna come inviate"}
-            </Btn>
-            <Btn onClick={() => void doReset()} disabled={busy !== "" || numerate.filter(r => r.ts_sent_at == null).length === 0} tone="outline">
-              {busy === "reset" ? "Azzero…" : "Azzera numerazione"}
-            </Btn>
+
+            {/* Menu altre azioni */}
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={() => setMoreOpen(v => !v)}
+                disabled={busy !== ""}
+                aria-label="Altre azioni"
+                style={{
+                  padding: "6px 10px", borderRadius: 8, fontSize: 14, fontWeight: 700, lineHeight: 1,
+                  background: "#fff", color: T.sub, border: `1px solid ${T.border}`,
+                  cursor: busy !== "" ? "not-allowed" : "pointer", opacity: busy !== "" ? 0.45 : 1,
+                }}
+              >
+                {busy === "xml" || busy === "esito" || busy === "ricevuta" || busy === "export" || busy === "sent" || busy === "reset" ? "…" : "⋯"}
+              </button>
+              {moreOpen && (
+                <>
+                  <div onClick={() => setMoreOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+                  <div style={{
+                    position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 41, minWidth: 230,
+                    background: "#fff", border: `1px solid ${T.border}`, borderRadius: 10,
+                    boxShadow: "0 10px 30px rgba(15,23,42,0.14)", overflow: "hidden",
+                  }}>
+                    <MenuItem onClick={() => { setMoreOpen(false); void doExportXml(); }} disabled={numerate.length === 0}>
+                      Scarica file .zip (XML)
+                    </MenuItem>
+                    {eligible.some(r => (r.ts_protocollo || "").trim()) && (
+                      <MenuItem onClick={() => { setMoreOpen(false); void doVerificaEsito(); }}>
+                        Verifica esito
+                      </MenuItem>
+                    )}
+                    {eligible.some(r => (r.ts_protocollo || "").trim()) && (
+                      <MenuItem onClick={() => { setMoreOpen(false); void doRicevuta(); }}>
+                        Ricevuta PDF (email)
+                      </MenuItem>
+                    )}
+                    <MenuItem onClick={() => { setMoreOpen(false); doExport(); }} disabled={numerate.length === 0}>
+                      Genera file CSV
+                    </MenuItem>
+                    <MenuItem onClick={() => { setMoreOpen(false); void doMarkSent(); }} disabled={numerate.filter(r => r.ts_sent_at == null).length === 0}>
+                      Segna come inviate
+                    </MenuItem>
+                    <MenuItem onClick={() => { setMoreOpen(false); void doReset(); }} disabled={numerate.filter(r => r.ts_sent_at == null).length === 0} danger>
+                      Azzera numerazione
+                    </MenuItem>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         )}
 
@@ -831,10 +859,10 @@ export default function ContabilitaClient() {
 
         <div style={{ marginTop: 14, fontSize: 11.5, color: T.muted, lineHeight: 1.7 }}>
           <div><strong style={{ color: T.sub }}>Come funziona:</strong> al Sistema TS vanno solo le sedute <strong>fatturate</strong>; le sedute in contanti non fatturate non si numerano e non vengono inviate. {numberingMode === "external"
-            ? <>Inserisci il <strong>numero della ricevuta</strong> (es. da Xolo) con la ✎ su ogni riga, poi <strong>Genera file Sistema TS</strong>.</>
-            : <>Premi <strong>Assegna numeri documento</strong> per il progressivo, poi <strong>Genera file Sistema TS</strong>.</>}</div>
+            ? <>Inserisci il <strong>numero della ricevuta</strong> (es. da Xolo) con la ✎ su ogni riga, poi <strong>Invia al Sistema TS</strong>.</>
+            : <>Premi <strong>Assegna numeri</strong> per il progressivo, poi <strong>Invia al Sistema TS</strong>.</>}</div>
           <div style={{ marginTop: 6 }}><strong style={{ color: T.sub }}>Opposiz.</strong> = il paziente si oppone all&rsquo;invio della spesa all&rsquo;Agenzia delle Entrate (resta nei tuoi documenti ma non finisce nel suo 730 precompilato). <strong style={{ color: T.sub }}>Escludi</strong> = togli la singola seduta dall&rsquo;invio (es. fattura B2B a società/assicurazione).</div>
-          <div style={{ marginTop: 6 }}>Cadenza 2026 annuale (dati {year} entro il 31 gennaio {year + 1}), con invii parziali possibili. La generazione dell&rsquo;XML conforme all&rsquo;XSD ufficiale è il passo successivo.</div>
+          <div style={{ marginTop: 6 }}>Le altre azioni (CSV, &ldquo;segna come inviate&rdquo;, &ldquo;azzera numerazione&rdquo;) sono nel menu <strong>⋯</strong>.</div>
         </div>
       </div>
 
@@ -872,13 +900,30 @@ function Card({ label, value, tone = "muted" }: { label: string; value: string; 
 }
 
 function Btn({ children, onClick, disabled, tone }: { children: React.ReactNode; onClick: () => void; disabled?: boolean; tone: "teal" | "blue" | "outline" | "red" }) {
-  const base: React.CSSProperties = { padding: "9px 16px", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer", border: "none", opacity: disabled ? 0.5 : 1 };
+  const base: React.CSSProperties = { padding: "6px 12px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer", border: "none", opacity: disabled ? 0.45 : 1, lineHeight: 1.4, whiteSpace: "nowrap" };
   const styles: React.CSSProperties =
     tone === "teal" ? { background: T.teal, color: "#fff" }
     : tone === "blue" ? { background: T.blue, color: "#fff" }
     : tone === "red" ? { background: T.red, color: "#fff" }
-    : { background: "#fff", color: T.text, border: `1.5px solid ${T.border}` };
+    : { background: "#fff", color: T.sub, border: `1px solid ${T.border}` };
   return <button onClick={onClick} disabled={disabled} style={{ ...base, ...styles }}>{children}</button>;
+}
+
+function MenuItem({ children, onClick, disabled, danger }: { children: React.ReactNode; onClick: () => void; disabled?: boolean; danger?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        display: "block", width: "100%", textAlign: "left", padding: "9px 14px",
+        background: "#fff", border: "none", borderBottom: `1px solid ${T.soft}`,
+        fontSize: 13, fontWeight: 500, color: disabled ? T.muted : (danger ? T.red : T.text),
+        cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1,
+      }}
+    >
+      {children}
+    </button>
+  );
 }
 
 function Badge({ children, tone }: { children: React.ReactNode; tone: "green" | "amber" | "blue" | "gray" }) {
