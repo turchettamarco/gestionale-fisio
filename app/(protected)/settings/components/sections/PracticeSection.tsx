@@ -59,7 +59,7 @@ export default function PracticeSection(p: PracticeSectionProps) {
             <strong style={{ color: THEME.text }}>ℹ️ Nota:</strong> questi dati sono <strong>interni</strong>, usati per ricevute e adempimenti fiscali. Non vengono mostrati ai pazienti. I dati pubblici (nome studio, indirizzo, contatti, firma) sono nella sezione <strong>&ldquo;Il tuo Studio&rdquo;</strong>.
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 24 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14, marginBottom: 24 }}>
             {fields.map((f, idx) => (
               <div key={f.label} style={{ gridColumn: idx === 0 ? "1 / -1" : "auto" }}>
                 <label style={labelStyle}>{f.label}</label>
@@ -92,7 +92,8 @@ export default function PracticeSection(p: PracticeSectionProps) {
               </span>
             </label>
 
-            <div style={{ maxWidth: 360, opacity: p.tsEnabled ? 1 : 0.5 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 22, alignItems: "start" }}>
+            <div style={{ opacity: p.tsEnabled ? 1 : 0.5 }}>
               <label style={labelStyle}>Tipo spesa di default</label>
               <select
                 value={p.tsTipoSpesaDefault}
@@ -109,7 +110,7 @@ export default function PracticeSection(p: PracticeSectionProps) {
               </div>
             </div>
 
-            <div style={{ maxWidth: 520, marginTop: 18, opacity: p.tsEnabled ? 1 : 0.5 }}>
+            <div style={{ opacity: p.tsEnabled ? 1 : 0.5 }}>
               <label style={labelStyle}>Numerazione documenti</label>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {[
@@ -137,7 +138,7 @@ export default function PracticeSection(p: PracticeSectionProps) {
               </div>
             </div>
 
-            <div style={{ maxWidth: 520, marginTop: 18, opacity: p.tsEnabled ? 1 : 0.5 }}>
+            <div style={{ opacity: p.tsEnabled ? 1 : 0.5 }}>
               <label style={labelStyle}>Dati per il file XML (Sistema TS)</label>
               <div style={{ display: "grid", gap: 12 }}>
                 <div>
@@ -183,7 +184,7 @@ export default function PracticeSection(p: PracticeSectionProps) {
               </div>
             </div>
 
-            <div style={{ maxWidth: 520, marginTop: 18, opacity: p.tsEnabled ? 1 : 0.5 }}>
+            <div style={{ opacity: p.tsEnabled ? 1 : 0.5 }}>
               <label style={labelStyle}>Invio automatico al Sistema TS (Web Service)</label>
               <div style={{ fontSize: 11, color: THEME.muted, marginBottom: 10 }}>
                 Credenziali del Web Service Sistema TS, salvate solo nel tuo profilo. Il pincode viene cifrato al momento dell&apos;invio.
@@ -251,6 +252,7 @@ export default function PracticeSection(p: PracticeSectionProps) {
                   <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>Lo trovi sul portale: Profilo utente → Stampa pincode.</div>
                 </div>
               </div>
+            </div>
             </div>
           </div>
 

@@ -104,7 +104,7 @@ export default function SettingsPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const saved = localStorage.getItem("settings_active_tab");
-    if (saved === "studio" || saved === "team" || saved === "calendar" || saved === "accounting" || saved === "communications" || saved === "account") {
+    if (saved === "studio" || saved === "team" || saved === "calendar" || saved === "accounting" || saved === "communications" || saved === "account" || saved === "subscription") {
       setActiveTab(saved);
     }
   }, []);
@@ -1813,101 +1813,41 @@ export default function SettingsPage() {
   // Render
   // ═══════════════════════════════════════════════════════════════════════
   return (
-    <div style={{ minHeight: "100vh", background: THEME.appBg, fontFamily: "'Outfit','Segoe UI',system-ui,sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: THEME.appBg, fontFamily: "'Hanken Grotesk','Segoe UI',system-ui,sans-serif" }}>
       <style jsx global>{`
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap');
         *{-webkit-font-smoothing:antialiased;box-sizing:border-box;}
-        body{font-family:'Outfit','Segoe UI',system-ui,sans-serif;margin:0;background:${THEME.appBg};}
+        body{font-family:'Hanken Grotesk','Segoe UI',system-ui,sans-serif;margin:0;background:${THEME.appBg};}
         a{text-decoration:none;}
         select,input,textarea,button{font-family:inherit;}
-        input:focus,select:focus,textarea:focus{border-color:${THEME.blue}!important;box-shadow:0 0 0 3px rgba(37,99,235,0.10)!important;outline:none!important;}
+        input:focus,select:focus,textarea:focus{border-color:${THEME.teal}!important;box-shadow:0 0 0 3px rgba(13,148,136,0.12)!important;outline:none!important;}
         @media(min-width:768px)and(max-width:1024px){.th{display:none!important}}
+        /* ── Tipografia display ── */
+        .set-h1{font-family:'Fraunces',Georgia,serif;font-weight:500;letter-spacing:-0.01em;}
+        .set-panel-title{font-family:'Fraunces',Georgia,serif;font-weight:500;font-size:21px;letter-spacing:-0.01em;color:${THEME.text};margin:0 0 2px;}
+        .set-panel-rule{width:34px;height:2px;background:${THEME.brass};border-radius:2px;margin:0 0 18px;}
+        /* ── Telaio impostazioni (sidebar A) ── */
+        .set-shell{display:flex;gap:26px;align-items:flex-start;}
+        .set-content{flex:1;min-width:0;}
+        .set-aside{width:236px;flex-shrink:0;position:sticky;top:84px;}
+        .set-nav{display:flex;flex-direction:column;gap:3px;}
+        @media(max-width:860px){
+          .set-shell{flex-direction:column;gap:14px;}
+          .set-aside{width:100%;position:static;top:auto;}
+          .set-brand{display:none!important;}
+          .set-nav{flex-direction:row;overflow-x:auto;gap:6px;padding-bottom:4px;}
+        }
       `}</style>
 
       <AppNavbar active="settings" />
 
-      <main style={{ padding: "28px 32px", maxWidth: 900, margin: "0 auto" }}>
+      <main style={{ padding: "26px clamp(14px, 2.2vw, 36px)", maxWidth: "none", margin: "0 auto" }}>
 
         {/* Page title */}
         <div style={{ marginBottom: 24 }}>
-          <h1 style={{ margin: 0, fontWeight: 800, fontSize: 24, color: THEME.text, letterSpacing: -0.4 }}>Impostazioni</h1>
+          <h1 className="set-h1" style={{ margin: 0, fontSize: 27, color: THEME.text }}>Impostazioni</h1>
           <p style={{ margin: "4px 0 0", fontSize: 13, color: THEME.muted }}>Dati studio · Tariffe trattamenti · Template WhatsApp</p>
         </div>
-
-        {/* ━━━ PIANO E ABBONAMENTO (card riepilogo) ━━━ */}
-        <Link
-          href="/piano"
-          style={{
-            display: "block",
-            background: THEME.panelBg,
-            border: `1px solid ${THEME.border}`,
-            borderRadius: 12,
-            padding: "20px 24px",
-            marginBottom: 20,
-            textDecoration: "none",
-            color: "inherit",
-            transition: "border-color 0.15s, box-shadow 0.15s",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = THEME.teal;
-            e.currentTarget.style.boxShadow = "0 4px 12px rgba(13,148,136,0.08)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = THEME.border;
-            e.currentTarget.style.boxShadow = "none";
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>
-                Piano e abbonamento
-              </div>
-              {planLimits.loading ? (
-                <div style={{ fontSize: 16, color: THEME.muted }}>Caricamento…</div>
-              ) : planLimits.plan?.plan_id ? (
-                <>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: THEME.text, letterSpacing: -0.3 }}>
-                    {planLimits.plan.plan_name}
-                    {planLimits.plan.price_monthly_cents ? (
-                      <span style={{ fontSize: 14, fontWeight: 500, color: THEME.muted, marginLeft: 8 }}>
-                        €{(planLimits.plan.price_monthly_cents / 100).toFixed(0)}/mese
-                      </span>
-                    ) : (
-                      <span style={{ fontSize: 14, fontWeight: 500, color: THEME.muted, marginLeft: 8 }}>
-                        Gratuito
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontSize: 13, color: THEME.muted, marginTop: 4 }}>
-                    {planLimits.usage.patients}
-                    <span style={{ color: "#94a3b8" }}>
-                      /{planLimits.plan.max_patients ?? "∞"}
-                    </span>{" "}
-                    pazienti · {planLimits.usage.appointments_this_month}
-                    <span style={{ color: "#94a3b8" }}>
-                      /{planLimits.plan.max_appointments_per_month ?? "∞"}
-                    </span>{" "}
-                    appuntamenti/mese
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: THEME.text, letterSpacing: -0.3 }}>
-                    Nessun piano attivo
-                  </div>
-                  <div style={{ fontSize: 13, color: THEME.amber, marginTop: 4, fontWeight: 600 }}>
-                    → Configura ora il tuo piano
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: 8, color: THEME.teal, fontSize: 14, fontWeight: 600, flexShrink: 0 }}>
-              Gestisci
-              <span style={{ fontSize: 18 }}>→</span>
-            </div>
-          </div>
-        </Link>
 
         {/* Feedback banners */}
         {error && (
@@ -1921,8 +1861,13 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* ─── Tab bar 4 categorie ─── */}
-        <SettingsTabs activeTab={activeTab} onTabChange={setActiveTab} />
+        {/* ─── Telaio sidebar (A): nav categorie a sinistra, contenuto a destra ─── */}
+        <div className="set-shell">
+          <SettingsTabs activeTab={activeTab} onTabChange={setActiveTab} />
+          <div className="set-content">
+            <h2 className="set-panel-title">{({ studio: "Studio", team: "Team", calendar: "Catalogo & Calendario", accounting: "Contabilità & Fiscale", communications: "Comunicazioni", account: "Account", subscription: "Abbonamento" } as Record<string, string>)[activeTab]}</h2>
+            <div className="set-panel-rule" />
+            <div className="set-cards">
 
         {/* ─── Tab "Studio": StudioBranding + Practice + Prezzi + Orari ─── */}
         {activeTab === "studio" && (
@@ -2214,6 +2159,56 @@ export default function SettingsPage() {
             />
           </>
         )}
+
+        {/* ─── Tab "Abbonamento": piano attuale + gestione ─── */}
+        {activeTab === "subscription" && (
+          <>
+            <div style={{ background: THEME.panelBg, border: `1px solid ${THEME.border}`, borderRadius: 10, padding: "22px 24px", marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 10 }}>
+                Piano attuale
+              </div>
+              {planLimits.loading ? (
+                <div style={{ fontSize: 15, color: THEME.muted }}>Caricamento…</div>
+              ) : planLimits.plan?.plan_id ? (
+                <>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: 26, fontWeight: 500, color: THEME.text, letterSpacing: "-0.01em" }}>{planLimits.plan.plan_name}</span>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: THEME.muted }}>
+                      {planLimits.plan.price_monthly_cents ? `€${(planLimits.plan.price_monthly_cents / 100).toFixed(0)}/mese` : "Gratuito"}
+                    </span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 18 }}>
+                    <div style={{ border: `1px solid ${THEME.border}`, borderRadius: 8, padding: "13px 15px", background: THEME.panelSoft }}>
+                      <div style={{ fontSize: 11, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>Pazienti</div>
+                      <div style={{ fontSize: 19, fontWeight: 700, color: THEME.text, marginTop: 3 }}>
+                        {planLimits.usage.patients}<span style={{ color: THEME.gray, fontWeight: 500, fontSize: 14 }}> / {planLimits.plan.max_patients ?? "∞"}</span>
+                      </div>
+                    </div>
+                    <div style={{ border: `1px solid ${THEME.border}`, borderRadius: 8, padding: "13px 15px", background: THEME.panelSoft }}>
+                      <div style={{ fontSize: 11, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>Appuntamenti / mese</div>
+                      <div style={{ fontSize: 19, fontWeight: 700, color: THEME.text, marginTop: 3 }}>
+                        {planLimits.usage.appointments_this_month}<span style={{ color: THEME.gray, fontWeight: 500, fontSize: 14 }}> / {planLimits.plan.max_appointments_per_month ?? "∞"}</span>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: 23, fontWeight: 500, color: THEME.text }}>Nessun piano attivo</div>
+                  <div style={{ fontSize: 13, color: THEME.amber, marginTop: 4, fontWeight: 600 }}>Configura ora il tuo piano</div>
+                </>
+              )}
+              <div style={{ marginTop: 22 }}>
+                <Link href="/piano" style={{ display: "inline-flex", alignItems: "center", gap: 8, background: THEME.teal, color: "#fff", fontSize: 13, fontWeight: 700, padding: "11px 20px", borderRadius: 8 }}>
+                  Gestisci piano e fatturazione →
+                </Link>
+              </div>
+            </div>
+          </>
+        )}
+          </div>
+          </div>
+        </div>
 
         <div style={{ textAlign: "center", fontSize: 12, color: THEME.muted, padding: "8px 0 16px" }}>
           FisioHub · {new Date().getFullYear()}

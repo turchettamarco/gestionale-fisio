@@ -6,25 +6,27 @@
 import type React from "react";
 
 export const THEME = {
-  appBg:     "#f1f5f9",
-  panelBg:   "#ffffff",
-  panelSoft: "#f7f9fd",
-  text:      "#0f172a",
-  textSoft:  "#1e293b",
-  muted:     "#334155",
-  border:    "#cbd5e1",
+  appBg:     "#F4F1E9",   // cream
+  panelBg:   "#FFFFFF",   // card
+  panelSoft: "#FBF9F3",   // fascia/sfondo morbido caldo
+  text:      "#1E2A2B",   // inchiostro teal-carbone
+  textSoft:  "#2B3838",
+  muted:     "#6E7B79",   // grigio caldo
+  border:    "#E5DFD2",   // hairline calda
   blue:      "#2563eb",
   blueDark:  "#1e40af",
   green:     "#16a34a",
   teal:      "#0d9488",
+  tealDark:  "#0B6557",
+  brass:     "#AE8A4E",   // accento caldo
   red:       "#dc2626",
   amber:     "#f97316",
-  gray:      "#94a3b8",
+  gray:      "#9AA6A3",
 };
 
 export const inputStyle: React.CSSProperties = {
   width: "100%", padding: "9px 12px", borderRadius: 7,
-  border: `1.5px solid ${THEME.border}`, fontSize: 13, fontWeight: 500,
+  border: `1px solid ${THEME.border}`, fontSize: 13, fontWeight: 500,
   outline: "none", background: "#fff", color: THEME.text, boxSizing: "border-box",
 };
 
@@ -35,10 +37,10 @@ export const labelStyle: React.CSSProperties = {
 };
 
 export const cardStyle: React.CSSProperties = {
-  background: THEME.panelBg, borderRadius: 12,
+  background: THEME.panelBg, borderRadius: 10,
   border: `1px solid ${THEME.border}`,
-  boxShadow: "0 1px 4px rgba(15,23,42,0.05)",
-  overflow: "hidden", marginBottom: 16,
+  boxShadow: "none",
+  overflow: "hidden", marginBottom: 14,
 };
 
 export const sectionHead: React.CSSProperties = {
