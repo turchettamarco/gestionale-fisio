@@ -516,6 +516,30 @@ function CalendarPageInner() {
   }, [paymentMethodRequired, defaultPaymentMethod]);
   const [createTreatmentType,   setCreateTreatmentType]   = useState<string>("seduta");
 
+  // ── Prezzo pre-compilato (allineato al getDefaultAmount desktop) ──────────
+  // Calcola l'importo di default dato trattamento + tipo (fatturato/contanti),
+  // leggendo dal treatmentCatalog dinamico. Restituisce stringa con la virgola
+  // come separatore decimale (coerente con l'input mobile).
+  const getCreateDefaultAmount = useCallback(
+    (treatmentKey: string, priceType: "invoiced" | "cash"): string => {
+      const t = treatmentCatalog.find(x => x.key === treatmentKey);
+      const raw = t
+        ? (priceType === "invoiced" ? t.price_invoice : t.price_cash)
+        : null;
+      if (raw == null || !isFinite(Number(raw)) || Number(raw) <= 0) return "";
+      return String(Number(raw)).replace(".", ",");
+    },
+    [treatmentCatalog]
+  );
+  // Flag: l'utente ha modificato l'importo a mano? Se sì, non lo sovrascriviamo
+  // più al cambio di trattamento/tipo (rispetta la scelta manuale).
+  const [createAmountTouched, setCreateAmountTouched] = useState(false);
+  // Setter "manuale" passato al modale: marca l'importo come toccato.
+  const handleCreateAmountChange = useCallback((v: string) => {
+    setCreateAmountTouched(true);
+    setCreateAmount(v);
+  }, []);
+
   /* patient search (create) */
   const [patientQuery,    setPatientQuery]    = useState("");
   const [patientResults,  setPatientResults]  = useState<PatientLite[]>([]);
@@ -1209,10 +1233,17 @@ function CalendarPageInner() {
     setCreateDate(dateISO);
     setCreateTime(prefillTime&&isValidHHMM(prefillTime)?prefillTime:"09:00");
     setCreateDuration(60); setCreateStatus(defaultStatus); setCreateLocation("studio");
-    setCreateClinicSite(currentStudio?.name || ""); setCreateDomicileAddress(""); setCreateAmount(""); setCreateNote("");
-    setCreateTreatmentType(treatmentCatalog[0]?.key ?? "seduta");
+    const initialTreatment = treatmentCatalog[0]?.key ?? "seduta";
+    setCreateTreatmentType(initialTreatment);
+    // Pre-compila l'importo col prezzo di default del trattamento + tipo corrente.
+    // Azzera il flag "toccato a mano" così il pre-compilato resta vivo finché
+    // l'utente non scrive qualcosa di suo.
+    setCreateAmountTouched(false);
+    setCreateClinicSite(currentStudio?.name || ""); setCreateDomicileAddress("");
+    setCreateAmount(getCreateDefaultAmount(initialTreatment, createPriceType));
+    setCreateNote("");
     setSelectedPackageId(null); // mig. 014_packages
-  }, [currentDate, defaultStatus, treatmentCatalog]);
+  }, [currentDate, defaultStatus, treatmentCatalog, createPriceType, getCreateDefaultAmount]);
 
   /* ── Patient search (create) ─────────────── */
   const debRef = useRef<number|null>(null);
@@ -1302,6 +1333,16 @@ function CalendarPageInner() {
   const [createGroupTitle, setCreateGroupTitle] = useState("");
   const [createGroupMax, setCreateGroupMax] = useState("6");
   const [createGroupPrice, setCreateGroupPrice] = useState("15.00");
+
+  // Ri-calcola l'importo pre-compilato quando cambia trattamento o tipo
+  // (fatturato↔contanti), MA solo se: il modale è aperto, non è un gruppo,
+  // e l'utente non ha già modificato l'importo a mano.
+  // (Dichiarato qui perché dipende da createIsGroup, definito sopra.)
+  useEffect(() => {
+    if (!createOpen || createIsGroup || createAmountTouched) return;
+    setCreateAmount(getCreateDefaultAmount(createTreatmentType, createPriceType));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createTreatmentType, createPriceType, createOpen, createIsGroup]);
 
   // ─── Step 6.1: partecipanti iniziali ──────────────────────────────────────
   const [createInitialParticipants, setCreateInitialParticipants] = useState<
@@ -1407,6 +1448,9 @@ function CalendarPageInner() {
           payment_method: null,
           treatment_type: null,
           owner_id: userId,
+          // Multi-op: assegna l'operatore corrente (evita appuntamenti orfani
+          // con operator_id NULL). Constraint XOR: guest sempre NULL qui.
+          operator_id: userId,
           studio_id: currentStudioId,
           // Campi gruppo
           is_group: true,
@@ -1432,6 +1476,9 @@ function CalendarPageInner() {
           treatment_type: createTreatmentType || null,
           package_id: selectedPackageId,           // mig. 014_packages
           owner_id: userId,                // multi-tenancy
+          // Multi-op: assegna l'operatore corrente (evita appuntamenti orfani
+          // con operator_id NULL). Constraint XOR: guest sempre NULL qui.
+          operator_id: userId,
           studio_id: currentStudioId,      // multi-tenancy
         });
       }
@@ -2785,7 +2832,7 @@ function CalendarPageInner() {
           createLocationId={createLocationId}
           setCreateLocationId={setCreateLocationId}
           multiLocationEnabled={!!currentStudio?.multi_location_enabled}
-          createAmount={createAmount}     setCreateAmount={setCreateAmount}
+          createAmount={createAmount}     setCreateAmount={handleCreateAmountChange}
           createNote={createNote}         setCreateNote={setCreateNote}
           createPriceType={createPriceType}     setCreatePriceType={setCreatePriceType}
           createPaymentMethod={createPaymentMethod} setCreatePaymentMethod={setCreatePaymentMethod}

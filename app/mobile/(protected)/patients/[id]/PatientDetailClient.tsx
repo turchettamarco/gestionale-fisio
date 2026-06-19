@@ -362,7 +362,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
 
       const { data } = await supabase
         .from("practice_settings")
-        .select("birthday_message, payment_message, weekly_reminder_message")
+        .select("birthday_message, payment_message, weekly_reminder_message, standard_cash, standard_invoice, default_payment_method")
         .eq("owner_id", ownerId)
         .maybeSingle();
       if (data) {
@@ -370,6 +370,16 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
         setPaymentTpl((data as any).payment_message ?? null);
         const wTpl = ((data as any).weekly_reminder_message ?? "").trim();
         if (wTpl) setWeeklyReminderTemplate(wTpl);
+        // Prezzo seduta di default (stessa logica della home): se il metodo
+        // preferito è fatturato usa standard_invoice, altrimenti standard_cash.
+        const prefersInvoice = String((data as any).default_payment_method || "").toLowerCase().includes("invoic")
+          || String((data as any).default_payment_method || "").toLowerCase().includes("fattur");
+        const std = prefersInvoice ? (data as any).standard_invoice : (data as any).standard_cash;
+        if (std != null && !Number.isNaN(Number(std))) {
+          setDefaultApptPrice(Number(std));
+        } else {
+          setDefaultApptPrice(prefersInvoice ? 40 : 35); // fallback coerente col desktop
+        }
       }
     })();
   }, []);
@@ -442,6 +452,8 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
   const [newApptDur,    setNewApptDur]    = useState(60);
   const [newApptStatus, setNewApptStatus] = useState<Status>("confirmed");
   const [newApptAmt,    setNewApptAmt]    = useState("");
+  // Prezzo seduta di default (da practice_settings) per pre-compilare il campo.
+  const [defaultApptPrice, setDefaultApptPrice] = useState<number | null>(null);
   const [savingAppt,    setSavingAppt]    = useState(false);
 
   /* ── User ──────────────────────────────────────────────────────── */
@@ -1368,7 +1380,15 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
             {/* Nuovo appuntamento inline */}
             <div style={{ background: T.panelBg, border: `1.5px solid ${T.border}`,
               borderRadius: 14, overflow: "hidden", boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
-              <button onClick={() => setNewApptOpen(v => !v)} style={{
+              <button onClick={() => setNewApptOpen(v => {
+                const next = !v;
+                // All'apertura, pre-compila l'importo col prezzo di default
+                // (solo se il campo è vuoto, per non sovrascrivere modifiche manuali).
+                if (next && newApptAmt.trim() === "" && defaultApptPrice != null) {
+                  setNewApptAmt(String(defaultApptPrice).replace(".", ","));
+                }
+                return next;
+              })} style={{
                 width: "100%", padding: "13px 16px", background: "none", border: "none",
                 display: "flex", alignItems: "center", justifyContent: "space-between",
                 cursor: "pointer", fontFamily: "Inter,-apple-system,sans-serif",
