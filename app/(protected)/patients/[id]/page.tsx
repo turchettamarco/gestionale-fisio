@@ -1159,7 +1159,7 @@ A presto,
   );
 
   const SecHeader = ({ icon, title, subtitle, open, onToggle, extra, badge }: {
-    icon:string; title:string; subtitle:string; open:boolean; onToggle:()=>void; extra?:React.ReactNode; badge?:React.ReactNode;
+    icon:React.ReactNode; title:string; subtitle:string; open:boolean; onToggle:()=>void; extra?:React.ReactNode; badge?:React.ReactNode;
   }) => (
     <div onClick={onToggle} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"14px 22px", cursor:"pointer", userSelect:"none" as const, borderBottom: open ? `1px solid ${THEME.border}` : "none", background: open ? "#fff" : "#f9fafb", transition:"background .12s" }}>
       <div style={{ display:"flex", alignItems:"center", gap:12 }}>
@@ -2734,7 +2734,18 @@ ${rows}
         {/* ── BODY CHART ───────────────────────────────────────────────────── */}
         {activeSection === "mappa-dolore" && (
         <section style={cardStyle}>
-          <SecHeader icon="🗺" title="Body Chart — Mappa del Dolore" subtitle="Dipingi le zone dolorose · irradiazioni · referto PDF" open={secBodyChart} onToggle={()=>setSecBodyChart(s=>!s)}/>
+          <SecHeader
+            icon={
+              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 9, background: "linear-gradient(135deg,#0d9488,#2563eb)" }}>
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="5" r="2.4" />
+                  <path d="M12 7.4V15" />
+                  <path d="M5.5 9.5C7.5 10.6 9.7 11.2 12 11.2s4.5-.6 6.5-1.7" />
+                  <path d="M12 15l-3.2 5.4M12 15l3.2 5.4" />
+                </svg>
+              </span>
+            }
+            title="Body Chart — Mappa del Dolore" subtitle="Dipingi le zone dolorose · irradiazioni · referto PDF" open={secBodyChart} onToggle={()=>setSecBodyChart(s=>!s)}/>
           {secBodyChart && (
             <div style={cardBody}>
               <PainMapSection patientId={patientId} patientName={patient ? `${patient.last_name} ${patient.first_name}`.trim() : "Paziente"} studio={currentStudio} ownerId={ownerId ?? ""}/>
