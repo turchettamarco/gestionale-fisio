@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import Link from "next/link";
 import ReportPrintModal from "@/src/components/mobile/ReportPrintModal";
+import { usePrivacyMode, composeInitials } from "@/src/contexts/PrivacyModeContext";
 
 /* ─── Theme ───────────────────────────────────────────────────────────── */
 const THEME = {
@@ -281,6 +282,7 @@ function MobileBarChart({labels,values,unpaidValues,period,onBarClick,selectedDa
 
 /* ─── Main ────────────────────────────────────────────────────────────── */
 export default function ReportsMobile() {
+  const { privacyMode, privacyStyle } = usePrivacyMode();
   const params = useSearchParams();
   const [period,  setPeriod]  = useState<Period>((params.get("period") as Period)||"month");
   const [dateStr, setDateStr] = useState(params.get("date")||toISODate(new Date()));
@@ -405,7 +407,7 @@ export default function ReportsMobile() {
         if (freePatIds.length > 0) {
           const { data: pats } = await supabase.from("patients")
             .select("id, first_name, last_name").in("id", freePatIds);
-          for (const p of (pats ?? [])) nameMap.set(p.id, `${p.last_name ?? ""} ${p.first_name ?? ""}`.trim() || "Paziente");
+          for (const p of (pats ?? [])) nameMap.set(p.id, privacyMode ? (privacyStyle==="initials"?composeInitials(p):"Paziente") : (`${p.last_name ?? ""} ${p.first_name ?? ""}`.trim() || "Paziente"));
         }
         setFreeList(free.map(r => ({
           id: r.id, start_at: r.start_at, patient_id: r.patient_id,
@@ -991,7 +993,7 @@ export default function ReportsMobile() {
                           }} style={{width:"100%",padding:"10px 16px",background:"none",border:"none",
                             textAlign:"left",fontSize:12,color:THEME.muted,cursor:"pointer",
                             borderBottom:`1px solid ${THEME.border}`}}>
-                            {name}
+                            {privacyMode ? (privacyStyle==="initials"?composeInitials(name):"Paziente") : name}
                           </button>
                         ))}
                       </div>
@@ -1048,7 +1050,7 @@ export default function ReportsMobile() {
                                 </div>
                                 {item.patient_name&&(
                                   <div style={{fontSize:11,color:THEME.muted,marginTop:3}}>
-                                    👤 {item.patient_name}
+                                    👤 {privacyMode ? (privacyStyle==="initials"?composeInitials(item.patient_name):"Paziente") : item.patient_name}
                                   </div>
                                 )}
                               </div>
@@ -1099,7 +1101,7 @@ export default function ReportsMobile() {
                               {item.source==="invoice"?"FATTURA":"APPUNT."}
                             </span>
                           </div>
-                          {item.patient_name&&<div style={{fontSize:11,color:THEME.muted}}>👤 {item.patient_name}</div>}
+                          {item.patient_name&&<div style={{fontSize:11,color:THEME.muted}}>👤 {privacyMode ? (privacyStyle==="initials"?composeInitials(item.patient_name):"Paziente") : item.patient_name}</div>}
                           <div style={{fontSize:10,color:THEME.gray,marginTop:2}}>
                             {new Date(item.date).toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"numeric"})}
                             {item.description&&` · ${item.description}`}
@@ -1173,7 +1175,7 @@ export default function ReportsMobile() {
                               </span>
                             </div>
                             <div style={{fontSize:12,fontWeight:600,color:THEME.textSoft}}>
-                              👤 {t.patient_name}
+                              👤 {privacyMode ? (privacyStyle==="initials"?composeInitials(t.patient_name):"Paziente") : t.patient_name}
                             </div>
                             <div style={{display:"flex",gap:10,fontSize:10,color:THEME.gray,marginTop:3}}>
                               <span>{new Date(t.date).toLocaleDateString("it-IT")}</span>

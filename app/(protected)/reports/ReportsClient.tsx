@@ -10,6 +10,7 @@ function openWADirect(phone: string, message: string = ""): void {
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio, useStudioLocations, type StudioMember } from "@/src/contexts/StudioContext";
+import { usePrivacyMode, composeInitials } from "@/src/contexts/PrivacyModeContext";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter, type StudioHeaderData } from "@/src/lib/pdfHeader";
 import AppNavbar from "@/src/components/AppNavbar";
 import OperatorEarningsReport from "./components/OperatorEarningsReport";
@@ -174,6 +175,7 @@ function printRentalsList(rows: RentalRow[], periodLabel: string, studio?: Studi
 export default function ReportsPage(){
   const params  =useSearchParams();
   const { studio: currentStudio } = useCurrentStudio();
+  const { privacyMode, privacyStyle } = usePrivacyMode();
   const[period, setPeriod] =useState<Period>((params.get("period") as Period)||"month");
   const[dateStr,setDateStr]=useState(params.get("date")||toYMD(new Date()));
   const[tab,    setTab]    =useState<MainTab>("overview");
@@ -392,7 +394,7 @@ export default function ReportsPage(){
         if(!ids.length)return new Map<string,{name:string;phone:string|null}>();
         const{data}=await supabase.from("patients").select("id,first_name,last_name,phone").in("id",ids);
         const m=new Map<string,{name:string;phone:string|null}>();
-        (data||[]).forEach((p:any)=>m.set(p.id,{name:`${p.last_name||""} ${p.first_name||""}`.trim()||"Sconosciuto",phone:p.phone??null}));
+        (data||[]).forEach((p:any)=>m.set(p.id,{name:privacyMode?(privacyStyle==="initials"?composeInitials(p):"Paziente"):(`${p.last_name||""} ${p.first_name||""}`.trim()||"Sconosciuto"),phone:privacyMode?null:(p.phone??null)}));
         return m;
       }
 
@@ -581,7 +583,7 @@ export default function ReportsPage(){
           // ON: 1 riga per partecipante presente
           for (const p of paidPresent) {
             const pp = Array.isArray(p.patients) ? p.patients[0] : p.patients;
-            const fullName = pp ? `${pp.last_name ?? ""} ${pp.first_name ?? ""}`.trim() : "Sconosciuto";
+            const fullName = privacyMode ? (privacyStyle==="initials"?composeInitials(pp):"Paziente") : (pp ? `${pp.last_name ?? ""} ${pp.first_name ?? ""}`.trim() : "Sconosciuto");
             groupRows.push({
               id: p.id,
               patient_id: p.patient_id,
@@ -637,7 +639,7 @@ export default function ReportsPage(){
         if (freePatIds.length > 0) {
           const { data: pats } = await supabase.from("patients")
             .select("id, first_name, last_name").in("id", freePatIds);
-          for (const p of (pats ?? [])) nameMap.set(p.id, `${p.last_name ?? ""} ${p.first_name ?? ""}`.trim() || "Paziente");
+          for (const p of (pats ?? [])) nameMap.set(p.id, privacyMode ? (privacyStyle==="initials"?composeInitials(p):"Paziente") : (`${p.last_name ?? ""} ${p.first_name ?? ""}`.trim() || "Paziente"));
         }
         setFreeList(free.map(r => ({
           id: r.id, start_at: r.start_at, patient_id: r.patient_id,
@@ -723,7 +725,7 @@ export default function ReportsPage(){
         );
         for (const p of paidPresent) {
           const pp = Array.isArray(p.patients) ? p.patients[0] : p.patients;
-          const fullName = pp ? `${pp.last_name ?? ""} ${pp.first_name ?? ""}`.trim() : "Sconosciuto";
+          const fullName = privacyMode ? (privacyStyle==="initials"?composeInitials(pp):"Paziente") : (pp ? `${pp.last_name ?? ""} ${pp.first_name ?? ""}`.trim() : "Sconosciuto");
           const row: PaidDetailRow = {
             id: p.id,
             patient_id: p.patient_id,
@@ -904,8 +906,8 @@ export default function ReportsPage(){
         if(!r.patient_id||seenUnsch.has(r.patient_id)||futureIds.has(r.patient_id))continue;
         seenUnsch.add(r.patient_id);
         const p=Array.isArray(r.patients)?r.patients[0]:r.patients;
-        const name=p?`${p.last_name||""} ${p.first_name||""}`.trim():"Sconosciuto";
-        unschList.push({id:r.patient_id,name,lastVisit:r.start_at,days:Math.floor((today.getTime()-new Date(r.start_at).getTime())/86400000),phone:p?.phone??null});
+        const name=privacyMode?(privacyStyle==="initials"?composeInitials(p):"Paziente"):(p?`${p.last_name||""} ${p.first_name||""}`.trim():"Sconosciuto");
+        unschList.push({id:r.patient_id,name,lastVisit:r.start_at,days:Math.floor((today.getTime()-new Date(r.start_at).getTime())/86400000),phone:privacyMode?null:(p?.phone??null)});
         if(unschList.length>=20)break;
       }
       setUnscheduled(unschList);
@@ -2260,7 +2262,7 @@ export default function ReportsPage(){
                       >
                         <div style={{ minWidth:0 }}>
                           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
-                            <span style={{ fontSize:13, fontWeight:700, color:T.text }}>{r.patient_name}</span>
+                            <span style={{ fontSize:13, fontWeight:700, color:T.text }}>{privacyMode ? (privacyStyle==="initials"?composeInitials(r.patient_name):"Paziente") : r.patient_name}</span>
                             <span style={{ fontSize:9, fontWeight:700, color: r.is_paid ? T.green : T.red, background: r.is_paid ? "rgba(22,163,74,0.10)" : "rgba(220,38,38,0.10)", padding:"2px 6px", borderRadius:4, textTransform:"uppercase" as const, letterSpacing:0.4 }}>
                               {r.is_paid ? "Pagato" : "Da incassare"}
                             </span>

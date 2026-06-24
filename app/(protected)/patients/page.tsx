@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudioId } from "@/src/contexts/StudioContext";
+import { useDisplayPatientName, useDisplayPatientPhone } from "@/src/contexts/PrivacyModeContext";
 import AppNavbar from "@/src/components/AppNavbar";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -45,6 +46,8 @@ export default function PatientsPage() {
 
   // Studio corrente (multi-tenancy)
   const currentStudioId = useCurrentStudioId();
+  const displayName = useDisplayPatientName();
+  const displayPhone = useDisplayPatientPhone();
 
   // ── Data ──────────────────────────────────────────────────────────────────
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -555,11 +558,11 @@ export default function PatientsPage() {
                           textDecoration: "none", color: THEME.text,
                           fontWeight: 600, fontSize: 14,
                         }}>
-                          {p.last_name} {p.first_name}
+                          {displayName(p, `${p.last_name} ${p.first_name}`)}
                         </Link>
                       </td>
                       <td style={{ padding: "13px 16px", color: THEME.textSoft, fontSize: 13 }}>
-                        {p.phone ?? <span style={{ color: THEME.gray }}>—</span>}
+                        {p.phone ? displayPhone(p.phone) : <span style={{ color: THEME.gray }}>—</span>}
                       </td>
                       <td style={{ padding: "13px 16px", color: THEME.muted, fontSize: 13 }} className="tab-hide">
                         {p.residence_city ?? <span style={{ color: THEME.gray }}>—</span>}

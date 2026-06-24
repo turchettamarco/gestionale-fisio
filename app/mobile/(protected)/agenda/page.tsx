@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
+import { usePrivacyMode, usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
 
 type Appointment = {
   id: string;
@@ -41,6 +42,8 @@ function fullName(p?: Appointment["patients"]) {
 }
 
 export default function MobileAgendaPage() {
+  const { privacyMode } = usePrivacyMode();
+  const { maskName } = usePrivacyDisplay();
   const router = useRouter();
 
   const today = useMemo(() => new Date(), []);
@@ -141,7 +144,7 @@ export default function MobileAgendaPage() {
             {appts.map((a) => (
               <div key={a.id} style={{ background: UI.card, border: `1px solid ${UI.border}`, borderRadius: 16, padding: 12 }}>
                 <div style={{ fontWeight: 1000, color: UI.text, fontSize: 15 }}>
-                  {itTime(a.start_at)} · {fullName(a.patients)}
+                  {itTime(a.start_at)} · {privacyMode ? maskName(a.patients) : fullName(a.patients)}
                 </div>
                 <div style={{ marginTop: 4, fontSize: 12, color: UI.muted, fontWeight: 800 }}>
                   {a.treatment_type ?? "Seduta"}{typeof a.amount === "number" && a.amount > 0 ? ` · €${a.amount}` : ""}

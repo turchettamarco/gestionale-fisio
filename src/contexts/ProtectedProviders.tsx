@@ -7,12 +7,15 @@
 import { ReactNode, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { StudioProvider, useCurrentStudio } from "./StudioContext";
+import { PrivacyModeProvider } from "./PrivacyModeContext";
 import { supabase } from "@/src/lib/supabaseClient";
 
 export default function ProtectedProviders({ children }: { children: ReactNode }) {
   return (
     <StudioProvider>
-      <OnboardingGuard>{children}</OnboardingGuard>
+      <PrivacyModeProvider>
+        <OnboardingGuard>{children}</OnboardingGuard>
+      </PrivacyModeProvider>
     </StudioProvider>
   );
 }

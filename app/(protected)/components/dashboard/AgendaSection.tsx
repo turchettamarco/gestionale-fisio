@@ -15,6 +15,7 @@ import {
 import { StatusPill } from "./shared/StatusPill";
 import type { AppointmentRow, Bucket, Status } from "./shared/types";
 import PaidPill from "@/src/components/PaidPill";
+import { usePrivacyMode, usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
 
 export type AgendaSectionProps = {
@@ -47,6 +48,8 @@ export type AgendaSectionProps = {
 };
 
 export default function AgendaSection(p: AgendaSectionProps) {
+  const { privacyMode } = usePrivacyMode();
+  const { maskName } = usePrivacyDisplay();
   const tabs = [
     { key: "today",    label: "Oggi"      },
     { key: "next7",    label: "7 giorni"  },
@@ -95,7 +98,7 @@ export default function AgendaSection(p: AgendaSectionProps) {
                   </div>
 
                   {bucket.items.map(a => {
-                    const name   = patientName(a.patients);
+                    const name   = privacyMode ? maskName(pickPatient(a.patients)) : patientName(a.patients);
                     const phone  = pickPatient(a.patients)?.phone || "";
                     const waSent = Boolean(a.whatsapp_sent_at);
                     const isExp  = p.expandedId === a.id;

@@ -7,6 +7,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { usePrivacyMode, composeInitials } from "@/src/contexts/PrivacyModeContext";
 import { buildReminderMessage } from "@/app/(protected)/calendar/utils/reminderMessage";
 import { assignLanes } from "@/app/(protected)/calendar/utils/laneAssignment";
 import { getLocationCardStyle } from "@/app/(protected)/calendar/utils/locationHelpers";
@@ -281,6 +282,7 @@ function CalendarPageInner() {
 
   // Studio corrente (multi-tenancy)
   const { studio: currentStudio, locations: studioLocations } = useCurrentStudio();
+  const { privacyMode, privacyStyle } = usePrivacyMode();
   const currentStudioId = currentStudio?.id ?? null;
 
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
@@ -603,7 +605,7 @@ function CalendarPageInner() {
         : (p?`${p.last_name??""} ${p.first_name??""}`.trim():"Paziente");
       return {
         id:a.id, patient_id:a.patient_id??null,
-        patient_name:name||"Paziente", patient_first_name:p?.first_name??null,
+        patient_name: privacyMode && !isGroup ? (privacyStyle==="initials"?composeInitials(p):"Paziente") : (name||"Paziente"), patient_first_name:p?.first_name??null,
         patient_phone:p?.phone??null, start:new Date(a.start_at), end:new Date(a.end_at),
         status:(a.status??"booked") as Status, calendar_note:a.calendar_note??null,
         is_paid:a.is_paid??false,
@@ -659,7 +661,7 @@ function CalendarPageInner() {
         } catch {}
       }));
     })();
-  }, []);
+  }, [privacyMode, privacyStyle]);
 
   useEffect(() => { loadAppointments(currentDate); }, [currentDate, loadAppointments]);
 
@@ -722,7 +724,7 @@ function CalendarPageInner() {
           : (p?`${p.last_name??""} ${p.first_name??""}`.trim():"Paziente");
         return {
           id:a.id, patient_id:a.patient_id??null,
-          patient_name:name||"Paziente", patient_first_name:p?.first_name??null,
+          patient_name: privacyMode && !isGroup ? (privacyStyle==="initials"?composeInitials(p):"Paziente") : (name||"Paziente"), patient_first_name:p?.first_name??null,
           patient_phone:p?.phone??null, start:new Date(a.start_at), end:new Date(a.end_at),
           status:(a.status??"booked") as Status, calendar_note:a.calendar_note??null,
           is_paid:a.is_paid??false,
@@ -748,7 +750,7 @@ function CalendarPageInner() {
       setMonthEvents(mapped);
     }
     setMonthLoading(false);
-  }, []);
+  }, [privacyMode, privacyStyle]);
 
   useEffect(() => {
     if (viewMode === "month") loadMonthAppointments(currentDate);

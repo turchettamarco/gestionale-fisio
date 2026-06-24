@@ -30,6 +30,7 @@ import { getStudioBranding } from "@/src/lib/studioBranding";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { usePrivacyMode, useDisplayPatientPhone, usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
 import RemoteConsentsSection from "@/src/components/patient/RemoteConsentsSection";
 import { quickSendRemoteConsents } from "@/src/lib/consents/quickSend";
 import ExerciseProgramSection from "@/src/components/patient/ExerciseProgramSection";
@@ -349,6 +350,9 @@ function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, fi
 export default function PatientDetailClient({ patientId }: { patientId: string }) {
   // Studio corrente (multi-tenancy)
   const { studio: currentStudio } = useCurrentStudio();
+  const { privacyMode } = usePrivacyMode();
+  const displayPhone = useDisplayPatientPhone();
+  const { maskName, maskInitial } = usePrivacyDisplay();
 
   // Template messaggi dalle impostazioni
   const [birthdayTpl, setBirthdayTpl] = useState<string | null>(null);
@@ -840,10 +844,10 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
           }}>‹</Link>
           <div>
             <div style={{ fontWeight: 800, fontSize: 14, color: "#fff", lineHeight: 1 }}>
-              {patient.last_name} {patient.first_name}
+              {privacyMode ? maskName(patient) : `${patient.last_name} ${patient.first_name}`}
             </div>
             <div style={{ fontSize: 10, color: "rgba(255,255,255,0.75)", marginTop: 2 }}>
-              {patient.phone || "Nessun telefono"}
+              {patient.phone ? displayPhone(patient.phone) : "Nessun telefono"}
             </div>
           </div>
         </div>
@@ -919,11 +923,11 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
             background: T.gradient, display: "flex", alignItems: "center",
             justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 20,
           }}>
-            {initials(patient)}
+            {privacyMode ? maskInitial(patient) : initials(patient)}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 800, fontSize: 17, color: T.text, display: "flex", alignItems: "center", gap: 7 }}>
-              {patient.last_name} {patient.first_name}
+              {privacyMode ? maskName(patient) : `${patient.last_name} ${patient.first_name}`}
               <span style={{ fontSize: 13, color: T.muted, transform: infoOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>▾</span>
             </div>
             <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>
@@ -946,7 +950,7 @@ export default function PatientDetailClient({ patientId }: { patientId: string }
           <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: `1px solid ${T.border}` }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 14px" }}>
               {[
-                { k: "Telefono", v: patient.phone, link: patient.phone ? `tel:${patient.phone}` : null },
+                { k: "Telefono", v: patient.phone ? displayPhone(patient.phone) : patient.phone, link: patient.phone ? `tel:${patient.phone}` : null },
                 { k: "Email", v: patient.email, link: patient.email ? `mailto:${patient.email}` : null },
                 { k: "Nato il", v: patient.birth_date ? ddmmyyyy(patient.birth_date) : null },
                 { k: "Codice fiscale", v: patient.tax_code },

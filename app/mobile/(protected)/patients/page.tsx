@@ -28,6 +28,7 @@ function openWA(phone: string, message: string = ""): void {
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
+import { usePrivacyMode, usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 
 /* ─── Types ───────────────────────────────────────────────────────────── */
@@ -112,6 +113,8 @@ function groupByLetter(patients: Patient[]): {letter: string; items: Patient[]}[
 
 /* ─── Page ────────────────────────────────────────────────────────────── */
 export default function MobilePatientsPage() {
+  const { privacyMode } = usePrivacyMode();
+  const { maskName, maskInitial } = usePrivacyDisplay();
   const [loading,   setLoading]   = useState(true);
   const [patients,  setPatients]  = useState<Patient[]>([]);
   const [nextAppts, setNextAppts] = useState<NextAppt[]>([]);
@@ -395,7 +398,7 @@ export default function MobilePatientsPage() {
                         display:"flex",alignItems:"center",justifyContent:"center",
                         color:"#fff",fontWeight:800,fontSize:14,
                       }}>
-                        {initials(p)}
+                        {privacyMode ? maskInitial(p) : initials(p)}
                       </div>
 
                       {/* Info paziente */}
@@ -405,7 +408,7 @@ export default function MobilePatientsPage() {
                         <div style={{display:"flex",alignItems:"center",gap:6}}>
                           <span style={{fontWeight:700,fontSize:14,color:THEME.text,
                             overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                            {nameOf(p)}
+                            {privacyMode ? maskName(p) : nameOf(p)}
                           </span>
                           {incomplete&&(
                             <span style={{fontSize:10,fontWeight:700,flexShrink:0,

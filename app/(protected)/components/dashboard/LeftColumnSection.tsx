@@ -13,6 +13,7 @@
 import Link from "next/link";
 import { THEME, inpStyle } from "./shared/theme";
 import { fmtTime, pad2, patientName, pickPatient } from "./shared/utils";
+import { usePrivacyMode, useDisplayPatientPhone, usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
 import { StatusPill } from "./shared/StatusPill";
 import type { AppointmentRow, Status } from "./shared/types";
 import PaidPill from "@/src/components/PaidPill";
@@ -62,6 +63,9 @@ export type LeftColumnSectionProps = {
 };
 
 export default function LeftColumnSection(p: LeftColumnSectionProps) {
+  const { privacyMode } = usePrivacyMode();
+  const displayPhone = useDisplayPatientPhone();
+  const { maskName } = usePrivacyDisplay();
   return (
     <div>
 
@@ -79,7 +83,7 @@ export default function LeftColumnSection(p: LeftColumnSectionProps) {
           ) : (
             <>
               <div style={{ fontSize: 30, fontWeight: 900, color: "#fff", letterSpacing: -1, lineHeight: 1, marginBottom: 6 }}>{fmtTime(p.focusNext.start_at)}</div>
-              <Link href={`/patients/${p.focusNext.patient_id}`} style={{ fontSize: 16, fontWeight: 700, color: "#fff", display: "block", marginBottom: 4 }}>{patientName(p.focusNext.patients)}</Link>
+              <Link href={`/patients/${p.focusNext.patient_id}`} style={{ fontSize: 16, fontWeight: 700, color: "#fff", display: "block", marginBottom: 4 }}>{privacyMode ? maskName(pickPatient(p.focusNext.patients)) : patientName(p.focusNext.patients)}</Link>
               <div style={{ fontSize: 12, color: "rgba(255,255,255,0.6)" }}>
                 {p.focusNext.location === "studio" ? p.focusNext.clinic_site || "Studio" : `Domicilio — ${p.focusNext.domicile_address || "—"}`}
                 {p.focusNext.amount ? ` · ${p.focusNext.amount}€` : ""}
@@ -210,7 +214,7 @@ export default function LeftColumnSection(p: LeftColumnSectionProps) {
           {p.remainingToday.map((a, i) => (
             <div key={a.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 14px", borderBottom: i < p.remainingToday.length - 1 ? `1px solid ${THEME.border}` : "none" }}>
               <div>
-                <Link href={`/patients/${a.patient_id}`} style={{ fontWeight: 600, fontSize: 13, color: THEME.text }}>{patientName(a.patients)}</Link>
+                <Link href={`/patients/${a.patient_id}`} style={{ fontWeight: 600, fontSize: 13, color: THEME.text }}>{privacyMode ? maskName(pickPatient(a.patients)) : patientName(a.patients)}</Link>
                 <div style={{ fontSize: 11, color: THEME.muted, marginTop: 1 }}>
                   {fmtTime(a.start_at)} · {a.location === "studio" ? a.clinic_site || "Studio" : "Dom."}
                 </div>
@@ -232,11 +236,11 @@ export default function LeftColumnSection(p: LeftColumnSectionProps) {
             <div key={a.id} style={{ padding: "9px 14px", borderBottom: i < p.domicilesToday.length - 1 ? `1px solid ${THEME.border}` : "none" }}>
               <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
                 <div>
-                  <Link href={`/patients/${a.patient_id}`} style={{ fontWeight: 700, fontSize: 13, color: THEME.text }}>{patientName(a.patients)}</Link>
+                  <Link href={`/patients/${a.patient_id}`} style={{ fontWeight: 700, fontSize: 13, color: THEME.text }}>{privacyMode ? maskName(pickPatient(a.patients)) : patientName(a.patients)}</Link>
                   <div style={{ fontSize: 11, color: THEME.amber, marginTop: 2, fontWeight: 600 }}>📍 {a.domicile_address || "—"}</div>
                   {pickPatient(a.patients)?.phone && (
                     <a href={`tel:${pickPatient(a.patients)!.phone}`} style={{ fontSize: 11, color: THEME.blue, display: "block", marginTop: 2 }}>
-                      {pickPatient(a.patients)!.phone}
+                      {displayPhone(pickPatient(a.patients)!.phone)}
                     </a>
                   )}
                 </div>
@@ -259,7 +263,7 @@ export default function LeftColumnSection(p: LeftColumnSectionProps) {
           p.remindersToSend.map((a, i) => (
             <div key={a.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 14px", borderBottom: i < p.remindersToSend.length - 1 ? `1px solid ${THEME.border}` : "none" }}>
               <div>
-                <Link href={`/patients/${a.patient_id}`} style={{ fontWeight: 600, fontSize: 13, color: THEME.text }}>{patientName(a.patients)}</Link>
+                <Link href={`/patients/${a.patient_id}`} style={{ fontWeight: 600, fontSize: 13, color: THEME.text }}>{privacyMode ? maskName(pickPatient(a.patients)) : patientName(a.patients)}</Link>
                 <div style={{ fontSize: 11, color: THEME.amber, marginTop: 1 }}>{fmtTime(a.start_at)}</div>
               </div>
               <button

@@ -19,6 +19,7 @@
 
 import type { CalendarEvent } from "../../utils";
 import { fmtTime } from "../../utils";
+import { usePrivacyMode, usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
 
 export type GroupEventCardProps = {
   event: CalendarEvent;
@@ -54,6 +55,8 @@ function initialsOf(firstName?: string | null, lastName?: string | null): string
 }
 
 export default function GroupEventCard({ event, cardH }: GroupEventCardProps) {
+  const { privacyMode } = usePrivacyMode();
+  const { maskInitial, maskName } = usePrivacyDisplay();
   // Soglie altezza:
   //   • short  (< 38px)  → 1 riga compatta
   //   • medium (38–70px) → 2 righe (titolo + avatar/totale)
@@ -156,7 +159,7 @@ export default function GroupEventCard({ event, cardH }: GroupEventCardProps) {
                     flexShrink: 0, zIndex: visibleAvatars.length - idx,
                   }}
                 >
-                  {initialsOf(p.patient_first_name, p.patient_last_name)}
+                  {privacyMode ? maskInitial({ first_name: p.patient_first_name, last_name: p.patient_last_name }) : initialsOf(p.patient_first_name, p.patient_last_name)}
                 </div>
               );
             })}
@@ -216,7 +219,7 @@ export default function GroupEventCard({ event, cardH }: GroupEventCardProps) {
             return (
               <div
                 key={p.id}
-                title={`${p.patient_first_name ?? ""} ${p.patient_last_name ?? ""} · ${isPaid ? "Pagato" : "Da pagare"}`}
+                title={privacyMode ? `${maskName({ first_name: p.patient_first_name, last_name: p.patient_last_name })} · ${isPaid ? "Pagato" : "Da pagare"}` : `${p.patient_first_name ?? ""} ${p.patient_last_name ?? ""} · ${isPaid ? "Pagato" : "Da pagare"}`}
                 style={{
                   width: 20, height: 20, borderRadius: "50%",
                   background: c.bg, color: c.fg,
@@ -227,7 +230,7 @@ export default function GroupEventCard({ event, cardH }: GroupEventCardProps) {
                   flexShrink: 0, zIndex: visibleAvatars.length - idx,
                 }}
               >
-                {initialsOf(p.patient_first_name, p.patient_last_name)}
+                {privacyMode ? maskInitial({ first_name: p.patient_first_name, last_name: p.patient_last_name }) : initialsOf(p.patient_first_name, p.patient_last_name)}
               </div>
             );
           })}

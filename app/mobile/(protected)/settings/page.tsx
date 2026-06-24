@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { usePrivacyMode, type PrivacyStyle } from "@/src/contexts/PrivacyModeContext";
 import { showToast } from "@/src/components/mobile/ToastProvider";
 import {
   type TreatmentTypeRow,
@@ -40,6 +41,7 @@ const DAY_ORDER = [1,2,3,4,5,6,0];
 export default function MobileSettingsPage() {
   const router = useRouter();
   const { studio: currentStudio, refresh: refreshStudio, locations: studioLocations, refreshLocations } = useCurrentStudio();
+  const { privacyMode, setPrivacyMode, privacyStyle, setPrivacyStyle, hydrated: privacyHydrated } = usePrivacyMode();
   const currentStudioId = currentStudio?.id ?? null;
 
   const [saving, setSaving] = useState(false);
@@ -146,6 +148,9 @@ export default function MobileSettingsPage() {
   const [savingNewGuest, setSavingNewGuest] = useState(false);
   // Modale modifica ospite (full-screen)
   const [editingGuest, setEditingGuest] = useState<GuestRow | null>(null);
+  // Modale disattivazione ospite con scelta sugli appuntamenti collegati
+  const [guestDeactivateTarget, setGuestDeactivateTarget] = useState<{ guest: GuestRow; count: number } | null>(null);
+  const [deactivatingGuest, setDeactivatingGuest] = useState(false);
   // Palette colori per ospiti (allineata desktop)
   const GUEST_COLOR_PRESETS: { value: string; name: string }[] = [
     { value: "#DB2777", name: "Magenta" },
@@ -410,15 +415,58 @@ export default function MobileSettingsPage() {
 
   async function toggleGuestActive(g: GuestRow) {
     if (!currentStudioId) return;
-    const newActive = !g.is_active;
-    const { error: err } = await supabase
-      .from("guest_practitioners")
-      .update({ is_active: newActive })
-      .eq("id", g.id);
-    if (err) { setError("Errore: " + err.message); return; }
-    await loadGuests();
-    setSuccess(newActive ? "Ospite attivato." : "Ospite disattivato.");
-    setTimeout(() => setSuccess(""), 2500);
+    // Riattivazione: nessuna domanda, toggle diretto.
+    if (!g.is_active) {
+      const { error: err } = await supabase
+        .from("guest_practitioners")
+        .update({ is_active: true })
+        .eq("id", g.id);
+      if (err) { setError("Errore: " + err.message); return; }
+      await loadGuests();
+      setSuccess("Ospite attivato.");
+      setTimeout(() => setSuccess(""), 2500);
+      return;
+    }
+    // Disattivazione: conta gli appuntamenti collegati per offrire la scelta.
+    const { count } = await supabase
+      .from("appointments")
+      .select("id", { count: "exact", head: true })
+      .eq("guest_practitioner_id", g.id)
+      .eq("studio_id", currentStudioId);
+    const n = count ?? 0;
+    if (n === 0) {
+      await doDeactivateGuest(g, false);
+      return;
+    }
+    setGuestDeactivateTarget({ guest: g, count: n });
+  }
+
+  // Disattiva un ospite, eventualmente eliminando prima gli appuntamenti
+  // collegati (altrimenti, con FK ON DELETE SET NULL, resterebbero orfani).
+  async function doDeactivateGuest(g: GuestRow, deleteAppointments: boolean) {
+    if (!currentStudioId) return;
+    setDeactivatingGuest(true);
+    try {
+      if (deleteAppointments) {
+        const del = await supabase
+          .from("appointments")
+          .delete()
+          .eq("guest_practitioner_id", g.id)
+          .eq("studio_id", currentStudioId);
+        if (del.error) { setError("Errore eliminazione appuntamenti: " + del.error.message); return; }
+      }
+      const { error: err } = await supabase
+        .from("guest_practitioners")
+        .update({ is_active: false })
+        .eq("id", g.id);
+      if (err) { setError("Errore: " + err.message); return; }
+      await loadGuests();
+      setSuccess(deleteAppointments ? "Ospite disattivato e appuntamenti eliminati." : "Ospite disattivato.");
+      setTimeout(() => setSuccess(""), 2500);
+      setGuestDeactivateTarget(null);
+    } finally {
+      setDeactivatingGuest(false);
+    }
   }
 
   function resetLocForm() {
@@ -1611,6 +1659,95 @@ export default function MobileSettingsPage() {
           </div>
         </Section>
 
+        <Section id="privacy" title="Modalità Privacy" sub="Nasconde i nomi dei pazienti negli screenshot">
+          <div style={{ display:"flex", flexDirection:"column", gap:12, paddingTop:14 }}>
+            <div style={{
+              display:"flex", alignItems:"center", justifyContent:"space-between", gap:14,
+              padding:"14px 16px", borderRadius:12,
+              background: privacyMode ? "rgba(13,148,136,0.08)" : THEME.panelSoft,
+              border:`1px solid ${privacyMode ? "rgba(13,148,136,0.28)" : THEME.border}`,
+              transition:"all 0.2s",
+            }}>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:700, fontSize:14.5, color:THEME.text }}>
+                  {privacyMode ? "Attiva" : "Disattivata"}
+                </div>
+                <div style={{ fontSize:12.5, color:THEME.muted, marginTop:3, lineHeight:1.5 }}>
+                  {privacyMode
+                    ? (privacyStyle === "initials"
+                        ? 'A video compaiono le iniziali (es. "M.R.").'
+                        : 'A video compare "Paziente" al posto del nome.')
+                    : "I nomi dei pazienti sono visibili normalmente."}
+                </div>
+              </div>
+              <button
+                role="switch"
+                aria-checked={privacyMode}
+                aria-label="Attiva o disattiva la modalità privacy"
+                disabled={!privacyHydrated}
+                onClick={()=>setPrivacyMode(!privacyMode)}
+                style={{
+                  position:"relative", width:52, height:30, flexShrink:0,
+                  borderRadius:999, border:"none",
+                  cursor: privacyHydrated ? "pointer" : "wait",
+                  background: privacyMode ? THEME.teal : THEME.gray,
+                  transition:"background 0.2s", padding:0,
+                }}
+              >
+                <span style={{
+                  position:"absolute", top:3, left: privacyMode ? 25 : 3,
+                  width:24, height:24, borderRadius:"50%", background:"#fff",
+                  boxShadow:"0 1px 3px rgba(0,0,0,0.25)", transition:"left 0.2s",
+                }}/>
+              </button>
+            </div>
+
+            {privacyMode && (
+              <div>
+                <div style={{ fontSize:12.5, fontWeight:700, color:THEME.text, marginBottom:8 }}>
+                  Come mostrare i pazienti
+                </div>
+                <div style={{ display:"flex", gap:8 }}>
+                  {([
+                    { value:"generic" as PrivacyStyle, label:"Paziente", sub:"Uguale per tutti" },
+                    { value:"initials" as PrivacyStyle, label:"Iniziali", sub:'Es. "M.R."' },
+                  ]).map(opt=>{
+                    const selected = privacyStyle === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        onClick={()=>setPrivacyStyle(opt.value)}
+                        style={{
+                          flex:1, textAlign:"left", padding:"10px 12px", borderRadius:10,
+                          border:`1.5px solid ${selected ? THEME.teal : THEME.border}`,
+                          background: selected ? "rgba(13,148,136,0.07)" : THEME.panelBg,
+                          cursor:"pointer", transition:"all 0.15s",
+                        }}
+                      >
+                        <div style={{ fontWeight:700, fontSize:13, color: selected ? THEME.teal : THEME.text }}>
+                          {opt.label}
+                        </div>
+                        <div style={{ fontSize:11, color:THEME.muted, marginTop:1 }}>
+                          {opt.sub}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div style={{
+              padding:"11px 14px", borderRadius:10,
+              background:"rgba(37,99,235,0.05)", border:"1px solid rgba(37,99,235,0.15)",
+              fontSize:12.5, color:THEME.muted, lineHeight:1.55,
+            }}>
+              Filtro solo visivo: i dati dei pazienti non vengono toccati.
+              Disattivandolo i nomi tornano subito visibili. Vale solo su questo dispositivo.
+            </div>
+          </div>
+        </Section>
+
         <Section id="password" title="Cambio Password" sub="Aggiorna le credenziali di accesso">
           <div style={{ display:"flex", flexDirection:"column", gap:12, paddingTop:14 }}>
             {pwError && <div style={{ padding:"9px 14px", borderRadius:8, background:"rgba(220,38,38,0.05)", border:"1px solid rgba(220,38,38,0.2)", color:THEME.red, fontWeight:600, fontSize:13 }}>{pwError}</div>}
@@ -1794,6 +1931,87 @@ export default function MobileSettingsPage() {
           onClose={() => setEditingGuest(null)}
           onSaved={() => { void loadGuests(); }}
         />
+      )}
+
+      {/* Modal disattivazione ospite con appuntamenti collegati */}
+      {guestDeactivateTarget && (
+        <div
+          onClick={() => !deactivatingGuest && setGuestDeactivateTarget(null)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 2000,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex", alignItems: "flex-end", justifyContent: "center",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff", borderRadius: "16px 16px 0 0", width: "100%",
+              maxWidth: 480, padding: "22px 18px calc(22px + env(safe-area-inset-bottom))",
+              boxShadow: "0 -8px 30px rgba(0,0,0,0.2)",
+            }}
+          >
+            <div style={{ fontSize: 16, fontWeight: 800, color: THEME.text, marginBottom: 8 }}>
+              Disattivare {guestDeactivateTarget.guest.first_name} {guestDeactivateTarget.guest.last_name}?
+            </div>
+            <div style={{ fontSize: 13, color: THEME.muted, lineHeight: 1.5, marginBottom: 18 }}>
+              Ha{" "}
+              <b style={{ color: THEME.text }}>
+                {guestDeactivateTarget.count} appuntament{guestDeactivateTarget.count === 1 ? "o" : "i"}
+              </b>{" "}
+              collegat{guestDeactivateTarget.count === 1 ? "o" : "i"}. Cosa vuoi fare?
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <button
+                onClick={() => void doDeactivateGuest(guestDeactivateTarget.guest, false)}
+                disabled={deactivatingGuest}
+                style={{
+                  padding: "13px 14px", borderRadius: 10, textAlign: "left",
+                  border: `1px solid ${THEME.border}`, background: "#fff",
+                  opacity: deactivatingGuest ? 0.6 : 1,
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 800, color: THEME.text }}>
+                  Disattiva e conserva gli appuntamenti
+                </div>
+                <div style={{ fontSize: 11, color: THEME.muted, marginTop: 2 }}>
+                  Restano in archivio, riattivabili in seguito.
+                </div>
+              </button>
+
+              <button
+                onClick={() => void doDeactivateGuest(guestDeactivateTarget.guest, true)}
+                disabled={deactivatingGuest}
+                style={{
+                  padding: "13px 14px", borderRadius: 10, textAlign: "left",
+                  border: `1px solid ${THEME.red}`, background: "rgba(220,38,38,0.06)",
+                  opacity: deactivatingGuest ? 0.6 : 1,
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 800, color: THEME.red }}>
+                  {deactivatingGuest
+                    ? "Eliminazione in corso…"
+                    : `Disattiva ed elimina i ${guestDeactivateTarget.count} appuntament${guestDeactivateTarget.count === 1 ? "o" : "i"}`}
+                </div>
+                <div style={{ fontSize: 11, color: "#B91C1C", marginTop: 2 }}>
+                  Irreversibile. I pazienti restano, si eliminano solo le sedute.
+                </div>
+              </button>
+
+              <button
+                onClick={() => setGuestDeactivateTarget(null)}
+                disabled={deactivatingGuest}
+                style={{
+                  padding: "11px 14px", borderRadius: 10, border: "none",
+                  background: "transparent", fontSize: 13, fontWeight: 700, color: THEME.muted,
+                }}
+              >
+                Annulla
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

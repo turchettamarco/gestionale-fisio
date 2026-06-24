@@ -56,6 +56,7 @@ import {
   type SetStateAction,
 } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
+import { usePrivacyMode, composeInitials } from "@/src/contexts/PrivacyModeContext";
 import { translateError } from "@/src/lib/translateError";
 import {
   addDays,
@@ -172,6 +173,9 @@ export function useCalendarEvents(
     currentStudio,
     currentStudioId,
   } = options;
+
+  // Modalità privacy: maschera il nome paziente negli eventi (solo visuale).
+  const { privacyMode, privacyStyle } = usePrivacyMode();
 
   /* ─── Stato base ─── */
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -410,7 +414,14 @@ export function useCalendarEvents(
                 : null,
 
               // dati paziente (prima riga della relazione)
-              patient_name: name,
+              // In Modalità Privacy il nome mostrato negli eventi diventa
+              // "Paziente" o le iniziali ("M.R.") in base allo stile scelto
+              // (solo per i singoli, non per i gruppi il cui "nome" è il
+              // titolo del gruppo, non un dato personale).
+              // title resta reale: serve alla logica interna, non al display.
+              patient_name: privacyMode && !isGroup
+                ? (privacyStyle === "initials" ? composeInitials(patient) : "Paziente")
+                : name,
               patient_first_name: patient?.first_name ?? null,
               patient_last_name: patient?.last_name ?? null,
               patient_phone: patient?.phone ?? null,
@@ -449,7 +460,7 @@ export function useCalendarEvents(
         }
       }
     },
-    []
+    [privacyMode, privacyStyle]
   );
 
   /* ─── Auto-fetch quando cambia data/vista ─── */

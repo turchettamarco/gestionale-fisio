@@ -12,6 +12,7 @@ import Link from "next/link";
 import { getStudioBranding } from "@/src/lib/studioBranding";
 import { THEME } from "./shared/theme";
 import { fmtDate, fmtPhone, openWA } from "./shared/utils";
+import { usePrivacyMode, usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter, type StudioHeaderData } from "@/src/lib/pdfHeader";
 import type {
   BirthdayRow, FreeSlot, OpenBalanceGroup, OpenBalanceRow,
@@ -34,6 +35,8 @@ export type BottomRowSectionProps = {
 };
 
 export default function BottomRowSection(p: BottomRowSectionProps) {
+  const { privacyMode } = usePrivacyMode();
+  const { maskName, maskInitial } = usePrivacyDisplay();
   // Helper per costruire il messaggio di sollecito
   const __b = getStudioBranding(p.currentStudio); const firma = [__b.signatureName, __b.signatureTitle].filter(Boolean).join("\n");
   const firmaLine = firma ? `\n\nCordiali saluti,\n${firma}` : "\n\nCordiali saluti";
@@ -126,11 +129,11 @@ export default function BottomRowSection(p: BottomRowSectionProps) {
                 <div key={g.patient_id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 4px", borderBottom: i < p.openBalanceGroups.length - 1 ? `1px solid ${THEME.border}` : "none" }}>
                   {/* Avatar */}
                   <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(220,38,38,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 12, color: THEME.red, flexShrink: 0 }}>
-                    {(g.patient_name[0] || "?").toUpperCase()}
+                    {privacyMode ? maskInitial(g.patient_name) : (g.patient_name[0] || "?").toUpperCase()}
                   </div>
                   {/* Info */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <Link href={`/patients/${g.patient_id}`} style={{ fontWeight: 700, fontSize: 12, color: THEME.text, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.patient_name}</Link>
+                    <Link href={`/patients/${g.patient_id}`} style={{ fontWeight: 700, fontSize: 12, color: THEME.text, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{privacyMode ? maskName(g.patient_name) : g.patient_name}</Link>
                     <div style={{ fontSize: 10, color: THEME.muted, marginTop: 1, display: "flex", gap: 6 }}>
                       <span>{g.sessions} seduta{g.sessions > 1 ? "e" : ""}</span>
                       <span>·</span>
@@ -182,7 +185,7 @@ export default function BottomRowSection(p: BottomRowSectionProps) {
                 <div key={b.patient_id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 4px", borderBottom: i < p.birthdays.length - 1 ? `1px solid ${THEME.border}` : "none" }}>
                   <div style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0, background: b.isToday ? "rgba(249,115,22,0.12)" : "rgba(37,99,235,0.07)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🎂</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <Link href={`/patients/${b.patient_id}`} style={{ fontWeight: 600, fontSize: 12, color: THEME.text, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.name}</Link>
+                    <Link href={`/patients/${b.patient_id}`} style={{ fontWeight: 600, fontSize: 12, color: THEME.text, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{privacyMode ? maskName(b.name) : b.name}</Link>
                     <div style={{ fontSize: 10, marginTop: 1, display: "flex", gap: 5 }}>
                       <span style={{ color: b.isToday ? THEME.amber : THEME.muted, fontWeight: b.isToday ? 700 : 500 }}>{b.weekday}</span>
                       <span style={{ color: THEME.muted }}>· {b.age} anni</span>

@@ -6,7 +6,8 @@
 "use client";
 
 import Link from "next/link";
-import { fmtTime, money, patientName } from "./shared/utils";
+import { fmtTime, money, patientName, pickPatient } from "./shared/utils";
+import { usePrivacyMode, usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
 import type { AppointmentRow } from "./shared/types";
 
 export type HeroSectionProps = {
@@ -23,6 +24,8 @@ export type HeroSectionProps = {
 };
 
 export default function HeroSection(p: HeroSectionProps) {
+  const { privacyMode } = usePrivacyMode();
+  const { maskName } = usePrivacyDisplay();
   const kpis = [
     {
       label: "Eseguite",
@@ -41,7 +44,7 @@ export default function HeroSection(p: HeroSectionProps) {
     {
       label: "Prossimo",
       value: p.focusNext ? fmtTime(p.focusNext.start_at) : "—",
-      sub:   p.focusNext ? (p.nextCountdown || patientName(p.focusNext.patients)) : "nessun appuntamento",
+      sub:   p.focusNext ? (p.nextCountdown || (privacyMode ? maskName(pickPatient(p.focusNext.patients)) : patientName(p.focusNext.patients))) : "nessun appuntamento",
       highlight: false,
     },
     {

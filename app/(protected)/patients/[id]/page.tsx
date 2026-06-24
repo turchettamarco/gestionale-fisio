@@ -22,6 +22,7 @@ import ClinicalDiarySection from "@/src/components/patient/clinical/ClinicalDiar
 import PatientPageTour from "@/src/components/patient/PatientPageTour";
 import { translateError } from "@/src/lib/translateError";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { usePrivacyMode, useDisplayPatientPhone, usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
 import AttendanceCertificateDialog from "@/src/components/certificates/AttendanceCertificateDialog";
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter } from "@/src/lib/pdfHeader";
 import ScalesSection from "@/src/components/patient/ScalesSection";
@@ -361,6 +362,9 @@ export default function PatientDetailPage({
 
   // Studio corrente (multi-tenancy) — per firma e indirizzo nei messaggi
   const { studio: currentStudio } = useCurrentStudio();
+  const { privacyMode } = usePrivacyMode();
+  const displayPhone = useDisplayPatientPhone();
+  const { maskName, maskInitial } = usePrivacyDisplay();
   const [ownerId, setOwnerId] = useState<string | null>(null);
   useEffect(() => { supabase.auth.getUser().then(({ data }) => setOwnerId(data?.user?.id ?? null)); }, []);
 
@@ -1234,7 +1238,7 @@ A presto,
     );
   }
 
-  const headerName = `${patient.last_name} ${patient.first_name}`.toUpperCase();
+  const headerName = privacyMode ? maskName(patient).toUpperCase() : `${patient.last_name} ${patient.first_name}`.toUpperCase();
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -2154,7 +2158,7 @@ ${rows}
               display: "flex", alignItems: "center", justifyContent: "center",
               color: "#fff", fontWeight: 800, fontSize: 21, letterSpacing: 0.5,
             }}>
-              {`${patient.first_name?.[0] ?? ""}${patient.last_name?.[0] ?? ""}`.toUpperCase() || "?"}
+              {privacyMode ? maskInitial(patient) : (`${patient.first_name?.[0] ?? ""}${patient.last_name?.[0] ?? ""}`.toUpperCase() || "?")}
             </div>
             <div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
@@ -2175,7 +2179,7 @@ ${rows}
               </span>
               {patient.phone && (
                 <a href={`tel:${patient.phone}`} style={{ fontSize: 14, fontWeight: 700, color: THEME.blue, textDecoration: "none" }}>
-                  📞 {patient.phone}
+                  📞 {displayPhone(patient.phone)}
                 </a>
               )}
             </div>
@@ -2450,7 +2454,7 @@ ${rows}
           <SecHeader
             icon="🏠"
             title="Panoramica"
-            subtitle={`A che punto siamo con ${patient.first_name ?? "il paziente"}`}
+            subtitle={`A che punto siamo con ${privacyMode ? maskName(patient) : (patient.first_name ?? "il paziente")}`}
             open={true}
             onToggle={() => {}}
           />

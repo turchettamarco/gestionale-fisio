@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
+import { usePrivacyMode, useDisplayPatientPhone, usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type PatientResult = {
@@ -75,6 +76,9 @@ function calcAge(birthDate: string | null) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function GlobalSearch() {
+  const { privacyMode } = usePrivacyMode();
+  const displayPhone = useDisplayPatientPhone();
+  const { maskName, maskInitial } = usePrivacyDisplay();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -364,7 +368,7 @@ export default function GlobalSearch() {
                     const idx = globalIdx;
                     const isSelected = selected === idx;
                     const age = calcAge(p.birth_date);
-                    const initials = `${(p.last_name || "?")[0]}${(p.first_name || "?")[0]}`.toUpperCase();
+                    const initials = privacyMode ? maskInitial(p) : `${(p.last_name || "?")[0]}${(p.first_name || "?")[0]}`.toUpperCase();
                     return (
                       <div
                         key={p.id}
@@ -392,12 +396,12 @@ export default function GlobalSearch() {
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontWeight: 700, fontSize: 14, color: T.text }}>
-                            {p.last_name} {p.first_name}
+                            {privacyMode ? maskName(p) : `${p.last_name} ${p.first_name}`}
                           </div>
                           <div style={{ fontSize: 12, color: T.muted, marginTop: 1 }}>
                             {age ? `${age} anni` : ""}
                             {age && p.phone ? " · " : ""}
-                            {p.phone || ""}
+                            {p.phone ? displayPhone(p.phone) : ""}
                           </div>
                         </div>
                         <span style={{ fontSize: 11, color: T.gray, flexShrink: 0 }}>
@@ -459,7 +463,7 @@ export default function GlobalSearch() {
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontWeight: 700, fontSize: 14, color: T.text }}>
-                            {a.patient_name}
+                            {privacyMode ? maskName(a.patient_name) : a.patient_name}
                           </div>
                           <div style={{ fontSize: 12, color: T.muted, marginTop: 1 }}>
                             {fmtDate(a.start_at)} alle {fmtTime(a.start_at)}

@@ -7,6 +7,7 @@
 
 import { THEME } from "./shared/theme";
 import { openWA } from "./shared/utils";
+import { usePrivacyMode, usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
 import type { ForecastRevenue, NoleggioExpiring } from "./shared/types";
 
 export type ForecastAndRentalSectionProps = {
@@ -18,6 +19,8 @@ export type ForecastAndRentalSectionProps = {
 };
 
 export default function ForecastAndRentalSection(p: ForecastAndRentalSectionProps) {
+  const { privacyMode } = usePrivacyMode();
+  const { maskName } = usePrivacyDisplay();
   const firma     = [p.signatureName, p.signatureTitle].filter(Boolean).join("\n");
   const firmaLine = firma ? `\nGrazie,\n${firma}` : "\nGrazie";
 
@@ -89,7 +92,7 @@ export default function ForecastAndRentalSection(p: ForecastAndRentalSectionProp
                 <div key={n.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, background: bg, border: `1px solid ${col}22`, marginBottom: i < p.noleggioExpiring.length - 1 ? 6 : 0 }}>
                   <span style={{ fontSize: 16, flexShrink: 0 }}>{expired ? "⛔" : urgent ? "🚨" : "⏳"}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13, color: THEME.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.patient_name}</div>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: THEME.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{privacyMode ? maskName(n.patient_name) : n.patient_name}</div>
                     <div style={{ fontSize: 11, color: THEME.muted }}>{n.device_name}</div>
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0 }}>

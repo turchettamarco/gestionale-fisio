@@ -8,6 +8,7 @@
 
 import { THEME } from "./shared/theme";
 import { openWA } from "./shared/utils";
+import { usePrivacyMode, useDisplayPatientPhone, usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
 import type { WebBooking } from "./shared/types";
 
 export type WebBookingPopupProps = {
@@ -21,6 +22,9 @@ export type WebBookingPopupProps = {
 
 export default function WebBookingPopup(p: WebBookingPopupProps) {
   const b = p.booking;
+  const { privacyMode } = usePrivacyMode();
+  const displayPhone = useDisplayPatientPhone();
+  const { maskName, maskInitial } = usePrivacyDisplay();
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 420, boxShadow: "0 24px 64px rgba(0,0,0,0.25)", overflow: "hidden" }}>
@@ -40,11 +44,11 @@ export default function WebBookingPopup(p: WebBookingPopupProps) {
           {/* Nome e telefono */}
           <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16, padding: "12px 14px", background: "#f8fafc", borderRadius: 10, border: "1px solid #e2e8f0" }}>
             <div style={{ width: 44, height: 44, borderRadius: 12, background: "linear-gradient(135deg,#7c3aed,#2563eb)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: "#fff", fontWeight: 800, flexShrink: 0 }}>
-              {b.patient_name.charAt(0).toUpperCase()}
+              {privacyMode ? maskInitial(b.patient_name) : b.patient_name.charAt(0).toUpperCase()}
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: 15, color: THEME.text }}>{b.patient_name}</div>
-              <a href={`tel:${b.patient_phone}`} style={{ fontSize: 13, color: THEME.teal, fontWeight: 700, textDecoration: "none" }}>📞 {b.patient_phone}</a>
+              <div style={{ fontWeight: 800, fontSize: 15, color: THEME.text }}>{privacyMode ? maskName(b.patient_name) : b.patient_name}</div>
+              <a href={`tel:${b.patient_phone}`} style={{ fontSize: 13, color: THEME.teal, fontWeight: 700, textDecoration: "none" }}>📞 {displayPhone(b.patient_phone)}</a>
               {b.patient_email && <div style={{ fontSize: 11, color: THEME.muted, marginTop: 1 }}>{b.patient_email}</div>}
             </div>
             <a

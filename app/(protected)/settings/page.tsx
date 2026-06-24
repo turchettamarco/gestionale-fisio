@@ -54,6 +54,7 @@ import BookableServicesSection from "./components/sections/BookableServicesSecti
 import BlockedDaysSection from "./components/sections/BlockedDaysSection";
 import ManagementSection from "./components/sections/ManagementSection";
 import PasswordSection from "./components/sections/PasswordSection";
+import PrivacySection from "./components/sections/PrivacySection";
 import IntegrationsSection from "./components/sections/IntegrationsSection";
 import TeamSection from "./components/sections/TeamSection";
 import OperatorAbsencesSection from "./components/sections/OperatorAbsencesSection";
@@ -93,6 +94,7 @@ export default function SettingsPage() {
   const [showBlockDays, setShowBlockDays] = useState(false);
   const [showGestione,  setShowGestione]  = useState(false);
   const [showPassword,  setShowPassword]  = useState(false);
+  const [showPrivacy,   setShowPrivacy]   = useState(false);
   const [showBackup,    setShowBackup]    = useState(false);
   // Tab "Team" (mig. 019/020)
   const [showTeam,      setShowTeam]      = useState(true);
@@ -973,18 +975,45 @@ export default function SettingsPage() {
     }
   }, [studio?.id, loadGuests]);
 
-  const deleteGuest = useCallback(async (id: string) => {
+  // Conta gli appuntamenti collegati a un ospite (per la scelta in fase di
+  // disattivazione: mantenere in archivio o eliminare).
+  const countGuestAppointments = useCallback(async (id: string): Promise<number> => {
+    if (!studio?.id) return 0;
+    const { count, error } = await supabase
+      .from("appointments")
+      .select("id", { count: "exact", head: true })
+      .eq("guest_practitioner_id", id)
+      .eq("studio_id", studio.id);
+    if (error) { console.error(error); return 0; }
+    return count ?? 0;
+  }, [studio?.id]);
+
+  const deleteGuest = useCallback(async (id: string, deleteAppointments: boolean) => {
     if (!studio?.id) return;
     setSavingGuest(true);
     try {
-      // Soft-delete: gli appuntamenti già creati restano in DB
+      // Se richiesto, elimina PRIMA gli appuntamenti collegati. Va fatto prima
+      // del soft-delete: con la FK ON DELETE SET NULL gli appuntamenti
+      // resterebbero altrimenti orfani (guest_practitioner_id NULL +
+      // operator_id NULL) e non più raggiungibili da calendario o agenda ospite.
+      if (deleteAppointments) {
+        const delAppts = await supabase
+          .from("appointments")
+          .delete()
+          .eq("guest_practitioner_id", id)
+          .eq("studio_id", studio.id);
+        if (delAppts.error) { alert("Errore eliminazione appuntamenti: " + delAppts.error.message); return; }
+      }
+      // Soft-delete dell'ospite (is_active = false): resta riattivabile.
       const { error } = await supabase
         .from("guest_practitioners")
         .update({ is_active: false })
         .eq("id", id);
       if (error) { alert("Errore disattivazione: " + error.message); return; }
       await loadGuests();
-      flashSuccess("Professionista disattivato.");
+      flashSuccess(deleteAppointments
+        ? "Professionista disattivato e appuntamenti collegati eliminati."
+        : "Professionista disattivato.");
     } finally {
       setSavingGuest(false);
     }
@@ -1976,6 +2005,7 @@ export default function SettingsPage() {
               onCreate={createGuest}
               onUpdate={updateGuest}
               onDelete={deleteGuest}
+              onCountGuestAppointments={countGuestAppointments}
               useGuestIndex={useGuestIndex}
               setUseGuestIndex={setUseGuestIndex}
               savingGuestIndexToggle={savingGuestIndexToggle}
@@ -2148,6 +2178,10 @@ export default function SettingsPage() {
               pwNew={pwNew} setPwNew={setPwNew}
               pwConfirm={pwConfirm} setPwConfirm={setPwConfirm}
               onChange={() => void changePassword()}
+            />
+
+            <PrivacySection
+              show={showPrivacy} onToggle={() => setShowPrivacy(!showPrivacy)}
             />
 
             <ManagementSection

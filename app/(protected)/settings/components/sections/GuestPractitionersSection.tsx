@@ -582,7 +582,8 @@ export type GuestPractitionersSectionProps = {
       note: boolean;
     };
   }>) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
+  onDelete: (id: string, deleteAppointments: boolean) => Promise<void>;
+  onCountGuestAppointments: (id: string) => Promise<number>;
   // mig. 031 — Toggle pagina indice ospiti
   useGuestIndex?: boolean;
   setUseGuestIndex?: (v: boolean) => void;
@@ -608,6 +609,7 @@ export default function GuestPractitionersSection({
   onCreate,
   onUpdate,
   onDelete,
+  onCountGuestAppointments,
   useGuestIndex,
   setUseGuestIndex,
   savingGuestIndexToggle,
@@ -618,6 +620,9 @@ export default function GuestPractitionersSection({
 }: GuestPractitionersSectionProps) {
   const [showNewForm, setShowNewForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Modal di conferma disattivazione con scelta sugli appuntamenti collegati.
+  const [deleteTarget, setDeleteTarget] = useState<{ guest: GuestPractitionerRow; count: number } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Ordinamento: per sort_order, poi cognome
   const sortedGuests = useMemo(() => {
@@ -631,12 +636,30 @@ export default function GuestPractitionersSection({
   }, [guests]);
 
   const handleDelete = async (guest: GuestPractitionerRow) => {
-    if (!confirm(
-      `Disattivare "${guest.first_name} ${guest.last_name}"?\n\n` +
-      `Gli appuntamenti già creati restano in archivio ma non saranno più ` +
-      `visibili nel calendario. Puoi riattivarlo in seguito.`
-    )) return;
-    await onDelete(guest.id);
+    const count = await onCountGuestAppointments(guest.id);
+    // Nessun appuntamento collegato: conferma semplice, nessuna scelta.
+    if (count === 0) {
+      if (!confirm(
+        `Disattivare "${guest.first_name} ${guest.last_name}"?\n\n` +
+        `Non ha appuntamenti collegati. Potrai riattivarlo in seguito.`
+      )) return;
+      await onDelete(guest.id, false);
+      return;
+    }
+    // Ha appuntamenti collegati: apri la modal con la scelta.
+    setDeleteTarget({ guest, count });
+  };
+
+  const confirmDelete = async (deleteAppointments: boolean) => {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setDeleting(true);
+    try {
+      await onDelete(target.guest.id, deleteAppointments);
+      setDeleteTarget(null);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -870,6 +893,95 @@ export default function GuestPractitionersSection({
             </div>
           )}
 
+        </div>
+      )}
+
+      {/* ── Modal disattivazione con appuntamenti collegati ──────────────
+          Compare solo quando l'ospite ha almeno un appuntamento. Permette di
+          scegliere se conservare gli appuntamenti in archivio o eliminarli,
+          evitando che restino orfani e irraggiungibili. */}
+      {deleteTarget && (
+        <div
+          onClick={() => !deleting && setDeleteTarget(null)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 1000,
+            background: "rgba(0,0,0,0.45)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff", borderRadius: 14, maxWidth: 460, width: "100%",
+              padding: 24, boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
+            }}
+          >
+            <div style={{ fontSize: 17, fontWeight: 800, color: THEME.text, marginBottom: 8 }}>
+              Disattivare {deleteTarget.guest.first_name} {deleteTarget.guest.last_name}?
+            </div>
+            <div style={{ fontSize: 13, color: THEME.muted, lineHeight: 1.55, marginBottom: 20 }}>
+              Questo professionista ha{" "}
+              <b style={{ color: THEME.text }}>
+                {deleteTarget.count} appuntament{deleteTarget.count === 1 ? "o" : "i"}
+              </b>{" "}
+              collegat{deleteTarget.count === 1 ? "o" : "i"}. Cosa vuoi fare?
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {/* Conserva */}
+              <button
+                onClick={() => void confirmDelete(false)}
+                disabled={deleting}
+                style={{
+                  padding: "12px 14px", borderRadius: 10, textAlign: "left",
+                  border: `1px solid ${THEME.border}`, background: "#fff",
+                  cursor: deleting ? "default" : "pointer", opacity: deleting ? 0.6 : 1,
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 800, color: THEME.text }}>
+                  Disattiva e conserva gli appuntamenti
+                </div>
+                <div style={{ fontSize: 11, color: THEME.muted, marginTop: 2 }}>
+                  Restano in archivio. Riattivando l&apos;ospite tornano gestibili.
+                </div>
+              </button>
+
+              {/* Elimina */}
+              <button
+                onClick={() => void confirmDelete(true)}
+                disabled={deleting}
+                style={{
+                  padding: "12px 14px", borderRadius: 10, textAlign: "left",
+                  border: "1px solid #DC2626", background: "rgba(220,38,38,0.06)",
+                  cursor: deleting ? "default" : "pointer", opacity: deleting ? 0.6 : 1,
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 800, color: "#DC2626" }}>
+                  {deleting
+                    ? "Eliminazione in corso…"
+                    : `Disattiva ed elimina i ${deleteTarget.count} appuntament${deleteTarget.count === 1 ? "o" : "i"}`}
+                </div>
+                <div style={{ fontSize: 11, color: "#B91C1C", marginTop: 2 }}>
+                  Operazione irreversibile. I pazienti restano in anagrafica, vengono eliminate solo le sedute.
+                </div>
+              </button>
+
+              {/* Annulla */}
+              <button
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                style={{
+                  padding: "10px 14px", borderRadius: 10,
+                  border: "none", background: "transparent",
+                  fontSize: 12, fontWeight: 700, color: THEME.muted,
+                  cursor: deleting ? "default" : "pointer",
+                }}
+              >
+                Annulla
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

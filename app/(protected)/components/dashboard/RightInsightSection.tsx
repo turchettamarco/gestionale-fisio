@@ -12,8 +12,9 @@
 import Link from "next/link";
 import { THEME } from "./shared/theme";
 import NotificationsCard from "@/src/components/NotificationsCard";
+import { usePrivacyMode, useDisplayPatientPhone, usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
 import {
-  fmtDate, fmtPhone, money, openWA, patientName,
+  fmtDate, fmtPhone, money, openWA, patientName, pickPatient,
 } from "./shared/utils";
 import type {
   AppointmentRow, InactivePatientRow, WebBooking, WeekStats,
@@ -46,6 +47,9 @@ export type RightInsightSectionProps = {
 };
 
 export default function RightInsightSection(p: RightInsightSectionProps) {
+  const { privacyMode } = usePrivacyMode();
+  const displayPhone = useDisplayPatientPhone();
+  const { maskName } = usePrivacyDisplay();
   const pendingCount = p.webBookings.filter(b => b.status === "pending").length;
   const visibleInactive = p.inactivePatients.filter(pt => !p.contactedPatients.has(pt.patient_id));
 
@@ -89,7 +93,7 @@ export default function RightInsightSection(p: RightInsightSectionProps) {
                     onMouseLeave={e => e.currentTarget.style.background = "#fff"}
                   >
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                      <div style={{ fontWeight: 700, fontSize: 12, color: THEME.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{b.patient_name}</div>
+                      <div style={{ fontWeight: 700, fontSize: 12, color: THEME.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{privacyMode ? maskName(b.patient_name) : b.patient_name}</div>
                       <div style={{ fontSize: 11, fontWeight: 700, color: THEME.teal, flexShrink: 0, marginLeft: 8 }}>{dateStr} {b.requested_time.slice(0, 5)}</div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -186,10 +190,10 @@ export default function RightInsightSection(p: RightInsightSectionProps) {
               <div key={pt.patient_id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 4px", borderBottom: i < arr.length - 1 ? `1px solid ${THEME.border}` : "none" }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <Link href={`/patients/${pt.patient_id}`} style={{ fontWeight: 600, fontSize: 12, color: THEME.text, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {(pt.last_name + " " + pt.first_name).trim() || "Paziente"}
+                    {privacyMode ? maskName(pt) : ((pt.last_name + " " + pt.first_name).trim() || "Paziente")}
                   </Link>
                   <div style={{ fontSize: 10, color: THEME.amber, marginTop: 1 }}>{pt.days_since_last}gg · {fmtDate(pt.last_done_at)}</div>
-                  {pt.phone && <a href={`tel:${pt.phone}`} style={{ fontSize: 10, color: THEME.blue, display: "block", marginTop: 1 }}>{pt.phone}</a>}
+                  {pt.phone && <a href={`tel:${pt.phone}`} style={{ fontSize: 10, color: THEME.blue, display: "block", marginTop: 1 }}>{displayPhone(pt.phone)}</a>}
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 3, flexShrink: 0 }}>
                   {pt.phone && (
@@ -233,7 +237,7 @@ export default function RightInsightSection(p: RightInsightSectionProps) {
             <div key={a.patient_id} className="rh ar" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px", borderBottom: i < p.recentPatients.length - 1 ? `1px solid ${THEME.border}` : "none" }}>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <Link href={`/patients/${a.patient_id}`} style={{ fontWeight: 600, fontSize: 12, color: THEME.text, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {patientName(a.patients)}
+                  {privacyMode ? maskName(pickPatient(a.patients)) : patientName(a.patients)}
                 </Link>
                 <div style={{ fontSize: 10, color: THEME.muted, marginTop: 1 }}>{fmtDate(a.start_at)}</div>
               </div>
