@@ -32,28 +32,25 @@ type PsRow = {
   ts_reminder_cadence: string | null;
 };
 
-function isDue(cadence: string, month1to12: number): boolean {
+function isDueSingle(cadence: string, month1to12: number): boolean {
   if (cadence === "monthly") return true;
   if (cadence === "quarterly") return [1, 4, 7, 10].includes(month1to12);
   if (cadence === "semiannual") return [1, 7].includes(month1to12);
+  if (cadence === "annual") return month1to12 === 1;
   return false;
 }
 
-function periodoLabel(cadence: string, now: Date): string {
-  const m = now.getUTCMonth();      // 0-11 (mese corrente)
+// true se ALMENO una delle cadenze selezionate scatta nel mese
+function anyDue(cadences: string[], month1to12: number): boolean {
+  return cadences.some((c) => isDueSingle(c, month1to12));
+}
+
+function periodoLabel(now: Date): string {
+  const m = now.getUTCMonth();
   const y = now.getUTCFullYear();
-  if (cadence === "monthly") {
-    const pm = m === 0 ? 11 : m - 1;
-    const py = m === 0 ? y - 1 : y;
-    return `il mese di ${MESI[pm]} ${py}`;
-  }
-  if (cadence === "quarterly") {
-    return `il trimestre appena concluso`;
-  }
-  if (cadence === "semiannual") {
-    return m === 0 ? `il secondo semestre ${y - 1}` : `il primo semestre ${y}`;
-  }
-  return "le spese sanitarie da trasmettere";
+  const pm = m === 0 ? 11 : m - 1;
+  const py = m === 0 ? y - 1 : y;
+  return `le spese sanitarie fino a ${MESI[pm]} ${py}`;
 }
 
 export async function GET(req: NextRequest) {
@@ -75,9 +72,10 @@ export async function GET(req: NextRequest) {
     const results: Array<{ owner: string; status: string }> = [];
 
     for (const ps of rows as PsRow[]) {
-      const cadence = (ps.ts_reminder_cadence || "monthly").trim();
-      if (!ps.ts_enabled || cadence === "off") continue;
-      if (!isDue(cadence, month)) continue;
+      const raw = (ps.ts_reminder_cadence || "monthly").trim();
+      const cadences = raw === "off" || raw === "" ? [] : raw.split(",").map((s) => s.trim()).filter(Boolean);
+      if (!ps.ts_enabled || cadences.length === 0) continue;
+      if (!anyDue(cadences, month)) continue;
 
       const { data: ownerUser } = await db.auth.admin.getUserById(ps.owner_id);
       const email = ownerUser?.user?.email;
@@ -89,7 +87,7 @@ export async function GET(req: NextRequest) {
           to: email,
           data: {
             studioName: ps.practice_name || "FisioHub",
-            periodoLabel: periodoLabel(cadence, now),
+            periodoLabel: periodoLabel(now),
             daInviare: null,
             appUrl,
           },

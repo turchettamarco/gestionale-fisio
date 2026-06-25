@@ -1165,7 +1165,7 @@ export default function SettingsPage() {
   const [tsWsPassword, setTsWsPassword] = useState("");
   const [tsWsPincode, setTsWsPincode] = useState("");
   const [tsWsAmbiente, setTsWsAmbiente] = useState<"test" | "prod">("test");
-  const [tsReminderCadence, setTsReminderCadence] = useState<"off" | "monthly" | "quarterly" | "semiannual">("monthly");
+  const [tsReminderCadences, setTsReminderCadences] = useState<string[]>(["monthly"]);
   const [tsInvioEmailEnabled, setTsInvioEmailEnabled] = useState(true);
 
   // Tariffe
@@ -1283,8 +1283,10 @@ export default function SettingsPage() {
       setTsWsPincode(((data as PracticeSettingsRow).ts_ws_pincode ?? "").trim());
       setTsWsAmbiente((data as PracticeSettingsRow).ts_ws_ambiente === "prod" ? "prod" : "test");
       {
-        const c = (data as PracticeSettingsRow).ts_reminder_cadence;
-        setTsReminderCadence(c === "off" || c === "quarterly" || c === "semiannual" ? c : "monthly");
+        const raw = ((data as PracticeSettingsRow).ts_reminder_cadence ?? "monthly").trim();
+        const valid = ["monthly", "quarterly", "semiannual", "annual"];
+        const list = raw === "off" || raw === "" ? [] : raw.split(",").map(s => s.trim()).filter(s => valid.includes(s));
+        setTsReminderCadences(list);
       }
       setTsInvioEmailEnabled((data as PracticeSettingsRow).ts_invio_email_enabled !== false);
       setStandardInvoice(toMoneyString(data.standard_invoice, "40.00"));
@@ -1366,7 +1368,7 @@ export default function SettingsPage() {
         ts_ws_password:        tsWsPassword || null,
         ts_ws_pincode:         (tsWsPincode || "").trim() || null,
         ts_ws_ambiente:        tsWsAmbiente === "prod" ? "prod" : "test",
-        ts_reminder_cadence:   tsReminderCadence,
+        ts_reminder_cadence:   tsReminderCadences.length ? tsReminderCadences.join(",") : "off",
         ts_invio_email_enabled: tsInvioEmailEnabled,
         // Tariffe trattamenti (preferenze utente)
         standard_invoice:  toNumberSafe(standardInvoice, 40),
@@ -2101,7 +2103,7 @@ export default function SettingsPage() {
               tsWsPassword={tsWsPassword} setTsWsPassword={setTsWsPassword}
               tsWsPincode={tsWsPincode} setTsWsPincode={setTsWsPincode}
               tsWsAmbiente={tsWsAmbiente} setTsWsAmbiente={setTsWsAmbiente}
-              tsReminderCadence={tsReminderCadence} setTsReminderCadence={setTsReminderCadence}
+              tsReminderCadences={tsReminderCadences} setTsReminderCadences={setTsReminderCadences}
               tsInvioEmailEnabled={tsInvioEmailEnabled} setTsInvioEmailEnabled={setTsInvioEmailEnabled}
               onReload={() => void loadPracticeSettings()}
               onSave={() => void savePracticeSettings()}
