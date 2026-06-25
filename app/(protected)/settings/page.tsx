@@ -1165,6 +1165,8 @@ export default function SettingsPage() {
   const [tsWsPassword, setTsWsPassword] = useState("");
   const [tsWsPincode, setTsWsPincode] = useState("");
   const [tsWsAmbiente, setTsWsAmbiente] = useState<"test" | "prod">("test");
+  const [tsReminderCadence, setTsReminderCadence] = useState<"off" | "monthly" | "quarterly" | "semiannual">("monthly");
+  const [tsInvioEmailEnabled, setTsInvioEmailEnabled] = useState(true);
 
   // Tariffe
   const [standardInvoice, setStandardInvoice] = useState("40.00");
@@ -1218,7 +1220,7 @@ export default function SettingsPage() {
       const uid = await requireUserId();
       const { data, error } = await supabase
         .from("practice_settings")
-        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, logo_base64, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices, reminder_message, weekly_reminder_message, payment_message, birthday_message, satisfaction_message, default_appointment_status, overlap_mode, monthly_revenue_goal, inactive_threshold_days, reminder_hours_before, welcome_message, booking_confirm_message, duration_seduta, duration_macchinario, duration_laser, duration_tecar, duration_onde_urto, duration_tens, default_group_price, default_group_max_participants, payment_method_required, default_payment_method, ts_enabled, ts_tipo_spesa_default, ts_numbering_mode, ts_cf_proprietario, ts_regime_forfettario, ts_dispositivo, ts_ws_user, ts_ws_password, ts_ws_pincode, ts_ws_ambiente")
+        .select("owner_id, practice_name, owner_full_name, vat_number, address, pec_email, phone, google_review_link, logo_base64, standard_invoice, standard_cash, machine_invoice, machine_cash, laser_invoice, laser_cash, tecar_invoice, tecar_cash, onde_urto_invoice, onde_urto_cash, tens_invoice, tens_cash, auto_apply_prices, reminder_message, weekly_reminder_message, payment_message, birthday_message, satisfaction_message, default_appointment_status, overlap_mode, monthly_revenue_goal, inactive_threshold_days, reminder_hours_before, welcome_message, booking_confirm_message, duration_seduta, duration_macchinario, duration_laser, duration_tecar, duration_onde_urto, duration_tens, default_group_price, default_group_max_participants, payment_method_required, default_payment_method, ts_enabled, ts_tipo_spesa_default, ts_numbering_mode, ts_cf_proprietario, ts_regime_forfettario, ts_dispositivo, ts_ws_user, ts_ws_password, ts_ws_pincode, ts_ws_ambiente, ts_reminder_cadence, ts_invio_email_enabled")
         .eq("owner_id", uid)
         .maybeSingle();
       if (error) throw new Error(error.message);
@@ -1256,7 +1258,7 @@ export default function SettingsPage() {
           payment_method_required: true, default_payment_method: "pos",
           monthly_revenue_goal: 2000, inactive_threshold_days: 45,
           reminder_hours_before: 24, auto_apply_prices: true,
-          ts_enabled: false, ts_tipo_spesa_default: "SP", ts_numbering_mode: "external", ts_cf_proprietario: "", ts_regime_forfettario: true, ts_dispositivo: 1, ts_ws_user: "", ts_ws_password: "", ts_ws_pincode: "", ts_ws_ambiente: "test",
+          ts_enabled: false, ts_tipo_spesa_default: "SP", ts_numbering_mode: "external", ts_cf_proprietario: "", ts_regime_forfettario: true, ts_dispositivo: 1, ts_ws_user: "", ts_ws_password: "", ts_ws_pincode: "", ts_ws_ambiente: "test", ts_reminder_cadence: "monthly", ts_invio_email_enabled: true,
         };
         const { error: upsertErr } = await supabase.from("practice_settings").upsert(seed, { onConflict: "owner_id" });
         if (upsertErr) throw new Error(upsertErr.message);
@@ -1280,6 +1282,11 @@ export default function SettingsPage() {
       setTsWsPassword((data as PracticeSettingsRow).ts_ws_password ?? "");
       setTsWsPincode(((data as PracticeSettingsRow).ts_ws_pincode ?? "").trim());
       setTsWsAmbiente((data as PracticeSettingsRow).ts_ws_ambiente === "prod" ? "prod" : "test");
+      {
+        const c = (data as PracticeSettingsRow).ts_reminder_cadence;
+        setTsReminderCadence(c === "off" || c === "quarterly" || c === "semiannual" ? c : "monthly");
+      }
+      setTsInvioEmailEnabled((data as PracticeSettingsRow).ts_invio_email_enabled !== false);
       setStandardInvoice(toMoneyString(data.standard_invoice, "40.00"));
       setStandardCash(toMoneyString(data.standard_cash, "35.00"));
       setMachineInvoice(toMoneyString(data.machine_invoice, "25.00"));
@@ -1359,6 +1366,8 @@ export default function SettingsPage() {
         ts_ws_password:        tsWsPassword || null,
         ts_ws_pincode:         (tsWsPincode || "").trim() || null,
         ts_ws_ambiente:        tsWsAmbiente === "prod" ? "prod" : "test",
+        ts_reminder_cadence:   tsReminderCadence,
+        ts_invio_email_enabled: tsInvioEmailEnabled,
         // Tariffe trattamenti (preferenze utente)
         standard_invoice:  toNumberSafe(standardInvoice, 40),
         standard_cash:     toNumberSafe(standardCash, 35),
@@ -2092,6 +2101,8 @@ export default function SettingsPage() {
               tsWsPassword={tsWsPassword} setTsWsPassword={setTsWsPassword}
               tsWsPincode={tsWsPincode} setTsWsPincode={setTsWsPincode}
               tsWsAmbiente={tsWsAmbiente} setTsWsAmbiente={setTsWsAmbiente}
+              tsReminderCadence={tsReminderCadence} setTsReminderCadence={setTsReminderCadence}
+              tsInvioEmailEnabled={tsInvioEmailEnabled} setTsInvioEmailEnabled={setTsInvioEmailEnabled}
               onReload={() => void loadPracticeSettings()}
               onSave={() => void savePracticeSettings()}
             />
