@@ -226,6 +226,7 @@ export default function ContabilitaClient() {
   const contanti   = useMemo(() => eligible.filter(r => !isPagamentoTracciato(r.payment_method)), [eligible]);
   const da_numerare = useMemo(() => eligible.filter(r => !hasDocNumber(r)), [eligible]);
   const numerate   = useMemo(() => eligible.filter(r => hasDocNumber(r)), [eligible]);
+  const nonInviate = useMemo(() => numerate.filter(r => r.ts_sent_at == null), [numerate]);
   const inviate    = useMemo(() => eligible.filter(r => r.ts_sent_at != null), [eligible]);
   const totale     = useMemo(() => eligible.reduce((s, r) => s + (r.amount ?? 0), 0), [eligible]);
 
@@ -280,7 +281,7 @@ export default function ContabilitaClient() {
   // Costruisce l'elenco documenti per TS (raggruppati per numero documento).
   function buildTsDocuments(): { documents: any[]; skippedNoCf: number; includedIds: string[] } {
     const map = new Map<string, SpesaRow[]>();
-    for (const r of numerate) {
+    for (const r of nonInviate) {
       const key = docNumber(r);
       if (!key) continue;
       if (!map.has(key)) map.set(key, []);
@@ -312,8 +313,8 @@ export default function ContabilitaClient() {
 
   // Genera il file XML ufficiale Sistema TS (CF cifrati lato server con SanitelCF.cer).
   async function doExportXml() {
-    if (numerate.length === 0) {
-      alert("Nessuna spesa numerata da esportare. Numera/abbina prima i documenti.");
+    if (nonInviate.length === 0) {
+      alert("Nessuna fattura nuova da esportare: sono già state tutte inviate.");
       return;
     }
     if (!tsCfProprietario || !tsPiva) {
@@ -367,8 +368,8 @@ export default function ContabilitaClient() {
 
   // Invia il file direttamente al Sistema TS via Web Service (SOAP MTOM).
   async function doInvio() {
-    if (numerate.length === 0) {
-      alert("Nessuna spesa numerata da inviare. Numera/abbina prima i documenti.");
+    if (nonInviate.length === 0) {
+      alert("Nessuna fattura nuova da inviare: sono già state tutte trasmesse. Per re-inviarne una, usa \"Azzera numerazione\" sulla riga.");
       return;
     }
     if (!tsCfProprietario || !tsPiva) {
@@ -727,8 +728,8 @@ export default function ContabilitaClient() {
                 Importa da Xolo
               </Btn>
             )}
-            <Btn onClick={() => void doInvio()} disabled={busy !== "" || numerate.length === 0} tone={tsWsAmbiente === "prod" ? "red" : "teal"}>
-              {busy === "invio" ? "Invio…" : `Invia al Sistema TS${tsWsAmbiente === "test" ? " (test)" : ""}`}
+            <Btn onClick={() => void doInvio()} disabled={busy !== "" || nonInviate.length === 0} tone={tsWsAmbiente === "prod" ? "red" : "teal"}>
+              {busy === "invio" ? "Invio…" : `Invia al Sistema TS${nonInviate.length > 0 ? ` (${nonInviate.length})` : ""}${tsWsAmbiente === "test" ? " test" : ""}`}
             </Btn>
 
             {/* Menu altre azioni */}
@@ -753,7 +754,7 @@ export default function ContabilitaClient() {
                     background: "#fff", border: `1px solid ${T.border}`, borderRadius: 10,
                     boxShadow: "0 10px 30px rgba(15,23,42,0.14)", overflow: "hidden",
                   }}>
-                    <MenuItem onClick={() => { setMoreOpen(false); void doExportXml(); }} disabled={numerate.length === 0}>
+                    <MenuItem onClick={() => { setMoreOpen(false); void doExportXml(); }} disabled={nonInviate.length === 0}>
                       Scarica file .zip (XML)
                     </MenuItem>
                     {eligible.some(r => (r.ts_protocollo || "").trim()) && (
