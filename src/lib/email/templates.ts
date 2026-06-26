@@ -85,6 +85,14 @@ type TemplateDataMap = {
     ricevutaInclusa: boolean;
     appUrl: string;
   };
+  ts_recap: {
+    studioName: string;
+    periodoLabel: string;        // es. "maggio 2026" / "anno 2026"
+    righe: { data: string; paziente: string; numero: string; importo: number; protocollo: string }[];
+    totale: number;
+    count: number;
+    appUrl: string;
+  };
 };
 
 export type TemplateName = keyof TemplateDataMap;
@@ -317,6 +325,8 @@ export function renderTemplate<T extends TemplateName>(
       return buildTsRicevuta(data as TemplateDataMap["ts_ricevuta"]);
     case "ts_invio_report":
       return buildTsInvioReport(data as TemplateDataMap["ts_invio_report"]);
+    case "ts_recap":
+      return buildTsRecap(data as TemplateDataMap["ts_recap"]);
     default:
       throw new Error(`Template sconosciuto: ${template}`);
   }
@@ -394,6 +404,41 @@ function buildTsInvioReport(d: TemplateDataMap["ts_invio_report"]): Rendered {
     ${button(d.appUrl, "Apri il gestionale →")}
   `);
   const text = `Invio Sistema TS (${d.ambiente}) - ${d.studioName}\nProtocollo: ${d.protocollo}\n${d.esitoText}\n\nRighe: ${d.righe.length} - Totale €${totale.toFixed(2)}\n${d.ricevutaInclusa ? "Ricevuta PDF in allegato." : "Ricevuta PDF non ancora disponibile."}\n\nApri: ${d.appUrl}`;
+  return { subject, html, text };
+}
+
+function buildTsRecap(d: TemplateDataMap["ts_recap"]): Rendered {
+  const rowsHtml = d.righe.length
+    ? d.righe.map(r => `
+        <tr>
+          <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#64748b;white-space:nowrap;">${escapeHtml(r.data)}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#334155;">${escapeHtml(r.paziente)}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#64748b;">${escapeHtml(r.numero)}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;font-size:12px;color:#94a3b8;">${escapeHtml(r.protocollo)}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#0f172a;text-align:right;font-weight:700;">€${(Number(r.importo) || 0).toFixed(2)}</td>
+        </tr>`).join("")
+    : `<tr><td colspan="5" style="padding:10px;font-size:13px;color:#64748b;">Nessun invio nel periodo.</td></tr>`;
+
+  const subject = `Riepilogo invii Sistema TS — ${d.periodoLabel} (${d.count})`;
+  const html = emailLayout(`
+    <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:#0f172a;">🧾 Riepilogo invii Sistema TS</h1>
+    <p style="margin:0 0 18px;font-size:14px;color:#64748b;">${escapeHtml(d.studioName)} · ${escapeHtml(d.periodoLabel)} · <strong>${d.count}</strong> invii</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-bottom:8px;border-collapse:collapse;">
+      <thead><tr>
+        <th style="padding:8px 10px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Data</th>
+        <th style="padding:8px 10px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Paziente</th>
+        <th style="padding:8px 10px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Numero</th>
+        <th style="padding:8px 10px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Protocollo</th>
+        <th style="padding:8px 10px;text-align:right;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Importo</th>
+      </tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+    <p style="margin:0 0 16px;font-size:14px;color:#0f172a;text-align:right;">Totale trasmesso: <strong>€${(Number(d.totale) || 0).toFixed(2)}</strong></p>
+    ${button(d.appUrl, "Apri il gestionale →")}
+  `);
+  const text = `Riepilogo invii Sistema TS - ${d.studioName}\nPeriodo: ${d.periodoLabel}\nInvii: ${d.count} - Totale €${(Number(d.totale) || 0).toFixed(2)}\n\n` +
+    d.righe.map(r => `${r.data} | ${r.paziente} | ${r.numero} | ${r.protocollo} | €${(Number(r.importo) || 0).toFixed(2)}`).join("\n") +
+    `\n\nApri: ${d.appUrl}`;
   return { subject, html, text };
 }
 

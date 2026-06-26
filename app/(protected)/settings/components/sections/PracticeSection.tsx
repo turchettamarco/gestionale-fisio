@@ -32,6 +32,7 @@ export type PracticeSectionProps = {
   tsWsAmbiente: "test" | "prod"; setTsWsAmbiente: (v: "test" | "prod") => void;
   tsReminderCadences: string[]; setTsReminderCadences: (v: string[]) => void;
   tsInvioEmailEnabled: boolean; setTsInvioEmailEnabled: (v: boolean) => void;
+  tsRecapCadences: string[]; setTsRecapCadences: (v: string[]) => void;
   onReload: () => void;
   onSave: () => void;
 };
@@ -303,11 +304,11 @@ export default function PracticeSection(p: PracticeSectionProps) {
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 4 }}>Email di riepilogo dopo l&apos;invio</div>
+                  <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 4 }}>Email ad ogni invio</div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {([
-                      { k: true, t: "Attiva", d: "report + ricevuta PDF via email" },
-                      { k: false, t: "Disattiva", d: "nessuna email automatica" },
+                      { k: true, t: "Attiva", d: "report + ricevuta PDF ad ogni invio" },
+                      { k: false, t: "Disattiva", d: "nessuna email ad ogni invio" },
                     ]).map(o => {
                       const sel = p.tsInvioEmailEnabled === o.k;
                       return (
@@ -328,7 +329,52 @@ export default function PracticeSection(p: PracticeSectionProps) {
                       );
                     })}
                   </div>
-                  <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>L&apos;email parte qualche minuto dopo l&apos;invio, così la ricevuta PDF è già pronta.</div>
+                  <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>Ad ogni invio ricevi un&apos;email con le fatture trasmesse e la ricevuta PDF (qualche minuto dopo).</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 4 }}>Riepilogo periodico degli invii — selezionane quanti vuoi</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {([
+                      { k: "monthly", t: "Mensile", d: "lista invii del mese precedente" },
+                      { k: "annual", t: "Annuale", d: "lista invii dell'anno (a gennaio)" },
+                    ]).map(o => {
+                      const sel = p.tsRecapCadences.includes(o.k);
+                      return (
+                        <button
+                          key={o.k}
+                          onClick={() => {
+                            if (!p.tsEnabled) return;
+                            p.setTsRecapCadences(sel ? p.tsRecapCadences.filter(x => x !== o.k) : [...p.tsRecapCadences, o.k]);
+                          }}
+                          disabled={!p.tsEnabled}
+                          style={{
+                            flex: "1 1 200px", textAlign: "left", padding: "10px 12px", borderRadius: 10,
+                            cursor: p.tsEnabled ? "pointer" : "not-allowed",
+                            border: `1.5px solid ${sel ? THEME.teal : THEME.border}`,
+                            background: sel ? "rgba(13,148,136,0.08)" : "#fff",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                            <span style={{
+                              width: 16, height: 16, borderRadius: 4, flexShrink: 0,
+                              border: `1.5px solid ${sel ? THEME.teal : THEME.border}`,
+                              background: sel ? THEME.teal : "#fff", color: "#fff",
+                              display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800,
+                            }}>{sel ? "✓" : ""}</span>
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: sel ? THEME.teal : THEME.text }}>{o.t}</div>
+                              <div style={{ fontSize: 11, color: THEME.muted, marginTop: 2 }}>{o.d}</div>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>
+                    {p.tsRecapCadences.length === 0
+                      ? "Nessuna selezione = riepilogo disattivato."
+                      : "Email con l'elenco completo degli invii trasmessi nel periodo (paziente, numero, importo, protocollo)."}
+                  </div>
                 </div>
               </div>
             </div>

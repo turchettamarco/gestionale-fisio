@@ -77,6 +77,7 @@ export type PracticeSettingsRow = {
   ts_ws_ambiente?: string | null;
   ts_reminder_cadence?: string | null;
   ts_invio_email_enabled?: boolean | null;
+  ts_recap_cadence?: string | null;
   created_at?: string;
   updated_at?: string;
 };
