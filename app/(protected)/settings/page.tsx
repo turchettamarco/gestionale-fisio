@@ -293,6 +293,7 @@ export default function SettingsPage() {
       professionalRegisterNumber, professionalRegisterName,
       logoBase64,
       notifyEmailEnabled, notifyBellEnabled, notifyWaRedirectEnabled,
+      reportMonthlyEnabled, reportQuarterlyEnabled, reportYearlyEnabled, reportEmail,
       showBookingCardHome, showBookingBellCalendar,
       refreshStudio]);
 
