@@ -35,11 +35,11 @@ export default function MobileProtectedLayout({ children }: { children: React.Re
     <StudioProvider>
       <PrivacyModeProvider>
         <ToastProvider>
-        {children}
-        <MobileTabBar />
-        <WelcomeTour />
-        <ActivityTracker />
-      </ToastProvider>
+          {children}
+          <MobileTabBar />
+          <WelcomeTour />
+          <ActivityTracker />
+        </ToastProvider>
       </PrivacyModeProvider>
     </StudioProvider>
   );

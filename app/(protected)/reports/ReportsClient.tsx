@@ -963,7 +963,7 @@ export default function ReportsPage(){
     finally{if(loadIdRef.current === currentId) setLoading(false);}
   }
 
-  useEffect(()=>{loadData();},[period,dateStr,selectedLocId,selectedOperatorId]); // eslint-disable-line
+  useEffect(()=>{loadData();},[period,dateStr,selectedLocId,selectedOperatorId,privacyMode,privacyStyle]); // eslint-disable-line
 
   // ─── Export completo per commercialista (apre in Excel con BOM UTF-8) ─────
   const [exporting, setExporting] = useState(false);

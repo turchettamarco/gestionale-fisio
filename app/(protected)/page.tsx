@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getStudioBranding } from "@/src/lib/studioBranding";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { usePrivacyMode, composeInitials } from "@/src/contexts/PrivacyModeContext";
 
 // Theme & utils condivisi
 import { THEME } from "./components/dashboard/shared/theme";
@@ -50,6 +51,7 @@ import type { WorkingHourRow } from "./components/dashboard/shared/utils";
 
 export default function HomePage() {
   const { studio: currentStudio } = useCurrentStudio();
+  const { privacyMode, privacyStyle } = usePrivacyMode();
   const currentStudioId = currentStudio?.id ?? null;
 
   // ── Orari di lavoro dello studio (per slot liberi della home) ───────
@@ -128,7 +130,9 @@ export default function HomePage() {
         return {
           id: r.id,
           patient_id: r.patient_id,
-          patient_name: `${pt?.last_name || ""} ${pt?.first_name || ""}`.trim() || "Paziente",
+          patient_name: privacyMode
+            ? (privacyStyle === "initials" ? composeInitials(pt) : "Paziente")
+            : (`${pt?.last_name || ""} ${pt?.first_name || ""}`.trim() || "Paziente"),
           amount: Number(r.amount) || 0,
           start_at: r.start_at,
           days_ago: Math.floor((nowMs - new Date(r.start_at).getTime()) / 86400000),
@@ -157,7 +161,7 @@ export default function HomePage() {
     } finally {
       setLoadingBalances(false);
     }
-  }, []);
+  }, [privacyMode, privacyStyle]);
   useEffect(() => { fetchOpenBalances(); }, [fetchOpenBalances]);
 
   // ── Compleanni della settimana ──────────────────────────────────────
@@ -188,7 +192,9 @@ export default function HomePage() {
         if (bd.getTime() >= todayMs && bd.getTime() < weekEnd) {
           result.push({
             patient_id: p.id,
-            name: `${p.last_name || ""} ${p.first_name || ""}`.trim() || "Paziente",
+            name: privacyMode
+              ? (privacyStyle === "initials" ? composeInitials(p) : "Paziente")
+              : (`${p.last_name || ""} ${p.first_name || ""}`.trim() || "Paziente"),
             first_name: (p.first_name || "").trim() || "Paziente",
             birth_date: p.birth_date,
             age: thisYear - y,
@@ -209,7 +215,7 @@ export default function HomePage() {
     } finally {
       setLoadingBirthdays(false);
     }
-  }, []);
+  }, [privacyMode, privacyStyle]);
   useEffect(() => { fetchBirthdays(); }, [fetchBirthdays]);
 
   // ── Prenotazioni web ────────────────────────────────────────────────

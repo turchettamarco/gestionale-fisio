@@ -620,7 +620,7 @@ export default function ReportsMobile() {
     }
   }
 
-  useEffect(()=>{ loadData(); },[period,dateStr]);
+  useEffect(()=>{ loadData(); },[period,dateStr,privacyMode,privacyStyle]); // eslint-disable-line
 
   function handleBarClick(idx: number) {
     setSelectedDay(idx);
