@@ -33,6 +33,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { usePrivacyMode, useDisplayPatientPhone, usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
 import { buildReminderMessage } from "@/app/(protected)/calendar/utils/reminderMessage";
 import { resolveAppointmentLocation, locationInitials } from "@/app/(protected)/calendar/utils/locationHelpers";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
@@ -207,6 +208,9 @@ export default function MobileHomePage() {
 
   // Studio corrente (multi-tenancy)
   const { studio: currentStudio, locations: studioLocations } = useCurrentStudio();
+  const { privacyMode } = usePrivacyMode();
+  const displayPhone = useDisplayPatientPhone();
+  const { maskName, maskInitial } = usePrivacyDisplay();
   const currentStudioId = currentStudio?.id ?? null;
 
   // Orari di lavoro dello studio (per generare slot dinamici nel quick-add)
@@ -1730,7 +1734,7 @@ export default function MobileHomePage() {
                   <div key={n.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, background: bg, border: `1px solid ${col}22` }}>
                     <span style={{ fontSize: 14, flexShrink: 0 }}>{expired ? "⛔" : urgent ? "🚨" : "⏳"}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: THEME.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.patient_name}</div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: THEME.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{privacyMode ? maskName(n.patient_name) : n.patient_name}</div>
                       <div style={{ fontSize: 11, color: THEME.muted }}>{n.device_name}</div>
                     </div>
                     <div style={{ fontSize: 11, fontWeight: 800, color: col, flexShrink: 0 }}>
@@ -1903,11 +1907,11 @@ export default function MobileHomePage() {
                                 whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
                                 textDecoration: "none", color: "inherit",
                                 WebkitTapHighlightColor: "transparent",
-                              }}>{fullName(a.patients)}</a>
+                              }}>{privacyMode ? maskName(a.patients) : fullName(a.patients)}</a>
                           ) : (
                             <span style={{
                               whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                            }}>{fullName(a.patients)}</span>
+                            }}>{privacyMode ? maskName(a.patients) : fullName(a.patients)}</span>
                           )}
                           {a.is_paid && <span style={{ fontSize: 10, flexShrink: 0, opacity: 0.7 }}>💰</span>}
                           {a.location === "domicile" && <span style={{ fontSize: 10, flexShrink: 0, opacity: 0.7 }}>🏠</span>}
@@ -2154,7 +2158,7 @@ export default function MobileHomePage() {
 
                           // ─── Render appuntamento singolo (originale) ────
                           // Etichetta: nome paziente
-                          const displayName = fullName(a.patients);
+                          const displayName = privacyMode ? maskName(a.patients) : fullName(a.patients);
                           // Multi-sede (mig. 014, fase 3)
                           const apptLoc = resolveAppointmentLocation(
                             { location_id: (a as any).location_id ?? null, location: a.location },
