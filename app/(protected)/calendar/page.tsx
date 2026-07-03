@@ -1630,6 +1630,24 @@ function CalendarPageInner() {
 
   useEffect(() => { void refreshWaitlistCount(); }, [refreshWaitlistCount]);
 
+  // Cerca in lista d'attesa i pazienti compatibili con lo slot liberato
+  // e, se ce ne sono, apre il modale di proposta.
+  const openWaitlistMatchesForSlot = useCallback(async (slotStart: Date) => {
+    if (!currentStudioId) return;
+    const { data: rows } = await supabase
+      .from("waitlist_entries")
+      .select("*, patients(first_name, last_name, phone)")
+      .eq("studio_id", currentStudioId)
+      .in("status", ["active", "notified"]);
+
+    const entries = (rows as unknown as WaitlistEntry[]) || [];
+    const matches = entries.filter((e) => entryMatchesSlot(e, slotStart));
+    if (matches.length > 0) {
+      setMatchSlot(slotStart);
+      setMatchEntries(matches);
+    }
+  }, [currentStudioId]);
+
   // Elimina l'appuntamento e, se lo slot combacia con voci in lista
   // d'attesa, propone i pazienti compatibili.
   const handleDeleteWithWaitlist = useCallback(async () => {
@@ -1649,19 +1667,32 @@ function CalendarPageInner() {
       .maybeSingle();
     if (still) return; // annullata dall'utente o non eliminata
 
-    const { data: rows } = await supabase
-      .from("waitlist_entries")
-      .select("*, patients(first_name, last_name, phone)")
-      .eq("studio_id", currentStudioId)
-      .in("status", ["active", "notified"]);
+    await openWaitlistMatchesForSlot(snap.start);
+  }, [selectedEvent, deleteAppointment, currentStudioId, openWaitlistMatchesForSlot]);
 
-    const entries = (rows as unknown as WaitlistEntry[]) || [];
-    const matches = entries.filter((e) => entryMatchesSlot(e, snap.start));
-    if (matches.length > 0) {
-      setMatchSlot(snap.start);
-      setMatchEntries(matches);
-    }
-  }, [selectedEvent, deleteAppointment, currentStudioId]);
+  // Salva l'appuntamento e, se lo stato è appena passato ad "Annullato",
+  // propone lo slot liberato ai pazienti in lista d'attesa.
+  const handleSaveWithWaitlist = useCallback(async () => {
+    const prev = selectedEvent
+      ? {
+          id: selectedEvent.id,
+          start: selectedEvent.start as Date,
+          status: (selectedEvent as { status?: string }).status,
+        }
+      : null;
+
+    await saveAppointment();
+
+    if (!prev || !currentStudioId || prev.status === "cancelled") return;
+    const { data: row } = await supabase
+      .from("appointments")
+      .select("status")
+      .eq("id", prev.id)
+      .maybeSingle();
+    if ((row as { status?: string } | null)?.status !== "cancelled") return;
+
+    await openWaitlistMatchesForSlot(prev.start);
+  }, [selectedEvent, saveAppointment, currentStudioId, openWaitlistMatchesForSlot]);
 
   const monthEvents = useMemo(() => {
     if (viewType !== "month" || monthDays.length === 0) return new Map<string, CalendarEvent[]>();
@@ -2481,7 +2512,7 @@ return (
           getDefaultAmount={getDefaultAmount}
           onClose={() => setSelectedEvent(null)}
           onDuplicate={(event) => openCreateModal(event.start, event.start.getHours(), event.start.getMinutes(), event)}
-          onSave={saveAppointment}
+          onSave={handleSaveWithWaitlist}
           onDelete={handleDeleteWithWaitlist}
           onGenerateCertificate={async () => {
             if (!selectedEvent.patient_id || !selectedEvent.start) {

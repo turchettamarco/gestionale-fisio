@@ -438,6 +438,45 @@ export default function ExerciseProgramSection({
       `automaticamente la settimana in cui ti trovi:\n\n${pubLink}${firma}`);
   }
 
+  // Promemoria consapevole dell'aderenza: il tono cambia in base a quanti
+  // giorni il paziente è stato attivo negli ultimi 7.
+  function sendReminder() {
+    if (!pubLink || !patientPhone) return;
+    const branding = getStudioBranding(studio);
+    const firma = branding.signatureName ? `\n\n${branding.signatureName}` : "";
+    const firstName = patientName.split(" ").pop() ?? "";
+
+    const fmt = (d: Date) => {
+      const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), dd = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${dd}`;
+    };
+    const last7 = new Set(Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(); d.setDate(d.getDate() - i); return fmt(d);
+    }));
+    const activeDays = new Set(
+      adherence.map(a => a.done_date.slice(0, 10)).filter(d => last7.has(d))
+    ).size;
+
+    let corpo: string;
+    if (activeDays >= 5) {
+      corpo =
+        `complimenti! Questa settimana hai fatto gli esercizi ${activeDays} giorni su 7 — ` +
+        `ottimo lavoro, continua così! 💪 Ricorda di segnare le spunte nella tua pagina:`;
+    } else if (activeDays >= 1) {
+      corpo =
+        `come va con gli esercizi? Vedo ${activeDays} giorn${activeDays === 1 ? "o" : "i"} di attività questa settimana: ` +
+        `proviamo ad aggiungerne qualcuno in più? Ogni sessione conta per il recupero. 🙂 ` +
+        `Trovi tutto qui (ricorda la spunta "Fatto oggi"):`;
+    } else {
+      corpo =
+        `ti scrivo per ricordarti gli esercizi a casa: sono una parte importante ` +
+        `del percorso e bastano pochi minuti al giorno. 🙂 Trovi il programma con i video qui ` +
+        `(e puoi segnare "Fatto oggi" dopo ogni sessione):`;
+    }
+
+    openWhatsApp(patientPhone, `Gentile ${firstName},\n${corpo}\n\n${pubLink}${firma}`);
+  }
+
   // ── UI helpers ────────────────────────────────────────────────────────
   const inp = (v: string, on: (s: string) => void, w?: number | string, ph?: string) => (
     <input value={v} onChange={e => on(e.target.value)} placeholder={ph}
@@ -764,6 +803,16 @@ export default function ExerciseProgramSection({
                     color: T.green, fontWeight: 700, fontSize: 12, cursor: "pointer",
                     fontFamily: "inherit" }}>
                   📲 Invia su WhatsApp
+                </button>
+              )}
+              {token && patientPhone && (
+                <button onClick={sendReminder}
+                  title="Promemoria esercizi: il messaggio si adatta all'aderenza degli ultimi 7 giorni"
+                  style={{ flex: 1, padding: "9px 12px", borderRadius: 9,
+                    border: `1.5px solid ${T.amber}40`, background: `${T.amber}0d`,
+                    color: T.amber, fontWeight: 700, fontSize: 12, cursor: "pointer",
+                    fontFamily: "inherit" }}>
+                  🔔 Promemoria
                 </button>
               )}
               {token && <button onClick={copyLink}

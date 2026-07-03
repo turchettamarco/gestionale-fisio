@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudioId } from "@/src/contexts/StudioContext";
+import { StudioAdherenceModal } from "@/src/components/exercises/StudioAdherenceModal";
 import { useDisplayPatientName, useDisplayPatientPhone } from "@/src/contexts/PrivacyModeContext";
 import AppNavbar from "@/src/components/AppNavbar";
 
@@ -46,6 +47,7 @@ export default function PatientsPage() {
 
   // Studio corrente (multi-tenancy)
   const currentStudioId = useCurrentStudioId();
+  const [adhOpen, setAdhOpen] = useState(false);
   const displayName = useDisplayPatientName();
   const displayPhone = useDisplayPatientPhone();
 
@@ -453,15 +455,31 @@ export default function PatientsPage() {
               </div>
             )}
           </div>
-          <button onClick={openDrawer} style={{
-            padding: "10px 18px", borderRadius: 8, border: "none",
-            background: THEME.teal, color: "#fff",
-            fontWeight: 700, fontSize: 13, cursor: "pointer",
-            display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
-          }}>
-            + Nuovo paziente
-          </button>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            <button onClick={() => setAdhOpen(true)} style={{
+              padding: "10px 16px", borderRadius: 8, border: `1.5px solid ${THEME.teal}`,
+              background: "#fff", color: THEME.teal,
+              fontWeight: 700, fontSize: 13, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 6,
+            }}>
+              📊 Aderenza esercizi
+            </button>
+            <button onClick={openDrawer} style={{
+              padding: "10px 18px", borderRadius: 8, border: "none",
+              background: THEME.teal, color: "#fff",
+              fontWeight: 700, fontSize: 13, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
+            }}>
+              + Nuovo paziente
+            </button>
+          </div>
         </div>
+
+        <StudioAdherenceModal
+          open={adhOpen}
+          onClose={() => setAdhOpen(false)}
+          studioId={currentStudioId}
+        />
 
         {/* Error */}
         {error && (

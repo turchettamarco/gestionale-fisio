@@ -196,7 +196,7 @@ export default function StructuredAnamnesis({ patientId, studioId, ownerId }: St
 
   async function applyVoice(
     partial: Partial<AnamnesisData>,
-    extras: { occupation?: string | null; sport?: string | null }
+    extras: { occupation?: string | null; sport?: string | null; transcript?: string | null }
   ) {
     const merged: AnamnesisData = { ...data, ...partial };
     setData(merged);
@@ -207,6 +207,25 @@ export default function StructuredAnamnesis({ patientId, studioId, ownerId }: St
       if (extras.occupation !== undefined) patch.occupation = extras.occupation;
       if (extras.sport !== undefined) patch.sport = extras.sport;
       await supabase.from("patients").update(patch).eq("id", patientId);
+    }
+    // Trascrizione integrale → appesa alle note cliniche dell'assessment
+    if (extras.transcript) {
+      const stamp = new Date().toLocaleString("it-IT", {
+        day: "2-digit", month: "2-digit", year: "numeric",
+        hour: "2-digit", minute: "2-digit",
+      });
+      const block = `— 🎙 Trascrizione vocale (${stamp}) —\n${extras.transcript}`;
+      const { data: row } = await supabase
+        .from("clinical_assessments")
+        .select("notes")
+        .eq("patient_id", patientId)
+        .maybeSingle();
+      const prevNotes = (row as { notes?: string | null } | null)?.notes ?? null;
+      const nextNotes = prevNotes ? `${prevNotes}\n\n${block}` : block;
+      await supabase
+        .from("clinical_assessments")
+        .update({ notes: nextNotes })
+        .eq("patient_id", patientId);
     }
   }
 

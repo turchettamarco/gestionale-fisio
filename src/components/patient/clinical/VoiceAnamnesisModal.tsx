@@ -61,15 +61,17 @@ export function VoiceAnamnesisModal({
   current: AnamnesisData;
   /**
    * Applica i campi approvati. `partial` contiene SOLO i campi spuntati
-   * (array già uniti all'esistente dal chiamante); extras = occupation/sport.
+   * (array già uniti all'esistente dal chiamante); extras = occupation/sport
+   * + trascrizione integrale da archiviare nelle note cliniche (se richiesto).
    */
   onApply: (
     extracted: Partial<AnamnesisData>,
-    extras: { occupation?: string | null; sport?: string | null }
+    extras: { occupation?: string | null; sport?: string | null; transcript?: string | null }
   ) => Promise<void>;
 }) {
   const [step, setStep] = useState<"dictate" | "review">("dictate");
   const [transcript, setTranscript] = useState("");
+  const [saveTranscript, setSaveTranscript] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [applying, setApplying] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -88,6 +90,7 @@ export function VoiceAnamnesisModal({
     dict.stop();
     setStep("dictate");
     setTranscript("");
+    setSaveTranscript(true);
     setExtraction(null);
     setApproved(new Set());
     setErr(null);
@@ -171,9 +174,10 @@ export function VoiceAnamnesisModal({
       if (approved.has("relieving_factors"))
         partial.relieving_factors = mergeArr(current.relieving_factors, extraction.relieving_factors);
 
-      const extras: { occupation?: string | null; sport?: string | null } = {};
+      const extras: { occupation?: string | null; sport?: string | null; transcript?: string | null } = {};
       if (approved.has("occupation")) extras.occupation = extraction.occupation;
       if (approved.has("sport")) extras.sport = extraction.sport;
+      if (saveTranscript && transcript.trim()) extras.transcript = transcript.trim();
 
       await onApply(partial, extras);
       handleClose();
@@ -402,6 +406,22 @@ export function VoiceAnamnesisModal({
                   <strong style={{ color: T.text }}>ℹ Non mappato:</strong> {extraction.unmapped_notes}
                 </div>
               )}
+
+              <label style={{
+                display: "flex", gap: 9, alignItems: "center",
+                border: `1px solid ${T.border}`, borderRadius: 10,
+                padding: "9px 12px", cursor: "pointer", background: "#fff",
+              }}>
+                <input
+                  type="checkbox"
+                  checked={saveTranscript}
+                  onChange={(e) => setSaveTranscript(e.target.checked)}
+                  style={{ width: 15, height: 15, accentColor: T.teal, cursor: "pointer" }}
+                />
+                <span style={{ fontSize: 12, color: T.text, fontWeight: 600 }}>
+                  💾 Archivia la trascrizione integrale nelle note cliniche
+                </span>
+              </label>
             </>
           )}
         </div>

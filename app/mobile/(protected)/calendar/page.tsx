@@ -15,6 +15,8 @@ import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import { generateSingleCertificate } from "@/src/lib/certificateLoader";
 import { SOAPNotesEditor } from "@/app/(protected)/calendar/components/SOAPNotes";
 import { WaitlistPanel, fetchActiveWaitlistCount } from "@/src/components/waitlist/WaitlistPanel";
+import { WaitlistMatchModal } from "@/src/components/waitlist/WaitlistMatchModal";
+import { entryMatchesSlot, type WaitlistEntry } from "@/src/lib/waitlist";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 import PackagePickerSection from "@/src/components/packages/PackagePickerSection";
 import PackageBadge from "@/src/components/packages/PackageBadge";
@@ -286,12 +288,29 @@ function CalendarPageInner() {
   const { privacyMode, privacyStyle } = usePrivacyMode();
   const currentStudioId = currentStudio?.id ?? null;
 
-  // Lista d'attesa (mobile: pannello + badge, senza match-on-delete)
+  // Lista d'attesa (mobile: pannello + badge + match su elimina/annulla)
   const [waitlistOpen, setWaitlistOpen] = useState(false);
   const [waitlistCount, setWaitlistCount] = useState(0);
+  const [matchSlot, setMatchSlot] = useState<Date | null>(null);
+  const [matchEntries, setMatchEntries] = useState<WaitlistEntry[]>([]);
   useEffect(() => {
     if (!currentStudioId) return;
     fetchActiveWaitlistCount(currentStudioId).then(setWaitlistCount).catch(() => {});
+  }, [currentStudioId]);
+
+  const openWaitlistMatchesForSlot = useCallback(async (slotStart: Date) => {
+    if (!currentStudioId) return;
+    const { data: rows } = await supabase
+      .from("waitlist_entries")
+      .select("*, patients(first_name, last_name, phone)")
+      .eq("studio_id", currentStudioId)
+      .in("status", ["active", "notified"]);
+    const entries = (rows as unknown as WaitlistEntry[]) || [];
+    const matches = entries.filter((e) => entryMatchesSlot(e, slotStart));
+    if (matches.length > 0) {
+      setMatchSlot(slotStart);
+      setMatchEntries(matches);
+    }
   }, [currentStudioId]);
 
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
@@ -1201,16 +1220,21 @@ function CalendarPageInner() {
     }
     const {error:e}=await supabase.from("appointments").update(upd).eq("id",selectedEvent.id);
     if (e){setError(`Errore: ${e.message}`);setBusy(false);return;}
+    const becameCancelled = editStatus === "cancelled" && selectedEvent.status !== "cancelled";
+    const freedSlot = selectedEvent.start;
     setSelectedEvent(null); setBusy(false); await loadAppointments(currentDate);
-  }, [selectedEvent,editStatus,editNote,editAmount,editPriceType,editPaymentMethod,editDate,editTime,editDuration,editTreatmentType,currentDate,loadAppointments,paymentMethodRequired,defaultPaymentMethod]);
+    if (becameCancelled) await openWaitlistMatchesForSlot(freedSlot);
+  }, [selectedEvent,editStatus,editNote,editAmount,editPriceType,editPaymentMethod,editDate,editTime,editDuration,editTreatmentType,currentDate,loadAppointments,paymentMethodRequired,defaultPaymentMethod,openWaitlistMatchesForSlot]);
 
   const deleteEvent = useCallback(async () => {
     if (!selectedEvent||!window.confirm("Eliminare definitivamente questo appuntamento?")) return;
+    const freedSlot = selectedEvent.start; // snapshot prima dell'azzeramento
     setBusy(true); setError("");
     const {error:e}=await supabase.from("appointments").delete().eq("id",selectedEvent.id);
     if (e){setError(`Errore: ${e.message}`);setBusy(false);return;}
     setSelectedEvent(null); setBusy(false); await loadAppointments(currentDate);
-  }, [selectedEvent,currentDate,loadAppointments]);
+    await openWaitlistMatchesForSlot(freedSlot);
+  }, [selectedEvent,currentDate,loadAppointments,openWaitlistMatchesForSlot]);
 
   const openCreate = useCallback((prefillTime?:string, prefillDateISO?:string) => {
     setCreateOpen(true); setError("");
@@ -3077,6 +3101,19 @@ function CalendarPageInner() {
         studioId={currentStudioId ?? ""}
         onChanged={setWaitlistCount}
       />
+
+      {matchSlot && (
+        <WaitlistMatchModal
+          slotStart={matchSlot}
+          matches={matchEntries}
+          studioName={currentStudio?.name ?? null}
+          onClose={() => { setMatchSlot(null); setMatchEntries([]); }}
+          onOpenPanel={() => setWaitlistOpen(true)}
+          onChanged={() => {
+            if (currentStudioId) fetchActiveWaitlistCount(currentStudioId).then(setWaitlistCount).catch(() => {});
+          }}
+        />
+      )}
     </div>
   );
 }
