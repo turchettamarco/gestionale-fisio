@@ -1,10 +1,8 @@
 "use client";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { buildPatientContext, callClinicalAI } from "@/src/lib/clinical/buildPatientContext";
-import { useDictation, appendDictated } from "@/src/hooks/useDictation";
-import { DictationMicButton } from "@/src/components/DictationMicButton";
 
 const THEME = {
   teal: "#0d9488", blue: "#2563eb", text: "#0f172a",
@@ -36,61 +34,7 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
 
-  // ── Dettatura vocale nota rapida ("Detti la seduta") ──
-  const quickTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const [justDictated, setJustDictated] = useState(false);
-  const dict = useDictation({
-    lang: "it-IT",
-    onFinal: (text) =>
-      setNote((n) => ({ ...n, quick_note: appendDictated(n.quick_note, text) })),
-  });
-
-  // Mirror della nota per leggerla fresca negli handler (l'ultimo segmento
-  // finale della dettatura arriva in modo asincrono)
-  const quickNoteRef = useRef<string>("");
-  useEffect(() => {
-    quickNoteRef.current = note.quick_note || "";
-  }, [note.quick_note]);
-
-  // Ferma il microfono e, se c'è testo, evidenzia "Espandi con AI"
-  function stopDictation() {
-    dict.stop();
-    setTimeout(() => {
-      if (quickNoteRef.current.trim()) {
-        setJustDictated(true);
-        setTimeout(() => setJustDictated(false), 4000);
-      }
-    }, 200);
-  }
-  function toggleDictation() {
-    if (dict.listening) stopDictation();
-    else {
-      setExpandedMode("quick");
-      dict.start();
-    }
-  }
-
-  // Valore mostrato: nota consolidata + trascrizione live (ghost)
-  const quickDisplayValue =
-    (note.quick_note || "") +
-    (dict.listening && dict.interim
-      ? (note.quick_note ? " " : "") + dict.interim
-      : "");
-
-  // Auto-scroll in fondo mentre la trascrizione live cresce
-  useEffect(() => {
-    if (dict.listening && quickTextareaRef.current) {
-      quickTextareaRef.current.scrollTop = quickTextareaRef.current.scrollHeight;
-    }
-  }, [quickDisplayValue, dict.listening]);
-
   async function expandWithAI() {
-    if (dict.listening) {
-      dict.stop();
-      // Lascia consolidare l'ultimo segmento finale della dettatura
-      await new Promise((r) => setTimeout(r, 350));
-    }
-    setJustDictated(false);
     setAiLoading(true);
     setAiError(null);
     try {
@@ -99,7 +43,7 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
         sections: ["patient", "anamnesis", "diagnosis", "plan", "tests", "sessions"],
         maxSessions: 5,
       });
-      ctx.quick_note = quickNoteRef.current || note.quick_note || "";
+      ctx.quick_note = note.quick_note || "";
       const result = await callClinicalAI("soap", ctx);
       if (!result) throw new Error("Risposta AI vuota");
       setNote(n => ({
@@ -196,7 +140,6 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
               cursor: aiLoading ? "wait" : "pointer",
               fontFamily: "inherit",
               display: "inline-flex", alignItems: "center", gap: 4,
-              animation: justDictated && !aiLoading ? "soapai-glow 1.1s ease-in-out 3" : "none",
             }}
           >
             {aiLoading ? (
@@ -213,13 +156,7 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
             ) : (
               <>✨ Espandi con AI</>
             )}
-            <style>{`
-              @keyframes soapai-spin { to { transform: rotate(360deg); } }
-              @keyframes soapai-glow {
-                0%, 100% { box-shadow: 0 0 0 0 rgba(124,58,237,0); transform: scale(1); }
-                50%      { box-shadow: 0 0 0 6px rgba(124,58,237,0.25); transform: scale(1.05); }
-              }
-            `}</style>
+            <style>{`@keyframes soapai-spin { to { transform: rotate(360deg); } }`}</style>
           </button>
           <div style={{ display: "flex", gap: 4, background: "#fff", borderRadius: 7, padding: 2, border: `1px solid ${THEME.border}` }}>
             <button onClick={() => setExpandedMode("quick")} style={{
@@ -248,70 +185,13 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
 
       {expandedMode === "quick" ? (
         <div>
-          <div style={{ position: "relative" }}>
-            <textarea
-              ref={quickTextareaRef}
-              value={quickDisplayValue}
-              onChange={e => setNote({ ...note, quick_note: e.target.value })}
-              readOnly={dict.listening}
-              placeholder={dict.supported
-                ? "🎙 Detta la seduta o scrivi… Es. VAS 4→2, tecar lombare, migliora ROM"
-                : "Es. VAS 4→2, miglioramento ROM, continua esercizi a casa…"}
-              rows={3}
-              style={{
-                width: "100%", padding: "10px 12px",
-                paddingRight: dict.supported ? 50 : 12,
-                borderRadius: 8,
-                border: dict.listening ? "1.5px solid #dc2626" : `1.5px solid ${THEME.border}`,
-                background: dict.listening ? "rgba(220,38,38,0.03)" : "#fff",
-                fontSize: 13, fontFamily: "inherit", resize: "vertical",
-                outline: "none", boxSizing: "border-box",
-                transition: "border-color 0.15s, background 0.15s",
-              }}
-            />
-            <div style={{ position: "absolute", right: 8, bottom: 12 }}>
-              <DictationMicButton
-                listening={dict.listening}
-                supported={dict.supported}
-                onToggle={toggleDictation}
-              />
-            </div>
-          </div>
-
-          {dict.listening && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 5, fontSize: 11, fontWeight: 700, color: "#dc2626" }}>
-              <span style={{
-                width: 7, height: 7, borderRadius: "50%", background: "#dc2626",
-                display: "inline-block", animation: "soapdict-blink 1s ease-in-out infinite",
-              }} />
-              Sto ascoltando… parla liberamente, tocca il microfono per fermare
-              <style>{`@keyframes soapdict-blink { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }`}</style>
-            </div>
-          )}
-
-          {dict.error && (
-            <div style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
-              padding: "6px 10px", marginTop: 6,
-              background: "rgba(220,38,38,0.05)", border: "1px solid rgba(220,38,38,0.2)",
-              borderRadius: 6, fontSize: 11, color: THEME.red, fontWeight: 600,
-            }}>
-              <span>⚠ {dict.error}</span>
-              <button
-                type="button"
-                onClick={dict.clearError}
-                style={{ background: "transparent", border: "none", cursor: "pointer", color: THEME.red, fontWeight: 800, fontSize: 12, padding: 0 }}
-                aria-label="Chiudi avviso"
-              >✕</button>
-            </div>
-          )}
-
-          {dict.supported && !dict.listening && !note.quick_note && !dict.error && (
-            <div style={{ marginTop: 5, fontSize: 10.5, color: THEME.muted, fontStyle: "italic" }}>
-              💡 Detta le note grezze, poi «✨ Espandi con AI»: il SOAP si scrive da solo.
-            </div>
-          )}
-
+          <textarea
+            value={note.quick_note || ""}
+            onChange={e => setNote({ ...note, quick_note: e.target.value })}
+            placeholder="Es. VAS 4→2, miglioramento ROM, continua esercizi a casa…"
+            rows={3}
+            style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${THEME.border}`, fontSize: 13, fontFamily: "inherit", resize: "vertical", outline: "none", boxSizing: "border-box" }}
+          />
           <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: THEME.muted }}>VAS prima:</span>

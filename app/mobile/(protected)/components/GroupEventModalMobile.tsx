@@ -18,6 +18,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { showToast } from "@/src/components/mobile/ToastProvider";
+import { usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
 
 // Tipo locale del partecipante (riallineato a `appointment_participants` del DB)
 export type Participant = {
@@ -149,6 +150,7 @@ export default function GroupEventModalMobile({
   onUpdateGroup,
   onDuplicateGroup,
 }: GroupEventModalMobileProps) {
+  const { active: privacyActive, maskName, maskInitial } = usePrivacyDisplay();
   const participants = event.participants ?? [];
   const max = event.group_max_participants ?? 0;
   const pricePP = event.group_price_per_person ?? 0;
@@ -808,7 +810,7 @@ export default function GroupEventModalMobile({
                               : isAbsent ? "2px solid #dc2626" : "none",
                         flexShrink: 0,
                       }}>
-                        {initials(p.patient_first_name, p.patient_last_name)}
+                        {privacyActive ? maskInitial({ first_name: p.patient_first_name, last_name: p.patient_last_name }) : initials(p.patient_first_name, p.patient_last_name)}
                       </div>
 
                       {/* Nome + prezzo */}
@@ -817,7 +819,7 @@ export default function GroupEventModalMobile({
                           fontSize: 13, fontWeight: 700, color: "#0f172a",
                           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                         }}>
-                          {p.patient_last_name} {p.patient_first_name}
+                          {privacyActive ? maskName({ first_name: p.patient_first_name, last_name: p.patient_last_name }) : `${p.patient_last_name} ${p.patient_first_name}`}
                         </div>
                         <div style={{
                           fontSize: 11, color: isPaid ? "#16a34a" : "#92400e",

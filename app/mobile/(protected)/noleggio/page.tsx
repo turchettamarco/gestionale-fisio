@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudioId } from "@/src/contexts/StudioContext";
+import { usePrivacyMode, useDisplayPatientPhone, usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
 import { showToast } from "@/src/components/mobile/ToastProvider";
 
 const THEME = {
@@ -34,6 +35,9 @@ export default function MobileNoleggioPage() {
 
   // Studio corrente (multi-tenancy)
   const currentStudioId = useCurrentStudioId();
+  const { privacyMode } = usePrivacyMode();
+  const displayPhone = useDisplayPatientPhone();
+  const { maskName } = usePrivacyDisplay();
 
   const [noleggios, setNoleggios] = useState<NoleggioRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -335,7 +339,7 @@ export default function MobileNoleggioPage() {
                   ) : (
                     <>
                       <div style={{display:"flex",alignItems:"center",gap:6}}>
-                        <div style={{fontWeight:800,fontSize:15,color:THEME.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.patient_name}</div>
+                        <div style={{fontWeight:800,fontSize:15,color:THEME.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{privacyMode ? maskName(n.patient_name) : n.patient_name}</div>
                         <button onClick={()=>{
                           setEditingId(n.id);
                           setEditName(n.patient_name);
@@ -347,7 +351,7 @@ export default function MobileNoleggioPage() {
                           style={{background:"none",border:"none",cursor:"pointer",color:THEME.muted,fontSize:13,padding:2,flexShrink:0}}>✏️</button>
                       </div>
                       {n.patient_phone
-                        ? <div style={{fontSize:12,color:THEME.muted}}>{n.patient_phone}</div>
+                        ? <div style={{fontSize:12,color:THEME.muted}}>{displayPhone(n.patient_phone)}</div>
                         : <div style={{fontSize:11,color:THEME.amber,fontWeight:600}}>⚠️ Nessun telefono</div>
                       }
                       {!n.patient_id && (

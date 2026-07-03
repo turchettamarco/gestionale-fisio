@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
+import { usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
 
 // ── Tipi ────────────────────────────────────────────────────────────────
 type View = "front" | "back" | "right" | "left";
@@ -37,6 +38,9 @@ export default function PainMapMobile({
   patientId: string; studioId: string; ownerId: string;
   patientName: string; onClose: () => void;
 }) {
+  const { active: privacyActive, maskName } = usePrivacyDisplay();
+  // Nome mostrato a video: mascherato se Modalità Privacy attiva.
+  const shownName = privacyActive ? maskName(patientName) : patientName;
   const [view, setView] = useState<View>("front");
   const [intensity, setIntensity] = useState<Intensity>(2);
   const [erase, setErase] = useState(false);
@@ -139,7 +143,7 @@ export default function PainMapMobile({
           <button onClick={onClose} style={{ background: "rgba(255,255,255,.18)", border: "none", color: "#fff",
             width: 34, height: 34, borderRadius: 10, fontSize: 18, cursor: "pointer" }}>✕</button>
         </div>
-        <div style={{ fontSize: 12, opacity: .9, marginTop: 3 }}>{patientName}</div>
+        <div style={{ fontSize: 12, opacity: .9, marginTop: 3 }}>{shownName}</div>
       </div>
 
       {/* Tab edit / storico */}
@@ -308,7 +312,7 @@ export default function PainMapMobile({
                   width: 34, height: 34, borderRadius: 10, fontSize: 18, cursor: "pointer" }}>✕</button>
               </div>
               <div style={{ fontSize: 12, opacity: .9, marginTop: 3 }}>
-                {patientName} · {new Date(viewing.created_at).toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" })}
+                {shownName} · {new Date(viewing.created_at).toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" })}
               </div>
             </div>
 
