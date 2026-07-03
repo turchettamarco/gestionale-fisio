@@ -12,7 +12,7 @@ export const THEME = {
   text:      "#0f172a",
   textSoft:  "#1e293b",
   muted:     "#334155",
-  border:    "#cbd5e1",
+  border:    "#e2e8f0",
   blue:      "#2563eb",
   blueDark:  "#1e40af",
   green:     "#16a34a",
