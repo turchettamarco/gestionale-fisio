@@ -31,13 +31,17 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 import { NextRequest, NextResponse } from "next/server";
+import {
+  ONSET_TYPES, PAIN_FREQUENCIES, PAIN_CHARACTERISTICS, DURATION_UNITS,
+} from "@/src/lib/clinical/anamnesisOptions";
+import { PAIN_DISTRICTS, expandBilateralCodes } from "@/src/lib/clinical/painLocations";
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-haiku-4-5-20251001";
 
 // ─── Tipi ────────────────────────────────────────────────────
 
-type AIAction = "summary" | "plan" | "soap";
+type AIAction = "summary" | "plan" | "soap" | "anamnesis";
 
 interface PatientContext {
   // Anagrafica essenziale
@@ -95,6 +99,9 @@ interface PatientContext {
   // Per la generazione SOAP: nota rapida da espandere
   quick_note?: string;
   session_date?: string;
+
+  // Per l'anamnesi vocale: trascrizione dettata della valutazione
+  transcript?: string;
 }
 
 // ─── Helper: serializza il contesto in testo italiano leggibile ───
@@ -191,6 +198,59 @@ function serializeContext(ctx: PatientContext): string {
   }
 
   return parts.join("\n");
+}
+
+// ─── Catalogo sedi del dolore per il prompt + validazione ──────────────
+
+function buildPainLocationCatalog(): { validCodes: Set<string>; text: string } {
+  const validCodes = new Set<string>();
+  const lines: string[] = [];
+  for (const district of PAIN_DISTRICTS) {
+    const parts: string[] = [];
+    for (const zone of district.zones) {
+      const expanded = zone.bilateral
+        ? expandBilateralCodes(zone)
+        : [{ code: zone.code, label: zone.label }];
+      for (const e of expanded) {
+        validCodes.add(e.code);
+        parts.push(`${e.code} = ${e.label}`);
+      }
+    }
+    lines.push(`• ${district.label}: ${parts.join("; ")}`);
+  }
+  return { validCodes, text: lines.join("\n") };
+}
+
+/** Sanitizza l'output AI dell'azione "anamnesis": scarta codici non validi. */
+function sanitizeAnamnesisResult(raw: any): any {
+  const { validCodes } = buildPainLocationCatalog();
+  const onsetCodes = new Set(ONSET_TYPES.map((o) => o.code as string));
+  const freqCodes = new Set(PAIN_FREQUENCIES.map((o) => o.code as string));
+  const charCodes = new Set(PAIN_CHARACTERISTICS.map((o) => o.code as string));
+  const unitCodes = new Set(DURATION_UNITS.map((o) => o.code as string));
+
+  const strArr = (v: any, max: number): string[] =>
+    Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim()).slice(0, max) : [];
+
+  const durationValue =
+    typeof raw?.duration_value === "number" && raw.duration_value > 0 && raw.duration_value < 1000
+      ? Math.round(raw.duration_value)
+      : null;
+
+  return {
+    pain_locations: strArr(raw?.pain_locations, 12).filter((c) => validCodes.has(c)),
+    duration_value: durationValue,
+    duration_unit: unitCodes.has(raw?.duration_unit) ? raw.duration_unit : null,
+    onset_type: onsetCodes.has(raw?.onset_type) ? raw.onset_type : null,
+    pain_frequency: freqCodes.has(raw?.pain_frequency) ? raw.pain_frequency : null,
+    pain_characteristics: strArr(raw?.pain_characteristics, 10).filter((c) => charCodes.has(c)),
+    aggravating_factors: strArr(raw?.aggravating_factors, 8),
+    relieving_factors: strArr(raw?.relieving_factors, 8),
+    red_flag_mentions: strArr(raw?.red_flag_mentions, 5),
+    occupation: typeof raw?.occupation === "string" && raw.occupation.trim() ? raw.occupation.trim() : null,
+    sport: typeof raw?.sport === "string" && raw.sport.trim() ? raw.sport.trim() : null,
+    unmapped_notes: typeof raw?.unmapped_notes === "string" ? raw.unmapped_notes.trim().slice(0, 600) : "",
+  };
 }
 
 // ─── Prompts per ogni azione ───────────────────────────────
@@ -297,6 +357,57 @@ Rispondi SOLO con un oggetto JSON in questo formato esatto:
 Niente preamboli, niente markdown, solo JSON.`;
   }
 
+  if (action === "anamnesis") {
+    const catalog = buildPainLocationCatalog();
+    const onsetList = ONSET_TYPES.map((o) => `${o.code} = ${o.label} (${o.description})`).join("; ");
+    const freqList = PAIN_FREQUENCIES.map((o) => `${o.code} = ${o.label} (${o.description})`).join("; ");
+    const charList = PAIN_CHARACTERISTICS.map((o) => `${o.code} = ${o.label}`).join("; ");
+    const unitList = DURATION_UNITS.map((o) => `${o.code} = ${o.label}`).join("; ");
+
+    return `Sei un assistente clinico esperto per fisioterapisti. Rispondi SEMPRE in italiano.
+
+TRASCRIZIONE DELLA VALUTAZIONE (dettata a voce dal fisioterapista, può contenere errori di trascrizione e mancare di punteggiatura):
+"${(ctx.transcript || "").slice(0, 8000)}"
+
+COMPITO: Estrai dalla trascrizione SOLO le informazioni effettivamente presenti e mappale nei campi dell'anamnesi strutturata.
+
+REGOLE FERREE:
+1. USA ESCLUSIVAMENTE i codici dei cataloghi sotto. Un codice fuori catalogo verrà scartato.
+2. Se un'informazione NON è nella trascrizione: null per gli scalari, [] per gli array. NON inventare, NON dedurre oltre il detto.
+3. Sedi bilaterali: scegli il suffisso in base al lato detto ("destra"→_right, "sinistra"→_left, "entrambi/bilaterale"→_bilateral). Se il lato NON è specificato per una zona bilaterale, NON includerla e segnalala in unmapped_notes.
+4. Durata: converti le espressioni ("da tre mesi" → duration_value 3, duration_unit "months"; "da una settimana" → 1, "weeks").
+5. aggravating_factors / relieving_factors: brevi espressioni italiane (2-4 parole), max 8 per lista, tratte dalla trascrizione.
+6. red_flag_mentions: frasi/indizi di possibili red flag presenti nella trascrizione (perdita di peso inspiegata, febbre, trauma maggiore, deficit neurologici, dolore notturno non meccanico, disturbi sfinterici, storia oncologica…). Max 5. Vuoto se non menzionati.
+7. occupation / sport: solo se menzionati esplicitamente.
+8. unmapped_notes: informazioni clinicamente utili NON mappabili nei campi (max 60 parole), altrimenti stringa vuota.
+
+CATALOGO SEDI DEL DOLORE (pain_locations):
+${catalog.text}
+
+INSORGENZA (onset_type): ${onsetList}
+FREQUENZA (pain_frequency): ${freqList}
+CARATTERISTICHE DEL DOLORE (pain_characteristics, array): ${charList}
+UNITÀ DI DURATA (duration_unit): ${unitList}
+
+Rispondi SOLO con un oggetto JSON in questo formato esatto:
+{
+  "pain_locations": [],
+  "duration_value": null,
+  "duration_unit": null,
+  "onset_type": null,
+  "pain_frequency": null,
+  "pain_characteristics": [],
+  "aggravating_factors": [],
+  "relieving_factors": [],
+  "red_flag_mentions": [],
+  "occupation": null,
+  "sport": null,
+  "unmapped_notes": ""
+}
+
+Niente preamboli, niente markdown, solo JSON.`;
+  }
+
   return "";
 }
 
@@ -337,12 +448,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "ANTHROPIC_API_KEY non configurata su Vercel" }, { status: 500 });
     }
 
-    if (!action || !["summary", "plan", "soap"].includes(action)) {
+    if (!action || !["summary", "plan", "soap", "anamnesis"].includes(action)) {
       return NextResponse.json({ error: "Azione non valida" }, { status: 400 });
     }
 
     if (!context) {
       return NextResponse.json({ error: "Contesto paziente mancante" }, { status: 400 });
+    }
+
+    if (action === "anamnesis" && !(context.transcript || "").trim()) {
+      return NextResponse.json({ error: "Trascrizione mancante" }, { status: 400 });
     }
 
     const prompt = buildPrompt(action, context);
@@ -360,7 +475,10 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: action === "soap" || action === "plan" ? 1024 : 512,
+        max_tokens:
+          action === "anamnesis" ? 1500
+          : action === "soap" || action === "plan" ? 1024
+          : 512,
         messages: [{ role: "user", content: prompt }],
       }),
     });
@@ -380,7 +498,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Parsing robusto
-    const result = extractJSON(text);
+    let result = extractJSON(text);
+    if (action === "anamnesis") {
+      result = sanitizeAnamnesisResult(result);
+    }
 
     return NextResponse.json({ result, raw: text });
   } catch (e: any) {

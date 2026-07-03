@@ -1,13 +1,24 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { buildPatientContext, callClinicalAI } from "@/src/lib/clinical/buildPatientContext";
+import { useDictation, appendDictated } from "@/src/hooks/useDictation";
+import { DictationMicButton } from "@/src/components/DictationMicButton";
 
 const THEME = {
   teal: "#0d9488", blue: "#2563eb", text: "#0f172a",
   muted: "#64748b", border: "#e2e8f0", green: "#16a34a", red: "#dc2626",
   panelSoft: "#f8fafc",
+};
+
+// Etichette leggibili dei campi dettabili (indicatore "Sto ascoltando…")
+const DICT_FIELD_LABELS: Record<string, string> = {
+  quick_note: "Nota rapida",
+  soap_s: "S — Soggettivo",
+  soap_o: "O — Oggettivo",
+  soap_a: "A — Assessment",
+  soap_p: "P — Piano",
 };
 
 export type SOAPNote = {
@@ -34,7 +45,99 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
 
+  // ── Dettatura vocale ("Detti la seduta") ──
+  // Target-based: un solo motore di riconoscimento, il campo di destinazione
+  // può essere la nota rapida oppure uno dei 4 campi SOAP.
+  type DictField = "quick_note" | "soap_s" | "soap_o" | "soap_a" | "soap_p";
+  const [dictField, setDictField] = useState<DictField>("quick_note");
+  const dictFieldRef = useRef<DictField>("quick_note");
+  const [justDictated, setJustDictated] = useState(false);
+  const taRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+
+  // Mirror dell'intera nota: gli handler (save, expandWithAI) la leggono
+  // fresca anche se l'ultimo segmento dettato arriva in modo asincrono
+  const noteRef = useRef<SOAPNote>(note);
+  useEffect(() => {
+    noteRef.current = note;
+  }, [note]);
+
+  const dict = useDictation({
+    lang: "it-IT",
+    onFinal: (text) =>
+      setNote((n) => {
+        const f = dictFieldRef.current;
+        return { ...n, [f]: appendDictated((n as any)[f], text) };
+      }),
+  });
+
+  function setDictTarget(f: DictField) {
+    dictFieldRef.current = f;
+    setDictField(f);
+  }
+
+  // Ferma il microfono; se la nota rapida ha testo, evidenzia "Espandi con AI"
+  function stopDictation() {
+    const wasQuick = dictFieldRef.current === "quick_note";
+    dict.stop();
+    if (wasQuick) {
+      setTimeout(() => {
+        if ((noteRef.current.quick_note || "").trim()) {
+          setJustDictated(true);
+          setTimeout(() => setJustDictated(false), 4000);
+        }
+      }, 250);
+    }
+  }
+
+  // Toggle per campo: stesso campo → stop; campo diverso → sposta il target
+  // senza interrompere l'ascolto; spento → avvia sul campo scelto.
+  function toggleDictationFor(f: DictField) {
+    if (dict.listening) {
+      if (dictFieldRef.current === f) {
+        stopDictation();
+      } else {
+        setDictTarget(f);
+      }
+      return;
+    }
+    setDictTarget(f);
+    dict.start();
+  }
+
+  const isDictating = (f: DictField) => dict.listening && dictField === f;
+
+  // Valore mostrato: testo consolidato + trascrizione live (ghost) sul target
+  function displayValue(f: DictField): string {
+    const base = ((note as any)[f] as string) || "";
+    if (dict.listening && dictField === f && dict.interim) {
+      return base + (base ? " " : "") + dict.interim;
+    }
+    return base;
+  }
+
+  // Auto-scroll in fondo del campo attivo mentre la trascrizione cresce
+  const activeDisplay = displayValue(dictField);
+  useEffect(() => {
+    if (dict.listening) {
+      const el = taRefs.current[dictField];
+      if (el) el.scrollTop = el.scrollHeight;
+    }
+  }, [activeDisplay, dict.listening, dictField]);
+
+  // Cambiare vista Rapida/SOAP mentre si detta fermerebbe il flusso in modo
+  // invisibile: meglio spegnere esplicitamente il microfono.
+  function switchMode(m: "quick" | "soap") {
+    if (dict.listening) stopDictation();
+    setExpandedMode(m);
+  }
+
   async function expandWithAI() {
+    if (dict.listening) {
+      dict.stop();
+      // Lascia consolidare l'ultimo segmento finale della dettatura
+      await new Promise((r) => setTimeout(r, 350));
+    }
+    setJustDictated(false);
     setAiLoading(true);
     setAiError(null);
     try {
@@ -43,7 +146,7 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
         sections: ["patient", "anamnesis", "diagnosis", "plan", "tests", "sessions"],
         maxSessions: 5,
       });
-      ctx.quick_note = note.quick_note || "";
+      ctx.quick_note = noteRef.current.quick_note || "";
       const result = await callClinicalAI("soap", ctx);
       if (!result) throw new Error("Risposta AI vuota");
       setNote(n => ({
@@ -81,20 +184,26 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
       alert("Studio non identificato. Ricarica la pagina.");
       return;
     }
+    if (dict.listening) {
+      dict.stop();
+      // Lascia consolidare l'ultimo segmento finale della dettatura
+      await new Promise((r) => setTimeout(r, 350));
+    }
     setSaving(true); setSaved(false);
+    const n = noteRef.current;
     // La tabella session_notes ha appointment_id come PRIMARY KEY,
     // quindi usiamo upsert on appointment_id (una nota per appuntamento).
     const payload: any = {
       appointment_id: appointmentId,
       patient_id: patientId,
       studio_id: studio.id,
-      soap_s: note.soap_s || null,
-      soap_o: note.soap_o || null,
-      soap_a: note.soap_a || null,
-      soap_p: note.soap_p || null,
-      vas_before: note.vas_before ?? null,
-      vas_after: note.vas_after ?? null,
-      quick_note: note.quick_note || null,
+      soap_s: n.soap_s || null,
+      soap_o: n.soap_o || null,
+      soap_a: n.soap_a || null,
+      soap_p: n.soap_p || null,
+      vas_before: n.vas_before ?? null,
+      vas_after: n.vas_after ?? null,
+      quick_note: n.quick_note || null,
       updated_at: new Date().toISOString(),
     };
     const { data, error } = await supabase
@@ -140,6 +249,7 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
               cursor: aiLoading ? "wait" : "pointer",
               fontFamily: "inherit",
               display: "inline-flex", alignItems: "center", gap: 4,
+              animation: justDictated && !aiLoading ? "soapai-glow 1.1s ease-in-out 3" : "none",
             }}
           >
             {aiLoading ? (
@@ -156,15 +266,21 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
             ) : (
               <>✨ Espandi con AI</>
             )}
-            <style>{`@keyframes soapai-spin { to { transform: rotate(360deg); } }`}</style>
+            <style>{`
+              @keyframes soapai-spin { to { transform: rotate(360deg); } }
+              @keyframes soapai-glow {
+                0%, 100% { box-shadow: 0 0 0 0 rgba(124,58,237,0); transform: scale(1); }
+                50%      { box-shadow: 0 0 0 6px rgba(124,58,237,0.25); transform: scale(1.05); }
+              }
+            `}</style>
           </button>
           <div style={{ display: "flex", gap: 4, background: "#fff", borderRadius: 7, padding: 2, border: `1px solid ${THEME.border}` }}>
-            <button onClick={() => setExpandedMode("quick")} style={{
+            <button onClick={() => switchMode("quick")} style={{
               padding: "4px 10px", borderRadius: 5, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer",
               background: expandedMode === "quick" ? THEME.teal : "transparent",
               color: expandedMode === "quick" ? "#fff" : THEME.muted,
             }}>Rapida</button>
-            <button onClick={() => setExpandedMode("soap")} style={{
+            <button onClick={() => switchMode("soap")} style={{
               padding: "4px 10px", borderRadius: 5, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer",
               background: expandedMode === "soap" ? THEME.teal : "transparent",
               color: expandedMode === "soap" ? "#fff" : THEME.muted,
@@ -183,15 +299,72 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
         }}>⚠ {aiError}</div>
       )}
 
+      {dict.listening && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, fontSize: 11, fontWeight: 700, color: "#dc2626" }}>
+          <span style={{
+            width: 7, height: 7, borderRadius: "50%", background: "#dc2626",
+            display: "inline-block", animation: "soapdict-blink 1s ease-in-out infinite",
+          }} />
+          Sto ascoltando ({DICT_FIELD_LABELS[dictField]})… parla liberamente, tocca il microfono per fermare
+          <style>{`@keyframes soapdict-blink { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }`}</style>
+        </div>
+      )}
+
+      {dict.error && (
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+          padding: "6px 10px", marginBottom: 8,
+          background: "rgba(220,38,38,0.05)", border: "1px solid rgba(220,38,38,0.2)",
+          borderRadius: 6, fontSize: 11, color: THEME.red, fontWeight: 600,
+        }}>
+          <span>⚠ {dict.error}</span>
+          <button
+            type="button"
+            onClick={dict.clearError}
+            style={{ background: "transparent", border: "none", cursor: "pointer", color: THEME.red, fontWeight: 800, fontSize: 12, padding: 0 }}
+            aria-label="Chiudi avviso"
+          >✕</button>
+        </div>
+      )}
+
       {expandedMode === "quick" ? (
         <div>
-          <textarea
-            value={note.quick_note || ""}
-            onChange={e => setNote({ ...note, quick_note: e.target.value })}
-            placeholder="Es. VAS 4→2, miglioramento ROM, continua esercizi a casa…"
-            rows={3}
-            style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${THEME.border}`, fontSize: 13, fontFamily: "inherit", resize: "vertical", outline: "none", boxSizing: "border-box" }}
-          />
+          <div style={{ position: "relative" }}>
+            <textarea
+              ref={(el) => { taRefs.current["quick_note"] = el; }}
+              value={displayValue("quick_note")}
+              onChange={e => setNote({ ...note, quick_note: e.target.value })}
+              readOnly={isDictating("quick_note")}
+              placeholder={dict.supported
+                ? "🎙 Detta la seduta o scrivi… Es. VAS 4→2, tecar lombare, migliora ROM"
+                : "Es. VAS 4→2, miglioramento ROM, continua esercizi a casa…"}
+              rows={3}
+              style={{
+                width: "100%", padding: "10px 12px",
+                paddingRight: dict.supported ? 50 : 12,
+                borderRadius: 8,
+                border: isDictating("quick_note") ? "1.5px solid #dc2626" : `1.5px solid ${THEME.border}`,
+                background: isDictating("quick_note") ? "rgba(220,38,38,0.03)" : "#fff",
+                fontSize: 13, fontFamily: "inherit", resize: "vertical",
+                outline: "none", boxSizing: "border-box",
+                transition: "border-color 0.15s, background 0.15s",
+              }}
+            />
+            <div style={{ position: "absolute", right: 8, bottom: 12 }}>
+              <DictationMicButton
+                listening={isDictating("quick_note")}
+                supported={dict.supported}
+                onToggle={() => toggleDictationFor("quick_note")}
+              />
+            </div>
+          </div>
+
+          {dict.supported && !dict.listening && !note.quick_note && !dict.error && (
+            <div style={{ marginTop: 5, fontSize: 10.5, color: THEME.muted, fontStyle: "italic" }}>
+              💡 Detta le note grezze, poi «✨ Espandi con AI»: il SOAP si scrive da solo.
+            </div>
+          )}
+
           <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: THEME.muted }}>VAS prima:</span>
@@ -222,13 +395,34 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
           ] as const).map(f => (
             <div key={f.k}>
               <label style={{ display: "block", fontSize: 11, fontWeight: 800, color: f.color, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.4 }}>{f.label}</label>
-              <textarea
-                value={(note as any)[f.k] || ""}
-                onChange={e => setNote({ ...note, [f.k]: e.target.value })}
-                placeholder={f.placeholder}
-                rows={2}
-                style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1.5px solid ${THEME.border}`, fontSize: 12, fontFamily: "inherit", resize: "vertical", outline: "none", boxSizing: "border-box" }}
-              />
+              <div style={{ position: "relative" }}>
+                <textarea
+                  ref={(el) => { taRefs.current[f.k] = el; }}
+                  value={displayValue(f.k)}
+                  onChange={e => setNote({ ...note, [f.k]: e.target.value })}
+                  readOnly={isDictating(f.k)}
+                  placeholder={f.placeholder}
+                  rows={2}
+                  style={{
+                    width: "100%", padding: "8px 10px",
+                    paddingRight: dict.supported ? 42 : 10,
+                    borderRadius: 7,
+                    border: isDictating(f.k) ? "1.5px solid #dc2626" : `1.5px solid ${THEME.border}`,
+                    background: isDictating(f.k) ? "rgba(220,38,38,0.03)" : "#fff",
+                    fontSize: 12, fontFamily: "inherit", resize: "vertical",
+                    outline: "none", boxSizing: "border-box",
+                    transition: "border-color 0.15s, background 0.15s",
+                  }}
+                />
+                <div style={{ position: "absolute", right: 6, bottom: 9 }}>
+                  <DictationMicButton
+                    listening={isDictating(f.k)}
+                    supported={dict.supported}
+                    onToggle={() => toggleDictationFor(f.k)}
+                    size={26}
+                  />
+                </div>
+              </div>
             </div>
           ))}
           <div style={{ display: "flex", gap: 14, alignItems: "center" }}>

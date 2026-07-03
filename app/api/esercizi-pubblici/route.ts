@@ -27,6 +27,45 @@ function getAdmin() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+
+    // ── Aderenza esercizi: spunta/deseleziona "Fatto oggi" dal portale ──
+    if (body.action === "toggle_adherence") {
+      const { token, exercise_id, done, date } = body;
+      if (!token || !exercise_id || !date) {
+        return NextResponse.json({ error: "Parametri aderenza mancanti" }, { status: 400 });
+      }
+      const db = getAdmin();
+      const { data: scheda, error: sErr } = await db
+        .from("schede_esercizi_pubbliche")
+        .select("id, expires_at")
+        .eq("token", token)
+        .maybeSingle();
+      if (sErr) throw sErr;
+      if (!scheda) return NextResponse.json({ error: "Scheda non trovata" }, { status: 404 });
+      if (scheda.expires_at && new Date(scheda.expires_at) < new Date()) {
+        return NextResponse.json({ error: "Scheda scaduta" }, { status: 410 });
+      }
+
+      if (done) {
+        const { error } = await db
+          .from("esercizi_aderenza")
+          .upsert(
+            { scheda_id: scheda.id, exercise_id, done_date: date },
+            { onConflict: "scheda_id,exercise_id,done_date" }
+          );
+        if (error) throw error;
+      } else {
+        const { error } = await db
+          .from("esercizi_aderenza")
+          .delete()
+          .eq("scheda_id", scheda.id)
+          .eq("exercise_id", exercise_id)
+          .eq("done_date", date);
+        if (error) throw error;
+      }
+      return NextResponse.json({ ok: true, done: !!done });
+    }
+
     const { patient_id, patient_name, esercizi, note } = body;
 
     if (!esercizi || !Array.isArray(esercizi)) {
@@ -115,6 +154,18 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Aderenza: spunte degli ultimi 56 giorni (8 settimane)
+    let adherence: { exercise_id: string; done_date: string }[] = [];
+    {
+      const since = new Date(Date.now() - 56 * 86400000).toISOString().slice(0, 10);
+      const { data: adh } = await db
+        .from("esercizi_aderenza")
+        .select("exercise_id, done_date")
+        .eq("scheda_id", (data as any).id)
+        .gte("done_date", since);
+      adherence = (adh as any[]) || [];
+    }
+
     return NextResponse.json({
       patient_name: data.patient_name,
       esercizi,
@@ -125,6 +176,7 @@ export async function GET(req: NextRequest) {
       durata_settimane: (data as any).durata_settimane ?? null,
       start_date: (data as any).start_date ?? null,
       studio,
+      adherence,
     });
   } catch (e: any) {
     console.error("[esercizi-pubblici GET] exception:", e?.message);

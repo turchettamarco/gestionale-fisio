@@ -126,6 +126,8 @@ export default function ExerciseProgramSection({
   const [esercizi, setEsercizi] = useState<Esercizio[]>([]);
   const [schedaId, setSchedaId] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  // Aderenza paziente (ultimi giorni), letta dalla stessa API pubblica via token
+  const [adherence, setAdherence] = useState<{ exercise_id: string; done_date: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [dirty, setDirty] = useState(false);
 
@@ -173,6 +175,21 @@ export default function ExerciseProgramSection({
   }, [patientId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Carica l'aderenza del paziente quando conosciamo il token
+  useEffect(() => {
+    if (!token) { setAdherence([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/esercizi-pubblici?token=${token}`);
+        if (!res.ok) return;
+        const d = await res.json();
+        if (!cancelled) setAdherence(d.adherence ?? []);
+      } catch { /* ignora: box aderenza semplicemente non mostrato */ }
+    })();
+    return () => { cancelled = true; };
+  }, [token]);
 
   // ── Arricchimento YouTube + foto ──────────────────────────────────────
   async function enrich(e: Esercizio): Promise<Esercizio> {
@@ -686,6 +703,52 @@ export default function ExerciseProgramSection({
       {/* ── Salvataggio + condivisione ── */}
       {esercizi.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {token && esercizi.length > 0 && (() => {
+            // Ultimi 7 giorni (locale)
+            const fmt = (d: Date) => {
+              const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), dd = String(d.getDate()).padStart(2, "0");
+              return `${y}-${m}-${dd}`;
+            };
+            const days = Array.from({ length: 7 }, (_, i) => {
+              const d = new Date(); d.setDate(d.getDate() - (6 - i));
+              return { date: fmt(d), dow: d.toLocaleDateString("it-IT", { weekday: "narrow" }), dom: d.getDate() };
+            });
+            const doneSet = new Set(adherence.map(a => a.done_date.slice(0, 10)));
+            const perDay = (date: string) => adherence.filter(a => a.done_date.slice(0, 10) === date).length;
+            const activeDays = days.filter(d => doneSet.has(d.date)).length;
+            return (
+              <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "11px 13px", background: T.panelSoft }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 9 }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: T.text }}>📊 Aderenza — ultimi 7 giorni</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: activeDays >= 4 ? T.green : activeDays >= 1 ? T.amber : T.faint }}>
+                    {activeDays}/7 giorni attivi
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 4, justifyContent: "space-between" }}>
+                  {days.map(d => {
+                    const n = perDay(d.date);
+                    const ratio = esercizi.length ? n / esercizi.length : 0;
+                    const bg = n === 0 ? "#fff" : ratio >= 1 ? T.green : ratio >= 0.5 ? "#4ade80" : "#bbf7d0";
+                    return (
+                      <div key={d.date} style={{ flex: 1, textAlign: "center" }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", marginBottom: 3 }}>{d.dow}</div>
+                        <div title={`${n}/${esercizi.length} esercizi`} style={{
+                          width: "100%", maxWidth: 30, aspectRatio: "1", margin: "0 auto", borderRadius: 7,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          background: bg, border: n === 0 ? `1.5px solid ${T.border}` : "none",
+                          fontSize: 11, fontWeight: 800, color: n === 0 ? "#cbd5e1" : ratio >= 0.5 ? "#fff" : "#166534",
+                        }}>{n > 0 ? n : d.dom}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ fontSize: 10, color: T.faint, marginTop: 8, textAlign: "center" }}>
+                  Il numero indica gli esercizi completati dal paziente quel giorno.
+                </div>
+              </div>
+            );
+          })()}
+
           <button onClick={salva} disabled={saving}
             style={{ padding: "12px 16px", borderRadius: 10, border: "none",
               background: dirty ? T.green : "#94a3b8", color: "#fff", fontWeight: 800,

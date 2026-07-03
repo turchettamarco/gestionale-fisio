@@ -78,6 +78,10 @@ export default function SchedaEserciziPubblica() {
   const [week,    setWeek]    = useState(1);        // settimana visualizzata
   const [curWeek, setCurWeek] = useState<number|null>(null); // settimana reale del paziente
 
+  // Aderenza: insieme di chiavi "exercise_id|YYYY-MM-DD" spuntate
+  const [adherence, setAdherence] = useState<Set<string>>(new Set());
+  const [savingAdh, setSavingAdh] = useState<string|null>(null); // exercise_id in corso
+
   useEffect(()=>{
     if(!token) return;
     fetch(`/api/esercizi-pubblici?token=${token}`)
@@ -87,6 +91,8 @@ export default function SchedaEserciziPubblica() {
         setCreatedAt(d.created_at?new Date(d.created_at).toLocaleDateString("it-IT",{day:"2-digit",month:"long",year:"numeric"}):"");
         setStudio(d.studio || null);
         setFase(d.fase ?? null);
+        const adh: { exercise_id: string; done_date: string }[] = d.adherence ?? [];
+        setAdherence(new Set(adh.map((a) => `${a.exercise_id}|${a.done_date}`)));
         const dur = d.durata_settimane ?? null;
         setDurata(dur);
         setStartD(d.start_date ?? null);
@@ -101,6 +107,66 @@ export default function SchedaEserciziPubblica() {
   },[token]);
 
   const isProgram = durata !== null && durata > 1;
+
+  // ── Aderenza ────────────────────────────────────────────────────────
+  // Data locale YYYY-MM-DD (fuso del dispositivo del paziente)
+  function localDate(d: Date = new Date()): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+  const todayKey = localDate();
+
+  // Ultimi 7 giorni (oggi → 6 giorni fa), dal più vecchio al più recente
+  const last7: { date: string; dow: string; dom: number }[] = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    return {
+      date: localDate(d),
+      dow: d.toLocaleDateString("it-IT", { weekday: "narrow" }),
+      dom: d.getDate(),
+    };
+  });
+
+  const isDone = (exId: string, date: string) => adherence.has(`${exId}|${date}`);
+  const doneToday = (exId: string) => isDone(exId, todayKey);
+
+  // Quanti esercizi completati oggi (per il contatore in header)
+  const doneTodayCount = esercizi.filter((e) => doneToday(e.id)).length;
+
+  async function toggleDone(exId: string) {
+    if (savingAdh) return;
+    const key = `${exId}|${todayKey}`;
+    const currentlyDone = adherence.has(key);
+    const next = !currentlyDone;
+
+    // Ottimistico
+    setAdherence((s) => {
+      const n = new Set(s);
+      if (next) n.add(key); else n.delete(key);
+      return n;
+    });
+    setSavingAdh(exId);
+
+    try {
+      const res = await fetch("/api/esercizi-pubblici", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "toggle_adherence", token, exercise_id: exId, done: next, date: todayKey }),
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      // Rollback in caso di errore
+      setAdherence((s) => {
+        const n = new Set(s);
+        if (next) n.delete(key); else n.add(key);
+        return n;
+      });
+    } finally {
+      setSavingAdh(null);
+    }
+  }
 
   // Parametri dell'esercizio per la settimana selezionata
   function paramsFor(e: Esercizio): { serie: string; ripetizioni: string; carico: string | null } {
@@ -152,6 +218,14 @@ export default function SchedaEserciziPubblica() {
           </div>
         )}
         {createdAt&&<div style={{fontSize:12,color:"rgba(255,255,255,0.65)",marginTop:6}}>Emesso il {createdAt}</div>}
+        {esercizi.length > 0 && (
+          <div className="no-print" style={{display:"inline-flex",alignItems:"center",gap:8,marginTop:14,background:"rgba(255,255,255,0.15)",border:"1.5px solid rgba(255,255,255,0.3)",borderRadius:99,padding:"6px 16px"}}>
+            <span style={{fontSize:16}}>{doneTodayCount===esercizi.length?"🎉":doneTodayCount>0?"💪":"📋"}</span>
+            <span style={{fontSize:13,fontWeight:800,color:"#fff"}}>
+              {doneTodayCount===esercizi.length ? "Tutto fatto oggi! Bravo!" : `Oggi: ${doneTodayCount}/${esercizi.length} esercizi`}
+            </span>
+          </div>
+        )}
       </div>
 
       <div style={{maxWidth:680,margin:"0 auto",padding:"0 16px"}}>
@@ -266,6 +340,39 @@ export default function SchedaEserciziPubblica() {
                     </div>
                   )}
                   <div style={{padding:"14px 16px"}}>
+                    {/* Aderenza: fatto oggi + ultimi 7 giorni */}
+                    <div className="no-print" style={{marginBottom:14,padding:"12px",background:doneToday(e.id)?"rgba(22,163,74,0.06)":"#f8fafc",border:`1.5px solid ${doneToday(e.id)?"rgba(22,163,74,0.35)":"#e2e8f0"}`,borderRadius:12,transition:"background 0.15s, border-color 0.15s"}}>
+                      <button
+                        onClick={(ev)=>{ev.stopPropagation();toggleDone(e.id);}}
+                        disabled={savingAdh===e.id}
+                        style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"13px 16px",
+                          background:doneToday(e.id)?"#16a34a":"#fff",
+                          border:doneToday(e.id)?"none":"2px solid #16a34a",
+                          borderRadius:10,color:doneToday(e.id)?"#fff":"#16a34a",
+                          cursor:savingAdh===e.id?"wait":"pointer",fontWeight:800,fontSize:15,fontFamily:"inherit",opacity:savingAdh===e.id?0.7:1}}>
+                        <span style={{fontSize:20,lineHeight:1}}>{doneToday(e.id)?"✅":"⭕"}</span>
+                        {doneToday(e.id)?"Fatto oggi!":"Segna come fatto oggi"}
+                      </button>
+                      <div style={{display:"flex",justifyContent:"space-between",gap:4,marginTop:12}}>
+                        {last7.map((d)=>{
+                          const done = isDone(e.id, d.date);
+                          const isToday = d.date === todayKey;
+                          return (
+                            <div key={d.date} style={{flex:1,textAlign:"center"}}>
+                              <div style={{fontSize:9,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:4}}>{d.dow}</div>
+                              <div style={{width:"100%",aspectRatio:"1",maxWidth:34,margin:"0 auto",borderRadius:8,
+                                display:"flex",alignItems:"center",justifyContent:"center",
+                                background:done?"#16a34a":"#fff",
+                                border:isToday?"2px solid #0d9488":`1.5px solid ${done?"#16a34a":"#e2e8f0"}`,
+                                fontSize:done?14:11,fontWeight:700,color:done?"#fff":"#cbd5e1"}}>
+                                {done?"✓":d.dom}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
                     <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
                       {[{l:"Serie",v:p.serie},{l:"Ripetizioni",v:p.ripetizioni},{l:"Frequenza",v:e.frequenza}].map(k=>(
                         <span key={k.l} style={{fontSize:12,fontWeight:700,color:"#2563eb",background:"rgba(37,99,235,0.08)",padding:"4px 12px",borderRadius:99}}>{k.l}: {k.v}</span>

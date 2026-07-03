@@ -34,10 +34,12 @@
 
 "use client";
 
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import AISuggestionModal from "./AISuggestionModal";
 import { buildPatientContext, callClinicalAI } from "@/src/lib/clinical/buildPatientContext";
+import { useDictation, appendDictated } from "@/src/hooks/useDictation";
+import { DictationMicButton } from "@/src/components/DictationMicButton";
 
 // ─── Theme ──────────────────────────────────────────────────────
 
@@ -556,6 +558,47 @@ function DiarySessionCard({
   const [editingNote, setEditingNote] = useState(false);
   const [draftNote, setDraftNote] = useState("");
 
+  // ── Dettatura vocale nota rapida ("Detti la seduta") ──
+  const draftTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [justDictated, setJustDictated] = useState(false);
+  // Mirror del draft: l'ultimo segmento dettato arriva in modo asincrono,
+  // il salvataggio deve leggere il testo fresco
+  const draftRef = useRef("");
+  useEffect(() => {
+    draftRef.current = draftNote;
+  }, [draftNote]);
+
+  const dict = useDictation({
+    lang: "it-IT",
+    onFinal: (text) => setDraftNote((prev) => appendDictated(prev, text)),
+  });
+
+  function stopDictation() {
+    dict.stop();
+    setTimeout(() => {
+      if (draftRef.current.trim()) {
+        setJustDictated(true);
+        setTimeout(() => setJustDictated(false), 4000);
+      }
+    }, 250);
+  }
+  function toggleDictation() {
+    if (dict.listening) stopDictation();
+    else dict.start();
+  }
+
+  // Valore mostrato: draft consolidato + trascrizione live (ghost)
+  const draftDisplayValue =
+    draftNote +
+    (dict.listening && dict.interim ? (draftNote ? " " : "") + dict.interim : "");
+
+  // Auto-scroll in fondo mentre la trascrizione live cresce
+  useEffect(() => {
+    if (dict.listening && draftTextareaRef.current) {
+      draftTextareaRef.current.scrollTop = draftTextareaRef.current.scrollHeight;
+    }
+  }, [draftDisplayValue, dict.listening]);
+
   // ── AI SOAP generation (Tappa 10) ───────────────────────────
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
@@ -667,11 +710,22 @@ function DiarySessionCard({
     setDraftNote(appointment.calendar_note || "");
     setEditingNote(true);
   }
-  function saveNote() {
-    onSaveQuickNote(draftNote);
+  async function saveNote() {
+    if (dict.listening) {
+      dict.stop();
+      // Lascia consolidare l'ultimo segmento finale della dettatura
+      await new Promise((r) => setTimeout(r, 350));
+    }
+    const text = draftRef.current;
+    onSaveQuickNote(text);
     setEditingNote(false);
+    if (text.trim()) {
+      setJustDictated(true);
+      setTimeout(() => setJustDictated(false), 4000);
+    }
   }
   function cancelEdit() {
+    if (dict.listening) dict.stop();
     setDraftNote("");
     setEditingNote(false);
   }
@@ -776,19 +830,63 @@ function DiarySessionCard({
             </div>
             {editingNote ? (
               <div>
-                <textarea
-                  value={draftNote}
-                  onChange={e => setDraftNote(e.target.value)}
-                  rows={3}
-                  placeholder="Cosa hai fatto in questa seduta? Tecniche, esercizi, risposta del paziente…"
-                  autoFocus
-                  style={{
-                    width: "100%", padding: "8px 10px",
-                    border: `1px solid ${T.border}`, borderRadius: 6,
-                    fontSize: 12, fontFamily: "inherit", color: T.text,
-                    background: T.panelBg, resize: "vertical", outline: "none",
-                  }}
-                />
+                <div style={{ position: "relative" }}>
+                  <textarea
+                    ref={draftTextareaRef}
+                    value={draftDisplayValue}
+                    onChange={e => setDraftNote(e.target.value)}
+                    readOnly={dict.listening}
+                    rows={3}
+                    placeholder={dict.supported
+                      ? "🎙 Detta la seduta o scrivi… tecniche, esercizi, risposta del paziente"
+                      : "Cosa hai fatto in questa seduta? Tecniche, esercizi, risposta del paziente…"}
+                    autoFocus
+                    style={{
+                      width: "100%", padding: "8px 10px",
+                      paddingRight: dict.supported ? 46 : 10,
+                      border: dict.listening ? "1px solid #dc2626" : `1px solid ${T.border}`,
+                      borderRadius: 6,
+                      fontSize: 12, fontFamily: "inherit", color: T.text,
+                      background: dict.listening ? "rgba(220,38,38,0.03)" : T.panelBg,
+                      resize: "vertical", outline: "none", boxSizing: "border-box",
+                      transition: "border-color 0.15s, background 0.15s",
+                    }}
+                  />
+                  <div style={{ position: "absolute", right: 7, bottom: 10 }}>
+                    <DictationMicButton
+                      listening={dict.listening}
+                      supported={dict.supported}
+                      onToggle={toggleDictation}
+                      size={30}
+                    />
+                  </div>
+                </div>
+                {dict.listening && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, fontSize: 10.5, fontWeight: 700, color: "#dc2626" }}>
+                    <span style={{
+                      width: 6, height: 6, borderRadius: "50%", background: "#dc2626",
+                      display: "inline-block", animation: "diarydict-blink 1s ease-in-out infinite",
+                    }} />
+                    Sto ascoltando… parla liberamente, tocca il microfono per fermare
+                    <style>{`@keyframes diarydict-blink { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }`}</style>
+                  </div>
+                )}
+                {dict.error && (
+                  <div style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                    padding: "5px 9px", marginTop: 5,
+                    background: "rgba(220,38,38,0.05)", border: "1px solid rgba(220,38,38,0.2)",
+                    borderRadius: 6, fontSize: 10.5, color: T.red, fontWeight: 600,
+                  }}>
+                    <span>⚠ {dict.error}</span>
+                    <button
+                      type="button"
+                      onClick={dict.clearError}
+                      style={{ background: "transparent", border: "none", cursor: "pointer", color: T.red, fontWeight: 800, fontSize: 11, padding: 0 }}
+                      aria-label="Chiudi avviso"
+                    >✕</button>
+                  </div>
+                )}
                 <div style={{ display: "flex", gap: 5, justifyContent: "flex-end", marginTop: 6 }}>
                   <button
                     onClick={cancelEdit}
@@ -879,9 +977,16 @@ function DiarySessionCard({
                     background: "linear-gradient(135deg, #7c3aed, #2563eb)",
                     color: "#fff", fontWeight: 700, fontSize: 11,
                     cursor: "pointer", fontFamily: "inherit",
+                    animation: justDictated ? "diaryai-glow 1.1s ease-in-out 3" : "none",
                   }}
                 >✨ Espandi nota in SOAP con AI</button>
               )}
+              <style>{`
+                @keyframes diaryai-glow {
+                  0%, 100% { box-shadow: 0 0 0 0 rgba(124,58,237,0); transform: scale(1); }
+                  50%      { box-shadow: 0 0 0 6px rgba(124,58,237,0.25); transform: scale(1.05); }
+                }
+              `}</style>
             </div>
           )}
         </div>

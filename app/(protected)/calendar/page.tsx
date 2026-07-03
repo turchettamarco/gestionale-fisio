@@ -105,6 +105,9 @@ import WeekViewRoster from "./components/views/WeekViewRoster";
 import WhatsAppConfirmDialog from "./components/modals/WhatsAppConfirmDialog";
 import CreateAppointmentModal from "./components/modals/CreateAppointmentModal";
 import SelectedEventModal from "./components/modals/SelectedEventModal";
+import { WaitlistPanel, fetchActiveWaitlistCount } from "@/src/components/waitlist/WaitlistPanel";
+import { WaitlistMatchModal } from "@/src/components/waitlist/WaitlistMatchModal";
+import { entryMatchesSlot, type WaitlistEntry } from "@/src/lib/waitlist";
 import GroupEventModal from "./components/modals/GroupEventModal";
 import { generateSingleCertificate } from "@/src/lib/certificateLoader";
 
@@ -1613,8 +1616,52 @@ function CalendarPageInner() {
     createQuickPatientCore,
   } = mutations;
 
-  // Feature: Month view helpers
-  // monthDays è ora in useCalendarEvents.
+  // ── Lista d'attesa ──────────────────────────────────────────────────
+  const [waitlistOpen, setWaitlistOpen] = useState(false);
+  const [waitlistCount, setWaitlistCount] = useState(0);
+  const [matchSlot, setMatchSlot] = useState<Date | null>(null);
+  const [matchEntries, setMatchEntries] = useState<WaitlistEntry[]>([]);
+
+  const refreshWaitlistCount = useCallback(async () => {
+    if (!currentStudioId) return;
+    try { setWaitlistCount(await fetchActiveWaitlistCount(currentStudioId)); }
+    catch { /* silenzioso */ }
+  }, [currentStudioId]);
+
+  useEffect(() => { void refreshWaitlistCount(); }, [refreshWaitlistCount]);
+
+  // Elimina l'appuntamento e, se lo slot combacia con voci in lista
+  // d'attesa, propone i pazienti compatibili.
+  const handleDeleteWithWaitlist = useCallback(async () => {
+    // Snapshot PRIMA della delete (deleteAppointment azzera selectedEvent)
+    const snap = selectedEvent
+      ? { id: selectedEvent.id, start: selectedEvent.start as Date }
+      : null;
+
+    await deleteAppointment();
+
+    if (!snap || !currentStudioId) return;
+    // Verifica che sia stata davvero eliminata (deleteAppointment ha conferma interna)
+    const { data: still } = await supabase
+      .from("appointments")
+      .select("id")
+      .eq("id", snap.id)
+      .maybeSingle();
+    if (still) return; // annullata dall'utente o non eliminata
+
+    const { data: rows } = await supabase
+      .from("waitlist_entries")
+      .select("*, patients(first_name, last_name, phone)")
+      .eq("studio_id", currentStudioId)
+      .in("status", ["active", "notified"]);
+
+    const entries = (rows as unknown as WaitlistEntry[]) || [];
+    const matches = entries.filter((e) => entryMatchesSlot(e, snap.start));
+    if (matches.length > 0) {
+      setMatchSlot(snap.start);
+      setMatchEntries(matches);
+    }
+  }, [selectedEvent, deleteAppointment, currentStudioId]);
 
   const monthEvents = useMemo(() => {
     if (viewType !== "month" || monthDays.length === 0) return new Map<string, CalendarEvent[]>();
@@ -2435,7 +2482,7 @@ return (
           onClose={() => setSelectedEvent(null)}
           onDuplicate={(event) => openCreateModal(event.start, event.start.getHours(), event.start.getMinutes(), event)}
           onSave={saveAppointment}
-          onDelete={deleteAppointment}
+          onDelete={handleDeleteWithWaitlist}
           onGenerateCertificate={async () => {
             if (!selectedEvent.patient_id || !selectedEvent.start) {
               setError("Impossibile generare attestato: paziente o data mancanti.");
@@ -2531,6 +2578,46 @@ return (
         signatureName={getStudioBranding(currentStudio).signatureName}
         signatureTitle={getStudioBranding(currentStudio).signatureTitle}
       />
+
+      {/* Feature: Lista d'attesa */}
+      <button
+        onClick={() => setWaitlistOpen(true)}
+        title="Lista d'attesa"
+        style={{
+          position: "fixed", right: 22, bottom: 22, zIndex: 180,
+          display: "inline-flex", alignItems: "center", gap: 8,
+          padding: "12px 18px", borderRadius: 999, border: "none",
+          background: "linear-gradient(135deg, #0d9488, #2563eb)",
+          color: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer",
+          fontFamily: "inherit", boxShadow: "0 8px 24px rgba(37,99,235,0.35)",
+        }}
+      >
+        ⏰ Lista d&apos;attesa
+        {waitlistCount > 0 && (
+          <span style={{
+            background: "#fff", color: "#0d9488", borderRadius: 999,
+            fontSize: 11, fontWeight: 900, padding: "1px 8px", minWidth: 20, textAlign: "center",
+          }}>{waitlistCount}</span>
+        )}
+      </button>
+
+      <WaitlistPanel
+        open={waitlistOpen}
+        onClose={() => setWaitlistOpen(false)}
+        studioId={currentStudioId ?? ""}
+        onChanged={setWaitlistCount}
+      />
+
+      {matchSlot && (
+        <WaitlistMatchModal
+          slotStart={matchSlot}
+          matches={matchEntries}
+          studioName={currentStudio?.name ?? null}
+          onClose={() => { setMatchSlot(null); setMatchEntries([]); }}
+          onOpenPanel={() => setWaitlistOpen(true)}
+          onChanged={refreshWaitlistCount}
+        />
+      )}
     </div>
   );
 }

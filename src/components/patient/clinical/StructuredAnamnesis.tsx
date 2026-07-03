@@ -43,6 +43,7 @@ import {
   labelOf,
 } from "@/src/lib/clinical/anamnesisOptions";
 import RedFlagsModal from "./RedFlagsModal";
+import { VoiceAnamnesisModal } from "./VoiceAnamnesisModal";
 
 const T = {
   panelBg:     "#ffffff",
@@ -167,13 +168,14 @@ export default function StructuredAnamnesis({ patientId, studioId, ownerId }: St
 
   const totalFilled = Object.values(filled).filter(Boolean).length;
 
-  async function save() {
+  async function save(next?: AnamnesisData) {
+    const d = next ?? data;
     setSaving(true); setSaved(false);
     const payload = {
       studio_id: studioId,
       owner_id: ownerId,
       patient_id: patientId,
-      ...data,
+      ...d,
     };
     const { error } = await supabase
       .from("clinical_assessments")
@@ -183,10 +185,29 @@ export default function StructuredAnamnesis({ patientId, studioId, ownerId }: St
       setSaving(false);
       return;
     }
-    initialData.current = { ...data };
+    initialData.current = { ...d };
     setSaved(true);
     setSaving(false);
     setTimeout(() => setSaved(false), 2500);
+  }
+
+  // ── Anamnesi vocale: applica i campi approvati e salva subito ──
+  const [voiceOpen, setVoiceOpen] = useState(false);
+
+  async function applyVoice(
+    partial: Partial<AnamnesisData>,
+    extras: { occupation?: string | null; sport?: string | null }
+  ) {
+    const merged: AnamnesisData = { ...data, ...partial };
+    setData(merged);
+    await save(merged);
+    // Professione/sport vivono sulla scheda paziente
+    if (extras.occupation !== undefined || extras.sport !== undefined) {
+      const patch: Record<string, string | null> = {};
+      if (extras.occupation !== undefined) patch.occupation = extras.occupation;
+      if (extras.sport !== undefined) patch.sport = extras.sport;
+      await supabase.from("patients").update(patch).eq("id", patientId);
+    }
   }
 
   function reset() {
@@ -265,6 +286,17 @@ export default function StructuredAnamnesis({ patientId, studioId, ownerId }: St
 
         <div style={{ display: "flex", gap: 6 }}>
           <button
+            onClick={() => setVoiceOpen(true)}
+            title="Detta la valutazione: l'AI compila i campi strutturati"
+            style={{
+              padding: "6px 12px", borderRadius: 7, border: "none",
+              background: "linear-gradient(135deg, #7c3aed, #2563eb)",
+              color: "#fff", fontWeight: 700, fontSize: 11,
+              cursor: "pointer", fontFamily: "inherit",
+              display: "inline-flex", alignItems: "center", gap: 5,
+            }}
+          >🎙 Vocale</button>
+          <button
             onClick={reset}
             disabled={!dirty || saving}
             style={{
@@ -277,7 +309,7 @@ export default function StructuredAnamnesis({ patientId, studioId, ownerId }: St
             }}
           >Ripristina</button>
           <button
-            onClick={save}
+            onClick={() => save()}
             disabled={!dirty || saving}
             style={{
               padding: "6px 14px", borderRadius: 7, border: "none",
@@ -415,6 +447,14 @@ export default function StructuredAnamnesis({ patientId, studioId, ownerId }: St
           <></>
         </Row>
       </div>
+
+      {/* ── Modale anamnesi vocale ────────────────────────────── */}
+      <VoiceAnamnesisModal
+        open={voiceOpen}
+        onClose={() => setVoiceOpen(false)}
+        current={data}
+        onApply={applyVoice}
+      />
 
       {/* ── Modale red flags ──────────────────────────────────── */}
       <RedFlagsModal

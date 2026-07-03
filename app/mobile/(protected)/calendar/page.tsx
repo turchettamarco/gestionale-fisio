@@ -14,6 +14,7 @@ import { getLocationCardStyle } from "@/app/(protected)/calendar/utils/locationH
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import { generateSingleCertificate } from "@/src/lib/certificateLoader";
 import { SOAPNotesEditor } from "@/app/(protected)/calendar/components/SOAPNotes";
+import { WaitlistPanel, fetchActiveWaitlistCount } from "@/src/components/waitlist/WaitlistPanel";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 import PackagePickerSection from "@/src/components/packages/PackagePickerSection";
 import PackageBadge from "@/src/components/packages/PackageBadge";
@@ -284,6 +285,14 @@ function CalendarPageInner() {
   const { studio: currentStudio, locations: studioLocations } = useCurrentStudio();
   const { privacyMode, privacyStyle } = usePrivacyMode();
   const currentStudioId = currentStudio?.id ?? null;
+
+  // Lista d'attesa (mobile: pannello + badge, senza match-on-delete)
+  const [waitlistOpen, setWaitlistOpen] = useState(false);
+  const [waitlistCount, setWaitlistCount] = useState(0);
+  useEffect(() => {
+    if (!currentStudioId) return;
+    fetchActiveWaitlistCount(currentStudioId).then(setWaitlistCount).catch(() => {});
+  }, [currentStudioId]);
 
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
@@ -3042,6 +3051,32 @@ function CalendarPageInner() {
           }}
         />
       )}
+
+      {/* Lista d'attesa */}
+      <button
+        onClick={() => setWaitlistOpen(true)}
+        aria-label="Lista d'attesa"
+        style={{
+          position: "fixed", right: 16, bottom: 82, zIndex: 3500,
+          display: "inline-flex", alignItems: "center", gap: 7,
+          padding: "11px 16px", borderRadius: 999, border: "none",
+          background: "linear-gradient(135deg, #0d9488, #2563eb)",
+          color: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer",
+          fontFamily: "inherit", boxShadow: "0 8px 22px rgba(37,99,235,0.4)",
+        }}
+      >
+        ⏰
+        {waitlistCount > 0 && (
+          <span style={{ background: "#fff", color: "#0d9488", borderRadius: 999, fontSize: 11, fontWeight: 900, padding: "1px 7px", minWidth: 18, textAlign: "center" }}>{waitlistCount}</span>
+        )}
+      </button>
+
+      <WaitlistPanel
+        open={waitlistOpen}
+        onClose={() => setWaitlistOpen(false)}
+        studioId={currentStudioId ?? ""}
+        onChanged={setWaitlistCount}
+      />
     </div>
   );
 }
