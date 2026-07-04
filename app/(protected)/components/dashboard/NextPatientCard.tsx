@@ -37,7 +37,7 @@ export default function NextPatientCard(p: NextPatientCardProps) {
   const a = p.focusNext;
 
   const card: React.CSSProperties = {
-    background: "#fff", border: `1px solid ${THEME.border}`, borderRadius: 16,
+    background: "var(--fh-card)", border: `1px solid ${THEME.border}`, borderRadius: 16,
     boxShadow: "0 1px 3px rgba(15,23,42,0.05)", overflow: "hidden",
   };
 
@@ -46,8 +46,8 @@ export default function NextPatientCard(p: NextPatientCardProps) {
       <div style={{ ...card, padding: "18px 20px", display: "flex", alignItems: "center", gap: 12 }}>
         <span style={{ fontSize: 22 }}>✨</span>
         <div>
-          <div style={{ fontSize: 13.5, fontWeight: 700, color: "#1e293b" }}>Nessun altro appuntamento oggi</div>
-          <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--fh-ink)" }}>Nessun altro appuntamento oggi</div>
+          <div style={{ fontSize: 12, color: "var(--fh-mut)", marginTop: 2 }}>
             Goditi la pausa o <Link href="/calendar" style={{ color: THEME.blue, fontWeight: 700 }}>dai un'occhiata a domani →</Link>
           </div>
         </div>
@@ -67,7 +67,7 @@ export default function NextPatientCard(p: NextPatientCardProps) {
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14, flexWrap: "wrap" }}>
           {/* Orario + countdown */}
           <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 27, fontWeight: 700, color: "#1e293b", letterSpacing: -0.3, lineHeight: 1.05 }}>
+            <span style={{ fontSize: 27, fontWeight: 700, color: "var(--fh-ink)", letterSpacing: -0.3, lineHeight: 1.05 }}>
               {fmtTime(a.start_at)}
             </span>
             {p.nextCountdown && (
@@ -89,7 +89,7 @@ export default function NextPatientCard(p: NextPatientCardProps) {
             {a.status === "booked" && (
               <button
                 onClick={() => p.onSetStatus(a.id, "confirmed")}
-                style={{ padding: "8px 14px", borderRadius: 9, border: `1.5px solid ${THEME.blue}`, background: "#fff", color: THEME.blue, fontWeight: 700, fontSize: 12, cursor: "pointer" }}
+                style={{ padding: "8px 14px", borderRadius: 9, border: `1.5px solid ${THEME.blue}`, background: "var(--fh-card)", color: THEME.blue, fontWeight: 700, fontSize: 12, cursor: "pointer" }}
               >Conferma</button>
             )}
             <button
@@ -98,22 +98,22 @@ export default function NextPatientCard(p: NextPatientCardProps) {
             >📲 WhatsApp</button>
             <button
               onClick={() => p.setEditNextTime(!p.editNextTime)}
-              style={{ padding: "8px 12px", borderRadius: 9, border: `1px solid ${THEME.border}`, background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 12, cursor: "pointer" }}
+              style={{ padding: "8px 12px", borderRadius: 9, border: `1px solid ${THEME.border}`, background: "var(--fh-card)", color: "var(--fh-mut)", fontWeight: 700, fontSize: 12, cursor: "pointer" }}
             >✏️ Sposta</button>
           </div>
         </div>
 
         {/* Paziente + dettagli */}
         <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <Link href={`/patients/${a.patient_id}`} style={{ fontSize: 15.5, fontWeight: 700, color: "#1e293b" }}>
+          <Link href={`/patients/${a.patient_id}`} style={{ fontSize: 15.5, fontWeight: 700, color: "var(--fh-ink)" }}>
             {name}
           </Link>
           {a.treatment_type && (
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#64748b", background: "#f1f5f9", borderRadius: 999, padding: "3px 10px" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--fh-mut)", background: "var(--fh-soft)", borderRadius: 999, padding: "3px 10px" }}>
               {a.treatment_type}
             </span>
           )}
-          <span style={{ fontSize: 11.5, fontWeight: 600, color: "#64748b" }}>
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: "var(--fh-mut)" }}>
             {a.location === "domicile" ? `🚗 Domicilio${a.domicile_address ? ` · ${a.domicile_address}` : ""}` : `🏥 ${a.clinic_site || "Studio"}`}
           </span>
           {amountNum != null && !Number.isNaN(amountNum) && (
@@ -134,17 +134,17 @@ export default function NextPatientCard(p: NextPatientCardProps) {
 
         {/* Form sposta orario */}
         {p.editNextTime && (
-          <div style={{ marginTop: 12, padding: "12px 14px", background: "#f8fafc", border: `1px solid ${THEME.border}`, borderRadius: 12, display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div style={{ marginTop: 12, padding: "12px 14px", background: "var(--fh-soft)", border: `1px solid ${THEME.border}`, borderRadius: 12, display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
             <div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", marginBottom: 4 }}>Data</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--fh-mut)", marginBottom: 4 }}>Data</div>
               <input type="date" value={p.editDate} onChange={e => p.setEditDate(e.target.value)} style={inpStyle} />
             </div>
             <div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", marginBottom: 4 }}>Ora</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--fh-mut)", marginBottom: 4 }}>Ora</div>
               <input type="time" value={p.editStart} onChange={e => p.setEditStart(e.target.value)} style={inpStyle} />
             </div>
             <div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", marginBottom: 4 }}>Durata</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--fh-mut)", marginBottom: 4 }}>Durata</div>
               <select value={p.editDuration} onChange={e => p.setEditDuration(e.target.value as NextPatientCardProps["editDuration"])} style={inpStyle}>
                 <option value="0.5">30 min</option>
                 <option value="0.75">45 min</option>
@@ -160,7 +160,7 @@ export default function NextPatientCard(p: NextPatientCardProps) {
             >{p.savingTime ? "Salvo…" : "Salva"}</button>
             <button
               onClick={() => p.setEditNextTime(false)}
-              style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${THEME.border}`, background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 12, cursor: "pointer" }}
+              style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${THEME.border}`, background: "var(--fh-card)", color: "var(--fh-mut)", fontWeight: 700, fontSize: 12, cursor: "pointer" }}
             >Annulla</button>
           </div>
         )}

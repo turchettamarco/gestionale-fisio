@@ -16,7 +16,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { getStudioBranding } from "@/src/lib/studioBranding";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
@@ -49,6 +49,8 @@ import { WeekCard, PatientsPanel } from "./components/dashboard/WeekAndPatients"
 import DayTimeline from "./components/dashboard/DayTimeline";
 import QuickSearchBar from "./components/dashboard/QuickSearchBar";
 import CashCloseModal from "./components/dashboard/CashCloseModal";
+import SortableShell from "./components/dashboard/SortableShell";
+import { generateDaySheet } from "./components/dashboard/daySheet";
 import type { WorkingHourRow } from "./components/dashboard/shared/utils";
 
 
@@ -517,6 +519,78 @@ export default function HomePage() {
   // ── Chiusura cassa ────────────────────────────────────────────────────
   const [cashOpen, setCashOpen] = useState(false);
 
+  // ── Notifiche desktop (10 minuti prima di ogni seduta) ───────────────
+  const [notifOn, setNotifOn] = useState(false);
+  useEffect(() => {
+    try {
+      setNotifOn(localStorage.getItem("fh_notif") === "1" &&
+        typeof Notification !== "undefined" && Notification.permission === "granted");
+    } catch { /* noop */ }
+  }, []);
+  const toggleNotif = useCallback(async () => {
+    if (typeof Notification === "undefined") { alert("Questo browser non supporta le notifiche desktop."); return; }
+    if (!notifOn && Notification.permission !== "granted") {
+      const p = await Notification.requestPermission();
+      if (p !== "granted") return;
+    }
+    setNotifOn(prev => { const n = !prev; try { localStorage.setItem("fh_notif", n ? "1" : "0"); } catch { /* noop */ } return n; });
+  }, [notifOn]);
+  useEffect(() => {
+    if (!notifOn || typeof Notification === "undefined") return;
+    const timers: number[] = [];
+    let done = new Set<string>();
+    try { done = new Set<string>(JSON.parse(sessionStorage.getItem("fh_notified") || "[]")); } catch { /* noop */ }
+    const now = Date.now();
+    todayAppts.forEach(a => {
+      if (a.status === "cancelled" || a.status === "done" || done.has(a.id)) return;
+      const fireAt = new Date(a.start_at).getTime() - 10 * 60 * 1000;
+      if (fireAt <= now || fireAt - now > 12 * 60 * 60 * 1000) return;
+      timers.push(window.setTimeout(() => {
+        try {
+          new Notification(`⏰ Tra 10 minuti: ${patientName(a.patients)}`, {
+            body: `${a.treatment_type || "Seduta"} · ${new Date(a.start_at).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}${a.location === "domicile" ? " · 🚗 domicilio" : ""}`,
+            tag: a.id,
+          });
+          done.add(a.id);
+          sessionStorage.setItem("fh_notified", JSON.stringify(Array.from(done)));
+        } catch { /* noop */ }
+      }, fireAt - now));
+    });
+    return () => timers.forEach(clearTimeout);
+  }, [notifOn, todayAppts]);
+
+  // ── Layout personalizzabile: ordine rail + widget nascosti ───────────
+  const RAIL_DEFAULT = ["actions", "week", "patients"];
+  const [railOrder, setRailOrder] = useState<string[]>(RAIL_DEFAULT);
+  const [hiddenWidgets, setHiddenWidgets] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    try {
+      const o = JSON.parse(localStorage.getItem("fh_rail") || "null");
+      if (Array.isArray(o) && o.length === 3) setRailOrder(o);
+      const h = JSON.parse(localStorage.getItem("fh_hidden") || "[]");
+      if (Array.isArray(h)) setHiddenWidgets(new Set(h));
+    } catch { /* noop */ }
+  }, []);
+  const dragKeyRef = useRef<string | null>(null);
+  const dropOn = useCallback((target: string) => {
+    const src = dragKeyRef.current;
+    if (!src || src === target) return;
+    setRailOrder(prev => {
+      const next = prev.filter(k => k !== src);
+      next.splice(next.indexOf(target), 0, src);
+      try { localStorage.setItem("fh_rail", JSON.stringify(next)); } catch { /* noop */ }
+      return next;
+    });
+  }, []);
+  const toggleWidget = useCallback((key: string) => {
+    setHiddenWidgets(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      try { localStorage.setItem("fh_hidden", JSON.stringify(Array.from(next))); } catch { /* noop */ }
+      return next;
+    });
+  }, []);
+
   const next7Appts     = useMemo(() => {
     const s = startOfDay(new Date()); const e = addDays(s, 8);
     return appointments.filter(a => {
@@ -709,7 +783,7 @@ export default function HomePage() {
   // Render
   // ═════════════════════════════════════════════════════════════════════
   return (
-    <div style={{ minHeight: "100vh", background: THEME.appBg, fontFamily: "'Outfit','Segoe UI',system-ui,sans-serif" }}>
+    <div className="fh-root" style={{ minHeight: "100vh", background: THEME.appBg, fontFamily: "'Outfit','Segoe UI',system-ui,sans-serif" }}>
       <style jsx global>{`
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
         *{-webkit-font-smoothing:antialiased;box-sizing:border-box;}
@@ -727,13 +801,14 @@ export default function HomePage() {
         .kpi-click:hover{transform:translateY(-2px);background:rgba(255,255,255,0.18)!important;}
         @keyframes fhflash{0%{box-shadow:0 0 0 4px rgba(37,99,235,0.40)}100%{box-shadow:0 0 0 0 rgba(37,99,235,0)}}
         .fh-flash{animation:fhflash 1.3s ease;}
+        .fh-root{--fh-bg:#f1f5f9;--fh-card:#ffffff;--fh-soft:#f6f8fc;--fh-text:#0f172a;--fh-ink:#1e293b;--fh-mut:#64748b;--fh-faint:#94a3b8;--fh-border:#e2e8f0;}
         @media(max-width:700px){.qs-div{display:none}}
         @media(max-width:1180px){.main-cols{grid-template-columns:1fr!important}}
         @media(max-width:860px){.kpi-grid{grid-template-columns:1fr 1fr!important}.foot-cols{grid-template-columns:1fr!important}}
         @media(min-width:768px)and(max-width:1199px){.th{display:none!important}}
       `}</style>
 
-      <AppNavbar active="home" onRefresh={fetchAppts} />
+      <AppNavbar active="home" onRefresh={fetchAppts} flat />
 
       {/* ━━━ POPUP DETTAGLIO PRENOTAZIONE WEB ━━━ */}
       {webPopup && (
@@ -759,6 +834,9 @@ export default function HomePage() {
         remindersToSend={remindersToSend}
         tomorrowAppts={tomorrowAppts}
         onCashClose={() => setCashOpen(true)}
+        onDaySheet={() => void generateDaySheet(todayAppts, currentStudio?.name)}
+        notifOn={notifOn}
+        onToggleNotif={() => void toggleNotif()}
       />
 
       {/* ━━━ CONTENT (container centrato) ━━━ */}
@@ -795,10 +873,12 @@ export default function HomePage() {
             />
             </div>
 
-            <DayTimeline
-              appts={todayAppts}
-              onSelect={(id) => { setTab("today"); setExpandedId(id); jumpTo("fh-agenda"); }}
-            />
+            <SortableShell label="Timeline" hidden={hiddenWidgets.has("timeline")} onToggleHidden={() => toggleWidget("timeline")}>
+              <DayTimeline
+                appts={todayAppts}
+                onSelect={(id) => { setTab("today"); setExpandedId(id); jumpTo("fh-agenda"); }}
+              />
+            </SortableShell>
 
           <div id="fh-agenda" style={{ borderRadius: 16 }}>
           <AgendaSection
@@ -822,11 +902,11 @@ export default function HomePage() {
 
             {/* Slot liberi + nota del giorno */}
             <div className="foot-cols" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-              <div style={{ background: "#fff", border: `1px solid ${THEME.border}`, borderRadius: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" }}>
+              <div style={{ background: "var(--fh-card)", border: `1px solid ${THEME.border}`, borderRadius: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" }}>
                 <div style={{ padding: "12px 16px", borderBottom: `1px solid ${THEME.border}`, display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 26, height: 26, borderRadius: 9, background: "linear-gradient(135deg,rgba(13,148,136,0.14),rgba(37,99,235,0.14))", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>🕐</span><span style={{ fontSize: 13.5, fontWeight: 700, color: THEME.text }}>Slot liberi</span></div>
                 <div style={{ padding: "12px 16px", display: "flex", gap: 7, flexWrap: "wrap" }}>
                   {freeSlots.length === 0 ? (
-                    <span style={{ fontSize: 11.5, color: "#64748b" }}>Agenda piena tra oggi e domani 💪</span>
+                    <span style={{ fontSize: 11.5, color: "var(--fh-mut)" }}>Agenda piena tra oggi e domani 💪</span>
                   ) : freeSlots.map(s => (
                     <Link key={`${s.dateYMD}-${s.time}`} href={`/calendar?new=1&date=${s.dateYMD}`} title={`Prenota ${s.day} alle ${s.time}`} style={{ fontSize: 11, fontWeight: 700, color: THEME.blue, background: "rgba(37,99,235,0.07)", border: "1px solid rgba(37,99,235,0.18)", borderRadius: 999, padding: "4px 11px" }}>
                       {s.day} {s.time}
@@ -834,7 +914,7 @@ export default function HomePage() {
                   ))}
                 </div>
               </div>
-              <div style={{ background: "#fff", border: `1px solid ${THEME.border}`, borderRadius: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" }}>
+              <div style={{ background: "var(--fh-card)", border: `1px solid ${THEME.border}`, borderRadius: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" }}>
                 <div style={{ padding: "12px 16px", borderBottom: `1px solid ${THEME.border}`, display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 26, height: 26, borderRadius: 9, background: "linear-gradient(135deg,rgba(13,148,136,0.14),rgba(37,99,235,0.14))", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>📝</span><span style={{ fontSize: 13.5, fontWeight: 700, color: THEME.text }}>Nota del giorno</span></div>
                 <div style={{ padding: "10px 12px" }}>
                   <textarea
@@ -842,7 +922,7 @@ export default function HomePage() {
                     onChange={e => saveDayNote(e.target.value)}
                     placeholder="Appunti veloci per oggi… (si salvano da soli)"
                     rows={3}
-                    style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${THEME.border}`, borderRadius: 10, padding: "9px 11px", fontSize: 12, fontFamily: "inherit", resize: "vertical", outline: "none", color: THEME.text, background: "#fff" }}
+                    style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${THEME.border}`, borderRadius: 10, padding: "9px 11px", fontSize: 12, fontFamily: "inherit", resize: "vertical", outline: "none", color: THEME.text, background: "var(--fh-card)" }}
                   />
                 </div>
               </div>
@@ -851,34 +931,56 @@ export default function HomePage() {
           </div>
 
           {/* ── Rail destro: azioni e polso ── */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 18, minWidth: 0 }}>
-            <div id="fh-actions" style={{ borderRadius: 16 }}>
-            <ActionCenter
-              alertAppts={alertAppts}
-              remindersToSend={remindersToSend}
-              onSendWA={(a) => void sendWA(a)}
-              onSetStatus={(id, s) => void setStatus(id, s)}
-              showBookingCard={currentStudio?.show_booking_card_home === true}
-              webBookings={webBookings}
-              onOpenWebPopup={setWebPopup}
-              openBalanceGroups={openBalanceGroups}
-              loadingBalances={loadingBalances}
-              noleggioExpiring={noleggioExpiring}
-              birthdays={birthdays}
-              domicilesToday={domicilesToday}
-              rebookNeeded={rebookNeeded}
-            />
-            </div>
-            <WeekCard weekStats={weekStats} forecastRevenue={forecastRevenue} spark={weekSpark} />
-            <PatientsPanel
-              inactiveThreshold={inactiveThreshold}
-              setInactiveThreshold={setInactiveThreshold}
-              inactiveLoading={inactiveLoading}
-              inactivePatients={inactivePatients}
-              contactedPatients={contactedPatients}
-              setContactedPatients={setContactedPatients}
-              recentPatients={recentPatients}
-            />
+          <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
+            {railOrder.map((key) => {
+              const shell = {
+                hidden: hiddenWidgets.has(key),
+                onToggleHidden: () => toggleWidget(key),
+                draggable: true,
+                onDragStart: () => { dragKeyRef.current = key; },
+                onDragOver: (e: React.DragEvent) => e.preventDefault(),
+                onDrop: () => dropOn(key),
+              };
+              if (key === "actions") return (
+                <SortableShell key={key} label="Da fare" {...shell}>
+                  <div id="fh-actions" style={{ borderRadius: 16 }}>
+                    <ActionCenter
+                      alertAppts={alertAppts}
+                      remindersToSend={remindersToSend}
+                      onSendWA={(a) => void sendWA(a)}
+                      onSetStatus={(id, st) => void setStatus(id, st)}
+                      showBookingCard={currentStudio?.show_booking_card_home === true}
+                      webBookings={webBookings}
+                      onOpenWebPopup={setWebPopup}
+                      openBalanceGroups={openBalanceGroups}
+                      loadingBalances={loadingBalances}
+                      noleggioExpiring={noleggioExpiring}
+                      birthdays={birthdays}
+                      domicilesToday={domicilesToday}
+                      rebookNeeded={rebookNeeded}
+                    />
+                  </div>
+                </SortableShell>
+              );
+              if (key === "week") return (
+                <SortableShell key={key} label="Settimana" {...shell}>
+                  <WeekCard weekStats={weekStats} forecastRevenue={forecastRevenue} spark={weekSpark} />
+                </SortableShell>
+              );
+              return (
+                <SortableShell key={key} label="Pazienti" {...shell}>
+                  <PatientsPanel
+                    inactiveThreshold={inactiveThreshold}
+                    setInactiveThreshold={setInactiveThreshold}
+                    inactiveLoading={inactiveLoading}
+                    inactivePatients={inactivePatients}
+                    contactedPatients={contactedPatients}
+                    setContactedPatients={setContactedPatients}
+                    recentPatients={recentPatients}
+                  />
+                </SortableShell>
+              );
+            })}
           </div>
 
         </div>

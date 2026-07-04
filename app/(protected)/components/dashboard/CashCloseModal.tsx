@@ -53,7 +53,7 @@ export default function CashCloseModal({ open, onClose, appts, onUpdatePayment }
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 260, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 480, maxHeight: "85vh", background: "#fff", borderRadius: 16, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 24px 70px rgba(15,23,42,0.35)" }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 480, maxHeight: "85vh", background: "var(--fh-card)", borderRadius: 16, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 24px 70px rgba(15,23,42,0.35)" }}>
 
         <div style={{ padding: "16px 20px", background: "linear-gradient(135deg,#0d9488,#1d4ed8)", color: "#fff" }}>
           <div style={{ fontSize: 15, fontWeight: 700 }}>💶 Chiusura cassa</div>
@@ -69,11 +69,11 @@ export default function CashCloseModal({ open, onClose, appts, onUpdatePayment }
           {/* Per metodo */}
           <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.max(1, byMethod.size)}, 1fr)`, gap: 8 }}>
             {byMethod.size === 0 ? (
-              <div style={{ fontSize: 12, color: "#7c8aa0", textAlign: "center", padding: "8px 0" }}>Nessun incasso registrato oggi.</div>
+              <div style={{ fontSize: 12, color: "var(--fh-mut)", textAlign: "center", padding: "8px 0" }}>Nessun incasso registrato oggi.</div>
             ) : Array.from(byMethod.entries()).map(([m, v]) => (
               <div key={m} style={{ border: `1px solid ${THEME.border}`, borderRadius: 12, padding: "10px 12px", textAlign: "center" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b" }}>{METHOD_LABEL[m] ?? "❓ Altro"}</div>
-                <div style={{ fontSize: 17, fontWeight: 700, color: "#1e293b", marginTop: 3 }}>{money(v)}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--fh-mut)" }}>{METHOD_LABEL[m] ?? "❓ Altro"}</div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: "var(--fh-ink)", marginTop: 3 }}>{money(v)}</div>
               </div>
             ))}
           </div>
@@ -85,10 +85,10 @@ export default function CashCloseModal({ open, onClose, appts, onUpdatePayment }
                 Da riscuotere ({unpaid.length})
               </div>
               {unpaid.map((a, i) => (
-                <div key={a.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 13px", borderBottom: i < unpaid.length - 1 ? `1px solid ${THEME.border}` : "none", background: "#fff" }}>
+                <div key={a.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 13px", borderBottom: i < unpaid.length - 1 ? `1px solid ${THEME.border}` : "none", background: "var(--fh-card)" }}>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: "#1e293b" }}>{nameOf(a)}</div>
-                    <div style={{ fontSize: 10.5, color: "#94a3b8" }}>{fmtTime(a.start_at)} · {money(amt(a))}</div>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--fh-ink)" }}>{nameOf(a)}</div>
+                    <div style={{ fontSize: 10.5, color: "var(--fh-faint)" }}>{fmtTime(a.start_at)} · {money(amt(a))}</div>
                   </div>
                   <PaidPill
                     data={{ is_paid: !!a.is_paid, paid_at: a.paid_at ?? null, payment_method: a.payment_method ?? null, price_type: a.price_type ?? null }}

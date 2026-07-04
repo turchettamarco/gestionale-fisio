@@ -26,6 +26,9 @@ export type HeroSectionProps = {
   remindersToSend: AppointmentRow[];
   tomorrowAppts: AppointmentRow[];
   onCashClose?: () => void;
+  onDaySheet?: () => void;
+  notifOn?: boolean;
+  onToggleNotif?: () => void;
 };
 
 export default function HeroSection(p: HeroSectionProps) {
@@ -84,14 +87,14 @@ export default function HeroSection(p: HeroSectionProps) {
   ];
 
   return (
-    <div style={{ background: "linear-gradient(135deg, #0d9488 0%, #1d4ed8 100%)", position: "relative", overflow: "hidden" }}>
+    <div style={{ background: "linear-gradient(135deg, #0d9488, #2563eb)", position: "relative", overflow: "hidden" }}>
       {/* Decorazioni morbide */}
       <div style={{ position: "absolute", top: -70, right: -70, width: 300, height: 300, borderRadius: "50%", background: "rgba(255,255,255,0.05)", pointerEvents: "none" }} />
       <div style={{ position: "absolute", bottom: -50, left: "28%", width: 220, height: 220, borderRadius: "50%", background: "rgba(255,255,255,0.04)", pointerEvents: "none" }} />
 
-      <div style={{ maxWidth: 1500, margin: "0 auto", padding: "24px 24px 0", position: "relative" }}>
+      <div style={{ maxWidth: 1500, margin: "0 auto", padding: "10px 24px 0", position: "relative" }}>
         {/* Data + titolo + CTA */}
-        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, marginBottom: 20, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, marginBottom: 14, flexWrap: "wrap" }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 500, color: "rgba(255,255,255,0.72)", marginBottom: 4 }}>
               {dateLabel}
@@ -109,7 +112,17 @@ export default function HeroSection(p: HeroSectionProps) {
                     : `${p.todayTotal} sedut${p.todayTotal === 1 ? "a" : "e"} oggi`}
             </h1>
           </div>
-          <div style={{ display: "flex", gap: 8, flexShrink: 0, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
+          {p.onToggleNotif && (
+            <button onClick={p.onToggleNotif} title={p.notifOn ? "Notifiche attive: 10 min prima di ogni seduta" : "Attiva le notifiche desktop"} style={{ width: 38, height: 38, borderRadius: 10, border: `1.5px solid ${p.notifOn ? "rgba(134,239,172,0.6)" : "rgba(255,255,255,0.3)"}`, background: p.notifOn ? "rgba(134,239,172,0.18)" : "rgba(255,255,255,0.10)", color: "#fff", fontSize: 15, cursor: "pointer" }}>
+              {p.notifOn ? "🔔" : "🔕"}
+            </button>
+          )}
+          {p.onDaySheet && (
+            <button onClick={p.onDaySheet} title="Scarica il foglio di giornata (PDF)" style={{ width: 38, height: 38, borderRadius: 10, border: "1.5px solid rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.10)", color: "#fff", fontSize: 15, cursor: "pointer" }}>
+              🖨
+            </button>
+          )}
           {p.onCashClose && (
             <button onClick={p.onCashClose} style={{ padding: "10px 16px", borderRadius: 10, border: "1.5px solid rgba(255,255,255,0.35)", background: "rgba(255,255,255,0.10)", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
               💶 Chiudi cassa

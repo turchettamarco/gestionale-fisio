@@ -173,7 +173,7 @@ export default function ActionCenter(p: ActionCenterProps) {
   const dismiss = (k: string) => setDismissed(s => new Set(s).add(k));
 
   return (
-    <div style={{ background: "#fff", border: `1px solid ${THEME.border}`, borderRadius: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)", overflow: "hidden" }}>
+    <div style={{ background: "var(--fh-card)", border: `1px solid ${THEME.border}`, borderRadius: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)", overflow: "hidden" }}>
       <div style={{ padding: "12px 16px", borderBottom: `1px solid ${THEME.border}`, background: "linear-gradient(135deg,rgba(13,148,136,0.045),rgba(37,99,235,0.045))", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><span style={{ width: 26, height: 26, borderRadius: 9, background: "linear-gradient(135deg,rgba(13,148,136,0.14),rgba(37,99,235,0.14))", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>⚡</span><span style={{ fontSize: 13.5, fontWeight: 700, color: THEME.text }}>Da fare</span></span>
         {actionable > 0 && (
@@ -187,7 +187,7 @@ export default function ActionCenter(p: ActionCenterProps) {
         <div style={{ padding: "22px 16px", textAlign: "center" }}>
           <div style={{ fontSize: 22, marginBottom: 6 }}>✨</div>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: THEME.text }}>Tutto fatto</div>
-          <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 2 }}>Nessuna azione in sospeso.</div>
+          <div style={{ fontSize: 11.5, color: "var(--fh-mut)", marginTop: 2 }}>Nessuna azione in sospeso.</div>
         </div>
       ) : (
         <div>
@@ -195,8 +195,8 @@ export default function ActionCenter(p: ActionCenterProps) {
             <div key={it.key} className="rh ar" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: i < visible.length - 1 ? `1px solid ${THEME.border}` : "none" }}>
               <IconChip icon={it.icon} color={it.color} />
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.title}</div>
-                {it.sub && <div style={{ fontSize: 11, color: "#64748b", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.sub}</div>}
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--fh-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.title}</div>
+                {it.sub && <div style={{ fontSize: 11, color: "var(--fh-mut)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.sub}</div>}
               </div>
               {it.action && (
                 it.action.href ? (
@@ -212,7 +212,7 @@ export default function ActionCenter(p: ActionCenterProps) {
               )}
               {!it.action && (
                 <button onClick={() => dismiss(it.key)} title="Nascondi"
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "#b6c2d4", fontWeight: 700, fontSize: 13, padding: "2px 4px" }}>✕</button>
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--fh-faint)", fontWeight: 700, fontSize: 13, padding: "2px 4px" }}>✕</button>
               )}
             </div>
           ))}

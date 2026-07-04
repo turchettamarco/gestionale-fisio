@@ -80,30 +80,30 @@ export default function DayTimeline({ appts, onSelect }: {
   };
 
   return (
-    <div style={{ background: "#fff", border: `1px solid ${THEME.border}`, borderRadius: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)", overflow: "hidden" }}>
+    <div style={{ background: "var(--fh-card)", border: `1px solid ${THEME.border}`, borderRadius: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)", overflow: "hidden" }}>
       <div style={{ padding: "12px 16px", borderBottom: `1px solid ${THEME.border}`, background: "linear-gradient(135deg,rgba(13,148,136,0.045),rgba(37,99,235,0.045))", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
           <span style={{ width: 26, height: 26, borderRadius: 9, background: "linear-gradient(135deg,rgba(13,148,136,0.14),rgba(37,99,235,0.14))", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>🕒</span>
           <span style={{ fontSize: 13.5, fontWeight: 700, color: THEME.text }}>La tua giornata</span>
         </span>
-        <span style={{ display: "inline-flex", gap: 10, fontSize: 10.5, fontWeight: 600, color: "#7c8aa0" }}>
+        <span style={{ display: "inline-flex", gap: 10, fontSize: 10.5, fontWeight: 600, color: "var(--fh-mut)" }}>
           <span>🟢 fatta</span><span>🔵 confermata</span><span>🟦 prenotata</span>
         </span>
       </div>
 
       {items.length === 0 ? (
-        <div style={{ padding: "18px 16px", fontSize: 12, color: "#7c8aa0", textAlign: "center" }}>
+        <div style={{ padding: "18px 16px", fontSize: 12, color: "var(--fh-mut)", textAlign: "center" }}>
           Nessuna seduta in programma oggi — la timeline si popolerà da sola. ✨
         </div>
       ) : (
         <div style={{ padding: "12px 16px 10px" }}>
-          <div style={{ position: "relative", height: trackH, background: "#f8fafc", borderRadius: 12, border: `1px solid ${THEME.border}` }}>
+          <div style={{ position: "relative", height: trackH, background: "var(--fh-soft)", borderRadius: 12, border: `1px solid ${THEME.border}` }}>
             {/* Griglia ore */}
             {Array.from({ length: endH - startH + 1 }, (_, i) => startH + i).map(h => (
               <div key={h} style={{ position: "absolute", left: `${((h - startH) * 60 / span) * 100}%`, top: 0, bottom: 0 }}>
                 <div style={{ width: 1, height: "100%", background: h % 2 === 0 ? "#e8edf5" : "transparent" }} />
                 {h % 2 === 0 && (
-                  <div style={{ position: "absolute", top: 2, left: 3, fontSize: 9, fontWeight: 600, color: "#b0bdd0" }}>{h}:00</div>
+                  <div style={{ position: "absolute", top: 2, left: 3, fontSize: 9, fontWeight: 600, color: "var(--fh-faint)" }}>{h}:00</div>
                 )}
               </div>
             ))}
@@ -144,7 +144,7 @@ export default function DayTimeline({ appts, onSelect }: {
               </div>
             )}
           </div>
-          <div style={{ fontSize: 10, color: "#a8b6c9", marginTop: 6, textAlign: "center" }}>
+          <div style={{ fontSize: 10, color: "var(--fh-faint)", marginTop: 6, textAlign: "center" }}>
             Clicca un blocco per aprirlo in agenda · la linea rossa è l&apos;adesso
           </div>
         </div>
