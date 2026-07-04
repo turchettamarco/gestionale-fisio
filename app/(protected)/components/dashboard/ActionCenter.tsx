@@ -36,6 +36,7 @@ export type ActionCenterProps = {
   noleggioExpiring: NoleggioExpiring[];
   birthdays: BirthdayRow[];
   domicilesToday: AppointmentRow[];
+  rebookNeeded?: AppointmentRow[];
 };
 
 type Item = {
@@ -80,6 +81,16 @@ export default function ActionCenter(p: ActionCenterProps) {
       title: `Conferma ${nameOf(a)}`,
       sub: `seduta alle ${fmtTime(a.start_at)} · entro 1 ora`,
       action: { label: "Conferma", onClick: () => p.onSetStatus(a.id, "confirmed") },
+    });
+  }
+
+  // 🔁 Fatti oggi ma senza prossimo appuntamento → riprenota!
+  for (const a of (p.rebookNeeded ?? []).slice(0, 4)) {
+    items.push({
+      key: `rebook-${a.patient_id}`, icon: "🔁", color: "#0891b2",
+      title: `${nameOf(a)} non ha riprenotato`,
+      sub: "seduta di oggi completata, agenda futura vuota",
+      action: { label: "➕ Riprenota", href: "/calendar?new=1" },
     });
   }
 

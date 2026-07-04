@@ -47,6 +47,8 @@ import NextPatientCard from "./components/dashboard/NextPatientCard";
 import ActionCenter from "./components/dashboard/ActionCenter";
 import { WeekCard, PatientsPanel } from "./components/dashboard/WeekAndPatients";
 import DayTimeline from "./components/dashboard/DayTimeline";
+import QuickSearchBar from "./components/dashboard/QuickSearchBar";
+import CashCloseModal from "./components/dashboard/CashCloseModal";
 import type { WorkingHourRow } from "./components/dashboard/shared/utils";
 
 
@@ -492,6 +494,29 @@ export default function HomePage() {
   // ── Memo derivati ───────────────────────────────────────────────────
   const todayAppts     = useMemo(() => appointments.filter(a => isSameDay(new Date(a.start_at), today)), [appointments, today]);
   const domicilesToday = useMemo(() => todayAppts.filter(a => a.location === "domicile"), [todayAppts]);
+
+  // ── Riprenotazione mancante: fatti oggi senza appuntamenti futuri ────
+  const rebookNeeded = useMemo(() => {
+    const endToday = addDays(startOfDay(new Date()), 1).getTime();
+    const doneToday = todayAppts.filter(a => a.status === "done");
+    const seen = new Set<string>();
+    const out: AppointmentRow[] = [];
+    for (const a of doneToday) {
+      if (seen.has(a.patient_id)) continue;
+      seen.add(a.patient_id);
+      const hasFuture = appointments.some(x =>
+        x.patient_id === a.patient_id &&
+        x.status !== "cancelled" &&
+        new Date(x.start_at).getTime() >= endToday
+      );
+      if (!hasFuture) out.push(a);
+    }
+    return out;
+  }, [todayAppts, appointments]);
+
+  // ── Chiusura cassa ────────────────────────────────────────────────────
+  const [cashOpen, setCashOpen] = useState(false);
+
   const next7Appts     = useMemo(() => {
     const s = startOfDay(new Date()); const e = addDays(s, 8);
     return appointments.filter(a => {
@@ -702,6 +727,7 @@ export default function HomePage() {
         .kpi-click:hover{transform:translateY(-2px);background:rgba(255,255,255,0.18)!important;}
         @keyframes fhflash{0%{box-shadow:0 0 0 4px rgba(37,99,235,0.40)}100%{box-shadow:0 0 0 0 rgba(37,99,235,0)}}
         .fh-flash{animation:fhflash 1.3s ease;}
+        @media(max-width:700px){.qs-div{display:none}}
         @media(max-width:1180px){.main-cols{grid-template-columns:1fr!important}}
         @media(max-width:860px){.kpi-grid{grid-template-columns:1fr 1fr!important}.foot-cols{grid-template-columns:1fr!important}}
         @media(min-width:768px)and(max-width:1199px){.th{display:none!important}}
@@ -732,10 +758,13 @@ export default function HomePage() {
         nextCountdown={nextCountdown}
         remindersToSend={remindersToSend}
         tomorrowAppts={tomorrowAppts}
+        onCashClose={() => setCashOpen(true)}
       />
 
       {/* ━━━ CONTENT (container centrato) ━━━ */}
       <div style={{ maxWidth: 1500, margin: "0 auto", padding: "22px 24px 44px" }}>
+
+        <QuickSearchBar />
 
         {err && (
           <div style={{ margin: "0 0 14px", padding: "10px 14px", borderRadius: 12, background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.18)", color: THEME.red, fontWeight: 600, fontSize: 13 }}>
@@ -837,6 +866,7 @@ export default function HomePage() {
               noleggioExpiring={noleggioExpiring}
               birthdays={birthdays}
               domicilesToday={domicilesToday}
+              rebookNeeded={rebookNeeded}
             />
             </div>
             <WeekCard weekStats={weekStats} forecastRevenue={forecastRevenue} spark={weekSpark} />
@@ -852,6 +882,13 @@ export default function HomePage() {
           </div>
 
         </div>
+
+        <CashCloseModal
+          open={cashOpen}
+          onClose={() => setCashOpen(false)}
+          appts={todayAppts}
+          onUpdatePayment={(id, next) => void handleUpdatePayment(id, next)}
+        />
 
       </div>
     </div>

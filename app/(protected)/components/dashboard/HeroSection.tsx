@@ -25,6 +25,7 @@ export type HeroSectionProps = {
   nextCountdown: string;
   remindersToSend: AppointmentRow[];
   tomorrowAppts: AppointmentRow[];
+  onCashClose?: () => void;
 };
 
 export default function HeroSection(p: HeroSectionProps) {
@@ -108,6 +109,12 @@ export default function HeroSection(p: HeroSectionProps) {
                     : `${p.todayTotal} sedut${p.todayTotal === 1 ? "a" : "e"} oggi`}
             </h1>
           </div>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0, flexWrap: "wrap" }}>
+          {p.onCashClose && (
+            <button onClick={p.onCashClose} style={{ padding: "10px 16px", borderRadius: 10, border: "1.5px solid rgba(255,255,255,0.35)", background: "rgba(255,255,255,0.10)", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+              💶 Chiudi cassa
+            </button>
+          )}
           <Link
             href="/calendar?new=1"
             style={{
@@ -120,6 +127,7 @@ export default function HeroSection(p: HeroSectionProps) {
           >
             + Nuovo appuntamento
           </Link>
+          </div>
         </div>
 
         {/* KPI glass */}
