@@ -42,6 +42,7 @@ function isPhoneUserAgent(ua: string) {
 // Aggiungere qui i path man mano che le tappe di unificazione procedono.
 // ═══════════════════════════════════════════════════════════════════════
 const UNIFIED_ROUTES = new Set<string>([
+  "/",             // Tappa 8 — dashboard (home)
   "/noleggio",     // Tappa 4 — noleggio dispositivi
   "/reports",      // Tappa 5 — report
   "/settings",     // Tappa 6 — impostazioni

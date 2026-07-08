@@ -23,7 +23,7 @@ import PackageBadge from "@/src/components/packages/PackageBadge";
 import PaidIconButton from "@/src/components/PaidIconButton";
 import NotificationsBell from "@/src/components/NotificationsBell";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
-import GroupEventModalMobile, { type GroupEvent } from "../components/GroupEventModalMobile";
+import GroupEventModalMobile, { type GroupEvent } from "@/src/components/mobile/GroupEventModalMobile";
 import {
   groupSearchPatientsApi,
   fetchGroupParticipants,
@@ -35,7 +35,7 @@ import {
   deleteGroupApi,
   duplicateGroupApi,
   sendReminderToAllApi,
-} from "../components/groupHandlers";
+} from "@/src/components/mobile/groupHandlers";
 
 /**
  * Apre WhatsApp con un numero pre-popolato e un messaggio.
