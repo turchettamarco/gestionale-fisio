@@ -287,7 +287,9 @@ export function PhotoNoteModal({
     <div
       style={{
         position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)",
-        zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center",
+        // Sopra TUTTI i dialoghi dell'app: SelectedEventModal desktop (9999),
+        // sheet mobile (9999), conferme WhatsApp (10001). Sotto i toast (200000).
+        zIndex: 20000, display: "flex", alignItems: "center", justifyContent: "center",
         padding: 12,
       }}
     >
