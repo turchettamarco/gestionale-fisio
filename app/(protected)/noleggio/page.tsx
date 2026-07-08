@@ -1,12 +1,33 @@
 "use client";
 
+// ═══════════════════════════════════════════════════════════════════════════
+// NOLEGGIO — UNIFICATA (Tappa 4 unificazione mobile/desktop)
+//
+// Prima: due pagine con logica quasi interamente duplicata (fetch, filtri,
+// salvataggio, modifica, crea-in-anagrafica). Differenze:
+//   • desktop: KPI completi, impostazioni, filtro "Riconsegnati", WA
+//     scadenza, Ricevuta e Contratto stampabili — ma NIENTE Privacy Mode e
+//     "crea in anagrafica" senza owner_id;
+//   • mobile: Privacy Mode e toast, owner_id corretto — ma niente WA
+//     scadenza, niente Ricevuta/Contratto, niente filtro Riconsegnati.
+//
+// Ora: UNA pagina, logica una volta sola, e ciascuna vista guadagna ciò
+// che le mancava. Ricevute e PDF restano con dati reali anche in Privacy
+// Mode (validità contabile), come da regola del progetto.
+// ═══════════════════════════════════════════════════════════════════════════
+
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { getStudioBranding } from "@/src/lib/studioBranding";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
-import { normalizePhoneForWA, openWhatsApp } from "@/src/lib/whatsapp";
-import { studioPdfHeader, studioHeaderCss, studioPdfFooter } from "@/src/lib/pdfHeader";
+import { usePrivacyMode, usePrivacyDisplay, useDisplayPatientPhone } from "@/src/contexts/PrivacyModeContext";
+import { openWhatsApp } from "@/src/lib/whatsapp";
+import { studioPdfHeader, studioHeaderCss } from "@/src/lib/pdfHeader";
 import AppNavbar from "@/src/components/AppNavbar";
+import MobileTabBar from "@/src/components/MobileTabBar";
+import { useIsMobile } from "@/src/hooks/useIsMobile";
+import { ToastProvider, showToast } from "@/src/components/mobile/ToastProvider";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const THEME = {
@@ -14,6 +35,7 @@ const THEME = {
   text:"#0f172a", textSoft:"#1e293b", muted:"#334155", border:"#cbd5e1",
   blue:"#2563eb", blueDark:"#1e40af", green:"#16a34a", teal:"#0d9488",
   red:"#dc2626", amber:"#f97316", gray:"#94a3b8", purple:"#7c3aed",
+  gradient:"linear-gradient(135deg,#0d9488,#2563eb)",
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -40,6 +62,8 @@ type PatientSuggestion = {
   phone: string | null;
 };
 
+type Filter = "all"|"active"|"expiring"|"expired"|"returned";
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const pad2 = (n: number) => String(n).padStart(2, "0");
 const toYMD = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
@@ -62,10 +86,28 @@ function getAlertLevel(daysRemaining: number, warningDays: number): "expired"|"u
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function NoleggioPage() {
+  const router = useRouter();
+  const isMobile = useIsMobile();
 
   // Studio corrente (multi-tenancy)
   const { studio: currentStudio } = useCurrentStudio();
   const currentStudioId = currentStudio?.id ?? null;
+
+  // Privacy Mode (ora anche su desktop)
+  const { privacyMode } = usePrivacyMode();
+  const { maskName } = usePrivacyDisplay();
+  const displayPhone = useDisplayPatientPhone();
+
+  // Notifiche: toast nel ramo mobile, alert su desktop (com'era)
+  const notify = {
+    warning: (m: string) => { if (isMobile) showToast.warning(m); else alert(m); },
+    error:   (m: string) => { if (isMobile) showToast.error(m);   else alert(m); },
+    success: (m: string) => { if (isMobile) showToast.success(m); else alert(m); },
+  };
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // LOGICA CONDIVISA — scritta UNA volta, usata da entrambe le viste
+  // ══════════════════════════════════════════════════════════════════════════
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [noleggios, setNoleggios] = useState<NoleggioRow[]>([]);
@@ -73,20 +115,18 @@ export default function NoleggioPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Warning days setting
+  // Impostazioni (modifica solo da desktop, valori letti ovunque)
   const [warningDays, setWarningDays] = useState(3);
   const [editingWarning, setEditingWarning] = useState(false);
   const [warningInput, setWarningInput] = useState("3");
   const [totalUnits, setTotalUnits] = useState(1);
   const [editingUnits, setEditingUnits] = useState(false);
   const [tempUnits, setTempUnits] = useState("1");
-
-  // Default price per day
   const [defaultPrice, setDefaultPrice] = useState(5);
   const [editingPrice, setEditingPrice] = useState(false);
   const [priceInput, setPriceInput] = useState("5");
 
-  // Form state
+  // Form nuovo noleggio
   const [showForm, setShowForm] = useState(false);
   const [formPatientQuery, setFormPatientQuery] = useState("");
   const [formPatientId, setFormPatientId] = useState<string|null>(null);
@@ -101,13 +141,13 @@ export default function NoleggioPage() {
   const [patientSuggestions, setPatientSuggestions] = useState<PatientSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
-  // Filter
-  const [filter, setFilter] = useState<"all"|"active"|"expiring"|"expired"|"returned">("active");
+  // Filtri + modifica inline
+  const [filter, setFilter] = useState<Filter>("active");
   const [editingId,    setEditingId]    = useState<string|null>(null);
   const [editName,     setEditName]     = useState("");
   const [editPhone,    setEditPhone]    = useState("");
-  const [editStart,    setEditStart]    = useState("");  // YYYY-MM-DD
-  const [editEnd,      setEditEnd]      = useState("");  // YYYY-MM-DD
+  const [editStart,    setEditStart]    = useState("");
+  const [editEnd,      setEditEnd]      = useState("");
   const [editPricePerDay, setEditPricePerDay] = useState("");
   const [editSaving,   setEditSaving]   = useState(false);
   const [creatingPatient, setCreatingPatient] = useState<string|null>(null);
@@ -122,7 +162,6 @@ export default function NoleggioPage() {
         .order("end_date", { ascending: true });
       if (error) throw error;
       setNoleggios((data||[]) as NoleggioRow[]);
-      // Load settings
       const { data: cfg } = await supabase.from("noleggio_settings").select("*").maybeSingle();
       if (cfg) { setWarningDays(cfg.warning_days??3); setWarningInput(String(cfg.warning_days??3)); setDefaultPrice(cfg.price_per_day??5); setPriceInput(String(cfg.price_per_day??5)); setFormPricePerDay(String(cfg.price_per_day??5)); }
     } catch(e:any) { setError(e?.message||"Errore caricamento"); }
@@ -209,16 +248,15 @@ export default function NoleggioPage() {
     setNoleggios(p=>p.filter(n=>n.id!==id));
   }
 
-  // ── Modifica completa noleggio (nome/telefono/date/prezzo) ───────────────
+  // ── Modifica completa noleggio (nome/telefono/date/prezzo) ─────────────────
   async function saveEditNoleggio(id: string) {
-    if (!editName.trim()) { alert("Il nome non può essere vuoto."); return; }
-    if (!editStart || !editEnd) { alert("Date di inizio e fine obbligatorie."); return; }
-    if (new Date(editEnd) < new Date(editStart)) { alert("La data di fine non può essere prima della data di inizio."); return; }
+    if (!editName.trim()) { notify.warning("Il nome non può essere vuoto."); return; }
+    if (!editStart || !editEnd) { notify.warning("Date di inizio e fine obbligatorie."); return; }
+    if (new Date(editEnd) < new Date(editStart)) { notify.warning("La data di fine non può essere prima della data di inizio."); return; }
 
     const pday = parseFloat(editPricePerDay) || 0;
-    if (pday <= 0) { alert("Prezzo al giorno non valido."); return; }
+    if (pday <= 0) { notify.warning("Prezzo al giorno non valido."); return; }
 
-    // Ricalcola durata e totale
     const days = Math.max(1, Math.round(
       (new Date(editEnd + "T12:00:00").getTime() - new Date(editStart + "T12:00:00").getTime()) / 86400000
     )+1);
@@ -234,43 +272,38 @@ export default function NoleggioPage() {
       total_amount: total,
     }).eq("id", id);
     setEditSaving(false);
-    if (error) { alert("Errore: " + error.message); return; }
+    if (error) { notify.error("Errore: " + error.message); return; }
     setEditingId(null);
-    await loadNoleggios();
+    setNoleggios(p=>p.map(n=>n.id===id?{...n,patient_name:editName.trim(),patient_phone:editPhone.trim()||null,start_date:editStart,end_date:editEnd,price_per_day:pday,total_amount:total}:n));
   }
 
-  // ── Crea paziente da noleggio ──────────────────────────────────────────────
+  // ── Crea paziente da noleggio (con owner_id, prima mancava su desktop) ─────
   async function createPatientFromNoleggio(n: NoleggioRow) {
     if (!confirm(`Creare paziente "${n.patient_name}" in anagrafica?`)) return;
     setCreatingPatient(n.id);
     try {
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData.user?.id ?? null;
+      if (!userId) { notify.error("Sessione non valida."); return; }
       const parts = n.patient_name.trim().split(/\s+/);
       const last_name = parts[0] || n.patient_name;
       const first_name = parts.slice(1).join(" ") || "";
       const { data, error } = await supabase.from("patients").insert({
         first_name, last_name,
         phone: n.patient_phone || "",
+        owner_id: userId,            // NOT NULL nel DB
         studio_id: currentStudioId,  // multi-tenancy
       }).select("id").single();
-      if (error) { alert("Errore: " + error.message); return; }
-      // Link patient_id to noleggio
+      if (error) { notify.error("Errore: " + error.message); return; }
       await supabase.from("noleggios").update({ patient_id: data.id }).eq("id", n.id);
-      await loadNoleggios();
-      alert(`✅ Paziente creato e collegato al noleggio!`);
+      setNoleggios(p=>p.map(x=>x.id===n.id?{...x,patient_id:data.id}:x));
+      notify.success("Paziente creato e collegato!");
     } finally { setCreatingPatient(null); }
   }
 
-
-  function cleanPhoneWA(phone: string): string {
-    // Delegata alla utility centrale per consistenza cross-file
-    return normalizePhoneForWA(phone);
-  }
-  function openWADirect(phone: string, message: string): void {
-    openWhatsApp(phone, message);
-  }
-
+  // ── WhatsApp promemoria scadenza ───────────────────────────────────────────
   function sendWAScadenza(n: NoleggioRow) {
-    if (!n.patient_phone) { alert("Nessun numero di telefono per questo paziente."); return; }
+    if (!n.patient_phone) { notify.warning("Nessun numero di telefono per questo paziente."); return; }
     const dr = getDaysRemaining(n.end_date);
     const scad = new Date(n.end_date+"T12:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"numeric"});
     const __branding = getStudioBranding(currentStudio);
@@ -284,9 +317,10 @@ export default function NoleggioPage() {
     } else {
       msg = `Gentile ${n.patient_name},\nLe ricordiamo che il noleggio del dispositivo *${n.device_name}* scadrà il *${scad}* (tra ${dr} giorni).\nPer informazioni o proroga contatti lo studio.${firmaLine}`;
     }
-    openWADirect(n.patient_phone, msg);
+    openWhatsApp(n.patient_phone, msg);
   }
 
+  // ── Ricevuta stampabile ────────────────────────────────────────────────────
   function printRicevuta(n: NoleggioRow) {
     const scadStr = new Date(n.end_date+"T12:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"numeric"});
     const startStr = new Date(n.start_date+"T12:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"numeric"});
@@ -342,6 +376,7 @@ ${n.notes?`<div style="padding:12px 16px;background:#f8fafc;border-radius:8px;bo
     if(w){ w.document.write(html); w.document.close(); }
   }
 
+  // ── Contratto stampabile ───────────────────────────────────────────────────
   function printContratto(n: NoleggioRow) {
     const oggi = new Date().toLocaleDateString("it-IT",{day:"2-digit",month:"long",year:"numeric"});
     const startStr = new Date(n.start_date+"T12:00:00").toLocaleDateString("it-IT",{day:"2-digit",month:"long",year:"numeric"});
@@ -394,16 +429,16 @@ ${studioPdfHeader(currentStudio,{docTitle:"Contratto di Noleggio",docSubtitle:"M
 </div>
 <div style="text-align:center;margin-top:32px;"><button onclick="window.print()" style="padding:10px 28px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🖨️ Stampa / Salva PDF</button></div>
 </body></html>`;
-    const w=window.open("","_blank","width=820,height:950"); if(w){w.document.write(html);w.document.close();}
+    const w=window.open("","_blank","width=820,height=950"); if(w){w.document.write(html);w.document.close();}
   }
 
+  // ── Salvataggio impostazioni (UI solo desktop) ─────────────────────────────
   async function saveSettings() {
-    if (!currentStudioId) { alert("Studio non identificato. Ricarica la pagina."); return; }
+    if (!currentStudioId) { notify.warning("Studio non identificato. Ricarica la pagina."); return; }
     const wd = parseInt(warningInput)||3;
     const pd = parseFloat(priceInput)||5;
     setWarningDays(wd); setDefaultPrice(pd); setFormPricePerDay(String(pd));
 
-    // Cerca se esiste già un record per questo studio
     const { data: existing } = await supabase
       .from("noleggio_settings")
       .select("id")
@@ -414,11 +449,11 @@ ${studioPdfHeader(currentStudio,{docTitle:"Contratto di Noleggio",docSubtitle:"M
       const { error } = await supabase.from("noleggio_settings")
         .update({ warning_days: wd, price_per_day: pd })
         .eq("id", existing.id);
-      if (error) { alert("Errore salvataggio: " + error.message); return; }
+      if (error) { notify.error("Errore salvataggio: " + error.message); return; }
     } else {
       const { error } = await supabase.from("noleggio_settings")
         .insert({ warning_days: wd, price_per_day: pd, studio_id: currentStudioId });
-      if (error) { alert("Errore salvataggio: " + error.message); return; }
+      if (error) { notify.error("Errore salvataggio: " + error.message); return; }
     }
     setEditingWarning(false); setEditingPrice(false);
     setSuccess("Impostazioni salvate."); setTimeout(()=>setSuccess(""),2000);
@@ -455,11 +490,273 @@ ${studioPdfHeader(currentStudio,{docTitle:"Contratto di Noleggio",docSubtitle:"M
     revenue: noleggios.filter(n=>n.is_paid).reduce((s,n)=>s+n.total_amount,0),
   }),[noleggios,warningDays]);
 
-  // ── Styles ─────────────────────────────────────────────────────────────────
+  // Nome/telefono da mostrare (Privacy Mode: display mascherato, dati reali
+  // restano in modifica, ricerca e documenti stampati)
+  const shownName  = (n: NoleggioRow) => privacyMode ? maskName(n.patient_name) : n.patient_name;
+
+  // ── Stili ──────────────────────────────────────────────────────────────────
   const inputStyle: React.CSSProperties = { width:"100%", padding:"9px 12px", borderRadius:7, border:`1.5px solid ${THEME.border}`, fontSize:13, fontWeight:500, outline:"none", background:"#fff", color:THEME.text, boxSizing:"border-box" };
   const labelStyle: React.CSSProperties = { display:"block", fontSize:11, fontWeight:700, color:THEME.muted, marginBottom:4, textTransform:"uppercase", letterSpacing:0.4 };
   const cardStyle: React.CSSProperties = { background:THEME.panelBg, borderRadius:12, border:`1px solid ${THEME.border}`, boxShadow:"0 1px 4px rgba(15,23,42,0.05)", overflow:"hidden", marginBottom:14 };
+  const inp:React.CSSProperties={width:"100%",padding:"12px 14px",borderRadius:10,border:`1.5px solid ${THEME.border}`,fontSize:15,background:"#fff",color:THEME.text,outline:"none",boxSizing:"border-box"};
+  const mLabel:React.CSSProperties={display:"block",fontSize:11,fontWeight:700,color:THEME.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:0.4};
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // Viewport non ancora noto → sfondo neutro (nessun flash)
+  // ══════════════════════════════════════════════════════════════════════════
+  if (isMobile === null) {
+    return <div style={{ minHeight:"100vh", background:THEME.appBg }} />;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // VISTA MOBILE (< 768px)
+  // ══════════════════════════════════════════════════════════════════════════
+  if (isMobile) {
+    return (
+      <ToastProvider>
+      <div style={{minHeight:"100vh",background:THEME.appBg,fontFamily:"'Outfit','Segoe UI',system-ui,sans-serif",paddingBottom:80}}>
+        <style jsx global>{`@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;-webkit-font-smoothing:antialiased;}body{margin:0;}a{text-decoration:none;}input:focus,select:focus,textarea:focus{border-color:${THEME.teal}!important;outline:none!important;}`}</style>
+
+        {/* Header */}
+        <header style={{background:THEME.gradient,padding:"0 18px",height:56,display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:20,boxShadow:"0 2px 12px rgba(13,148,136,0.2)"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <button onClick={()=>router.back()} style={{background:"rgba(255,255,255,0.2)",border:"1.5px solid rgba(255,255,255,0.3)",borderRadius:8,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",padding:"5px 11px"}}>←</button>
+            <span style={{fontWeight:800,fontSize:16,color:"#fff"}}>🔌 Noleggio</span>
+          </div>
+          <button onClick={()=>setShowForm(v=>!v)} style={{background:"rgba(255,255,255,0.2)",border:"1.5px solid rgba(255,255,255,0.35)",borderRadius:8,color:"#fff",fontWeight:800,fontSize:20,cursor:"pointer",width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            {showForm?"✕":"+"}
+          </button>
+        </header>
+
+        <div style={{padding:"14px 16px"}}>
+          {error&&<div style={{marginBottom:10,padding:"10px 14px",borderRadius:10,background:"rgba(220,38,38,0.06)",border:"1px solid rgba(220,38,38,0.2)",color:THEME.red,fontWeight:600,fontSize:13}}>{error}</div>}
+          {success&&<div style={{marginBottom:10,padding:"10px 14px",borderRadius:10,background:"rgba(22,163,74,0.06)",border:"1px solid rgba(22,163,74,0.2)",color:THEME.green,fontWeight:600,fontSize:13}}>{success}</div>}
+
+          {/* KPI */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+            {[{l:"Attivi",v:stats.total,c:THEME.teal},{l:`Scadono ≤${warningDays}gg`,v:stats.expiring,c:THEME.amber},{l:"Scaduti",v:stats.expired,c:THEME.red}].map(k=>(
+              <div key={k.l} style={{background:"#fff",borderRadius:10,padding:"10px 12px",border:`1px solid ${k.c}22`,textAlign:"center"}}>
+                <div style={{fontSize:22,fontWeight:800,color:k.c}}>{k.v}</div>
+                <div style={{fontSize:10,color:THEME.muted,fontWeight:600,marginTop:2}}>{k.l}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Form nuovo noleggio */}
+          {showForm&&(
+            <div style={{background:"#fff",borderRadius:14,border:`2px solid ${THEME.teal}`,padding:"16px",marginBottom:14}}>
+              <div style={{fontWeight:800,fontSize:15,color:THEME.text,marginBottom:14}}>Nuovo noleggio</div>
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {/* Paziente */}
+                <div style={{position:"relative"}}>
+                  <label style={mLabel}>Paziente *</label>
+                  <input value={formPatientQuery} onChange={e=>{setFormPatientQuery(e.target.value);setFormPatientId(null);setFormPatientName(e.target.value);}} placeholder="Cerca paziente o scrivi nome..." style={inp} onFocus={()=>formPatientQuery.length>=2&&setShowSuggestions(true)} onBlur={()=>setTimeout(()=>setShowSuggestions(false),200)}/>
+                  {showSuggestions&&patientSuggestions.length>0&&(
+                    <div style={{position:"absolute",top:"100%",left:0,right:0,background:"#fff",border:`1px solid ${THEME.border}`,borderRadius:10,boxShadow:"0 8px 24px rgba(15,23,42,0.12)",zIndex:50,overflow:"hidden"}}>
+                      {patientSuggestions.map(p=>(
+                        <div key={p.id} onMouseDown={()=>selectPatient(p)} style={{padding:"12px 14px",cursor:"pointer",borderBottom:`1px solid ${THEME.border}`,fontSize:14}}>
+                          <strong>{p.last_name} {p.first_name}</strong>{p.phone&&<span style={{color:THEME.muted}}> · {p.phone}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {formPatientId&&<div style={{fontSize:11,color:THEME.green,marginTop:3,fontWeight:600}}>✓ Collegato alla scheda paziente</div>}
+                </div>
+                <div>
+                  <label style={mLabel}>Telefono</label>
+                  <input value={formPatientPhone} onChange={e=>setFormPatientPhone(e.target.value)} placeholder="Opzionale" style={inp} type="tel"/>
+                </div>
+                <div>
+                  <label style={mLabel}>Dispositivo</label>
+                  <input value={formDevice} onChange={e=>setFormDevice(e.target.value)} placeholder="Magnetoterapia" style={inp}/>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <div>
+                    <label style={mLabel}>Data inizio</label>
+                    <input type="date" value={formStart} onChange={e=>setFormStart(e.target.value)} style={inp}/>
+                  </div>
+                  <div>
+                    <label style={mLabel}>Data fine</label>
+                    <input type="date" value={formEnd} onChange={e=>setFormEnd(e.target.value)} style={inp}/>
+                  </div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <div>
+                    <label style={mLabel}>€/giorno</label>
+                    <input type="number" value={formPricePerDay} onChange={e=>setFormPricePerDay(e.target.value)} min={0} step={0.5} style={inp}/>
+                  </div>
+                  <div>
+                    <label style={mLabel}>Totale</label>
+                    <div style={{padding:"12px 14px",borderRadius:10,border:`2px solid ${THEME.teal}`,background:"rgba(13,148,136,0.04)",fontSize:16,fontWeight:800,color:THEME.teal}}>
+                      €{formTotal.toFixed(2)} <span style={{fontSize:10,color:THEME.muted,fontWeight:500}}>({formDays}gg)</span>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label style={mLabel}>Note</label>
+                  <textarea value={formNotes} onChange={e=>setFormNotes(e.target.value)} rows={2} placeholder="Opzionali..." style={{...inp,resize:"vertical"}}/>
+                </div>
+                <button onClick={saveNoleggio} disabled={formSaving} style={{padding:"14px",borderRadius:12,border:"none",background:THEME.gradient,color:"#fff",fontWeight:800,fontSize:15,cursor:formSaving?"wait":"pointer",opacity:formSaving?0.7:1}}>
+                  {formSaving?"Salvataggio…":"Salva noleggio"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Filtri (ora anche Riconsegnati, come desktop) */}
+          <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:4}}>
+            {([{v:"active",l:"Attivi"},{v:"expiring",l:`Scadenza (${stats.expiring})`},{v:"expired",l:`Scaduti (${stats.expired})`},{v:"returned",l:"Riconsegnati"},{v:"all",l:"Tutti"}] as const).map(f=>(
+              <button key={f.v} onClick={()=>setFilter(f.v)} style={{padding:"6px 14px",borderRadius:20,border:`1.5px solid ${filter===f.v?THEME.teal:THEME.border}`,background:filter===f.v?THEME.teal:"#fff",color:filter===f.v?"#fff":THEME.muted,cursor:"pointer",fontWeight:700,fontSize:12,whiteSpace:"nowrap",flexShrink:0}}>
+                {f.l}
+              </button>
+            ))}
+          </div>
+
+          {/* Lista */}
+          {loading ? (
+            <div style={{textAlign:"center",padding:"40px 0",color:THEME.muted}}>Caricamento…</div>
+          ) : filtered.length===0 ? (
+            <div style={{textAlign:"center",padding:"40px 0",color:THEME.muted,fontStyle:"italic"}}>Nessun noleggio in questa categoria</div>
+          ) : filtered.map(n=>{
+            const dr=getDaysRemaining(n.end_date);
+            const al=getAlertLevel(dr,warningDays);
+            const ac={expired:{bg:"rgba(220,38,38,0.05)",border:"rgba(220,38,38,0.25)",col:THEME.red,icon:"⛔",text:`Scaduto ${Math.abs(dr)}gg fa`},urgent:{bg:"rgba(220,38,38,0.05)",border:"rgba(220,38,38,0.35)",col:THEME.red,icon:"🚨",text:"Scade oggi!"},warning:{bg:"rgba(249,115,22,0.04)",border:"rgba(249,115,22,0.3)",col:THEME.amber,icon:"⏳",text:`${dr} giorni`},ok:{bg:"#fff",border:THEME.border,col:THEME.green,icon:"✓",text:`${dr} giorni`}}[al];
+            return (
+              <div key={n.id} style={{background:n.is_returned?"#f8fafc":ac.bg,borderRadius:14,border:`1.5px solid ${n.is_returned?THEME.border:ac.border}`,padding:"14px 16px",marginBottom:10,opacity:n.is_returned?0.65:1}}>
+                {/* Header card */}
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                  <span style={{fontSize:18,flexShrink:0}}>{n.is_returned?"📦":ac.icon}</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    {editingId===n.id ? (
+                      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                        <input value={editName} onChange={e=>setEditName(e.target.value)}
+                          placeholder="Cognome Nome" autoFocus
+                          style={{padding:"7px 10px",borderRadius:7,border:`1.5px solid ${THEME.teal}`,fontSize:14,fontWeight:700,outline:"none",width:"100%",boxSizing:"border-box" as const,color:"#0f172a",background:"#fff"}}/>
+                        <input value={editPhone} onChange={e=>setEditPhone(e.target.value)}
+                          placeholder="Telefono" type="tel"
+                          style={{padding:"7px 10px",borderRadius:7,border:`1.5px solid ${THEME.border}`,fontSize:13,outline:"none",width:"100%",boxSizing:"border-box" as const,color:"#0f172a",background:"#fff"}}/>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                          <div>
+                            <label style={{fontSize:10,fontWeight:700,color:THEME.muted,textTransform:"uppercase"}}>Inizio</label>
+                            <input type="date" value={editStart} onChange={e=>setEditStart(e.target.value)}
+                              style={{padding:"7px 10px",borderRadius:7,border:`1.5px solid ${THEME.border}`,fontSize:13,outline:"none",width:"100%",boxSizing:"border-box" as const,color:"#0f172a",background:"#fff"}}/>
+                          </div>
+                          <div>
+                            <label style={{fontSize:10,fontWeight:700,color:THEME.muted,textTransform:"uppercase"}}>Fine</label>
+                            <input type="date" value={editEnd} onChange={e=>setEditEnd(e.target.value)}
+                              style={{padding:"7px 10px",borderRadius:7,border:`1.5px solid ${THEME.border}`,fontSize:13,outline:"none",width:"100%",boxSizing:"border-box" as const,color:"#0f172a",background:"#fff"}}/>
+                          </div>
+                        </div>
+                        <div>
+                          <label style={{fontSize:10,fontWeight:700,color:THEME.muted,textTransform:"uppercase"}}>Prezzo/giorno €</label>
+                          <input type="number" step="0.01" value={editPricePerDay} onChange={e=>setEditPricePerDay(e.target.value)}
+                            style={{padding:"7px 10px",borderRadius:7,border:`1.5px solid ${THEME.border}`,fontSize:13,outline:"none",width:"100%",boxSizing:"border-box" as const,color:"#0f172a",background:"#fff"}}/>
+                        </div>
+                        {editStart && editEnd && editPricePerDay && (() => {
+                          const d1 = new Date(editStart + "T12:00:00");
+                          const d2 = new Date(editEnd + "T12:00:00");
+                          if (d2 < d1) return <div style={{fontSize:11,color:THEME.red,fontWeight:600}}>⚠ Fine prima dell&apos;inizio</div>;
+                          const days = Math.max(1, Math.round((d2.getTime()-d1.getTime())/86400000)+1);
+                          const pday = parseFloat(editPricePerDay)||0;
+                          const total = Math.round(days*pday*100)/100;
+                          return <div style={{fontSize:11,color:THEME.teal,fontWeight:600}}>→ {days} giorni · Totale €{total.toFixed(2)}</div>;
+                        })()}
+                        <div style={{display:"flex",gap:6}}>
+                          <button onClick={()=>saveEditNoleggio(n.id)} disabled={editSaving}
+                            style={{flex:1,padding:"8px",borderRadius:7,border:"none",background:THEME.teal,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",opacity:editSaving?0.6:1}}>
+                            {editSaving?"Salvo…":"✓ Salva"}
+                          </button>
+                          <button onClick={()=>setEditingId(null)}
+                            style={{padding:"8px 12px",borderRadius:7,border:`1px solid ${THEME.border}`,background:"#fff",color:THEME.muted,fontWeight:700,fontSize:13,cursor:"pointer"}}>
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <div style={{fontWeight:800,fontSize:15,color:THEME.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{shownName(n)}</div>
+                          <button onClick={()=>{
+                            setEditingId(n.id);
+                            setEditName(n.patient_name);
+                            setEditPhone(n.patient_phone||"");
+                            setEditStart(n.start_date);
+                            setEditEnd(n.end_date);
+                            setEditPricePerDay(String(n.price_per_day));
+                          }}
+                            style={{background:"none",border:"none",cursor:"pointer",color:THEME.muted,fontSize:13,padding:2,flexShrink:0}}>✏️</button>
+                        </div>
+                        {n.patient_phone
+                          ? <div style={{fontSize:12,color:THEME.muted}}>{displayPhone(n.patient_phone)}</div>
+                          : <div style={{fontSize:11,color:THEME.amber,fontWeight:600}}>⚠️ Nessun telefono</div>
+                        }
+                        {!n.patient_id && (
+                          <button onClick={()=>createPatientFromNoleggio(n)} disabled={creatingPatient===n.id}
+                            style={{marginTop:4,padding:"3px 8px",borderRadius:5,border:`1.5px solid ${THEME.blue}`,background:"rgba(37,99,235,0.06)",color:THEME.blue,fontWeight:700,fontSize:11,cursor:"pointer",opacity:creatingPatient===n.id?0.6:1}}>
+                            {creatingPatient===n.id?"Creando…":"👤 Crea in anagrafica"}
+                          </button>
+                        )}
+                        <div style={{fontSize:12,color:THEME.muted}}>{n.device_name}</div>
+                      </>
+                    )}
+                  </div>
+                  <div style={{textAlign:"right",flexShrink:0}}>
+                    <div style={{fontSize:18,fontWeight:800,color:THEME.text}}>€{n.total_amount.toFixed(2)}</div>
+                    <div style={{fontSize:10,color:THEME.muted}}>€{n.price_per_day}/gg</div>
+                  </div>
+                </div>
+                {/* Date */}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,padding:"8px 10px",background:"rgba(0,0,0,0.03)",borderRadius:8}}>
+                  <div style={{fontSize:12,color:THEME.muted}}>
+                    <span style={{fontWeight:700,color:THEME.text}}>{fmtDate(n.start_date)}</span> → <span style={{fontWeight:700,color:THEME.text}}>{fmtDate(n.end_date)}</span>
+                    <span style={{marginLeft:8}}>· {diffDays(n.start_date,n.end_date)} giorni</span>
+                  </div>
+                  {!n.is_returned&&(
+                    <span style={{fontSize:11,fontWeight:800,color:ac.col,background:`${ac.col}18`,padding:"2px 8px",borderRadius:99}}>{al==="ok"?`⏳ ${ac.text}`:ac.text}</span>
+                  )}
+                </div>
+                {n.notes&&<div style={{fontSize:12,color:THEME.muted,marginBottom:10,fontStyle:"italic"}}>{n.notes}</div>}
+                {/* Azioni */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  <button onClick={()=>togglePaid(n.id,n.is_paid)} style={{padding:"10px",borderRadius:10,border:`1.5px solid ${n.is_paid?THEME.green:THEME.border}`,background:n.is_paid?"rgba(22,163,74,0.08)":"#fff",color:n.is_paid?THEME.green:THEME.muted,cursor:"pointer",fontWeight:700,fontSize:13}}>
+                    {n.is_paid?"€ Pagato ✓":"Segna pagato"}
+                  </button>
+                  <button onClick={()=>toggleReturned(n.id,n.is_returned)} style={{padding:"10px",borderRadius:10,border:`1.5px solid ${n.is_returned?THEME.teal:THEME.border}`,background:n.is_returned?"rgba(13,148,136,0.08)":"#fff",color:n.is_returned?THEME.teal:THEME.muted,cursor:"pointer",fontWeight:700,fontSize:13}}>
+                    {n.is_returned?"✓ Reso":"Segna reso"}
+                  </button>
+                </div>
+                {/* Documenti + WA (prima solo desktop) */}
+                <div style={{display:"grid",gridTemplateColumns:n.patient_phone?"1fr 1fr 1fr":"1fr 1fr",gap:8,marginTop:8}}>
+                  {n.patient_phone && (
+                    <button onClick={()=>sendWAScadenza(n)} style={{padding:"9px 6px",borderRadius:10,border:"1.5px solid rgba(37,211,102,0.4)",background:"rgba(37,211,102,0.06)",color:"#16a34a",cursor:"pointer",fontWeight:700,fontSize:12}}>
+                      💬 WA
+                    </button>
+                  )}
+                  <button onClick={()=>printRicevuta(n)} style={{padding:"9px 6px",borderRadius:10,border:`1.5px solid ${THEME.blue}33`,background:"rgba(37,99,235,0.05)",color:THEME.blue,cursor:"pointer",fontWeight:700,fontSize:12}}>
+                    🖨️ Ricevuta
+                  </button>
+                  <button onClick={()=>printContratto(n)} style={{padding:"9px 6px",borderRadius:10,border:"1.5px solid rgba(124,58,237,0.3)",background:"rgba(124,58,237,0.05)",color:"#7c3aed",cursor:"pointer",fontWeight:700,fontSize:12}}>
+                    📄 Contratto
+                  </button>
+                </div>
+                <button onClick={()=>deleteNoleggio(n.id)} style={{marginTop:8,width:"100%",padding:"8px",borderRadius:10,border:"1px solid rgba(220,38,38,0.2)",background:"rgba(220,38,38,0.04)",color:THEME.red,cursor:"pointer",fontWeight:600,fontSize:12}}>
+                  Elimina
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Tab bar — prima la forniva il layout /mobile, ora la pagina */}
+        <MobileTabBar />
+      </div>
+      </ToastProvider>
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // VISTA DESKTOP (≥ 768px) — identica a prima + Privacy Mode sul display
+  // ══════════════════════════════════════════════════════════════════════════
   return (
     <div style={{ minHeight:"100vh", background:THEME.appBg, fontFamily:"'Outfit','Segoe UI',system-ui,sans-serif" }}>
       <style jsx global>{`
@@ -482,7 +779,7 @@ ${studioPdfHeader(currentStudio,{docTitle:"Contratto di Noleggio",docSubtitle:"M
             <h1 style={{ margin:0, fontWeight:800, fontSize:24, color:THEME.text, letterSpacing:-0.4 }}>Noleggio Magnetoterapia</h1>
             <p style={{ margin:"4px 0 0", fontSize:13, color:THEME.muted }}>Gestione noleggi dispositivi terapeutici</p>
           </div>
-          <button onClick={()=>{setShowForm(true);resetForm();}} style={{ padding:"10px 20px", borderRadius:8, border:"none", background:`linear-gradient(135deg,#0d9488,#2563eb)`, color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer", boxShadow:"0 2px 8px rgba(13,148,136,0.2)" }}>
+          <button onClick={()=>{setShowForm(true);resetForm();}} style={{ padding:"10px 20px", borderRadius:8, border:"none", background:THEME.gradient, color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer", boxShadow:"0 2px 8px rgba(13,148,136,0.2)" }}>
             + Nuovo noleggio
           </button>
         </div>
@@ -491,7 +788,7 @@ ${studioPdfHeader(currentStudio,{docTitle:"Contratto di Noleggio",docSubtitle:"M
         {error&&<div style={{ marginBottom:14, padding:"10px 16px", borderRadius:8, background:"rgba(220,38,38,0.05)", border:"1px solid rgba(220,38,38,0.2)", color:THEME.red, fontWeight:600, fontSize:13 }}>{error}</div>}
         {success&&<div style={{ marginBottom:14, padding:"10px 16px", borderRadius:8, background:"rgba(22,163,74,0.06)", border:"1px solid rgba(22,163,74,0.2)", color:THEME.green, fontWeight:600, fontSize:13 }}>{success}</div>}
 
-        {/* KPI + Impostazioni */}
+        {/* KPI */}
         <div className="noleggio-kpi" style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:12, marginBottom:20 }}>
           {[
             { label:"Disponibili", val:`${Math.max(0,totalUnits-stats.total)}/${totalUnits}`, color:stats.total>=totalUnits?THEME.red:THEME.teal, bg:stats.total>=totalUnits?"rgba(220,38,38,0.08)":"rgba(13,148,136,0.08)" },
@@ -607,7 +904,7 @@ ${studioPdfHeader(currentStudio,{docTitle:"Contratto di Noleggio",docSubtitle:"M
               </div>
               <div style={{ display:"flex", justifyContent:"flex-end", gap:8 }}>
                 <button onClick={()=>setShowForm(false)} style={{ padding:"9px 18px", borderRadius:7, border:`1px solid ${THEME.border}`, background:"#fff", color:THEME.muted, cursor:"pointer", fontWeight:700, fontSize:13 }}>Annulla</button>
-                <button onClick={saveNoleggio} disabled={formSaving} style={{ padding:"9px 20px", borderRadius:7, border:"none", background:`linear-gradient(135deg,#0d9488,#2563eb)`, color:"#fff", fontWeight:700, fontSize:13, cursor:formSaving?"wait":"pointer", opacity:formSaving?0.7:1 }}>
+                <button onClick={saveNoleggio} disabled={formSaving} style={{ padding:"9px 20px", borderRadius:7, border:"none", background:THEME.gradient, color:"#fff", fontWeight:700, fontSize:13, cursor:formSaving?"wait":"pointer", opacity:formSaving?0.7:1 }}>
                   {formSaving?"Salvataggio…":"Salva noleggio"}
                 </button>
               </div>
@@ -705,7 +1002,7 @@ ${studioPdfHeader(currentStudio,{docTitle:"Contratto di Noleggio",docSubtitle:"M
                 ) : (
                   <>
                     <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:2 }}>
-                      <div style={{ fontWeight:800, fontSize:15, color:THEME.text }}>{n.patient_name}</div>
+                      <div style={{ fontWeight:800, fontSize:15, color:THEME.text }}>{shownName(n)}</div>
                       <button onClick={()=>{
                         setEditingId(n.id);
                         setEditName(n.patient_name);
@@ -717,7 +1014,7 @@ ${studioPdfHeader(currentStudio,{docTitle:"Contratto di Noleggio",docSubtitle:"M
                         style={{ background:"none", border:"none", cursor:"pointer", color:THEME.muted, fontSize:13, padding:2, lineHeight:1 }} title="Modifica noleggio">✏️</button>
                     </div>
                     {n.patient_phone
-                      ? <div style={{ fontSize:12, color:THEME.muted }}>{n.patient_phone}</div>
+                      ? <div style={{ fontSize:12, color:THEME.muted }}>{displayPhone(n.patient_phone)}</div>
                       : <div style={{ fontSize:11, color:THEME.amber, fontWeight:600 }}>⚠️ Nessun telefono</div>
                     }
                     {!n.patient_id && (

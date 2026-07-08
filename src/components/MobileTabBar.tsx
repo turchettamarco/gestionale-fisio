@@ -33,8 +33,8 @@ const ITEMS: TabItem[] = [
   //    Il dettaglio paziente (/mobile/patients/[id]) resta mobile per ora,
   //    quindi deve continuare ad accendere questa voce → doppio match.
   { href: "/patients", label: "Pazienti", icon: "◉", match: ["/patients", "/mobile/patients"] },
-  { href: "/mobile/reports", label: "Report", icon: "◈", match: ["/mobile/reports"] },
-  { href: "/mobile/noleggio", label: "Noleggio", icon: "🔌", match: ["/mobile/noleggio"] },
+  { href: "/reports", label: "Report", icon: "◈", match: ["/reports", "/mobile/reports"] },
+  { href: "/noleggio", label: "Noleggio", icon: "🔌", match: ["/noleggio", "/mobile/noleggio"] },
   { href: "/mobile/settings", label: "Impost.", icon: "⚙", match: ["/mobile/settings"] },
 ];
 

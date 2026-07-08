@@ -45,6 +45,8 @@ function isPhoneUserAgent(ua: string) {
 const UNIFIED_ROUTES = new Set<string>([
   "/patients",     // Tappa 1 — lista pazienti
   "/patients/new", // Tappa 3 — nuovo paziente
+  "/noleggio",     // Tappa 4 — noleggio dispositivi
+  "/reports",      // Tappa 5 — report
 ]);
 
 // Prefissi unificati: come sopra, ma per route DINAMICHE ([token], [id], …)
