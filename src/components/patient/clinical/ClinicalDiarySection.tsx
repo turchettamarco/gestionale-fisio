@@ -40,6 +40,7 @@ import AISuggestionModal from "./AISuggestionModal";
 import { buildPatientContext, callClinicalAI } from "@/src/lib/clinical/buildPatientContext";
 import { useDictation, appendDictated } from "@/src/hooks/useDictation";
 import { DictationMicButton } from "@/src/components/DictationMicButton";
+import { PhotoNoteModal, PhotoNoteButton, appendTextBlock, type PhotoSOAP } from "@/src/components/clinical/PhotoNoteModal";
 
 // ─── Theme ──────────────────────────────────────────────────────
 
@@ -633,18 +634,17 @@ function DiarySessionCard({
     }
   }
 
-  async function applySOAP() {
-    if (!aiResult) return;
-    try {
+  /** Scrive i 4 campi SOAP su session_notes (UPDATE se la nota esiste, altrimenti INSERT con risoluzione studio/owner). Lancia in caso di errore. */
+  async function saveSOAPToDb(vals: { S: string; O: string; A: string; P: string }) {
       // Se la nota esiste, UPDATE. Altrimenti INSERT.
       if (note?.id) {
         const { error } = await supabase
           .from("session_notes")
           .update({
-            soap_s: aiResult.S || null,
-            soap_o: aiResult.O || null,
-            soap_a: aiResult.A || null,
-            soap_p: aiResult.P || null,
+            soap_s: vals.S || null,
+            soap_o: vals.O || null,
+            soap_a: vals.A || null,
+            soap_p: vals.P || null,
           })
           .eq("id", note.id);
         if (error) throw error;
@@ -691,18 +691,56 @@ function DiarySessionCard({
             owner_id: resolvedOwnerId,
             patient_id: patientId,
             appointment_id: appointment.id,
-            soap_s: aiResult.S || null,
-            soap_o: aiResult.O || null,
-            soap_a: aiResult.A || null,
-            soap_p: aiResult.P || null,
+            soap_s: vals.S || null,
+            soap_o: vals.O || null,
+            soap_a: vals.A || null,
+            soap_p: vals.P || null,
           });
         if (error) throw error;
       }
+  }
+
+  async function applySOAP() {
+    if (!aiResult) return;
+    try {
+      await saveSOAPToDb(aiResult);
       setAiModalOpen(false);
       setAiResult(null);
       onSOAPCreated();
     } catch (e: any) {
       setAiError("Errore salvataggio: " + (e?.message || "ignoto"));
+    }
+  }
+
+  // ── Seduta da foto (Tappa 12): appunti manoscritti → nota/SOAP ──
+  const [photoOpen, setPhotoOpen] = useState(false);
+
+  function openPhotoModal() {
+    if (dict.listening) dict.stop();
+    setPhotoOpen(true);
+  }
+
+  // La trascrizione finisce nell'editor della nota rapida (aprendolo se
+  // chiuso), in coda al testo esistente. Il salvataggio resta manuale.
+  function insertPhotoQuickNote(text: string) {
+    const base = editingNote ? draftRef.current : (appointment.calendar_note || "");
+    setDraftNote(appendTextBlock(base, text));
+    setEditingNote(true);
+  }
+
+  // Il SOAP dal foglio viene salvato subito su session_notes (come fa
+  // «Salva SOAP» del modal AI), accodato a eventuali campi già presenti.
+  async function applySOAPFromPhoto(s: PhotoSOAP) {
+    try {
+      await saveSOAPToDb({
+        S: appendTextBlock(note?.soap_s, s.S),
+        O: appendTextBlock(note?.soap_o, s.O),
+        A: appendTextBlock(note?.soap_a, s.A),
+        P: appendTextBlock(note?.soap_p, s.P),
+      });
+      onSOAPCreated();
+    } catch (e: any) {
+      alert("Errore salvataggio SOAP: " + (e?.message || "ignoto"));
     }
   }
 
@@ -818,15 +856,18 @@ function DiarySessionCard({
               display: "flex", justifyContent: "space-between", alignItems: "center",
             }}>
               <span>📝 Nota rapida</span>
-              {!editingNote && (
-                <button
-                  onClick={startEditNote}
-                  style={{
-                    background: "transparent", border: "none", cursor: "pointer",
-                    color: T.blue, fontSize: 10, fontWeight: 700, fontFamily: "inherit",
-                  }}
-                >{appointment.calendar_note ? "Modifica" : "+ Aggiungi"}</button>
-              )}
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <PhotoNoteButton size="sm" onClick={openPhotoModal} />
+                {!editingNote && (
+                  <button
+                    onClick={startEditNote}
+                    style={{
+                      background: "transparent", border: "none", cursor: "pointer",
+                      color: T.blue, fontSize: 10, fontWeight: 700, fontFamily: "inherit",
+                    }}
+                  >{appointment.calendar_note ? "Modifica" : "+ Aggiungi"}</button>
+                )}
+              </div>
             </div>
             {editingNote ? (
               <div>
@@ -991,6 +1032,18 @@ function DiarySessionCard({
           )}
         </div>
       )}
+
+      {/* Modale "Seduta da foto" (Tappa 12): la trascrizione va nell'editor
+          della nota rapida (salvataggio manuale), il SOAP viene salvato
+          subito su session_notes come il modal AI. */}
+      <PhotoNoteModal
+        open={photoOpen}
+        onClose={() => setPhotoOpen(false)}
+        patientId={patientId}
+        onInsertQuickNote={insertPhotoQuickNote}
+        onInsertSOAP={applySOAPFromPhoto}
+        soapLabel="Salva → SOAP"
+      />
 
       {/* Modale AI SOAP (Tappa 10) */}
       <AISuggestionModal

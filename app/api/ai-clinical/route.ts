@@ -10,6 +10,7 @@
 //   - "diagnosis"     → suggerimento diagnosi probabile + differenziali
 //   - "plan"          → suggerimento piano di trattamento
 //   - "soap"          → generazione SOAP da nota rapida
+//   - "photo"         → trascrizione appunti manoscritti da foto (vision)
 //
 // REQUEST BODY:
 //   {
@@ -36,12 +37,18 @@ import {
 } from "@/src/lib/clinical/anamnesisOptions";
 import { PAIN_DISTRICTS, expandBilateralCodes } from "@/src/lib/clinical/painLocations";
 
+// La lettura foto (vision) può richiedere 15-30s: alziamo il limite Vercel.
+export const maxDuration = 60;
+
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-haiku-4-5-20251001";
+// Per la lettura della calligrafia serve un modello più capace di Haiku:
+// Sonnet è molto più affidabile sugli appunti manoscritti (~1-2 cent/foto).
+const PHOTO_MODEL = "claude-sonnet-4-6";
 
 // ─── Tipi ────────────────────────────────────────────────────
 
-type AIAction = "summary" | "plan" | "soap" | "anamnesis";
+type AIAction = "summary" | "plan" | "soap" | "anamnesis" | "photo";
 
 interface PatientContext {
   // Anagrafica essenziale
@@ -102,6 +109,11 @@ interface PatientContext {
 
   // Per l'anamnesi vocale: trascrizione dettata della valutazione
   transcript?: string;
+
+  // Per la nota fotografica: immagine degli appunti manoscritti (base64
+  // SENZA prefisso data:, già compressa lato client a ~1600px JPEG)
+  image_base64?: string;
+  image_media_type?: string;
 }
 
 // ─── Helper: serializza il contesto in testo italiano leggibile ───
@@ -250,6 +262,34 @@ function sanitizeAnamnesisResult(raw: any): any {
     occupation: typeof raw?.occupation === "string" && raw.occupation.trim() ? raw.occupation.trim() : null,
     sport: typeof raw?.sport === "string" && raw.sport.trim() ? raw.sport.trim() : null,
     unmapped_notes: typeof raw?.unmapped_notes === "string" ? raw.unmapped_notes.trim().slice(0, 600) : "",
+  };
+}
+
+/** Sanitizza l'output AI dell'azione "photo": stringhe pulite + limiti di lunghezza. */
+function sanitizePhotoResult(raw: any): any {
+  const str = (v: any, max: number): string =>
+    typeof v === "string" ? v.trim().slice(0, max) : "";
+  const strOrNull = (v: any, max: number): string | null => {
+    const s = str(v, max);
+    return s ? s : null;
+  };
+  const uncertain = Array.isArray(raw?.uncertain)
+    ? raw.uncertain
+        .filter((x: any) => typeof x === "string" && x.trim())
+        .map((x: string) => x.trim().slice(0, 200))
+        .slice(0, 8)
+    : [];
+  return {
+    transcription: str(raw?.transcription, 8000),
+    soap: {
+      S: str(raw?.soap?.S, 2000),
+      O: str(raw?.soap?.O, 3000),
+      A: str(raw?.soap?.A, 2000),
+      P: str(raw?.soap?.P, 2000),
+    },
+    uncertain,
+    detected_patient: strOrNull(raw?.detected_patient, 120),
+    detected_date: strOrNull(raw?.detected_date, 40),
   };
 }
 
@@ -408,6 +448,49 @@ Rispondi SOLO con un oggetto JSON in questo formato esatto:
 Niente preamboli, niente markdown, solo JSON.`;
   }
 
+  if (action === "photo") {
+    return `Sei un assistente per fisioterapisti italiani. Nell'immagine allegata ci sono gli APPUNTI SCRITTI A MANO che il fisioterapista ha preso durante una seduta (esercizi, tecniche, serie×ripetizioni, tempi, note cliniche).
+
+COMPITO 1 — TRASCRIZIONE FEDELE (campo "transcription"):
+- Trascrivi tutto il contenuto clinico del foglio in italiano leggibile, una voce per riga (usa "- " a inizio riga per gli elenchi di esercizi/tecniche).
+- Espandi solo le abbreviazioni cliniche ovvie (es. "iso"→"isometriche", "estens"→"estensione", "propr"→"propriocezione", "rotaz"→"rotazioni", "quadric"→"quadricipite", "elettrostim"→"elettrostimolazione", "flex"→"flessione"). Mantieni "dx"/"sx" così come sono.
+- Mantieni ESATTAMENTE serie, ripetizioni, tempi, gradi e valori come scritti (es. 3x10, 2x10, 20-30", 0-45°, 5/10", VAS 4→2).
+- Le tacche di conteggio (|||| ||||) indicano ripetizioni eseguite: convertile in numero (es. due gruppi da 10 tacche → "2x10").
+- Il testo BARRATO o cancellato va IGNORATO (il fisioterapista lo ha corretto).
+- Parola illeggibile: scrivi la tua migliore ipotesi seguita da "(?)". MAI inventare contenuti non presenti nel foglio.
+- Ignora tutto ciò che non fa parte degli appunti (sfondo, mani, oggetti, testo di altre pagine visibili solo in parte).
+- Se nell'immagine sono visibili DUE pagine, trascrivi solo quella completa/principale.
+
+COMPITO 2 — PROPOSTA SOAP (campo "soap"):
+Organizza SOLO il contenuto trascritto nei 4 campi:
+- S (Soggettivo): cosa riferisce il paziente (dolore, sensazioni, VAS riferita) — solo se presente nel foglio.
+- O (Oggettivo): esercizi e tecniche ESEGUITI in seduta con serie/ripetizioni/tempi, terapie strumentali (tecar, laser, elettrostimolazione…), misurazioni e test.
+- A (Assessment): valutazioni o osservazioni cliniche annotate (progressi, tolleranza, qualità del movimento) — solo se presenti.
+- P (Plan): indicazioni per casa, progressioni o programma della prossima seduta — solo se presenti.
+Campo senza contenuto nel foglio → stringa vuota "". NON inventare per riempire i campi.
+
+COMPITO 3 — PUNTI DUBBI (campo "uncertain"):
+Elenca (max 6) le letture incerte: parole poco leggibili, numeri ambigui, date dubbie. Array vuoto se tutto è chiaro.
+
+COMPITO 4 — METADATI:
+- "detected_patient": nome del paziente se scritto nel foglio, altrimenti null.
+- "detected_date": data della seduta se scritta nel foglio (nel formato in cui appare, es. "24/6"), altrimenti null.
+${contextText ? `
+CONTESTO PAZIENTE (usalo SOLO per interpretare meglio calligrafia e abbreviazioni, NON per aggiungere contenuti che non sono nel foglio):
+${contextText}
+` : ""}
+Rispondi SOLO con un oggetto JSON in questo formato esatto:
+{
+  "transcription": "…",
+  "soap": { "S": "", "O": "", "A": "", "P": "" },
+  "uncertain": [],
+  "detected_patient": null,
+  "detected_date": null
+}
+
+Niente preamboli, niente markdown, solo JSON.`;
+  }
+
   return "";
 }
 
@@ -448,7 +531,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "ANTHROPIC_API_KEY non configurata su Vercel" }, { status: 500 });
     }
 
-    if (!action || !["summary", "plan", "soap", "anamnesis"].includes(action)) {
+    if (!action || !["summary", "plan", "soap", "anamnesis", "photo"].includes(action)) {
       return NextResponse.json({ error: "Azione non valida" }, { status: 400 });
     }
 
@@ -460,10 +543,45 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Trascrizione mancante" }, { status: 400 });
     }
 
+    if (action === "photo") {
+      const img = (context.image_base64 || "").trim();
+      if (!img) {
+        return NextResponse.json({ error: "Immagine mancante" }, { status: 400 });
+      }
+      // ~4MB binari in base64 ≈ 5.5M caratteri: sopra rischiamo il limite Vercel (4.5MB)
+      if (img.length > 5_500_000) {
+        return NextResponse.json(
+          { error: "Immagine troppo grande. Riprova: verrà ricompressa automaticamente." },
+          { status: 413 }
+        );
+      }
+    }
+
     const prompt = buildPrompt(action, context);
     if (!prompt) {
       return NextResponse.json({ error: "Prompt non generato" }, { status: 500 });
     }
+
+    // Per "photo" il contenuto del messaggio è multimodale: immagine + istruzioni.
+    const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+    const imageMediaType = ALLOWED_IMAGE_TYPES.has(context.image_media_type || "")
+      ? (context.image_media_type as string)
+      : "image/jpeg";
+
+    const userContent: any =
+      action === "photo"
+        ? [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: imageMediaType,
+                data: (context.image_base64 || "").trim(),
+              },
+            },
+            { type: "text", text: prompt },
+          ]
+        : prompt;
 
     // Chiamata ad Anthropic
     const response = await fetch(ANTHROPIC_API_URL, {
@@ -474,12 +592,13 @@ export async function POST(req: NextRequest) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: MODEL,
+        model: action === "photo" ? PHOTO_MODEL : MODEL,
         max_tokens:
-          action === "anamnesis" ? 1500
+          action === "photo" ? 2500
+          : action === "anamnesis" ? 1500
           : action === "soap" || action === "plan" ? 1024
           : 512,
-        messages: [{ role: "user", content: prompt }],
+        messages: [{ role: "user", content: userContent }],
       }),
     });
 
@@ -501,6 +620,9 @@ export async function POST(req: NextRequest) {
     let result = extractJSON(text);
     if (action === "anamnesis") {
       result = sanitizeAnamnesisResult(result);
+    }
+    if (action === "photo") {
+      result = sanitizePhotoResult(result);
     }
 
     return NextResponse.json({ result, raw: text });

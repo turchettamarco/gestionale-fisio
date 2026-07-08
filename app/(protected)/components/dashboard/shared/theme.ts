@@ -6,20 +6,20 @@
 import type React from "react";
 
 export const THEME = {
-  appBg:     "var(--fh-bg)",
-  panelBg:   "var(--fh-card)",
-  panelSoft: "var(--fh-soft)",
-  text:      "var(--fh-text)",
-  textSoft:  "var(--fh-ink)",
-  muted:     "var(--fh-mut)",
-  border:    "var(--fh-border)",
+  appBg:     "#f1f5f9",
+  panelBg:   "#ffffff",
+  panelSoft: "#f7f9fd",
+  text:      "#0f172a",
+  textSoft:  "#1e293b",
+  muted:     "#334155",
+  border:    "#cbd5e1",
   blue:      "#2563eb",
   blueDark:  "#1e40af",
   green:     "#16a34a",
   teal:      "#0d9488",
   red:       "#dc2626",
   amber:     "#f97316",
-  gray:      "var(--fh-faint)",
+  gray:      "#94a3b8",
 };
 
 // Range orario di lavoro (per slot liberi)
@@ -31,5 +31,5 @@ export const inpStyle: React.CSSProperties = {
   padding: "6px 10px", borderRadius: 6,
   border: `1.5px solid ${THEME.border}`,
   fontSize: 12, fontWeight: 600,
-  outline: "none", background: "var(--fh-card)", color: THEME.text,
+  outline: "none", background: "#fff", color: THEME.text,
 };

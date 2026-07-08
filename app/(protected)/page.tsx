@@ -16,7 +16,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getStudioBranding } from "@/src/lib/studioBranding";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
@@ -38,19 +38,14 @@ import type {
 } from "./components/dashboard/shared/types";
 
 // Sezioni
-import Link from "next/link";
 import AppNavbar from "@/src/components/AppNavbar";
 import HeroSection from "./components/dashboard/HeroSection";
 import WebBookingPopup from "./components/dashboard/WebBookingPopup";
+import LeftColumnSection from "./components/dashboard/LeftColumnSection";
 import AgendaSection from "./components/dashboard/AgendaSection";
-import NextPatientCard from "./components/dashboard/NextPatientCard";
-import ActionCenter from "./components/dashboard/ActionCenter";
-import { WeekCard, PatientsPanel } from "./components/dashboard/WeekAndPatients";
-import DayTimeline from "./components/dashboard/DayTimeline";
-import QuickSearchBar from "./components/dashboard/QuickSearchBar";
-import CashCloseModal from "./components/dashboard/CashCloseModal";
-import SortableShell from "./components/dashboard/SortableShell";
-import { generateDaySheet } from "./components/dashboard/daySheet";
+import RightInsightSection from "./components/dashboard/RightInsightSection";
+import ForecastAndRentalSection from "./components/dashboard/ForecastAndRentalSection";
+import BottomRowSection from "./components/dashboard/BottomRowSection";
 import type { WorkingHourRow } from "./components/dashboard/shared/utils";
 
 
@@ -429,48 +424,6 @@ export default function HomePage() {
     try { localStorage.setItem(todayNoteKey(), val); } catch { /* noop */ }
   }, []);
 
-  // ── Salto con evidenziazione (usato da timeline e KPI) ──────────────
-  const jumpTo = useCallback((id: string) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-    el.classList.add("fh-flash");
-    setTimeout(() => el.classList.remove("fh-flash"), 1400);
-  }, []);
-
-  // ── Scorciatoia tastiera: N = nuovo appuntamento ─────────────────────
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
-      if ((e.key === "n" || e.key === "N") && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        e.preventDefault();
-        window.location.href = "/calendar?new=1";
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  // ── Sparkline: sedute fatte negli ultimi 7 giorni ────────────────────
-  const weekSpark = useMemo(() => {
-    const out: { label: string; v: number; today: boolean }[] = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = addDays(startOfDay(new Date()), -i);
-      const v = appointments.filter(a => isSameDay(new Date(a.start_at), d) && a.status === "done").length;
-      out.push({ label: d.toLocaleDateString("it-IT", { weekday: "narrow" }), v, today: i === 0 });
-    }
-    return out;
-  }, [appointments]);
-
-  // ── Auto-refresh: dashboard sempre viva ─────────────────────────────
-  useEffect(() => {
-    const iv = setInterval(() => { void fetchAppts(); }, 60_000);
-    const onVis = () => { if (document.visibilityState === "visible") void fetchAppts(); };
-    document.addEventListener("visibilitychange", onVis);
-    return () => { clearInterval(iv); document.removeEventListener("visibilitychange", onVis); };
-  }, [fetchAppts]);
-
   // ── Stato riga agenda ───────────────────────────────────────────────
   const [expandedId, setExpandedId]   = useState<string | null>(null);
   const [rowNotes, setRowNotes]       = useState<Record<string, string>>({});
@@ -496,101 +449,6 @@ export default function HomePage() {
   // ── Memo derivati ───────────────────────────────────────────────────
   const todayAppts     = useMemo(() => appointments.filter(a => isSameDay(new Date(a.start_at), today)), [appointments, today]);
   const domicilesToday = useMemo(() => todayAppts.filter(a => a.location === "domicile"), [todayAppts]);
-
-  // ── Riprenotazione mancante: fatti oggi senza appuntamenti futuri ────
-  const rebookNeeded = useMemo(() => {
-    const endToday = addDays(startOfDay(new Date()), 1).getTime();
-    const doneToday = todayAppts.filter(a => a.status === "done");
-    const seen = new Set<string>();
-    const out: AppointmentRow[] = [];
-    for (const a of doneToday) {
-      if (seen.has(a.patient_id)) continue;
-      seen.add(a.patient_id);
-      const hasFuture = appointments.some(x =>
-        x.patient_id === a.patient_id &&
-        x.status !== "cancelled" &&
-        new Date(x.start_at).getTime() >= endToday
-      );
-      if (!hasFuture) out.push(a);
-    }
-    return out;
-  }, [todayAppts, appointments]);
-
-  // ── Chiusura cassa ────────────────────────────────────────────────────
-  const [cashOpen, setCashOpen] = useState(false);
-
-  // ── Notifiche desktop (10 minuti prima di ogni seduta) ───────────────
-  const [notifOn, setNotifOn] = useState(false);
-  useEffect(() => {
-    try {
-      setNotifOn(localStorage.getItem("fh_notif") === "1" &&
-        typeof Notification !== "undefined" && Notification.permission === "granted");
-    } catch { /* noop */ }
-  }, []);
-  const toggleNotif = useCallback(async () => {
-    if (typeof Notification === "undefined") { alert("Questo browser non supporta le notifiche desktop."); return; }
-    if (!notifOn && Notification.permission !== "granted") {
-      const p = await Notification.requestPermission();
-      if (p !== "granted") return;
-    }
-    setNotifOn(prev => { const n = !prev; try { localStorage.setItem("fh_notif", n ? "1" : "0"); } catch { /* noop */ } return n; });
-  }, [notifOn]);
-  useEffect(() => {
-    if (!notifOn || typeof Notification === "undefined") return;
-    const timers: number[] = [];
-    let done = new Set<string>();
-    try { done = new Set<string>(JSON.parse(sessionStorage.getItem("fh_notified") || "[]")); } catch { /* noop */ }
-    const now = Date.now();
-    todayAppts.forEach(a => {
-      if (a.status === "cancelled" || a.status === "done" || done.has(a.id)) return;
-      const fireAt = new Date(a.start_at).getTime() - 10 * 60 * 1000;
-      if (fireAt <= now || fireAt - now > 12 * 60 * 60 * 1000) return;
-      timers.push(window.setTimeout(() => {
-        try {
-          new Notification(`⏰ Tra 10 minuti: ${patientName(a.patients)}`, {
-            body: `${a.treatment_type || "Seduta"} · ${new Date(a.start_at).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}${a.location === "domicile" ? " · 🚗 domicilio" : ""}`,
-            tag: a.id,
-          });
-          done.add(a.id);
-          sessionStorage.setItem("fh_notified", JSON.stringify(Array.from(done)));
-        } catch { /* noop */ }
-      }, fireAt - now));
-    });
-    return () => timers.forEach(clearTimeout);
-  }, [notifOn, todayAppts]);
-
-  // ── Layout personalizzabile: ordine rail + widget nascosti ───────────
-  const RAIL_DEFAULT = ["actions", "week", "patients"];
-  const [railOrder, setRailOrder] = useState<string[]>(RAIL_DEFAULT);
-  const [hiddenWidgets, setHiddenWidgets] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    try {
-      const o = JSON.parse(localStorage.getItem("fh_rail") || "null");
-      if (Array.isArray(o) && o.length === 3) setRailOrder(o);
-      const h = JSON.parse(localStorage.getItem("fh_hidden") || "[]");
-      if (Array.isArray(h)) setHiddenWidgets(new Set(h));
-    } catch { /* noop */ }
-  }, []);
-  const dragKeyRef = useRef<string | null>(null);
-  const dropOn = useCallback((target: string) => {
-    const src = dragKeyRef.current;
-    if (!src || src === target) return;
-    setRailOrder(prev => {
-      const next = prev.filter(k => k !== src);
-      next.splice(next.indexOf(target), 0, src);
-      try { localStorage.setItem("fh_rail", JSON.stringify(next)); } catch { /* noop */ }
-      return next;
-    });
-  }, []);
-  const toggleWidget = useCallback((key: string) => {
-    setHiddenWidgets(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      try { localStorage.setItem("fh_hidden", JSON.stringify(Array.from(next))); } catch { /* noop */ }
-      return next;
-    });
-  }, []);
-
   const next7Appts     = useMemo(() => {
     const s = startOfDay(new Date()); const e = addDays(s, 8);
     return appointments.filter(a => {
@@ -783,7 +641,7 @@ export default function HomePage() {
   // Render
   // ═════════════════════════════════════════════════════════════════════
   return (
-    <div className="fh-root" style={{ minHeight: "100vh", background: THEME.appBg, fontFamily: "'Outfit','Segoe UI',system-ui,sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: THEME.appBg, fontFamily: "'Outfit','Segoe UI',system-ui,sans-serif" }}>
       <style jsx global>{`
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
         *{-webkit-font-smoothing:antialiased;box-sizing:border-box;}
@@ -797,18 +655,71 @@ export default function HomePage() {
         .pulse{animation:pulse 2s ease-in-out infinite;}
         @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
         .fade-in{animation:fadeIn 0.2s ease forwards;}
-        .kpi-click{transition:transform 0.15s ease, background 0.15s ease;}
-        .kpi-click:hover{transform:translateY(-2px);background:rgba(255,255,255,0.18)!important;}
-        @keyframes fhflash{0%{box-shadow:0 0 0 4px rgba(37,99,235,0.40)}100%{box-shadow:0 0 0 0 rgba(37,99,235,0)}}
-        .fh-flash{animation:fhflash 1.3s ease;}
-        .fh-root{--fh-bg:#f1f5f9;--fh-card:#ffffff;--fh-soft:#f6f8fc;--fh-text:#0f172a;--fh-ink:#1e293b;--fh-mut:#64748b;--fh-faint:#94a3b8;--fh-border:#e2e8f0;}
-        @media(max-width:700px){.qs-div{display:none}}
-        @media(max-width:1180px){.main-cols{grid-template-columns:1fr!important}}
-        @media(max-width:860px){.kpi-grid{grid-template-columns:1fr 1fr!important}.foot-cols{grid-template-columns:1fr!important}}
-        @media(min-width:768px)and(max-width:1199px){.th{display:none!important}}
+        @media(max-width:1100px){.col-right{display:none!important}.main-cols{grid-template-columns:340px 1fr!important}}
+        @media(max-width:780px){.main-cols{grid-template-columns:1fr!important}}
+        @media(min-width:768px)and(max-width:1199px){.th{display:none!important}.main-cols{grid-template-columns:1fr 1fr!important}.kpi-grid{grid-template-columns:1fr 1fr!important}}
       `}</style>
 
-      <AppNavbar active="home" onRefresh={fetchAppts} flat />
+      <AppNavbar active="home" onRefresh={fetchAppts} />
+
+      <HeroSection
+        loading={loading}
+        todayDone={todayDone}
+        todayTotal={todayTotal}
+        todayPct={todayPct}
+        todayIncassato={todayIncassato}
+        todayExpected={todayExpected}
+        focusNext={focusNext}
+        nextCountdown={nextCountdown}
+        remindersToSend={remindersToSend}
+        tomorrowAppts={tomorrowAppts}
+      />
+
+      {/* ━━━ ALERT prossimi appuntamenti non confermati ━━━ */}
+      {alertAppts.length > 0 && (
+        <div style={{ background: "rgba(249,115,22,0.95)", padding: "10px 28px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <span className="pulse" style={{ fontSize: 14 }}>⚠️</span>
+          <span style={{ fontWeight: 700, fontSize: 13, color: "#fff", flex: 1 }}>
+            {alertAppts.length === 1
+              ? `Seduta di ${patientName(alertAppts[0].patients)} alle ${new Date(alertAppts[0].start_at).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })} non ancora confermata`
+              : `${alertAppts.length} sedute entro 60 minuti non confermate`}
+          </span>
+          {alertAppts.map(a => (
+            <button
+              key={a.id}
+              onClick={() => setStatus(a.id, "confirmed")}
+              style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.4)", background: "rgba(255,255,255,0.2)", color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer" }}
+            >
+              Conferma{alertAppts.length > 1 ? ` ${patientName(a.patients)}` : ""}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {err && (
+        <div style={{ margin: "12px 28px 0", padding: "10px 14px", borderRadius: 8, background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.18)", color: THEME.red, fontWeight: 600, fontSize: 13 }}>
+          {err}
+        </div>
+      )}
+
+      {/* ━━━ ALERT PRENOTAZIONI WEB (legacy, attivabile in impostazioni) ━━━ */}
+      {currentStudio?.show_booking_card_home === true && webBookings.filter(b => b.status === "pending").length > 0 && (
+        <div style={{ background: "linear-gradient(135deg,#7c3aed,#2563eb)", padding: "10px 28px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 16 }}>🌐</span>
+          <span style={{ fontWeight: 700, fontSize: 13, color: "#fff", flex: 1 }}>
+            {webBookings.filter(b => b.status === "pending").length} nuova prenotazione dal sito in attesa di conferma
+          </span>
+          {webBookings.filter(b => b.status === "pending").slice(0, 2).map(b => (
+            <button
+              key={b.id}
+              onClick={() => setWebPopup(b)}
+              style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.4)", background: "rgba(255,255,255,0.2)", color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer" }}
+            >
+              {b.patient_name} — {b.requested_date.slice(5).replace("-", "/")} {b.requested_time.slice(0, 5)}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ━━━ POPUP DETTAGLIO PRENOTAZIONE WEB ━━━ */}
       {webPopup && (
@@ -822,65 +733,34 @@ export default function HomePage() {
         />
       )}
 
-      <HeroSection
-        loading={loading}
-        todayDone={todayDone}
-        todayTotal={todayTotal}
-        todayPct={todayPct}
-        todayIncassato={todayIncassato}
-        todayExpected={todayExpected}
-        focusNext={focusNext}
-        nextCountdown={nextCountdown}
-        remindersToSend={remindersToSend}
-        tomorrowAppts={tomorrowAppts}
-        onCashClose={() => setCashOpen(true)}
-        onDaySheet={() => void generateDaySheet(todayAppts, currentStudio?.name)}
-        notifOn={notifOn}
-        onToggleNotif={() => void toggleNotif()}
-      />
+      {/* ━━━ CONTENT ━━━ */}
+      <div style={{ padding: "20px 24px 32px" }}>
 
-      {/* ━━━ CONTENT (container centrato) ━━━ */}
-      <div style={{ maxWidth: 1500, margin: "0 auto", padding: "22px 24px 44px" }}>
+        {/* COLONNE PRINCIPALI */}
+        <div className="main-cols" style={{ display: "grid", gridTemplateColumns: "340px 1fr 280px", gap: 16, alignItems: "start", marginBottom: 16 }}>
 
-        <QuickSearchBar />
+          <LeftColumnSection
+            focusNext={focusNext}
+            nextCountdown={nextCountdown}
+            editNextTime={editNextTime}
+            setEditNextTime={setEditNextTime}
+            editDate={editDate} setEditDate={setEditDate}
+            editStart={editStart} setEditStart={setEditStart}
+            editDuration={editDuration} setEditDuration={setEditDuration}
+            savingTime={savingTime}
+            onSaveNextTime={() => void saveNextTime()}
+            onSetStatus={(id, s) => void setStatus(id, s)}
+            onTogglePaid={(id, p) => void togglePaid(id, p)}
+            onUpdatePayment={(id, next) => void handleUpdatePayment(id, next)}
+            onSendWA={(a) => void sendWA(a)}
+            remainingToday={remainingToday}
+            domicilesToday={domicilesToday}
+            tomorrowAppts={tomorrowAppts}
+            remindersToSend={remindersToSend}
+            dayNote={dayNote}
+            onSaveDayNote={saveDayNote}
+          />
 
-        {err && (
-          <div style={{ margin: "0 0 14px", padding: "10px 14px", borderRadius: 12, background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.18)", color: THEME.red, fontWeight: 600, fontSize: 13 }}>
-            {err}
-          </div>
-        )}
-
-        {/* GRIGLIA: agenda protagonista + rail azioni */}
-        <div className="main-cols" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 380px", gap: 20, alignItems: "start" }}>
-
-          {/* ── Colonna principale ── */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 18, minWidth: 0 }}>
-
-            <div id="fh-next" style={{ borderRadius: 16 }}>
-            <NextPatientCard
-              focusNext={focusNext}
-              nextCountdown={nextCountdown}
-              editNextTime={editNextTime}
-              setEditNextTime={setEditNextTime}
-              editDate={editDate} setEditDate={setEditDate}
-              editStart={editStart} setEditStart={setEditStart}
-              editDuration={editDuration} setEditDuration={setEditDuration}
-              savingTime={savingTime}
-              onSaveNextTime={() => void saveNextTime()}
-              onSetStatus={(id, s) => void setStatus(id, s)}
-              onSendWA={(a) => void sendWA(a)}
-              onUpdatePayment={(id, next) => void handleUpdatePayment(id, next)}
-            />
-            </div>
-
-            <SortableShell label="Timeline" hidden={hiddenWidgets.has("timeline")} onToggleHidden={() => toggleWidget("timeline")}>
-              <DayTimeline
-                appts={todayAppts}
-                onSelect={(id) => { setTab("today"); setExpandedId(id); jumpTo("fh-agenda"); }}
-              />
-            </SortableShell>
-
-          <div id="fh-agenda" style={{ borderRadius: 16 }}>
           <AgendaSection
             loading={loading}
             tab={tab}
@@ -898,98 +778,43 @@ export default function HomePage() {
             onSendWA={(a) => void sendWA(a)}
             onSaveNote={(id) => void saveNote(id)}
           />
-          </div>
 
-            {/* Slot liberi + nota del giorno */}
-            <div className="foot-cols" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-              <div style={{ background: "var(--fh-card)", border: `1px solid ${THEME.border}`, borderRadius: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" }}>
-                <div style={{ padding: "12px 16px", borderBottom: `1px solid ${THEME.border}`, display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 26, height: 26, borderRadius: 9, background: "linear-gradient(135deg,rgba(13,148,136,0.14),rgba(37,99,235,0.14))", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>🕐</span><span style={{ fontSize: 13.5, fontWeight: 700, color: THEME.text }}>Slot liberi</span></div>
-                <div style={{ padding: "12px 16px", display: "flex", gap: 7, flexWrap: "wrap" }}>
-                  {freeSlots.length === 0 ? (
-                    <span style={{ fontSize: 11.5, color: "var(--fh-mut)" }}>Agenda piena tra oggi e domani 💪</span>
-                  ) : freeSlots.map(s => (
-                    <Link key={`${s.dateYMD}-${s.time}`} href={`/calendar?new=1&date=${s.dateYMD}`} title={`Prenota ${s.day} alle ${s.time}`} style={{ fontSize: 11, fontWeight: 700, color: THEME.blue, background: "rgba(37,99,235,0.07)", border: "1px solid rgba(37,99,235,0.18)", borderRadius: 999, padding: "4px 11px" }}>
-                      {s.day} {s.time}
-                    </Link>
-                  ))}
-                </div>
-              </div>
-              <div style={{ background: "var(--fh-card)", border: `1px solid ${THEME.border}`, borderRadius: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" }}>
-                <div style={{ padding: "12px 16px", borderBottom: `1px solid ${THEME.border}`, display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 26, height: 26, borderRadius: 9, background: "linear-gradient(135deg,rgba(13,148,136,0.14),rgba(37,99,235,0.14))", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>📝</span><span style={{ fontSize: 13.5, fontWeight: 700, color: THEME.text }}>Nota del giorno</span></div>
-                <div style={{ padding: "10px 12px" }}>
-                  <textarea
-                    value={dayNote}
-                    onChange={e => saveDayNote(e.target.value)}
-                    placeholder="Appunti veloci per oggi… (si salvano da soli)"
-                    rows={3}
-                    style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${THEME.border}`, borderRadius: 10, padding: "9px 11px", fontSize: 12, fontFamily: "inherit", resize: "vertical", outline: "none", color: THEME.text, background: "var(--fh-card)" }}
-                  />
-                </div>
-              </div>
-            </div>
-
-          </div>
-
-          {/* ── Rail destro: azioni e polso ── */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
-            {railOrder.map((key) => {
-              const shell = {
-                hidden: hiddenWidgets.has(key),
-                onToggleHidden: () => toggleWidget(key),
-                draggable: true,
-                onDragStart: () => { dragKeyRef.current = key; },
-                onDragOver: (e: React.DragEvent) => e.preventDefault(),
-                onDrop: () => dropOn(key),
-              };
-              if (key === "actions") return (
-                <SortableShell key={key} label="Da fare" {...shell}>
-                  <div id="fh-actions" style={{ borderRadius: 16 }}>
-                    <ActionCenter
-                      alertAppts={alertAppts}
-                      remindersToSend={remindersToSend}
-                      onSendWA={(a) => void sendWA(a)}
-                      onSetStatus={(id, st) => void setStatus(id, st)}
-                      showBookingCard={currentStudio?.show_booking_card_home === true}
-                      webBookings={webBookings}
-                      onOpenWebPopup={setWebPopup}
-                      openBalanceGroups={openBalanceGroups}
-                      loadingBalances={loadingBalances}
-                      noleggioExpiring={noleggioExpiring}
-                      birthdays={birthdays}
-                      domicilesToday={domicilesToday}
-                      rebookNeeded={rebookNeeded}
-                    />
-                  </div>
-                </SortableShell>
-              );
-              if (key === "week") return (
-                <SortableShell key={key} label="Settimana" {...shell}>
-                  <WeekCard weekStats={weekStats} forecastRevenue={forecastRevenue} spark={weekSpark} />
-                </SortableShell>
-              );
-              return (
-                <SortableShell key={key} label="Pazienti" {...shell}>
-                  <PatientsPanel
-                    inactiveThreshold={inactiveThreshold}
-                    setInactiveThreshold={setInactiveThreshold}
-                    inactiveLoading={inactiveLoading}
-                    inactivePatients={inactivePatients}
-                    contactedPatients={contactedPatients}
-                    setContactedPatients={setContactedPatients}
-                    recentPatients={recentPatients}
-                  />
-                </SortableShell>
-              );
-            })}
-          </div>
+          <RightInsightSection
+            webBookings={webBookings}
+            webBookingActionId={webBookingActionId}
+            onRefreshWebBookings={() => void fetchWebBookings()}
+            onOpenWebPopup={setWebPopup}
+            onConfirmWebBooking={(b) => void confirmWebBooking(b)}
+            weekStats={weekStats}
+            inactiveThreshold={inactiveThreshold}
+            setInactiveThreshold={setInactiveThreshold}
+            inactiveLoading={inactiveLoading}
+            inactivePatients={inactivePatients}
+            contactedPatients={contactedPatients}
+            setContactedPatients={setContactedPatients}
+            recentPatients={recentPatients}
+            showBookingCard={currentStudio?.show_booking_card_home === true}
+          />
 
         </div>
 
-        <CashCloseModal
-          open={cashOpen}
-          onClose={() => setCashOpen(false)}
-          appts={todayAppts}
-          onUpdatePayment={(id, next) => void handleUpdatePayment(id, next)}
+        <ForecastAndRentalSection
+          forecastRevenue={forecastRevenue}
+          noleggioExpiring={noleggioExpiring}
+          noleggioWarningDays={noleggioWarningDays}
+          signatureName={getStudioBranding(currentStudio).signatureName}
+          signatureTitle={getStudioBranding(currentStudio).signatureTitle}
+        />
+
+        <BottomRowSection
+          freeSlots={freeSlots}
+          loadingBalances={loadingBalances}
+          openBalances={openBalances}
+          openBalanceGroups={openBalanceGroups}
+          currentStudio={currentStudio}
+          onTogglePaid={(id, p) => void togglePaid(id, p)}
+          loadingBirthdays={loadingBirthdays}
+          birthdays={birthdays}
         />
 
       </div>

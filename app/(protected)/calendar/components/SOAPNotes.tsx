@@ -5,6 +5,7 @@ import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { buildPatientContext, callClinicalAI } from "@/src/lib/clinical/buildPatientContext";
 import { useDictation, appendDictated } from "@/src/hooks/useDictation";
 import { DictationMicButton } from "@/src/components/DictationMicButton";
+import { PhotoNoteModal, PhotoNoteButton, appendTextBlock, type PhotoSOAP } from "@/src/components/clinical/PhotoNoteModal";
 
 const THEME = {
   teal: "#0d9488", blue: "#2563eb", text: "#0f172a",
@@ -44,6 +45,33 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
   // ── AI: espansione SOAP da nota rapida (Tappa 11) ──
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+
+  // ── AI: seduta da foto degli appunti manoscritti (Tappa 12) ──
+  const [photoOpen, setPhotoOpen] = useState(false);
+
+  function openPhotoModal() {
+    if (dict.listening) dict.stop();
+    setPhotoOpen(true);
+  }
+
+  // La trascrizione va in coda alla nota rapida (niente sovrascritture)
+  function insertPhotoQuickNote(text: string) {
+    setNote(n => ({ ...n, quick_note: appendTextBlock(n.quick_note, text) }));
+    setExpandedMode("quick");
+  }
+
+  // Il SOAP proposto va in coda ai campi esistenti; i campi vuoti
+  // della proposta lasciano invariato ciò che c'è già.
+  function insertPhotoSOAP(s: PhotoSOAP) {
+    setNote(n => ({
+      ...n,
+      soap_s: appendTextBlock(n.soap_s, s.S),
+      soap_o: appendTextBlock(n.soap_o, s.O),
+      soap_a: appendTextBlock(n.soap_a, s.A),
+      soap_p: appendTextBlock(n.soap_p, s.P),
+    }));
+    setExpandedMode("soap");
+  }
 
   // ── Dettatura vocale ("Detti la seduta") ──
   // Target-based: un solo motore di riconoscimento, il campo di destinazione
@@ -234,6 +262,7 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8, flexWrap: "wrap" }}>
         <div style={{ fontSize: 13, fontWeight: 800, color: THEME.text }}>📝 Note di seduta</div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <PhotoNoteButton onClick={openPhotoModal} />
           <button
             type="button"
             onClick={expandWithAI}
@@ -450,6 +479,17 @@ export function SOAPNotesEditor({ appointmentId, patientId, onSaved }: {
           {saving ? "Salvataggio…" : isExisting ? "Aggiorna" : "Salva note"}
         </button>
       </div>
+
+      {/* Modale "Seduta da foto" (Tappa 12): trascrive gli appunti manoscritti.
+          I testi vengono inseriti nei campi ma NON salvati: si salva col
+          bottone Salva/Aggiorna qui sopra, dopo la revisione. */}
+      <PhotoNoteModal
+        open={photoOpen}
+        onClose={() => setPhotoOpen(false)}
+        patientId={patientId}
+        onInsertQuickNote={insertPhotoQuickNote}
+        onInsertSOAP={insertPhotoSOAP}
+      />
     </div>
   );
 }
