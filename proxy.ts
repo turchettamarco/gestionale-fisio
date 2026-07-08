@@ -28,6 +28,24 @@ function isPhoneUserAgent(ua: string) {
   return isPhone;
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// ROUTE UNIFICATE
+// ═══════════════════════════════════════════════════════════════════════
+// Pagine che sono state unificate: UNA sola pagina responsive serve sia
+// telefono che desktop, quindi il telefono NON viene più reindirizzato
+// su /mobile per questi path. Chi arriva su /mobile/<route unificata>
+// (vecchi link, segnalibri, tab bar) viene riportato alla versione unica.
+//
+// Match ESATTO sul path: "/patients" è unificata, ma "/patients/[id]" e
+// "/patients/new" NO (ancora due versioni) e continuano a seguire le
+// regole telefono→/mobile qui sotto.
+//
+// Aggiungere qui i path man mano che le tappe di unificazione procedono.
+// ═══════════════════════════════════════════════════════════════════════
+const UNIFIED_ROUTES = new Set<string>([
+  "/patients", // Tappa 1 — lista pazienti
+]);
+
 export function proxy(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
 
@@ -45,6 +63,22 @@ export function proxy(req: NextRequest) {
   const isPhone = isPhoneUserAgent(ua);
 
   const isAlreadyMobile = pathname.startsWith("/mobile");
+
+  // ✅ Route unificata: il telefono resta dov'è, nessun redirect a /mobile
+  if (isPhone && !isAlreadyMobile && UNIFIED_ROUTES.has(pathname)) {
+    return NextResponse.next();
+  }
+
+  // ✅ /mobile/<route unificata> -> versione unica (per chiunque)
+  if (isAlreadyMobile) {
+    const stripped = pathname.replace(/^\/mobile/, "") || "/";
+    if (UNIFIED_ROUTES.has(stripped)) {
+      const url = req.nextUrl.clone();
+      url.pathname = stripped;
+      url.search = search;
+      return NextResponse.redirect(url);
+    }
+  }
 
   // ✅ Telefono su desktop -> vai su /mobile
   if (isPhone && !isAlreadyMobile) {

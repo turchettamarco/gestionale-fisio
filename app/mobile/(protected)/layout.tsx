@@ -8,7 +8,7 @@ import { PrivacyModeProvider } from "@/src/contexts/PrivacyModeContext";
 import { ToastProvider } from "@/src/components/mobile/ToastProvider";
 import WelcomeTour from "@/app/(protected)/components/WelcomeTour";
 import ActivityTracker from "@/app/(protected)/components/ActivityTracker";
-import MobileTabBar from "./components/MobileTabBar";
+import MobileTabBar from "@/src/components/MobileTabBar";
 
 export default function MobileProtectedLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
