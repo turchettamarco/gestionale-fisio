@@ -20,7 +20,7 @@ import { useParams } from "next/navigation";
 //   4. POST action=sign (con birth_date ri-verificata stateless)
 //   5. Conferma verde / vista read-only se già firmato.
 //
-// NB: raggiungibile anche come /mobile/consensi/{token} (re-export).
+// NB: i vecchi link /mobile/consensi/{token} vengono rediretti qui dal proxy.
 // ═══════════════════════════════════════════════════════════════════════
 
 const T = {

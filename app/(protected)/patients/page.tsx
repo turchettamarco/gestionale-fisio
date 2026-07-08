@@ -31,7 +31,7 @@ import {
 import AppNavbar from "@/src/components/AppNavbar";
 import MobileTabBar from "@/src/components/MobileTabBar";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
-import { normalizePhoneForWA } from "@/src/lib/whatsapp";
+import { normalizePhoneForWA, openWhatsApp } from "@/src/lib/whatsapp";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Plan = "invoice" | "no_invoice";
@@ -112,31 +112,6 @@ function groupByLetter(patients: Patient[]): { letter: string; items: Patient[] 
   return Array.from(map.entries())
     .sort(([a], [b]) => a.localeCompare(b, "it"))
     .map(([letter, items]) => ({ letter, items }));
-}
-
-function openWA(phone: string, message: string = ""): void {
-  const p = phone.replace(/[\s\(\)\-\.]/g, "").replace(/^\+/, "");
-  const n = p.startsWith("00") ? p.slice(2) : p.startsWith("0") ? "39" + p : !p.startsWith("39") && p.length <= 10 ? "39" + p : p;
-  const isMobileUA = /iPhone|iPad|iPod|Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
-  if (isMobileUA) {
-    // Schema URI nativo: apre l'app WhatsApp DIRETTAMENTE (no api.whatsapp.com)
-    const queryText = message ? "&text=" + encodeURIComponent(message) : "";
-    const nativeUrl = "whatsapp://send?phone=" + n + queryText;
-    const fallbackUrl = "https://wa.me/" + n + (message ? "?text=" + encodeURIComponent(message) : "");
-    window.location.href = nativeUrl;
-    setTimeout(() => {
-      if (document.visibilityState === "visible") {
-        window.location.href = fallbackUrl;
-      }
-    }, 1500);
-  } else {
-    // Desktop: WhatsApp Web diretto
-    const text = message ? "&text=" + encodeURIComponent(message) : "";
-    const url = "https://web.whatsapp.com/send?phone=" + n + text;
-    const a = document.createElement("a");
-    a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
-    document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 200);
-  }
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -623,7 +598,7 @@ export default function PatientsPage() {
                           )}
                           {/* WhatsApp */}
                           {waPhone && (
-                            <a href="#" onClick={e => { e.preventDefault(); openWA(waPhone); }}
+                            <a href="#" onClick={e => { e.preventDefault(); openWhatsApp(phoneVal); }}
                               style={{
                                 width: 34, height: 34, borderRadius: 10, flexShrink: 0,
                                 display: "flex", alignItems: "center", justifyContent: "center",
@@ -642,9 +617,9 @@ export default function PatientsPage() {
           ))}
         </div>
 
-        {/* ━━━ FAB nuovo paziente — pagina NON ancora unificata → /mobile ━━━ */}
+        {/* ━━━ FAB nuovo paziente — unificata (Tappa 3) ━━━ */}
         <Link
-          href="/mobile/patients/new"
+          href="/patients/new"
           aria-label="Nuovo paziente"
           style={{
             position: "fixed", right: 18,

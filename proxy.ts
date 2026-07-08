@@ -43,8 +43,27 @@ function isPhoneUserAgent(ua: string) {
 // Aggiungere qui i path man mano che le tappe di unificazione procedono.
 // ═══════════════════════════════════════════════════════════════════════
 const UNIFIED_ROUTES = new Set<string>([
-  "/patients", // Tappa 1 — lista pazienti
+  "/patients",     // Tappa 1 — lista pazienti
+  "/patients/new", // Tappa 3 — nuovo paziente
 ]);
+
+// Prefissi unificati: come sopra, ma per route DINAMICHE ([token], [id], …)
+// dove il match esatto non basta. "/esercizi" copre "/esercizi/abc123" ecc.
+// Tappa 2 — le 6 pagine pubbliche con token erano già identiche su mobile
+// (puri re-export): ora esiste solo la versione unica.
+const UNIFIED_PREFIXES: string[] = [
+  "/conferma",
+  "/consensi",
+  "/esercizi",
+  "/portale",
+  "/scale",
+  "/survey",
+];
+
+function isUnifiedPath(pathname: string): boolean {
+  if (UNIFIED_ROUTES.has(pathname)) return true;
+  return UNIFIED_PREFIXES.some(p => pathname === p || pathname.startsWith(p + "/"));
+}
 
 export function proxy(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
@@ -65,14 +84,14 @@ export function proxy(req: NextRequest) {
   const isAlreadyMobile = pathname.startsWith("/mobile");
 
   // ✅ Route unificata: il telefono resta dov'è, nessun redirect a /mobile
-  if (isPhone && !isAlreadyMobile && UNIFIED_ROUTES.has(pathname)) {
+  if (isPhone && !isAlreadyMobile && isUnifiedPath(pathname)) {
     return NextResponse.next();
   }
 
   // ✅ /mobile/<route unificata> -> versione unica (per chiunque)
   if (isAlreadyMobile) {
     const stripped = pathname.replace(/^\/mobile/, "") || "/";
-    if (UNIFIED_ROUTES.has(stripped)) {
+    if (isUnifiedPath(stripped)) {
       const url = req.nextUrl.clone();
       url.pathname = stripped;
       url.search = search;
