@@ -12,7 +12,7 @@
 //   • < 768px  → vista mobile (header gradiente, card, FAB, tab bar)
 //   • ≥ 768px  → vista desktop (AppNavbar, tabella, drawer nuovo paziente)
 //
-// Il proxy.ts NON reindirizza più i telefoni su /mobile/patients:
+// Il proxy.ts NON reindirizza più i telefoni su /patients:
 // questa pagina serve entrambi. I link verso pagine NON ancora unificate
 // (dettaglio paziente, nuovo paziente mobile) puntano ancora a /mobile/*.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -557,7 +557,7 @@ export default function PatientsPage() {
                         </div>
 
                         {/* Info paziente — dettaglio NON ancora unificato → /mobile */}
-                        <Link href={`/mobile/patients/${p.id}`} style={{
+                        <Link href={`/patients/${p.id}`} style={{
                           flex: 1, minWidth: 0, textDecoration: "none", color: "inherit",
                         }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>

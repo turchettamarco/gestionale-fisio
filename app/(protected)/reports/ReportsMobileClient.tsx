@@ -1158,7 +1158,7 @@ export default function ReportsMobile() {
                   ):(
                     <>
                       {(expandedUnpaid?unpaidTherapiesAll:unpaidTherapiesAll.slice(0,10)).map((t,i)=>(
-                        <Link key={t.id} href={`/mobile/patients/${t.patient_id}`}
+                        <Link key={t.id} href={`/patients/${t.patient_id}`}
                           style={{textDecoration:"none",display:"block"}}>
                           <div style={{padding:"11px 16px",
                             borderBottom:i<(expandedUnpaid?unpaidTherapiesAll:unpaidTherapiesAll.slice(0,10)).length-1?`1px solid ${THEME.border}`:"none",

@@ -29,13 +29,11 @@ type TabItem = {
 const ITEMS: TabItem[] = [
   { href: "/mobile", label: "Home", icon: "⌂", match: ["/mobile"], exact: true },
   { href: "/mobile/calendar", label: "Calendario", icon: "▦", match: ["/mobile/calendar"] },
-  // ✅ UNIFICATA (Tappa 1): la lista pazienti è una sola pagina responsive.
-  //    Il dettaglio paziente (/mobile/patients/[id]) resta mobile per ora,
-  //    quindi deve continuare ad accendere questa voce → doppio match.
-  { href: "/patients", label: "Pazienti", icon: "◉", match: ["/patients", "/mobile/patients"] },
+  // ✅ UNIFICATA (Tappe 1+3+7): tutta l'area pazienti è una sola route.
+  { href: "/patients", label: "Pazienti", icon: "◉", match: ["/patients"] },
   { href: "/reports", label: "Report", icon: "◈", match: ["/reports", "/mobile/reports"] },
   { href: "/noleggio", label: "Noleggio", icon: "🔌", match: ["/noleggio", "/mobile/noleggio"] },
-  { href: "/mobile/settings", label: "Impost.", icon: "⚙", match: ["/mobile/settings"] },
+  { href: "/settings", label: "Impost.", icon: "⚙", match: ["/settings", "/mobile/settings"] },
 ];
 
 const BLUE = "#2563eb";

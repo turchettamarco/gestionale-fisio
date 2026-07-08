@@ -2002,7 +2002,7 @@ export default function MobileHomePage() {
 
                             {a.patient_id && (
                               <button
-                                onClick={() => router.push(`/mobile/patients/${a.patient_id}`)}
+                                onClick={() => router.push(`/patients/${a.patient_id}`)}
                                 style={{
                                   display: "inline-flex", alignItems: "center",
                                   padding: "5px 9px", borderRadius: 6,
@@ -2028,7 +2028,7 @@ export default function MobileHomePage() {
 
                         {isCancelled && a.patient_id && (
                           <button
-                            onClick={() => router.push(`/mobile/patients/${a.patient_id}`)}
+                            onClick={() => router.push(`/patients/${a.patient_id}`)}
                             style={{
                               display: "inline-flex", alignItems: "center",
                               padding: "5px 9px", borderRadius: 6,

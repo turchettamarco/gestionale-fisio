@@ -2585,7 +2585,7 @@ function CalendarPageInner() {
                 {searchResults.map(p=>{
                   const name=`${p.last_name??""} ${p.first_name??""}`.trim();
                   return (
-                    <Link key={p.id} href={`/mobile/patients/${p.id}`} onClick={()=>setSearchOpen(false)} style={{
+                    <Link key={p.id} href={`/patients/${p.id}`} onClick={()=>setSearchOpen(false)} style={{
                       display:"flex",alignItems:"center",justifyContent:"space-between",
                       padding:"12px 14px",borderBottom:`1px solid ${THEME.border}`,
                       textDecoration:"none",color:THEME.text,background:THEME.panelSoft,
@@ -2763,7 +2763,7 @@ function CalendarPageInner() {
               )}
               {selectedEvent.patient_id && (
                 <LightBtn v="ghost"
-                  onClick={()=>router.push(`/mobile/patients/${selectedEvent.patient_id}`)}>
+                  onClick={()=>router.push(`/patients/${selectedEvent.patient_id}`)}>
                   👤 Scheda paziente
                 </LightBtn>
               )}

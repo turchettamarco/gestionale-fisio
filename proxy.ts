@@ -36,17 +36,15 @@ function isPhoneUserAgent(ua: string) {
 // su /mobile per questi path. Chi arriva su /mobile/<route unificata>
 // (vecchi link, segnalibri, tab bar) viene riportato alla versione unica.
 //
-// Match ESATTO sul path: "/patients" è unificata, ma "/patients/[id]" e
-// "/patients/new" NO (ancora due versioni) e continuano a seguire le
-// regole telefono→/mobile qui sotto.
+// Match ESATTO sul path. Per le aree interamente unificate (es. /patients
+// con lista, /new e /[id]) si usa invece UNIFIED_PREFIXES qui sotto.
 //
 // Aggiungere qui i path man mano che le tappe di unificazione procedono.
 // ═══════════════════════════════════════════════════════════════════════
 const UNIFIED_ROUTES = new Set<string>([
-  "/patients",     // Tappa 1 — lista pazienti
-  "/patients/new", // Tappa 3 — nuovo paziente
   "/noleggio",     // Tappa 4 — noleggio dispositivi
   "/reports",      // Tappa 5 — report
+  "/settings",     // Tappa 6 — impostazioni
 ]);
 
 // Prefissi unificati: come sopra, ma per route DINAMICHE ([token], [id], …)
@@ -54,6 +52,7 @@ const UNIFIED_ROUTES = new Set<string>([
 // Tappa 2 — le 6 pagine pubbliche con token erano già identiche su mobile
 // (puri re-export): ora esiste solo la versione unica.
 const UNIFIED_PREFIXES: string[] = [
+  "/patients",  // Tappe 1+3+7 — lista, nuovo e dettaglio paziente
   "/conferma",
   "/consensi",
   "/esercizi",
