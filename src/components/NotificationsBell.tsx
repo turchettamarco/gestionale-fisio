@@ -14,6 +14,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 "use client";
 
+import { Icon } from "@/src/components/icons";
 import { useEffect, useRef, useState, useCallback } from "react";
 
 export type NotificationItem = {
@@ -160,8 +161,8 @@ export default function NotificationsBell({
         aria-label="Notifiche"
         style={{
           position: "relative",
-          background: "rgba(255,255,255,0.18)",
-          border: "1.5px solid rgba(255,255,255,0.35)",
+          background: "transparent",
+          border: "none",
           borderRadius: 10,
           width: 38,
           height: 38,
@@ -174,33 +175,21 @@ export default function NotificationsBell({
           padding: 0,
           transition: "background 0.15s",
         }}
-        onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.28)")}
-        onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.18)")}
+        onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.12)")}
+        onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
       >
-        🔔
+        <Icon name="bell" size={17} color="#fff" />
         {totalBadge > 0 && (
           <span
+            title={`${totalBadge} da leggere`}
             style={{
-              position: "absolute",
-              top: -4,
-              right: -4,
-              minWidth: 18,
-              height: 18,
-              padding: "0 4px",
-              borderRadius: 9,
-              background: dangerColor,
-              color: "#fff",
-              fontSize: 10,
-              fontWeight: 800,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              border: "1.5px solid #fff",
+              position: "absolute", top: 5, right: 6,
+              width: 9, height: 9, borderRadius: "50%",
+              background: "#FBBF24",
+              border: "1.5px solid rgba(255,255,255,0.9)",
               boxSizing: "border-box",
             }}
-          >
-            {totalBadge > 99 ? "99+" : totalBadge}
-          </span>
+          />
         )}
       </button>
 

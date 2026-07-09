@@ -1151,7 +1151,7 @@ export default function SettingsMobileClient() {
                             </div>
                           </div>
                           <Link
-                            href={`/mobile/ospiti/${g.id}`}
+                            href={`/ospiti/${g.id}`}
                             style={{
                               padding: "6px 12px", borderRadius: 8,
                               background: THEME.gradient, color: "#fff",

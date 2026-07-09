@@ -1,5 +1,6 @@
 "use client";
 
+import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
@@ -76,6 +77,12 @@ function calcAge(birthDate: string | null) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function GlobalSearch() {
+  // Su telefono la ricerca globale non esiste (il trigger flottante
+  // sovrapporrebbe FAB e tab bar): la pagina resta pulita come prima
+  // dell'unificazione.
+  const isMobile = useIsMobile();
+  if (isMobile !== false) return null;
+
   const { privacyMode } = usePrivacyMode();
   const displayPhone = useDisplayPatientPhone();
   const { maskName, maskInitial } = usePrivacyDisplay();

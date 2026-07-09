@@ -2,51 +2,37 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Icon, type IconName } from "./icons";
+import { COLORS } from "@/src/theme/tokens";
 
 // ─────────────────────────────────────────────────────────────────────
-// Barra di navigazione inferiore condivisa da tutte le pagine mobile.
-//
-// SPOSTATA da app/mobile/(protected)/components/ a src/components/
-// perché ora viene usata anche dalle pagine UNIFICATE (che vivono in
-// app/(protected)/ e servono sia desktop che telefono).
-//
-// `href`  → dove porta il tap.
-//           Route unificate  → path senza /mobile (es. "/patients").
-//           Route non ancora unificate → path /mobile/* come prima.
-// `match` → tutti i path per cui la voce risulta "attiva". Le route
-//           unificate ne hanno due: la versione nuova e la vecchia
-//           /mobile/* (pagine di dettaglio non ancora migrate).
+// Barra di navigazione inferiore — Restyling Direzione A (R1).
+// Icone SVG a tratto uniforme al posto dei glifi testuali/emoji,
+// superficie warm (#FFFDF9), voce attiva in teal.
 // ─────────────────────────────────────────────────────────────────────
 
 type TabItem = {
   href: string;
   label: string;
-  icon: string;
+  icon: IconName;
   match: string[];
   exact?: boolean;
 };
 
 const ITEMS: TabItem[] = [
-  { href: "/", label: "Home", icon: "⌂", match: ["/"], exact: true },
-  { href: "/calendar", label: "Calendario", icon: "▦", match: ["/calendar"] },
-  // ✅ UNIFICATA (Tappe 1+3+7): tutta l'area pazienti è una sola route.
-  { href: "/patients", label: "Pazienti", icon: "◉", match: ["/patients"] },
-  { href: "/reports", label: "Report", icon: "◈", match: ["/reports", "/mobile/reports"] },
-  { href: "/noleggio", label: "Noleggio", icon: "🔌", match: ["/noleggio", "/mobile/noleggio"] },
-  { href: "/settings", label: "Impost.", icon: "⚙", match: ["/settings", "/mobile/settings"] },
+  { href: "/", label: "Home", icon: "home", match: ["/"], exact: true },
+  { href: "/calendar", label: "Agenda", icon: "calendar", match: ["/calendar"] },
+  { href: "/patients", label: "Pazienti", icon: "users", match: ["/patients"] },
+  { href: "/reports", label: "Report", icon: "chart", match: ["/reports"] },
+  { href: "/noleggio", label: "Noleggio", icon: "plug", match: ["/noleggio"] },
+  { href: "/settings", label: "Impost.", icon: "settings", match: ["/settings"] },
 ];
 
-const BLUE = "#2563eb";
-const GRAY = "#94a3b8";
-const BORDER = "#e2e8f0";
-const GRADIENT = "linear-gradient(135deg,#0d9488,#2563eb)";
-
 // Altezza del contenuto della barra (icone + testo), SENZA la safe-area.
-// Compatta: le icone siedono in basso, vicino alla home bar arrotondata.
 const BAR_CONTENT_H = 48;
 
 export default function MobileTabBar() {
-  const pathname = usePathname() || "/mobile";
+  const pathname = usePathname() || "/";
 
   const isActive = (item: TabItem) => {
     if (item.exact) return item.match.includes(pathname);
@@ -57,36 +43,32 @@ export default function MobileTabBar() {
     <nav
       style={{
         position: "fixed", bottom: 0, left: 0, right: 0,
-        background: "#fff",
-        borderTop: `1px solid ${BORDER}`, display: "flex", zIndex: 40,
+        background: COLORS.surfaceSoft,
+        borderTop: `1px solid ${COLORS.line}`, display: "flex", zIndex: 40,
         height: `calc(${BAR_CONTENT_H}px + env(safe-area-inset-bottom,0px))`,
         paddingBottom: "env(safe-area-inset-bottom,0px)",
-        boxShadow: "0 -1px 8px rgba(15,23,42,0.04)",
+        boxShadow: "0 -1px 8px rgba(26,29,36,0.04)",
       }}
     >
       {ITEMS.map(item => {
         const active = isActive(item);
+        const color = active ? COLORS.teal : COLORS.warm400;
         return (
           <Link
             key={item.href}
             href={item.href}
             style={{
               flex: 1, display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center", gap: 2,
-              textDecoration: "none", paddingTop: 5, paddingBottom: 4,
+              alignItems: "center", justifyContent: "center", gap: 3,
+              textDecoration: "none", paddingTop: 6, paddingBottom: 4,
             }}
           >
-            <span
-              style={{
-                fontSize: 18, lineHeight: 1,
-                ...(active
-                  ? { background: GRADIENT, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }
-                  : { color: GRAY }),
-              }}
-            >
-              {item.icon}
-            </span>
-            <span style={{ fontSize: 10, fontWeight: active ? 700 : 500, color: active ? BLUE : GRAY }}>
+            <Icon name={item.icon} size={19} color={color} strokeWidth={active ? 2.2 : 2} />
+            <span style={{
+              fontSize: 10, lineHeight: 1,
+              fontWeight: active ? 700 : 500,
+              color: active ? COLORS.teal : COLORS.warm400,
+            }}>
               {item.label}
             </span>
           </Link>

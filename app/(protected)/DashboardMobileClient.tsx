@@ -104,30 +104,18 @@ type PatientOption = { id: string; label: string; phone: string | null; firstNam
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 
-const THEME = {
-  appBg:     "#f1f5f9",
-  panelBg:   "#ffffff",
-  panelSoft: "#f7f9fd",
-  text:      "#0f172a",
-  textSoft:  "#1e293b",
-  muted:     "#334155",
-  border:    "#cbd5e1",
-  blue:      "#2563eb",
-  green:     "#16a34a",
-  red:       "#dc2626",
-  amber:     "#f97316",
-  gray:      "#94a3b8",
-  gradient:  "linear-gradient(135deg,#0d9488,#2563eb)",
-};
+import { MOBILE_THEME as THEME } from "@/src/theme/tokens";
+import { Icon, PulseDivider } from "@/src/components/icons";
+import StatusSheet, { type StatusSheetAction } from "@/src/components/mobile/StatusSheet";
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
 const STATUS_MAP: Record<Status, { color: string; bg: string; label: string }> = {
-  booked:    { color: THEME.red,   bg: "rgba(220,38,38,0.07)",   label: "Prenotato" },
-  confirmed: { color: THEME.blue,  bg: "rgba(37,99,235,0.07)",   label: "Confermato" },
-  done:      { color: THEME.green, bg: "rgba(22,163,74,0.09)",   label: "Eseguito" },
-  not_paid:  { color: THEME.amber, bg: "rgba(249,115,22,0.09)",  label: "Non pagata" },
-  cancelled: { color: THEME.gray,  bg: "rgba(148,163,184,0.07)", label: "Annullato" },
+  booked:    { color: THEME.red,      bg: THEME.redTint,   label: "Prenotato" },
+  confirmed: { color: THEME.blueDark, bg: THEME.blueTint,  label: "Confermato" },
+  done:      { color: THEME.tealDeep, bg: THEME.tealTint,  label: "Eseguito" },
+  not_paid:  { color: "#854F0B",      bg: THEME.amberTint, label: "Non pagata" },
+  cancelled: { color: THEME.warm400,  bg: "#F0EAE0",       label: "Annullato" },
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -218,6 +206,12 @@ export default function DashboardMobileClient() {
 
   const nowRef   = useRef<Date>(new Date());
   const todayYMD = useMemo(() => toYMD(new Date()), []);
+  const tomorrowYMD = useMemo(() => toYMD(new Date(Date.now() + 86400000)), []);
+  const greeting = (() => { const h = new Date().getHours(); return h < 13 ? "Buongiorno" : h < 18 ? "Buon pomeriggio" : "Buonasera"; })();
+  const ownerFirstName = useMemo(() => {
+    const n = getStudioBranding(currentStudio).signatureName || "";
+    return n.trim().split(/\s+/)[0] || "";
+  }, [currentStudio]);
   const [dateYMD, setDateYMD] = useState(todayYMD);
 
   const [loading, setLoading]  = useState(true);
@@ -250,6 +244,36 @@ export default function DashboardMobileClient() {
 
   // Expanded appointment card (tap to reveal actions)
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // R2 — Sheet stato seduta (tap sulla pill in agenda)
+  const [statusSheetFor, setStatusSheetFor] = useState<Appointment | null>(null);
+  const [statusSaving, setStatusSaving] = useState(false);
+
+  async function handleSheetAction(appt: Appointment, action: StatusSheetAction) {
+    if (statusSaving) return;
+    setStatusSaving(true);
+    const nowIso = new Date().toISOString();
+    // Coerenza col CHECK constraint appointments_paid_consistency:
+    // is_paid=true ↔ paid_at NOT NULL (mig. 010).
+    const payload =
+      action.kind === "paid"
+        ? { status: "done", is_paid: true, paid_at: nowIso, payment_method: action.method }
+        : action.kind === "settle"
+        ? { status: "done", is_paid: false, paid_at: null, payment_method: null }
+        : action.kind === "not_paid"
+        ? { status: "not_paid", is_paid: false, paid_at: null, payment_method: null }
+        : { status: "confirmed", is_paid: false, paid_at: null, payment_method: null };
+    const { error } = await supabase.from("appointments").update(payload).eq("id", appt.id);
+    if (!error) {
+      const updater = (prev: Appointment[]) => prev.map(a =>
+        a.id === appt.id ? { ...a, ...payload, status: payload.status as Status } : a
+      );
+      setDayAppts(updater);
+      setWeekAppts(updater);
+      setStatusSheetFor(null);
+    }
+    setStatusSaving(false);
+  }
 
   // ─── Modal gestione gruppo (mig. 014) ──────────────────────────────────────
   const [openGroup, setOpenGroup] = useState<GroupEvent | null>(null);
@@ -1348,6 +1372,15 @@ export default function DashboardMobileClient() {
     [activeAppts]
   );
 
+  const daSaldareCount = useMemo(
+    () => activeAppts.filter(a =>
+      a.is_group
+        ? Math.max(0, (a.group_total ?? 0) - (a.group_paid_total ?? 0)) > 0
+        : !a.is_paid && a.status !== "cancelled"
+    ).length,
+    [activeAppts]
+  );
+
   const incassoAtteso = useMemo(
     () => activeAppts.reduce((s, a) => {
       // Gruppi: totale potenziale (somma di tutti i partecipanti)
@@ -1386,10 +1419,14 @@ export default function DashboardMobileClient() {
   }, [dateYMD]);
 
   const userInitials = useMemo(() => {
+    const sig = (getStudioBranding(currentStudio).signatureName || "").trim();
+    const sp = sig.split(/\s+/).filter(Boolean);
+    if (sp.length >= 2) return (sp[0][0] + sp[1][0]).toUpperCase();
+    if (sp.length === 1 && sp[0].length >= 2) return sp[0].slice(0, 2).toUpperCase();
     if (!userEmail) return "U";
     const parts = (userEmail.split("@")[0]||"U").replace(/[^a-zA-Z0-9]/g," ").split(" ").filter(Boolean);
     return ((parts[0]?.[0]||"U")+(parts[1]?.[0]||"")).toUpperCase().slice(0,2);
-  }, [userEmail]);
+  }, [userEmail, currentStudio]);
 
   function shiftDay(delta: number) {
     const d = new Date(`${dateYMD}T00:00:00`); d.setDate(d.getDate()+delta);
@@ -1408,11 +1445,12 @@ export default function DashboardMobileClient() {
   return (
     <div style={{
       minHeight: "100dvh", background: THEME.appBg,
-      fontFamily: "-apple-system,'SF Pro Text',Inter,sans-serif",
+      fontFamily: "'Inter',-apple-system,'SF Pro Text',system-ui,sans-serif",
       overflowX: "hidden",
       maxWidth: "100vw",
     }}>
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
         html, body { overscroll-behavior-y: none; -webkit-overflow-scrolling: touch; overflow-x: hidden; max-width: 100vw; }
         * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
@@ -1422,7 +1460,6 @@ export default function DashboardMobileClient() {
 
       {/* ━━━ HEADER ━━━ */}
       <header style={{
-        position: "sticky", top: 0, zIndex: 30,
         background: THEME.gradient,
         padding: "0 16px",
         paddingTop: "env(safe-area-inset-top, 0px)",
@@ -1435,31 +1472,20 @@ export default function DashboardMobileClient() {
           justifyContent: "space-between",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {/* Logo FisioHub mark (vettoriale, gradient teal→blu già nel SVG) */}
-            <img
-              src="/logo-mark.svg"
-              alt="FisioHub"
-              width={26}
-              height={26}
-              style={{ display: "block", flexShrink: 0 }}
-            />
-            <span style={{
-              fontWeight: 800, fontSize: 14, color: "#fff",
-              letterSpacing: 0.5, textTransform: "uppercase",
+            {/* Logo: cerchio traslucido + battito, come da mockup */}
+            <div style={{
+              width: 30, height: 30, borderRadius: "50%",
+              background: "rgba(255,255,255,0.18)", border: "1.5px solid rgba(255,255,255,0.5)",
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
             }}>
-              Fisio<span style={{ fontWeight: 600, opacity: 0.85 }}>Hub</span>
+              <Icon name="pulse" size={16} color="#fff" strokeWidth={2.2} />
+            </div>
+            <span style={{ fontWeight: 700, fontSize: 15, color: "#fff", letterSpacing: "-0.02em" }}>
+              FisioHub
             </span>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {/* Refresh */}
-            <button onClick={loadAll} aria-label="Aggiorna" style={{
-              width: 30, height: 30, borderRadius: 8,
-              border: "1.5px solid rgba(255,255,255,0.25)", background: "rgba(255,255,255,0.12)",
-              color: "#fff", cursor: "pointer", fontSize: 14,
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}>↺</button>
-
             {/* Bell notifiche pazienti (Fase N2) */}
             <NotificationsBell
               enabled={currentStudio?.notify_bell_enabled !== false}
@@ -1469,7 +1495,7 @@ export default function DashboardMobileClient() {
             {/* User menu */}
             <div ref={userMenuRef} style={{ position: "relative" }}>
               <button onClick={() => setUserMenuOpen(v => !v)} style={{
-                width: 30, height: 30, borderRadius: 8,
+                width: 30, height: 30, borderRadius: "50%",
                 border: "1.5px solid rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.18)",
                 color: "#fff", fontWeight: 800, fontSize: 11, cursor: "pointer",
                 display: "flex", alignItems: "center", justifyContent: "center",
@@ -1490,7 +1516,7 @@ export default function DashboardMobileClient() {
                     }}>📋 Agenda Ospiti</Link>
                   )}
                   {hasGuests && !showIndexLink && singleGuest && (
-                    <Link href={`/mobile/ospiti/${singleGuest.id}`} onClick={() => setUserMenuOpen(false)} style={{
+                    <Link href={`/ospiti/${singleGuest.id}`} onClick={() => setUserMenuOpen(false)} style={{
                       display: "flex", alignItems: "center", gap: 8, padding: "11px 14px",
                       color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
                       borderBottom: `1px solid ${THEME.border}`,
@@ -1518,13 +1544,13 @@ export default function DashboardMobileClient() {
                           {multipleGuests.map(g => (
                             <Link
                               key={g.id}
-                              href={`/mobile/ospiti/${g.id}`}
+                              href={`/ospiti/${g.id}`}
                               onClick={() => setUserMenuOpen(false)}
                               style={{
                                 display: "flex", alignItems: "center", gap: 8,
                                 padding: "9px 14px 9px 30px",
                                 color: THEME.text, fontSize: 12, fontWeight: 600,
-                                background: "#f8fafc", textDecoration: "none",
+                                background: "#FFFDF9", textDecoration: "none",
                               }}
                             >
                               <span style={{
@@ -1556,42 +1582,56 @@ export default function DashboardMobileClient() {
           </div>
         </div>
 
-        {/* Week strip — inside header for compactness */}
-        <div style={{
-          display: "flex", gap: 2, paddingBottom: 10, paddingTop: 2,
-        }}>
-          {weekStrip.map(d => {
-            const sel = d.ymd === dateYMD;
-            const tod = d.ymd === todayYMD && !sel;
+        {/* ── Saluto + sede (Direzione A) ── */}
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 10, padding: "8px 0 46px" }}>
+          <div style={{ minWidth: 0 }}>
+            <p style={{ margin: 0, color: "rgba(255,255,255,0.72)", fontSize: 12 }}>
+              {new Date().toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })}
+            </p>
+            <p style={{ margin: 0, color: "#fff", fontSize: 21, fontWeight: 700, letterSpacing: "-0.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {greeting}{ownerFirstName ? `, ${ownerFirstName}` : ""}
+            </p>
+          </div>
+          {(() => {
+            const sedeLabel = studioLocations?.[0]?.name || null;
+            if (!sedeLabel) return null;
             return (
-              <button key={d.ymd} onClick={() => setDateYMD(d.ymd)} style={{
-                flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
-                gap: 2, padding: "5px 0", borderRadius: 10, border: "none",
-                background: sel ? "rgba(255,255,255,0.22)" : "transparent",
-                cursor: "pointer", transition: "background 0.15s",
-              }}>
-                <span style={{
-                  fontSize: 9, fontWeight: 700, textTransform: "uppercase",
-                  letterSpacing: "0.05em",
-                  color: sel ? "#fff" : "rgba(255,255,255,0.55)",
-                }}>{d.label}</span>
-                <span style={{
-                  fontSize: 15, fontWeight: 800, lineHeight: 1,
-                  color: sel ? "#fff" : tod ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.65)",
-                }}>{d.day}</span>
-                {d.cnt > 0 && (
-                  <span style={{
-                    fontSize: 8, fontWeight: 800, lineHeight: 1,
-                    color: sel ? "#fff" : "rgba(255,255,255,0.5)",
-                    marginTop: 1,
-                  }}>{d.cnt}</span>
-                )}
-                {d.cnt === 0 && <span style={{ fontSize: 8, lineHeight: 1, marginTop: 1, opacity: 0 }}>0</span>}
-              </button>
+              <span style={{
+                flexShrink: 0, fontSize: 12, fontWeight: 600, color: "#fff",
+                background: "rgba(255,255,255,0.16)", border: "1px solid rgba(255,255,255,0.4)",
+                padding: "5px 11px", borderRadius: 99, marginBottom: 2,
+                maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>{sedeLabel}</span>
             );
-          })}
+          })()}
         </div>
       </header>
+
+      {/* ── Strip KPI (Direzione A): atteso / incassato / da saldare ── */}
+      {!loading && (
+        <div style={{
+          margin: "-26px 16px 0", position: "relative", zIndex: 5,
+          background: THEME.panelBg,
+          border: `1px solid ${THEME.line}`, borderRadius: 14,
+          padding: "13px 16px", display: "flex", alignItems: "center",
+          boxShadow: "0 6px 20px rgba(26,29,36,0.08)",
+        }}>
+          <div style={{ flex: 1 }}>
+            <p style={{ margin: 0, fontSize: 19, fontWeight: 800, color: THEME.ink, lineHeight: 1 }}>{activeAppts.length}</p>
+            <p style={{ margin: "3px 0 0", fontSize: 11, fontWeight: 600, color: THEME.warm500 }}>{activeAppts.length === 1 ? "seduta" : "sedute"}</p>
+          </div>
+          <div style={{ width: 1, height: 28, background: THEME.line }} />
+          <div style={{ flex: 1, paddingLeft: 14 }}>
+            <p style={{ margin: 0, fontSize: 19, fontWeight: 800, color: THEME.teal, lineHeight: 1 }}>€ {incasso.toFixed(0)}</p>
+            <p style={{ margin: "3px 0 0", fontSize: 11, fontWeight: 600, color: THEME.warm500 }}>incassato</p>
+          </div>
+          <div style={{ width: 1, height: 28, background: THEME.line }} />
+          <div style={{ flex: 1, paddingLeft: 14 }}>
+            <p style={{ margin: 0, fontSize: 19, fontWeight: 800, color: daSaldareCount > 0 ? THEME.amber : THEME.warm400, lineHeight: 1 }}>{daSaldareCount}</p>
+            <p style={{ margin: "3px 0 0", fontSize: 11, fontWeight: 600, color: THEME.warm500 }}>da saldare</p>
+          </div>
+        </div>
+      )}
 
       {/* Bottom nav: gestita da MobileTabBar nel layout */}
 
@@ -1633,79 +1673,124 @@ export default function DashboardMobileClient() {
           </div>
         )}
 
-        {/* ── Date header + KPI ── */}
-        <div style={{ marginBottom: 12 }}>
-          <div style={{
-            display: "flex", justifyContent: "space-between", alignItems: "center",
-            marginBottom: 10,
-          }}>
-            <div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: THEME.text, lineHeight: 1.1 }}>
-                {isToday ? "Oggi" : headerDateLabel}
-              </div>
-              <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 600, marginTop: 2 }}>
-                {loading ? "…" : `${activeAppts.length} sedute`}
-                {!isToday && ` · ${headerDateLabel}`}
-                {/* Stats settimana (lun-dom): fatte/totali · € atteso */}
-                {!loading && weekStats.total > 0 && (
-                  <>
-                    {" · "}
-                    <span style={{ fontWeight: 700 }}>
-                      <span style={{ color: THEME.green }}>{weekStats.done}</span>
-                      <span style={{ color: THEME.muted }}>/{weekStats.total}</span>
-                    </span>
-                    {" · "}
-                    <span style={{ color: THEME.blue, fontWeight: 700 }}>
-                      €{Math.round(weekStats.revenue).toLocaleString("it-IT")}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
+        {/* ── R2: Sheet stato seduta ── */}
+        {statusSheetFor && (
+          <StatusSheet
+            open
+            patientName={privacyMode ? maskName(statusSheetFor.patients) : fullName(statusSheetFor.patients)}
+            time={fmtTime(statusSheetFor.start_at)}
+            treatment={statusSheetFor.treatment_type}
+            amount={typeof statusSheetFor.amount === "number" ? statusSheetFor.amount : null}
+            currentMethod={statusSheetFor.payment_method ?? null}
+            isPaid={!!statusSheetFor.is_paid}
+            busy={statusSaving}
+            onAction={(action) => handleSheetAction(statusSheetFor, action)}
+            onClose={() => setStatusSheetFor(null)}
+          />
+        )}
 
-          {/* Prospetto incasso giorno */}
-          {!loading && activeAppts.length > 0 && (
-            <div style={{
-              display: "flex", gap: 6,
-            }}>
-              <div style={{
-                flex: 1, padding: "8px 10px", borderRadius: 10,
-                background: THEME.panelBg, border: `1px solid ${THEME.border}`,
-                textAlign: "center",
-              }}>
-                <div style={{ fontSize: 16, fontWeight: 800, color: THEME.text, lineHeight: 1 }}>
-                  €{incassoAtteso.toFixed(0)}
-                </div>
-                <div style={{ fontSize: 9, fontWeight: 700, color: THEME.muted, marginTop: 3,
-                  textTransform: "uppercase", letterSpacing: "0.05em" }}>Atteso</div>
+        {/* ── R3: Prossima seduta (solo vista Oggi) ── */}
+        {!loading && dateYMD === todayYMD && (() => {
+          const nowMs = Date.now();
+          const next = activeAppts.find(x => new Date(x.start_at).getTime() > nowMs);
+          if (!next) return null;
+          const mins = Math.max(1, Math.round((new Date(next.start_at).getTime() - nowMs) / 60000));
+          const when = mins <= 90 ? `tra ${mins} min` : `alle ${fmtTime(next.start_at)}`;
+          const nextPhone = next.patients?.phone;
+          return (
+            <div style={{ background: THEME.panelBg, border: `1px solid ${THEME.line}`, borderRadius: 14, padding: "13px 14px", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 9 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 99, background: THEME.blueTint, color: THEME.blueDark }}>Prossima · {when}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: THEME.ink }}>{fmtTime(next.start_at)}</span>
               </div>
-              <div style={{
-                flex: 1, padding: "8px 10px", borderRadius: 10,
-                background: "rgba(22,163,74,0.06)", border: `1px solid rgba(22,163,74,0.15)`,
-                textAlign: "center",
-              }}>
-                <div style={{ fontSize: 16, fontWeight: 800, color: THEME.green, lineHeight: 1 }}>
-                  €{incasso.toFixed(0)}
-                </div>
-                <div style={{ fontSize: 9, fontWeight: 700, color: THEME.green, marginTop: 3,
-                  textTransform: "uppercase", letterSpacing: "0.05em", opacity: 0.7 }}>Incassato</div>
-              </div>
-              {daIncassare > 0 && (
-                <div style={{
-                  flex: 1, padding: "8px 10px", borderRadius: 10,
-                  background: "rgba(249,115,22,0.06)", border: `1px solid rgba(249,115,22,0.15)`,
-                  textAlign: "center",
-                }}>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: THEME.amber, lineHeight: 1 }}>
-                    €{daIncassare.toFixed(0)}
-                  </div>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: THEME.amber, marginTop: 3,
-                    textTransform: "uppercase", letterSpacing: "0.05em", opacity: 0.7 }}>Da incassare</div>
-                </div>
+              <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: THEME.ink }}>
+                {privacyMode ? maskName(next.patients) : fullName(next.patients)}
+              </p>
+              {next.treatment_type && (
+                <p style={{ margin: "1px 0 0", fontSize: 12, color: THEME.warm500 }}>{next.treatment_type}</p>
               )}
+              <div style={{ display: "flex", gap: 8, marginTop: 11 }}>
+                {nextPhone && (
+                  <button onClick={() => sendReminder(next)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, border: `1px solid ${THEME.border}`, borderRadius: 10, padding: 8, background: THEME.panelBg, cursor: "pointer", fontSize: 12, fontWeight: 600, color: THEME.ink }}>
+                    <Icon name="whatsapp" size={14} color={THEME.green} /> Promemoria
+                  </button>
+                )}
+                <button onClick={() => setStatusSheetFor(next)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, border: `1px solid ${THEME.border}`, borderRadius: 10, padding: 8, background: THEME.panelBg, cursor: "pointer", fontSize: 12, fontWeight: 600, color: THEME.ink }}>
+                  <Icon name="euro" size={14} color={THEME.teal} /> Segna pagato
+                </button>
+              </div>
             </div>
+          );
+        })()}
+
+        {/* ── Toggle Oggi / Domani (Variante 2: track caldo, attivo gradiente) ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0 12px" }}>
+          <div style={{ display: "flex", background: "#F0EAE0", borderRadius: 99, padding: 3 }}>
+            <button onClick={() => setDateYMD(todayYMD)} style={{
+              border: "none", cursor: "pointer", borderRadius: 99, padding: "5px 14px",
+              fontSize: 12, lineHeight: 1.2, transition: "background 0.15s, color 0.15s",
+              fontWeight: dateYMD === todayYMD ? 700 : 600,
+              background: dateYMD === todayYMD ? THEME.gradient : "transparent",
+              color: dateYMD === todayYMD ? "#fff" : THEME.warm500,
+            }}>Oggi</button>
+            <button onClick={() => setDateYMD(tomorrowYMD)} style={{
+              border: "none", cursor: "pointer", borderRadius: 99, padding: "5px 14px",
+              fontSize: 12, lineHeight: 1.2, transition: "background 0.15s, color 0.15s",
+              fontWeight: dateYMD === tomorrowYMD ? 700 : 600,
+              background: dateYMD === tomorrowYMD ? THEME.gradient : "transparent",
+              color: dateYMD === tomorrowYMD ? "#fff" : THEME.warm500,
+            }}>
+              Domani{(() => {
+                const c = weekStrip.find(d => d.ymd === tomorrowYMD)?.cnt ?? 0;
+                return c > 0 ? ` · ${c}` : "";
+              })()}
+            </button>
+          </div>
+          {dateYMD !== todayYMD && dateYMD !== tomorrowYMD && (
+            <button onClick={() => setDateYMD(todayYMD)} style={{
+              display: "flex", alignItems: "center", gap: 6,
+              border: `1px solid ${THEME.border}`, borderRadius: 99,
+              background: THEME.panelBg, cursor: "pointer",
+              padding: "6px 12px", fontSize: 12, fontWeight: 700, color: THEME.ink,
+            }}>
+              {new Date(dateYMD + "T12:00:00").toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" })}
+              <span style={{ fontSize: 13, lineHeight: 1, color: THEME.warm500 }}>✕</span>
+            </button>
           )}
+          <Link href="/calendar" style={{
+            marginLeft: "auto", fontSize: 12, fontWeight: 600,
+            color: THEME.teal, textDecoration: "none", flexShrink: 0,
+          }}>Agenda ›</Link>
+        </div>
+
+        {/* ── Titolo giorno + dettaglio € ── */}
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ fontSize: 18, fontWeight: 800, color: THEME.text, lineHeight: 1.1 }}>
+              {isToday ? "Oggi" : headerDateLabel}
+            </div>
+            <PulseDivider color={THEME.border} />
+          </div>
+          <div style={{ fontSize: 12, color: THEME.muted, fontWeight: 600, marginTop: 2 }}>
+            {loading ? "…" : `${activeAppts.length} ${activeAppts.length === 1 ? "seduta" : "sedute"}`}
+            {!loading && daIncassare > 0 && (
+              <span style={{ color: THEME.amber }}>{" · "}€{daIncassare.toFixed(0)} da incassare</span>
+            )}
+            {/* Stats settimana (lun-dom): fatte/totali · € atteso */}
+            {!loading && weekStats.total > 0 && (
+              <>
+                {" · "}
+                <span style={{ fontWeight: 700 }}>
+                  <span style={{ color: THEME.green }}>{weekStats.done}</span>
+                  <span style={{ color: THEME.muted }}>/{weekStats.total}</span>
+                </span>
+                {" · "}
+                <span style={{ color: THEME.blue, fontWeight: 700 }}>
+                  €{Math.round(weekStats.revenue).toLocaleString("it-IT")}
+                </span>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Error */}
@@ -1842,11 +1927,11 @@ export default function DashboardMobileClient() {
 
                 // Micro-button style helper
                 const microBtn = (bg: string, color: string, active: boolean): React.CSSProperties => ({
-                  width: 28, height: 28, borderRadius: 6, border: "none",
+                  width: 34, height: 34, borderRadius: 12, border: `1px solid ${color}30`,
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 12, cursor: active ? "default" : "pointer",
+                  fontSize: 13, cursor: active ? "default" : "pointer",
                   background: bg, color,
-                  opacity: active ? 1 : 0.85, flexShrink: 0,
+                  opacity: active ? 1 : 0.9, flexShrink: 0,
                 });
 
                 return (
@@ -1889,7 +1974,7 @@ export default function DashboardMobileClient() {
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div style={{
                           display: "flex", alignItems: "center", gap: 5,
-                          fontSize: 13, fontWeight: 600, color: isPastAppt ? THEME.muted : THEME.text,
+                          fontSize: 15, fontWeight: 700, color: isPastAppt ? THEME.muted : THEME.text,
                           lineHeight: 1.3,
                         }}>
                           <span style={{
@@ -1897,8 +1982,8 @@ export default function DashboardMobileClient() {
                             background: st.color, flexShrink: 0,
                           }} />
                           <span style={{
-                            fontVariantNumeric: "tabular-nums", fontWeight: 800,
-                            fontSize: 12, color: isPastAppt ? THEME.gray : THEME.text, flexShrink: 0,
+                            fontVariantNumeric: "tabular-nums", fontWeight: 700,
+                            fontSize: 15, color: isPastAppt ? THEME.gray : THEME.text, flexShrink: 0,
                           }}>{fmtTime(a.start_at)}</span>
                           {phone ? (
                             <a href={`tel:${phone}`}
@@ -1913,7 +1998,7 @@ export default function DashboardMobileClient() {
                               whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
                             }}>{privacyMode ? maskName(a.patients) : fullName(a.patients)}</span>
                           )}
-                          {a.is_paid && <span style={{ fontSize: 10, flexShrink: 0, opacity: 0.7 }}>💰</span>}
+                          
                           {a.location === "domicile" && <span style={{ fontSize: 10, flexShrink: 0, opacity: 0.7 }}>🏠</span>}
                           {a.package_id && <PackageBadge packageId={a.package_id} variant="compact" />}
                           <span style={{
@@ -1922,6 +2007,21 @@ export default function DashboardMobileClient() {
                             {typeof a.amount === "number" && a.amount > 0 ? `€${a.amount}` : ""}
                           </span>
                         </div>
+                        {/* Seconda riga: trattamento · stato (tap → sheet) */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2, minWidth: 0 }}>
+                          {a.treatment_type && (
+                            <span style={{ fontSize: 12, color: THEME.warm500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.treatment_type}</span>
+                          )}
+                          <button
+                            onClick={e => { e.stopPropagation(); setStatusSheetFor(a); }}
+                            style={{
+                              fontSize: 11, fontWeight: 700, flexShrink: 0, cursor: "pointer",
+                              padding: "3px 9px", borderRadius: 99, border: "none", lineHeight: 1.5,
+                              background: a.is_paid ? THEME.tealTint : a.status === "done" ? THEME.amberTint : st.bg,
+                              color: a.is_paid ? THEME.tealDeep : a.status === "done" ? "#854F0B" : st.color,
+                            }}
+                          >{a.is_paid ? "Pagato" : a.status === "done" ? "Da saldare" : st.label}</button>
+                        </div>
                       </div>
 
                       {/* ── Micro action buttons ── */}
@@ -1929,28 +2029,6 @@ export default function DashboardMobileClient() {
                         <div onClick={e => e.stopPropagation()} style={{
                           display: "flex", gap: 4, flexShrink: 0,
                         }}>
-                          {/* ✓ Eseguito */}
-                          <button
-                            onClick={() => !isDone && handleMarkDone(a)}
-                            disabled={isDone || markingDone === a.id}
-                            title={isDone ? "Eseguito" : "Segna eseguito"}
-                            style={microBtn(
-                              isDone ? "rgba(22,163,74,0.15)" : "rgba(22,163,74,0.07)",
-                              THEME.green, isDone,
-                            )}
-                          >{markingDone === a.id ? "…" : "✓"}</button>
-
-                          {/* ! Non pagata */}
-                          <button
-                            onClick={() => !isNotPaid && handleNotPaid(a)}
-                            disabled={isNotPaid || notPaying === a.id}
-                            title={isNotPaid ? "Non pagata" : "Segna non pagata"}
-                            style={microBtn(
-                              isNotPaid ? "rgba(249,115,22,0.15)" : "rgba(249,115,22,0.07)",
-                              THEME.amber, isNotPaid,
-                            )}
-                          >{notPaying === a.id ? "…" : "!"}</button>
-
                           {/* 💬 WA */}
                           {phone && (
                             <button
@@ -1961,8 +2039,9 @@ export default function DashboardMobileClient() {
                                 a.whatsapp_sent_at ? "rgba(22,163,74,0.1)" : "rgba(37,99,235,0.07)",
                                 a.whatsapp_sent_at ? THEME.green : THEME.blue, false,
                               )}
-                            >{sendingWA === a.id ? "…" : "💬"}</button>
+                            >{sendingWA === a.id ? "…" : <Icon name="whatsapp" size={16} color={a.whatsapp_sent_at ? THEME.green : THEME.blue} />}</button>
                           )}
+
                         </div>
                       )}
                     </div>
@@ -2226,9 +2305,9 @@ export default function DashboardMobileClient() {
                                   )}
                                 </div>
                                 <span style={{
-                                  fontSize: 9, fontWeight: 700, color: st.color,
-                                  padding: "2px 6px", borderRadius: 4,
-                                  background: `${st.color}12`,
+                                  fontSize: 10, fontWeight: 700, color: st.color,
+                                  padding: "2px 8px", borderRadius: 99,
+                                  background: st.bg,
                                   flexShrink: 0,
                                 }}>{st.label}</span>
                               </div>
@@ -2237,16 +2316,14 @@ export default function DashboardMobileClient() {
                                 <div style={{ marginTop: 6, display: "flex", gap: 5 }}>
                                   <button
                                     onClick={() => sendReminder(a)}
+                                    title={a.whatsapp_sent_at ? "Rinvia promemoria" : "Invia promemoria"}
                                     style={{
-                                      display: "inline-flex", alignItems: "center", gap: 3,
-                                      padding: "5px 9px", borderRadius: 6, border: "none",
-                                      background: a.whatsapp_sent_at ? "rgba(22,163,74,0.07)" : "rgba(37,99,235,0.07)",
-                                      color: a.whatsapp_sent_at ? THEME.green : THEME.blue,
-                                      fontWeight: 700, fontSize: 11, cursor: "pointer",
+                                      width: 30, height: 30, borderRadius: 10,
+                                      border: "1px solid #CBE8D5", background: THEME.greenTint,
+                                      display: "flex", alignItems: "center", justifyContent: "center",
+                                      cursor: "pointer", padding: 0,
                                     }}
-                                  >
-                                    💬 Invia promemoria
-                                  </button>
+                                  ><Icon name="whatsapp" size={14} color={THEME.green} /></button>
                                 </div>
                               )}
                             </div>

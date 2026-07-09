@@ -1963,7 +1963,7 @@ function CalendarPageInner() {
                   }}>📋 Agenda Ospiti</Link>
                 )}
                 {hasGuests && !showIndexLink && singleGuest && (
-                  <Link href={`/mobile/ospiti/${singleGuest.id}`} onClick={()=>setUserMenuOpen(false)} style={{
+                  <Link href={`/ospiti/${singleGuest.id}`} onClick={()=>setUserMenuOpen(false)} style={{
                     display:"flex",alignItems:"center",gap:8,padding:"12px 16px",
                     color:THEME.text,textDecoration:"none",fontSize:13,fontWeight:600,
                     borderBottom:`1.5px solid ${THEME.border}`,
@@ -1991,7 +1991,7 @@ function CalendarPageInner() {
                         {multipleGuests.map(g => (
                           <Link
                             key={g.id}
-                            href={`/mobile/ospiti/${g.id}`}
+                            href={`/ospiti/${g.id}`}
                             onClick={() => setUserMenuOpen(false)}
                             style={{
                               display:"flex", alignItems:"center", gap:8,
