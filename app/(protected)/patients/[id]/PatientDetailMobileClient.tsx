@@ -278,7 +278,7 @@ function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, fi
   const actions = [
     phone    ? { label: "Chiama",    icon: "📞", href: `tel:${phone}`,                          color: T.blue  } : null,
     waPhone  ? { label: "WhatsApp",  icon: "💬", href: `#`, color: T.green } : null,
-    { label: "Prenota",   icon: "📅", href: `/mobile/calendar?new=1&patient_id=${patientId}`, color: T.teal  },
+    { label: "Prenota",   icon: "📅", href: `/calendar?new=1&patient_id=${patientId}`, color: T.teal  },
     { label: "Consensi",  icon: "🖊️", href: `#consents`, color: "#0d9488" },
     (birthDate && phone) ? { label: "Auguri",   icon: "🎂", href: `#birthday`, color: "#f59e0b" } : null,
     (unpaidAmount > 0 && phone) ? { label: `€${unpaidAmount % 1 === 0 ? unpaidAmount.toFixed(0) : unpaidAmount.toFixed(2)}`, icon: "💶", href: `#payment`, color: "#dc2626" } : null,

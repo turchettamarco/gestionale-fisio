@@ -1463,7 +1463,7 @@ export default function DashboardMobileClient() {
             {/* Bell notifiche pazienti (Fase N2) */}
             <NotificationsBell
               enabled={currentStudio?.notify_bell_enabled !== false}
-              onAppointmentClick={() => router.push("/mobile/calendar")}
+              onAppointmentClick={() => router.push("/calendar")}
             />
 
             {/* User menu */}
@@ -2075,7 +2075,7 @@ export default function DashboardMobileClient() {
                   Prossimi giorni
                 </span>
                 <button
-                  onClick={() => router.push(`/mobile/calendar?date=${dateYMD}`)}
+                  onClick={() => router.push(`/calendar?date=${dateYMD}`)}
                   style={{
                     padding: "5px 10px", borderRadius: 8, border: "none",
                     background: "rgba(37,99,235,0.08)", color: THEME.blue,
@@ -2951,7 +2951,7 @@ export default function DashboardMobileClient() {
 
             {/* Link to full calendar for more options */}
             <button
-              onClick={() => { setQuickAddOpen(false); router.push(`/mobile/calendar?date=${dateYMD}&new=1`); }}
+              onClick={() => { setQuickAddOpen(false); router.push(`/calendar?date=${dateYMD}&new=1`); }}
               style={{
                 width: "100%", marginTop: 10, padding: "8px 0",
                 border: "none", background: "transparent",

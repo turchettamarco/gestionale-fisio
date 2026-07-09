@@ -43,6 +43,7 @@ function isPhoneUserAgent(ua: string) {
 // ═══════════════════════════════════════════════════════════════════════
 const UNIFIED_ROUTES = new Set<string>([
   "/",             // Tappa 8 — dashboard (home)
+  "/calendar",     // Tappa 9 — calendario
   "/noleggio",     // Tappa 4 — noleggio dispositivi
   "/reports",      // Tappa 5 — report
   "/settings",     // Tappa 6 — impostazioni
