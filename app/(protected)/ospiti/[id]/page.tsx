@@ -6,12 +6,14 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { Suspense } from "react";
+import MobileOnlyTabBar from "@/src/components/MobileOnlyTabBar";
 import AgendaOspiteClient from "./AgendaOspiteClient";
 
 export default function AgendaOspitePage() {
   return (
     <Suspense fallback={<div style={{ padding: 24, fontWeight: 800 }}>Caricamento agenda…</div>}>
       <AgendaOspiteClient />
+      <MobileOnlyTabBar />
     </Suspense>
   );
 }

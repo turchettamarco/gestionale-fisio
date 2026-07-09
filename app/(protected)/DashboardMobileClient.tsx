@@ -1483,7 +1483,7 @@ export default function DashboardMobileClient() {
                 }}>
                   {/* Voce Agenda Ospiti smart (mig. 029) */}
                   {hasGuests && showIndexLink && (
-                    <Link href="/mobile/ospiti" onClick={() => setUserMenuOpen(false)} style={{
+                    <Link href="/ospiti" onClick={() => setUserMenuOpen(false)} style={{
                       display: "flex", alignItems: "center", gap: 8, padding: "11px 14px",
                       color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
                       borderBottom: `1px solid ${THEME.border}`,

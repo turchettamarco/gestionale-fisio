@@ -6,12 +6,14 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { Suspense } from "react";
+import MobileOnlyTabBar from "@/src/components/MobileOnlyTabBar";
 import OspitiIndexClient from "./OspitiIndexClient";
 
 export default function OspitiIndexPage() {
   return (
     <Suspense fallback={<div style={{ padding: 24, fontWeight: 800 }}>Caricamento ospiti…</div>}>
       <OspitiIndexClient />
+      <MobileOnlyTabBar />
     </Suspense>
   );
 }

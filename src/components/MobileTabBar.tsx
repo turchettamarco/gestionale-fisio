@@ -27,7 +27,7 @@ type TabItem = {
 };
 
 const ITEMS: TabItem[] = [
-  { href: "/", label: "Home", icon: "⌂", match: ["/", "/mobile"], exact: true },
+  { href: "/", label: "Home", icon: "⌂", match: ["/"], exact: true },
   { href: "/calendar", label: "Calendario", icon: "▦", match: ["/calendar"] },
   // ✅ UNIFICATA (Tappe 1+3+7): tutta l'area pazienti è una sola route.
   { href: "/patients", label: "Pazienti", icon: "◉", match: ["/patients"] },
