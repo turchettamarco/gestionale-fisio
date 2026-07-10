@@ -24,7 +24,7 @@ const PATHS: Record<string, React.ReactNode> = {
 
   // Azioni
   phone:    <path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2" />,
-  whatsapp: <><path d="M3 21l1.65-3.8a9 9 0 1 1 3.4 2.9z" /><path d="M9 10a.5.5 0 0 0 1 0V9a.5.5 0 0 0-1 0zM14 10a.5.5 0 0 0 1 0V9a.5.5 0 0 0-1 0zM9.5 13.5c.5 1 1.5 1.5 2.5 1.5s2-.5 2.5-1.5" /></>,
+  whatsapp: <><path d="M3 21l1.65-3.8a9 9 0 1 1 3.4 2.9z" /><path d="M9 10a.5.5 0 0 0 1 0V9a.5.5 0 0 0-1 0v1a5 5 0 0 0 5 5h1a.5.5 0 0 0 0-1h-1a.5.5 0 0 0 0 1" /></>,
   bell:     <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></>,
   plus:     <path d="M12 5v14M5 12h14" />,
   check:    <path d="M5 12l5 5L20 7" />,

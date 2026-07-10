@@ -2035,11 +2035,17 @@ export default function DashboardMobileClient() {
                               onClick={() => sendReminder(a)}
                               disabled={sendingWA === a.id}
                               title={a.whatsapp_sent_at ? "Rinvia WA" : "Invia WA"}
-                              style={microBtn(
-                                a.whatsapp_sent_at ? "rgba(22,163,74,0.1)" : "rgba(37,99,235,0.07)",
-                                a.whatsapp_sent_at ? THEME.green : THEME.blue, false,
+                              style={{ ...microBtn(THEME.greenTint, THEME.green, false), position: "relative", border: "1px solid #CBE8D5" }}
+                            >
+                              {sendingWA === a.id ? "…" : <Icon name="whatsapp" size={16} color={THEME.green} />}
+                              {!!a.whatsapp_sent_at && sendingWA !== a.id && (
+                                <span style={{ position: "absolute", top: -4, right: -4, width: 13, height: 13, borderRadius: "50%",
+                                  background: THEME.green, display: "flex", alignItems: "center", justifyContent: "center",
+                                  border: "1.5px solid #fff" }}>
+                                  <Icon name="check" size={8} color="#fff" strokeWidth={3.2} />
+                                </span>
                               )}
-                            >{sendingWA === a.id ? "…" : <Icon name="whatsapp" size={16} color={a.whatsapp_sent_at ? THEME.green : THEME.blue} />}</button>
+                            </button>
                           )}
 
                         </div>

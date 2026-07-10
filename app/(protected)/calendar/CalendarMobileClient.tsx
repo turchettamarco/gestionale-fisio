@@ -352,7 +352,7 @@ function CalendarPageInner() {
   const timelineScrollRef = useRef<HTMLDivElement>(null);
 
   /* view mode */
-  const [viewMode,       setViewMode]       = useState<"day"|"month">("day");
+  const [viewMode,       setViewMode]       = useState<"day"|"week"|"month">("day");
   const [monthEvents,    setMonthEvents]    = useState<CalendarEvent[]>([]);
   const [monthLoading,   setMonthLoading]   = useState(false);
   const [monthDrawerDay, setMonthDrawerDay] = useState<Date|null>(null);
@@ -594,10 +594,10 @@ function CalendarPageInner() {
   }, [userMenuOpen]);
 
   /* ── Load ────────────────────────────────── */
-  const loadAppointments = useCallback(async (date: Date) => {
+  const loadAppointments = useCallback(async (date: Date, rangeEnd?: Date) => {
     setLoading(true); setError("");
     const s0=new Date(date); s0.setHours(0,0,0,0);
-    const e0=new Date(date); e0.setHours(23,59,59,999);
+    const e0 = rangeEnd ? new Date(rangeEnd) : (() => { const x=new Date(date); x.setHours(23,59,59,999); return x; })();
     const {data,error:err} = await supabase.from("appointments").select(`
       id,patient_id,start_at,end_at,status,calendar_note,is_paid,paid_at,
       location,clinic_site,location_id,domicile_address,studio_id,
@@ -680,7 +680,23 @@ function CalendarPageInner() {
     })();
   }, [privacyMode, privacyStyle]);
 
-  useEffect(() => { loadAppointments(currentDate); }, [currentDate, loadAppointments]);
+  useEffect(() => { if (viewMode !== "week") loadAppointments(currentDate); }, [currentDate, loadAppointments, viewMode]);
+
+  // Vista settimana: carica Lun→Sab in una query sola
+  const weekRange = useCallback((d: Date) => {
+    const mon = new Date(d); mon.setDate(mon.getDate() - ((mon.getDay()+6)%7)); mon.setHours(0,0,0,0);
+    const end = new Date(mon); end.setDate(end.getDate()+6); // domenica 00:00 (esclusa, come la vista mese)
+    return { mon, end };
+  }, []);
+  useEffect(() => {
+    if (viewMode === "week") { const { mon, end } = weekRange(currentDate); loadAppointments(mon, end); }
+  }, [viewMode, currentDate, loadAppointments, weekRange]);
+
+  // Ricarica coerente con la vista corrente (usata dopo salvataggi/refresh)
+  const reloadCurrent = useCallback(async () => {
+    if (viewMode === "week") { const { mon, end } = weekRange(currentDate); await loadAppointments(mon, end); }
+    else await reloadCurrent();
+  }, [viewMode, currentDate, loadAppointments, weekRange]);
 
   // Carica il catalogo trattamenti dinamico (treatment_types) per lo studio corrente.
   // Riempie il dropdown del modal di creazione e modifica appuntamenti.
@@ -864,6 +880,8 @@ function CalendarPageInner() {
   const goPrev  = useCallback(() => {
     if (viewMode==="month") {
       setCurrentDate(p=>{ const d=new Date(p); d.setDate(1); d.setMonth(d.getMonth()-1); return d; });
+    } else if (viewMode==="week") {
+      setCurrentDate(p=>addDays(p,-7));
     } else {
       setCurrentDate(p=>addDays(p,-1));
     }
@@ -871,6 +889,8 @@ function CalendarPageInner() {
   const goNext  = useCallback(() => {
     if (viewMode==="month") {
       setCurrentDate(p=>{ const d=new Date(p); d.setDate(1); d.setMonth(d.getMonth()+1); return d; });
+    } else if (viewMode==="week") {
+      setCurrentDate(p=>addDays(p, 7));
     } else {
       setCurrentDate(p=>addDays(p, 1));
     }
@@ -905,7 +925,7 @@ function CalendarPageInner() {
     if (!isPulling) { pullStartY.current=null; return; }
     if (pullY>=PULL_THRESHOLD) {
       setIsRefreshing(true); setPullY(PULL_THRESHOLD);
-      await loadAppointments(currentDate);
+      await reloadCurrent();
       setIsRefreshing(false);
     }
     setPullY(0); setIsPulling(false); pullStartY.current=null;
@@ -1242,7 +1262,7 @@ function CalendarPageInner() {
     if (e){setError(`Errore: ${e.message}`);setBusy(false);return;}
     const becameCancelled = editStatus === "cancelled" && selectedEvent.status !== "cancelled";
     const freedSlot = selectedEvent.start;
-    setSelectedEvent(null); setBusy(false); await loadAppointments(currentDate);
+    setSelectedEvent(null); setBusy(false); await reloadCurrent();
     if (becameCancelled) await openWaitlistMatchesForSlot(freedSlot);
   }, [selectedEvent,editStatus,editNote,editAmount,editPriceType,editPaymentMethod,editDate,editTime,editDuration,editTreatmentType,currentDate,loadAppointments,paymentMethodRequired,defaultPaymentMethod,openWaitlistMatchesForSlot]);
 
@@ -1826,13 +1846,19 @@ function CalendarPageInner() {
                   title={waSent?`WA inviato il ${new Date(ev.whatsapp_sent_at!).toLocaleDateString("it-IT")}`:"Invia promemoria WhatsApp"}
                   onClick={e=>{e.stopPropagation();if(phoneOk)sendReminder(ev.id,ev.patient_phone??undefined,ev.patient_first_name??undefined);}}
                   style={{
-                    width:26,height:26,borderRadius:99,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
-                    border:waSent?`1px solid rgba(22,163,74,0.4)`:`1px solid ${THEME.border}`,
-                    background:waSent?"rgba(22,163,74,0.10)":THEME.panelBg,
-                    color:waSent?THEME.green:THEME.muted,
-                    cursor:phoneOk?"pointer":"not-allowed",opacity:phoneOk?1:0.35,fontSize:13,
+                    width:28,height:28,borderRadius:10,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
+                    border:"1px solid #CBE8D5",
+                    background:THEME.greenTint,position:"relative",
+                    cursor:phoneOk?"pointer":"not-allowed",opacity:phoneOk?1:0.35,padding:0,
                   }}>
-                  {waSent ? <Icon name="check" size={13} color={THEME.green} /> : <Icon name="whatsapp" size={13} color={THEME.blue} />}
+                  <Icon name="whatsapp" size={15} color={THEME.green} />
+                  {waSent && (
+                    <span style={{position:"absolute",top:-4,right:-4,width:13,height:13,borderRadius:"50%",
+                      background:THEME.green,display:"flex",alignItems:"center",justifyContent:"center",
+                      border:"1.5px solid #fff"}}>
+                      <Icon name="check" size={8} color="#fff" strokeWidth={3.2} />
+                    </span>
+                  )}
                 </button>
               </div>
             </div>
@@ -2080,6 +2106,11 @@ function CalendarPageInner() {
             background:viewMode==="day"?"linear-gradient(135deg,#0d9488,#2563eb)":THEME.panelBg,
             color:viewMode==="day"?"#fff":THEME.muted,
           }}>Giorno</button>
+          <button onClick={()=>setViewMode("week")} style={{
+            flex:1,padding:"9px 0",border:"none",cursor:"pointer",fontWeight:700,fontSize:13,
+            background:viewMode==="week"?"linear-gradient(135deg,#0d9488,#2563eb)":THEME.panelBg,
+            color:viewMode==="week"?"#fff":THEME.muted,
+          }}>Settimana</button>
           <button onClick={()=>setViewMode("month")} style={{
             flex:1,padding:"9px 0",border:"none",cursor:"pointer",fontWeight:700,fontSize:13,
             background:viewMode==="month"?"linear-gradient(135deg,#0d9488,#2563eb)":THEME.panelBg,
@@ -2113,6 +2144,17 @@ function CalendarPageInner() {
                   </span>
                   <span style={{fontWeight:500,opacity:0.7,marginLeft:6}}>{currentDate.getFullYear()}</span>
                 </>
+              ): viewMode==="week" ? (
+                <span style={{fontWeight:800}}>
+                  {(() => {
+                    const mon=new Date(currentDate); mon.setDate(mon.getDate()-((mon.getDay()+6)%7));
+                    const sab=new Date(mon); sab.setDate(sab.getDate()+5);
+                    const M=["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
+                    return mon.getMonth()===sab.getMonth()
+                      ? `${mon.getDate()} – ${sab.getDate()} ${M[mon.getMonth()]}`
+                      : `${mon.getDate()} ${M[mon.getMonth()]} – ${sab.getDate()} ${M[sab.getMonth()]}`;
+                  })()}
+                </span>
               ):(
                 <>
                   {isToday&&<span style={{fontSize:10,fontWeight:800,background:THEME.gradient,color:"#fff",
@@ -2254,6 +2296,92 @@ function CalendarPageInner() {
               <div style={{padding:12,textAlign:"center",fontSize:12,color:THEME.muted}}>Caricamento…</div>
             )}
           </div>
+        ) : viewMode==="week" ? (
+          (() => {
+            const HOUR_PX = 44, H_START = 7, H_END = 20;
+            const { mon } = weekRange(currentDate);
+            const days = Array.from({length:6},(_,i)=>{ const d=new Date(mon); d.setDate(d.getDate()+i); return d; });
+            const now = new Date();
+            const weekEvs = events.filter(e => e.status !== "cancelled");
+            const totCount = weekEvs.length;
+            const totRev = weekEvs.reduce((s,e)=> s + (e.is_group ? (e.group_total ?? 0) : (typeof e.amount==="number"?e.amount:0)), 0);
+            const labelFor = (ev: CalendarEvent) => {
+              if (ev.is_group) return `${ev.group_title||"Gruppo"}${typeof ev.participant_count==="number"&&ev.group_max_participants?` ${ev.participant_count}/${ev.group_max_participants}`:""}`;
+              const fn = ev.patient_first_name || "";
+              let s = ev.patient_name || "";
+              if (fn && s.toLowerCase().endsWith((" "+fn).toLowerCase())) s = s.slice(0, s.length-fn.length-1);
+              return fn ? `${s} ${fn[0]}.` : s;
+            };
+            const colorFor = (ev: CalendarEvent) => {
+              if (ev.is_group) return "#7c3aed";
+              if (!ev.is_paid && (ev.status==="done"||ev.status==="not_paid")) return "#B45309";
+              const ls = getLocationCardStyle(ev as any, studioLocations as any);
+              return ls.borderColor || THEME.teal;
+            };
+            return (
+              <div style={{background:THEME.panelBg,border:`1px solid ${THEME.line}`,borderRadius:12,overflow:"hidden",marginBottom:10}}>
+                {/* Intestazioni giorno: tap → apre il Giorno */}
+                <div style={{display:"grid",gridTemplateColumns:"24px repeat(6,1fr)",borderBottom:`1px solid ${THEME.line}`}}>
+                  <div />
+                  {days.map(d=>{ const t=isSameDay(d,now); return (
+                    <button key={toISODateLocal(d)} onClick={()=>{setCurrentDate(d);setViewMode("day");}} style={{
+                      border:"none",cursor:"pointer",textAlign:"center",padding:"5px 0 6px",
+                      background:t?THEME.gradient:"transparent"}}>
+                      <p style={{margin:0,fontSize:8,fontWeight:800,letterSpacing:"0.04em",color:t?"rgba(255,255,255,0.85)":THEME.warm400,textTransform:"uppercase"}}>{formatWeekdayShort(d)}</p>
+                      <p style={{margin:0,fontSize:13,fontWeight:800,color:t?"#fff":THEME.text}}>{d.getDate()}</p>
+                    </button>
+                  );})}
+                </div>
+                {/* Corpo: 7→20, scorre in verticale */}
+                <div style={{maxHeight:"58vh",overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+                  <div style={{display:"grid",gridTemplateColumns:"24px repeat(6,1fr)",height:(H_END-H_START)*HOUR_PX}}>
+                    <div style={{position:"relative"}}>
+                      {Array.from({length:H_END-H_START},(_,i)=>(
+                        i===0?null:<span key={i} style={{position:"absolute",top:i*HOUR_PX,right:3,transform:"translateY(-50%)",fontSize:7.5,fontWeight:700,color:THEME.warm400}}>{H_START+i}</span>
+                      ))}
+                    </div>
+                    {days.map(d=>{ const t=isSameDay(d,now);
+                      const evs = weekEvs.filter(e=>isSameDay(e.start,d));
+                      return (
+                        <div key={toISODateLocal(d)} style={{position:"relative",borderLeft:`1px solid ${THEME.lineFaint}`,
+                          background:`repeating-linear-gradient(to bottom,${t?"rgba(13,148,136,0.045)":"transparent"} 0,${t?"rgba(13,148,136,0.045)":"transparent"} ${HOUR_PX-1}px,${THEME.lineFaint} ${HOUR_PX-1}px,${THEME.lineFaint} ${HOUR_PX}px)`}}>
+                          {evs.map(ev=>{
+                            const sh=ev.start.getHours()+ev.start.getMinutes()/60;
+                            const eh=ev.end.getHours()+ev.end.getMinutes()/60;
+                            if (eh<=H_START||sh>=H_END) return null;
+                            const top=Math.max(0,(sh-H_START)*HOUR_PX);
+                            const height=Math.max(18,(Math.min(eh,H_END)-Math.max(sh,H_START))*HOUR_PX-2);
+                            const c=colorFor(ev);
+                            const small=height<30;
+                            return (
+                              <button key={ev.id} onClick={()=>openEvent(ev)} style={{position:"absolute",top,height,left:1.5,right:1.5,
+                                border:"none",borderLeft:`3px solid ${c}`,borderRadius:5,background:`${c}1A`,
+                                padding:"2px 3px",overflow:"hidden",textAlign:"left",cursor:"pointer",display:"block"}}>
+                                <p style={{margin:0,fontSize:7,fontWeight:800,lineHeight:1.2,color:c}}>
+                                  {fmtTime(ev.start)}{small?` ${labelFor(ev).split(" ").map(w=>w[0]||"").join("").slice(0,3).toUpperCase()}`:""}
+                                </p>
+                                {!small&&(
+                                  <p style={{margin:0,fontSize:8,fontWeight:700,lineHeight:1.15,color:c,wordBreak:"break-word"}}>{labelFor(ev)}</p>
+                                )}
+                              </button>
+                            );
+                          })}
+                          {t&&(()=>{ const nh=now.getHours()+now.getMinutes()/60; if(nh<H_START||nh>H_END) return null; return (
+                            <div style={{position:"absolute",left:0,right:0,top:(nh-H_START)*HOUR_PX,height:2,background:"#C0392B",zIndex:2}} />
+                          );})()}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                {/* Totali + guida */}
+                <div style={{display:"flex",alignItems:"center",gap:10,padding:"7px 10px",borderTop:`1px solid ${THEME.lineFaint}`}}>
+                  <span style={{fontSize:10,fontWeight:800,color:THEME.text}}>{totCount} sedute · €{Math.round(totRev)}</span>
+                  <span style={{marginLeft:"auto",fontSize:9,color:THEME.warm400}}>tap sul blocco → seduta · sul giorno → agenda</span>
+                </div>
+              </div>
+            );
+          })()
         ) : (
           <div style={{
           display:"flex",gap:4,marginBottom:10,
@@ -3120,7 +3248,8 @@ function CalendarPageInner() {
         onClick={() => setWaitlistOpen(true)}
         aria-label="Lista d'attesa"
         style={{
-          position: "fixed", right: 16, bottom: 82, zIndex: 3500,
+          position: "fixed", right: 16, zIndex: 3500,
+          bottom: `calc(env(safe-area-inset-bottom,0px) + ${BOTTOM_TAB_H + 16 + 64}px)`,
           display: "inline-flex", alignItems: "center", gap: 7,
           padding: "11px 16px", borderRadius: 999, border: "none",
           background: "linear-gradient(135deg, #0d9488, #2563eb)",
@@ -3128,7 +3257,7 @@ function CalendarPageInner() {
           fontFamily: "inherit", boxShadow: "0 8px 22px rgba(37,99,235,0.4)",
         }}
       >
-        ⏰
+        <Icon name="clock" size={16} color="#fff" strokeWidth={2.4} />
         {waitlistCount > 0 && (
           <span style={{ background: "#fff", color: "#0d9488", borderRadius: 999, fontSize: 11, fontWeight: 900, padding: "1px 7px", minWidth: 18, textAlign: "center" }}>{waitlistCount}</span>
         )}
