@@ -830,8 +830,15 @@ function CalendarPageInner() {
     const base = qDate&&isValidISODate(qDate)?qDate:toISODateLocal(currentDate);
     const qt = searchParams.get("time");
     openCreate(qt&&isValidHHMM(qt)?qt:undefined,base);
+    // Prenota dal paziente: ?patient=<id> preseleziona il paziente nel form
+    const qPatient = searchParams.get("patient");
+    if (qPatient) {
+      supabase.from("patients").select("id, first_name, last_name, phone")
+        .eq("id", qPatient).single()
+        .then(({ data }) => { if (data) setSelectedPatient(data as PatientLite); });
+    }
     const params = new URLSearchParams(searchParams.toString());
-    params.delete("new"); params.delete("time"); params.delete("action");
+    params.delete("new"); params.delete("time"); params.delete("action"); params.delete("patient");
     router.replace(`/calendar${params.toString()?`?${params}`:""}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams,router]);

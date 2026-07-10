@@ -178,13 +178,13 @@ export default function AgendaSection(p: AgendaSectionProps) {
                                 { l: "Luogo",   v: a.location === "studio" ? a.clinic_site || "Studio" : `Dom. ${a.domicile_address || ""}` },
                               ].map(d => (
                                 <div key={d.l} style={{ background: "#fff", borderRadius: 6, padding: "7px 10px", border: `1px solid ${THEME.border}` }}>
-                                  <div style={{ fontSize: 10.5, color: "#8494ab", fontWeight: 600, marginBottom: 2 }}>{d.l}</div>
+                                  <div style={{ fontSize: 9, color: THEME.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 2 }}>{d.l}</div>
                                   <div style={{ fontSize: 13, fontWeight: 600, color: THEME.text }}>{d.v}</div>
                                 </div>
                               ))}
                             </div>
                             <div style={{ marginBottom: 10 }}>
-                              <div style={{ fontSize: 10.5, color: "#8494ab", fontWeight: 600, marginBottom: 5 }}>Nota seduta</div>
+                              <div style={{ fontSize: 9, color: THEME.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 5 }}>Nota seduta</div>
                               <textarea
                                 value={p.rowNotes[a.id] || ""}
                                 onChange={e => p.setRowNotes(m => ({ ...m, [a.id]: e.target.value }))}

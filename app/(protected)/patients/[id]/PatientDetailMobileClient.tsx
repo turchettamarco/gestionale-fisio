@@ -939,6 +939,9 @@ export default function PatientDetailMobileClient({ patientId }: { patientId: st
                   borderRadius: 9, background: "rgba(13,148,136,0.1)", color: T.teal,
                   fontSize: 12.5, fontWeight: 700, textDecoration: "none" }}>Chiama</a>
               )}
+              <a href={`/calendar?new=1&patient=${patient.id}`} style={{ flex: 1, textAlign: "center", padding: 9,
+                borderRadius: 9, background: "#E1F5EE", border: "1px solid #BFE0D3", color: "#085041",
+                fontSize: 12.5, fontWeight: 700, textDecoration: "none" }}>Prenota</a>
               <button onClick={() => setActiveTab("info")} style={{ flex: 1, padding: 9,
                 borderRadius: 9, background: "rgba(37,99,235,0.08)", color: T.blue,
                 fontSize: 12.5, fontWeight: 700, border: "none", cursor: "pointer",
