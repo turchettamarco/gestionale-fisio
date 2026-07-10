@@ -498,23 +498,38 @@ export default function DashboardDesktopClient() {
   const domicilesToday = useMemo(() => todayAppts.filter(a => a.location === "domicile"), [todayAppts]);
 
   // ── Riprenotazione mancante: fatti oggi senza appuntamenti futuri ────
-  const rebookNeeded = useMemo(() => {
-    const endToday = addDays(startOfDay(new Date()), 1).getTime();
+  // NB: la home carica gli appuntamenti solo fino a ~8 giorni avanti,
+  // quindi la verifica "ha un futuro?" NON può basarsi su quella finestra
+  // (falsi positivi per chi riprenota più in là). Qui si interroga il DB
+  // su TUTTO il futuro, senza limite superiore.
+  const [rebookNeeded, setRebookNeeded] = useState<AppointmentRow[]>([]);
+  useEffect(() => {
     const doneToday = todayAppts.filter(a => a.status === "done");
     const seen = new Set<string>();
-    const out: AppointmentRow[] = [];
+    const candidates: AppointmentRow[] = [];
     for (const a of doneToday) {
       if (seen.has(a.patient_id)) continue;
       seen.add(a.patient_id);
-      const hasFuture = appointments.some(x =>
-        x.patient_id === a.patient_id &&
-        x.status !== "cancelled" &&
-        new Date(x.start_at).getTime() >= endToday
-      );
-      if (!hasFuture) out.push(a);
+      candidates.push(a);
     }
-    return out;
-  }, [todayAppts, appointments]);
+    if (candidates.length === 0) { setRebookNeeded([]); return; }
+
+    let cancelled = false;
+    (async () => {
+      const endToday = addDays(startOfDay(new Date()), 1).toISOString();
+      const { data } = await supabase
+        .from("appointments")
+        .select("patient_id")
+        .in("patient_id", candidates.map(c => c.patient_id))
+        .gte("start_at", endToday)
+        .neq("status", "cancelled")
+        .limit(500);
+      if (cancelled) return;
+      const withFuture = new Set(((data as { patient_id: string }[] | null) ?? []).map(r => r.patient_id));
+      setRebookNeeded(candidates.filter(c => !withFuture.has(c.patient_id)));
+    })();
+    return () => { cancelled = true; };
+  }, [todayAppts]);
 
   // ── Chiusura cassa ────────────────────────────────────────────────────
   const [cashOpen, setCashOpen] = useState(false);
