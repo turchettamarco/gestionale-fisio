@@ -15,7 +15,8 @@
 // chiamante via onAction. Lo riuseranno home (R2) e calendario (R4).
 // ═══════════════════════════════════════════════════════════════════════════
 
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { MOBILE_THEME as T } from "@/src/theme/tokens";
 import { Icon } from "@/src/components/icons";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
@@ -55,7 +56,11 @@ export default function StatusSheet({
   onAction: (a: StatusSheetAction) => void;
   onClose: () => void;
 }) {
-  if (!open) return null;
+  // Portal sul body: fuori da stacking context e trasformazioni della
+  // pagina (era la causa dello sheet tagliato sotto la tab bar su iOS).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  if (!open || !mounted) return null;
 
   const optStyle: React.CSSProperties = {
     display: "flex", alignItems: "center", gap: 11, width: "100%",
@@ -64,16 +69,18 @@ export default function StatusSheet({
     opacity: busy ? 0.6 : 1,
   };
 
-  return (
+  return createPortal(
     <div
       onClick={onClose}
-      style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(26,29,36,0.34)" }}
+      style={{ position: "fixed", inset: 0, zIndex: 999, background: "rgba(26,29,36,0.34)" }}
     >
       <div
         onClick={e => e.stopPropagation()}
         style={{
-          position: "fixed", left: 0, right: 0, bottom: 0,
+          position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 1000,
           background: T.panelBg, borderRadius: "22px 22px 0 0",
+          maxHeight: "calc(100dvh - 32px)", overflowY: "auto",
+          WebkitOverflowScrolling: "touch",
           padding: "13px 16px calc(env(safe-area-inset-bottom,0px) + 18px)",
           boxShadow: "0 -8px 30px rgba(26,29,36,0.14)",
           animation: "sheetUp 0.18s ease",
@@ -149,6 +156,7 @@ export default function StatusSheet({
           </span>
         </button>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

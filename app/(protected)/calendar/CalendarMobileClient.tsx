@@ -24,6 +24,8 @@ import PackageBadge from "@/src/components/packages/PackageBadge";
 import PaidIconButton from "@/src/components/PaidIconButton";
 import NotificationsBell from "@/src/components/NotificationsBell";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
+import StatusSheet, { type StatusSheetAction } from "@/src/components/mobile/StatusSheet";
+import { Icon } from "@/src/components/icons";
 import GroupEventModalMobile, { type GroupEvent } from "@/src/components/mobile/GroupEventModalMobile";
 import {
   groupSearchPatientsApi,
@@ -165,22 +167,8 @@ type TouchDragState = {
 };
 
 /* ─── Theme ───────────────────────────────────────────────────────────── */
-const THEME = {
-  appBg:     "#f1f5f9",
-  panelBg:   "#ffffff",
-  panelSoft: "#f7f9fd",
-  text:      "#0f172a",
-  textSoft:  "#1e293b",
-  muted:     "#334155",
-  border:    "#cbd5e1",
-  blue:      "#2563eb",
-  green:     "#16a34a",
-  red:       "#dc2626",
-  amber:     "#f97316",
-  gray:      "#94a3b8",
-  teal:      "#0d9488",
-  gradient:  "linear-gradient(135deg, #0d9488, #2563eb)",
-};
+// THEME: token centrali Direzione A (R4 restyling)
+import { MOBILE_THEME as THEME } from "@/src/theme/tokens";
 
 const PX_PER_HOUR    = 80;
 const BOTTOM_TAB_H = 60;
@@ -949,6 +937,37 @@ function CalendarPageInner() {
   }, []);
 
   // Handler completo per il PaidIconButton mobile calendar
+  // R4 — Sheet stato seduta (riuso del componente della home)
+  const [statusSheetFor, setStatusSheetFor] = useState<CalendarEvent | null>(null);
+  const [statusSaving, setStatusSaving] = useState(false);
+
+  async function handleSheetAction(ev: CalendarEvent, action: StatusSheetAction) {
+    if (statusSaving) return;
+    setStatusSaving(true);
+    const nowIso = new Date().toISOString();
+    // Coerenza col CHECK constraint appointments_paid_consistency (mig. 010)
+    const payload =
+      action.kind === "paid"
+        ? { status: "done", is_paid: true, paid_at: nowIso, payment_method: action.method }
+        : action.kind === "settle"
+        ? { status: "done", is_paid: false, paid_at: null, payment_method: null }
+        : action.kind === "not_paid"
+        ? { status: "not_paid", is_paid: false, paid_at: null, payment_method: null }
+        : { status: "confirmed", is_paid: false, paid_at: null, payment_method: null };
+    const { error } = await supabase.from("appointments").update(payload).eq("id", ev.id);
+    if (!error) {
+      setEvents(prev => prev.map(e =>
+        e.id === ev.id
+          ? { ...e, status: payload.status as Status, is_paid: payload.is_paid,
+              paid_at: payload.paid_at ? new Date(payload.paid_at) : null,
+              payment_method: payload.payment_method ?? null }
+          : e
+      ));
+      setStatusSheetFor(null);
+    }
+    setStatusSaving(false);
+  }
+
   const handleUpdatePayment = useCallback(
     async (
       id: string,
@@ -1683,8 +1702,8 @@ function CalendarPageInner() {
           display:"flex",alignItems:"center",justifyContent:"space-between",
           padding:"0 14px",pointerEvents:"none",
         }}>
-          <span style={{fontSize:18,opacity:swipeX>20?Math.min((swipeX-20)/60,1):0}}>✅</span>
-          <span style={{fontSize:18,opacity:swipeX<-20?Math.min((-swipeX-20)/60,1):0}}>✏️</span>
+          <span style={{opacity:swipeX>20?Math.min((swipeX-20)/60,1):0,display:"flex"}}><Icon name="check" size={18} color={THEME.green} strokeWidth={2.4} /></span>
+          <span style={{opacity:swipeX<-20?Math.min((-swipeX-20)/60,1):0,display:"flex"}}><Icon name="edit" size={17} color={THEME.amber} /></span>
         </div>
 
         {/* Card */}
@@ -1764,9 +1783,14 @@ function CalendarPageInner() {
                 <span style={{fontSize:11,color:THEME.muted,whiteSpace:"nowrap"}}>
                   {fmtTime(ev.start)}–{fmtTime(ev.end)}
                 </span>
-                <span style={{fontSize:10,color:col,background:`${col}18`,padding:"1px 6px",borderRadius:99,whiteSpace:"nowrap"}}>
-                  {statusLabel(ev.status)}
-                </span>
+                <button
+                  onClick={e => { e.stopPropagation(); setStatusSheetFor(ev); }}
+                  style={{fontSize:10,fontWeight:700,border:"none",cursor:"pointer",lineHeight:1.5,
+                    color: ev.is_paid ? THEME.tealDeep : ev.status === "done" ? "#854F0B" : col,
+                    background: ev.is_paid ? THEME.tealTint : ev.status === "done" ? THEME.amberTint : `${col}18`,
+                    padding:"2px 8px",borderRadius:99,whiteSpace:"nowrap"}}>
+                  {ev.is_paid ? "Pagato" : ev.status === "done" ? "Da saldare" : statusLabel(ev.status)}
+                </button>
               </div>
               {/* Azioni rapide */}
               <div style={{display:"flex",gap:5,alignItems:"center",flexShrink:0}}>
@@ -1794,7 +1818,7 @@ function CalendarPageInner() {
                     background:ev.calendar_note?"rgba(249,115,22,0.08)":THEME.panelBg,
                     cursor:"pointer",fontSize:12,
                   }}>
-                  {ev.calendar_note?"📝":"✎"}
+                  <Icon name="edit" size={12} color={ev.calendar_note?THEME.amber:THEME.warm500} />
                 </button>
                 {/* WA */}
                 <button className="ev-act"
@@ -1808,7 +1832,7 @@ function CalendarPageInner() {
                     color:waSent?THEME.green:THEME.muted,
                     cursor:phoneOk?"pointer":"not-allowed",opacity:phoneOk?1:0.35,fontSize:13,
                   }}>
-                  {waSent?"✓💬":"💬"}
+                  {waSent ? <Icon name="check" size={13} color={THEME.green} /> : <Icon name="whatsapp" size={13} color={THEME.blue} />}
                 </button>
               </div>
             </div>
@@ -1863,12 +1887,13 @@ function CalendarPageInner() {
   return (
     <div
       style={{minHeight:"100vh",background:THEME.appBg,paddingBottom:BOTTOM_TAB_H+16,
-              fontFamily:"Inter,-apple-system,sans-serif",
+              fontFamily:"'Inter',-apple-system,system-ui,sans-serif",
               overflowX:"hidden",maxWidth:"100vw"}}
       onTouchStart={handlePullStart}
       onTouchMove={handlePullMove}
       onTouchEnd={handlePullEnd}
     >
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');`}</style>
 
       {/* ━━━ Pull-to-refresh indicator ━━━ */}
       {(isPulling||isRefreshing)&&(
@@ -1895,11 +1920,13 @@ function CalendarPageInner() {
         boxShadow:"0 2px 12px rgba(13,148,136,0.18)",gap:10,
       }}>
         <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-          <div style={{width:28,height:28,borderRadius:7,background:"rgba(255,255,255,0.2)",
-            border:"1.5px solid rgba(255,255,255,0.3)",display:"flex",alignItems:"center",
-            justifyContent:"center",color:"#fff",fontWeight:800,fontSize:13}}>F</div>
-          <span style={{fontWeight:800,fontSize:15,color:"#fff",letterSpacing:0.3,textTransform:"uppercase"}}>
-            Fisio<span style={{fontWeight:700}}>Hub</span>
+          <div style={{width:30,height:30,borderRadius:"50%",background:"rgba(255,255,255,0.18)",
+            border:"1.5px solid rgba(255,255,255,0.5)",display:"flex",alignItems:"center",
+            justifyContent:"center",flexShrink:0}}>
+            <Icon name="pulse" size={16} color="#fff" strokeWidth={2.2} />
+          </div>
+          <span style={{fontWeight:700,fontSize:15,color:"#fff",letterSpacing:"-0.02em"}}>
+            FisioHub
           </span>
         </div>
 
@@ -1908,7 +1935,7 @@ function CalendarPageInner() {
           <div style={{display:"flex",gap:5,alignItems:"center"}}>
             <span style={{fontSize:11,fontWeight:700,color:"#fff",background:"rgba(255,255,255,0.2)",
               padding:"4px 8px",borderRadius:6,border:"1px solid rgba(255,255,255,0.15)",whiteSpace:"nowrap"}}>
-              ✓ {dayStats.done}/{dayStats.total}
+              <Icon name="check" size={11} color="#fff" style={{ display: "inline-block", verticalAlign: -1, marginRight: 3 }} />{dayStats.done}/{dayStats.total}
             </span>
             <span style={{fontSize:11,fontWeight:700,color:"#fff",background:"rgba(255,255,255,0.2)",
               padding:"4px 8px",borderRadius:6,border:"1px solid rgba(255,255,255,0.15)",whiteSpace:"nowrap"}}>
@@ -1920,15 +1947,10 @@ function CalendarPageInner() {
         <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
           {/* Ricerca paziente */}
           <button onClick={()=>{setSearchOpen(true);setSearchQuery("");setSearchResults([]);}} aria-label="Cerca paziente" style={{
-            width:30,height:30,borderRadius:7,border:"1.5px solid rgba(255,255,255,0.3)",
-            background:"rgba(255,255,255,0.15)",color:"#fff",cursor:"pointer",fontSize:15,
+            width:34,height:34,borderRadius:10,border:"none",
+            background:"transparent",cursor:"pointer",padding:0,
             display:"flex",alignItems:"center",justifyContent:"center",
-          }}>🔍</button>
-          <button onClick={()=>loadAppointments(currentDate)} aria-label="Aggiorna" style={{
-            width:30,height:30,borderRadius:7,border:"1.5px solid rgba(255,255,255,0.3)",
-            background:"rgba(255,255,255,0.15)",color:"#fff",cursor:"pointer",fontSize:15,
-            display:"flex",alignItems:"center",justifyContent:"center",
-          }}>↺</button>
+          }}><Icon name="search" size={18} color="rgba(255,255,255,0.92)" /></button>
 
           {/* Bell notifiche conferme/annullamenti pazienti (Fase N2) */}
           <div style={{ display: "flex", alignItems: "center" }}>
@@ -1946,7 +1968,7 @@ function CalendarPageInner() {
 
           <div ref={userMenuRef} style={{position:"relative"}}>
             <button onClick={()=>setUserMenuOpen(v=>!v)} style={{
-              width:30,height:30,borderRadius:7,border:"1.5px solid rgba(255,255,255,0.35)",
+              width:30,height:30,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.35)",
               background:"rgba(255,255,255,0.2)",color:"#fff",fontWeight:800,fontSize:11,
               cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
             }}>{userInitials}</button>
@@ -1997,7 +2019,7 @@ function CalendarPageInner() {
                               display:"flex", alignItems:"center", gap:8,
                               padding:"10px 16px 10px 32px",
                               color:THEME.text, fontSize:12, fontWeight:600,
-                              background:"#f8fafc", textDecoration:"none",
+                              background:"#FFFDF9", textDecoration:"none",
                             }}
                           >
                             <span style={{
@@ -2030,6 +2052,21 @@ function CalendarPageInner() {
       </header>
 
       {/* Tab bar — prima la forniva il layout /mobile, ora la pagina */}
+      {statusSheetFor && (
+        <StatusSheet
+          open
+          patientName={statusSheetFor.is_group ? (statusSheetFor.group_title || "Gruppo") : statusSheetFor.patient_name}
+          time={fmtTime(statusSheetFor.start)}
+          treatment={statusSheetFor.treatment_type}
+          amount={typeof statusSheetFor.amount === "number" ? statusSheetFor.amount : null}
+          currentMethod={(statusSheetFor.payment_method as PaymentMethod | null) ?? null}
+          isPaid={!!statusSheetFor.is_paid}
+          busy={statusSaving}
+          onAction={(action) => handleSheetAction(statusSheetFor, action)}
+          onClose={() => setStatusSheetFor(null)}
+        />
+      )}
+
       <MobileTabBar />
 
       {/* ━━━ CONTENUTO ━━━ */}
@@ -2052,11 +2089,11 @@ function CalendarPageInner() {
 
         {/* ─── Barra navigazione data ─── */}
         <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
-          <button onClick={goPrev} style={{
-            padding:"9px 14px",borderRadius:10,fontSize:18,flexShrink:0,
-            border:`1.5px solid ${THEME.border}`,background:THEME.panelBg,
-            color:THEME.text,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",
-          }}>‹</button>
+          <button onClick={goPrev} aria-label="Precedente" style={{
+            padding:"9px 12px",borderRadius:10,flexShrink:0,
+            border:`1px solid ${THEME.line}`,background:THEME.panelBg,
+            cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",
+          }}><Icon name="chevronLeft" size={16} color={THEME.warm500} /></button>
 
           {/* Bottone data centrale con date picker nascosto */}
           <div style={{flex:1,position:"relative"}}>
@@ -2064,9 +2101,9 @@ function CalendarPageInner() {
               style={{
                 width:"100%",padding:"9px 12px",borderRadius:10,fontSize:13,
                 fontWeight:700,cursor:"pointer",textAlign:"center",
-                border:isToday?`2px solid ${THEME.blue}`:`1.5px solid ${THEME.border}`,
-                background:isToday?"rgba(37,99,235,0.08)":THEME.panelBg,
-                color:isToday?THEME.blue:THEME.text,
+                border:isToday?`1.5px solid ${THEME.teal}`:`1px solid ${THEME.line}`,
+                background:isToday?THEME.tealTint:THEME.panelBg,
+                color:isToday?THEME.tealDeep:THEME.text,
               }}>
               {viewMode==="month"?(
                 <>
@@ -2078,11 +2115,11 @@ function CalendarPageInner() {
                 </>
               ):(
                 <>
-                  {isToday&&<span style={{fontSize:10,fontWeight:800,background:THEME.blue,color:"#fff",
-                    padding:"1px 6px",borderRadius:99,marginRight:6}}>Oggi</span>}
+                  {isToday&&<span style={{fontSize:10,fontWeight:800,background:THEME.gradient,color:"#fff",
+                    padding:"1px 7px",borderRadius:99,marginRight:6}}>Oggi</span>}
                   <span style={{fontWeight:800}}>{formatWeekday(currentDate)}</span>
                   <span style={{fontWeight:500,opacity:0.7,marginLeft:6}}>{formatDMY(currentDate)}</span>
-                  <span style={{fontSize:11,color:THEME.muted,marginLeft:6}}>📅</span>
+                  <Icon name="calendar" size={12} color={THEME.warm400} style={{ display: "inline-block", verticalAlign: -1, marginLeft: 6 }} />
                 </>
               )}
             </button>
@@ -2100,11 +2137,11 @@ function CalendarPageInner() {
             />
           </div>
 
-          <button onClick={goNext} style={{
-            padding:"9px 14px",borderRadius:10,fontSize:18,flexShrink:0,
-            border:`1.5px solid ${THEME.border}`,background:THEME.panelBg,
-            color:THEME.text,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",
-          }}>›</button>
+          <button onClick={goNext} aria-label="Successivo" style={{
+            padding:"9px 12px",borderRadius:10,flexShrink:0,
+            border:`1px solid ${THEME.line}`,background:THEME.panelBg,
+            cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",
+          }}><Icon name="chevronRight" size={16} color={THEME.warm500} /></button>
         </div>
 
         {/* ─── Vista mese OPPURE striscia settimanale ─── */}
@@ -2220,8 +2257,8 @@ function CalendarPageInner() {
         ) : (
           <div style={{
           display:"flex",gap:4,marginBottom:10,
-          background:THEME.panelBg,borderRadius:12,padding:"8px 8px",
-          border:`1.5px solid ${THEME.border}`,
+          background:THEME.panelSoft,borderRadius:12,padding:"8px 8px",
+          border:`1px solid ${THEME.line}`,
           overflowX:"auto",
         }}>
           {weekDays.map(day=>{
@@ -2234,18 +2271,18 @@ function CalendarPageInner() {
             return (
               <button key={toISODateLocal(day)} onClick={()=>setCurrentDate(day)} style={{
                 flex:"0 0 auto",minWidth:38,padding:"6px 4px",borderRadius:10,cursor:"pointer",
-                border:isSelected?`2px solid ${THEME.blue}`:`1.5px solid ${isSelected?THEME.blue:THEME.border}`,
-                background:isSelected?"rgba(37,99,235,0.10)":isDayToday?"rgba(37,99,235,0.04)":THEME.panelSoft,
+                border:isSelected?"none":isDayToday?`1.5px solid ${THEME.teal}`:`1px solid ${THEME.line}`,
+                background:isSelected?THEME.gradient:THEME.panelBg,
                 display:"flex",flexDirection:"column",alignItems:"center",gap:3,
               }}>
-                <span style={{fontSize:9,fontWeight:700,color:isSelected?THEME.blue:THEME.muted,textTransform:"uppercase"}}>
+                <span style={{fontSize:9,fontWeight:700,color:isSelected?"rgba(255,255,255,0.85)":THEME.warm500,textTransform:"uppercase"}}>
                   {formatWeekdayShort(day)}
                 </span>
-                <span style={{fontSize:15,fontWeight:800,color:isSelected?THEME.blue:isDayToday?THEME.teal:THEME.text}}>
+                <span style={{fontSize:15,fontWeight:800,color:isSelected?"#fff":isDayToday?THEME.teal:THEME.text}}>
                   {day.getDate()}
                 </span>
                 {/* indicatore occupazione */}
-                <div style={{width:6,height:6,borderRadius:99,background:evCount>0?dotColor:THEME.border}} />
+                <div style={{width:6,height:6,borderRadius:99,background:isSelected?"rgba(255,255,255,0.9)":(evCount>0?dotColor:THEME.border)}} />
               </button>
             );
           })}
@@ -2746,7 +2783,7 @@ function CalendarPageInner() {
               <LightBtn v="wa"
                 onClick={()=>sendReminder(selectedEvent.id,selectedEvent.patient_phone??undefined,selectedEvent.patient_first_name??undefined)}
                 disabled={!normalizePhone(selectedEvent.patient_phone)}>
-                💬 WhatsApp
+                WhatsApp
               </LightBtn>
               {selectedEvent.patient_id && (
                 <LightBtn v="wa"
@@ -2905,7 +2942,7 @@ function CalendarPageInner() {
                 Messaggio che verrà inviato:
               </div>
               <div style={{
-                background: "#f7f9fd",
+                background: "#FFFDF9",
                 padding: 12,
                 borderRadius: 8,
                 border: `1px solid ${THEME.border}`,
@@ -2930,7 +2967,7 @@ function CalendarPageInner() {
                   padding: "13px 16px",
                   borderRadius: 10,
                   border: `1.5px solid ${THEME.border}`,
-                  background: "#f7f9fd",
+                  background: "#FFFDF9",
                   color: THEME.text,
                   fontWeight: 700,
                   fontSize: 13,
