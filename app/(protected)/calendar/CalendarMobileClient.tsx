@@ -2089,7 +2089,11 @@ function CalendarPageInner() {
                   display:"flex",alignItems:"center",gap:8,padding:"12px 16px",
                   color:THEME.text,textDecoration:"none",fontSize:13,fontWeight:600,
                   borderBottom:`1.5px solid ${THEME.border}`,
-                }}>⚙️ Impostazioni</Link>
+                }}>Impostazioni</Link>
+                  <Link href="/contabilita" onClick={()=>setUserMenuOpen(false)} style={{
+                    display:"block",padding:"10px 14px",fontSize:14,fontWeight:600,
+                    color:THEME.text,textDecoration:"none",borderTop:`1px solid ${THEME.line}`,
+                  }}>Contabilità</Link>
                 <button onClick={handleLogout} style={{
                   width:"100%",display:"flex",alignItems:"center",gap:8,
                   padding:"12px 16px",background:"transparent",border:"none",

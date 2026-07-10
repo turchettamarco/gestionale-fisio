@@ -96,17 +96,17 @@ type PatientDoc = {
 
 /* ─── Theme ───────────────────────────────────────────────────────────── */
 const T = {
-  appBg:     "#f1f5f9",
+  appBg:     "#FAF7F2",
   panelBg:   "#ffffff",
-  panelSoft: "#f7f9fd",
-  text:      "#0f172a",
-  muted:     "#334155",
-  border:    "#cbd5e1",
+  panelSoft: "#FFFDF9",
+  text:      "#1A1D24",
+  muted:     "#6B6455",
+  border:    "#E0D8C8",
   blue:      "#2563eb",
   green:     "#16a34a",
   red:       "#dc2626",
   amber:     "#f97316",
-  gray:      "#94a3b8",
+  gray:      "#A9A092",
   teal:      "#0d9488",
   gradient:  "linear-gradient(135deg,#0d9488,#2563eb)",
 };
@@ -1753,7 +1753,7 @@ function MobilePortalTab({ patient, currentStudio }: {
   patient: any;
   currentStudio: { name: string; signature_name: string | null; signature_title: string | null } | null;
 }) {
-  const T2 = { teal:"#0d9488", blue:"#2563eb", text:"#0f172a", muted:"#64748b", border:"#e2e8f0", green:"#16a34a", panelBg:"#fff", panelSoft:"#f8fafc" };
+  const T2 = { teal:"#0d9488", blue:"#2563eb", text:"#1A1D24", muted:"#8A8377", border:"#EDE6D8", green:"#16a34a", panelBg:"#fff", panelSoft:"#FFFDF9" };
   const [loading, setLoading] = useState(false);
   const [link, setLink] = useState("");
   const [copied, setCopied] = useState(false);
@@ -1831,7 +1831,7 @@ function MobilePortalTab({ patient, currentStudio }: {
       {link&&(
         <div style={{background:"rgba(22,163,74,0.06)",border:"1.5px solid rgba(22,163,74,0.3)",borderRadius:10,padding:"12px 14px"}}>
           <div style={{fontSize:11,fontWeight:700,color:T2.green,marginBottom:6}}>✅ Link generato</div>
-          <div style={{fontSize:11,color:T2.text,wordBreak:"break-all",background:"#f8fafc",borderRadius:6,padding:"6px 8px",marginBottom:8,fontFamily:"monospace"}}>{link}</div>
+          <div style={{fontSize:11,color:T2.text,wordBreak:"break-all",background:"#FFFDF9",borderRadius:6,padding:"6px 8px",marginBottom:8,fontFamily:"monospace"}}>{link}</div>
         </div>
       )}
       <button onClick={sendWA} disabled={loading||!patient.phone}
@@ -1850,9 +1850,9 @@ function MobilePortalTab({ patient, currentStudio }: {
 /* ─── SOAP Notes Tab (mobile) ─────────────────────────────────────────── */
 function MobileSOAPTab({ patientId }: { patientId: string }) {
   const T2 = {
-    teal:"#0d9488", blue:"#2563eb", text:"#0f172a", muted:"#64748b",
-    border:"#e2e8f0", green:"#16a34a", red:"#dc2626", amber:"#f59e0b",
-    panelSoft:"#f8fafc", panelBg:"#fff",
+    teal:"#0d9488", blue:"#2563eb", text:"#1A1D24", muted:"#8A8377",
+    border:"#EDE6D8", green:"#16a34a", red:"#dc2626", amber:"#f59e0b",
+    panelSoft:"#FFFDF9", panelBg:"#fff",
   };
   const [notes, setNotes] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);

@@ -514,7 +514,7 @@ ${studioPdfHeader(currentStudio,{docTitle:"Contratto di Noleggio",docSubtitle:"M
   if (isMobile) {
     return (
       <ToastProvider>
-      <div style={{minHeight:"100vh",background:THEME.appBg,fontFamily:"'Outfit','Segoe UI',system-ui,sans-serif",paddingBottom:80}}>
+      <div style={{minHeight:"100vh",background:"#FAF7F2",fontFamily:"'Inter','Segoe UI',system-ui,sans-serif",paddingBottom:80}}>
         <style jsx global>{`@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;-webkit-font-smoothing:antialiased;}body{margin:0;}a{text-decoration:none;}input:focus,select:focus,textarea:focus{border-color:${THEME.teal}!important;outline:none!important;}`}</style>
 
         {/* Header */}

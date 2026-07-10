@@ -17,9 +17,9 @@ import { ToastProvider } from "@/src/components/mobile/ToastProvider";
 import MobileTabBar from "@/src/components/MobileTabBar";
 
 const THEME = {
-  appBg:"#f1f5f9", panelBg:"#ffffff", panelSoft:"#f7f9fd", text:"#0f172a", muted:"#334155",
-  border:"#cbd5e1", blue:"#2563eb", teal:"#0d9488", green:"#16a34a",
-  red:"#dc2626", amber:"#f97316", gray:"#94a3b8",
+  appBg:"#FAF7F2", panelBg:"#ffffff", panelSoft:"#FFFDF9", text:"#1A1D24", muted:"#6B6455",
+  border:"#E0D8C8", blue:"#2563eb", teal:"#0d9488", green:"#16a34a",
+  red:"#dc2626", amber:"#f97316", gray:"#A9A092",
   gradient:"linear-gradient(135deg,#0d9488,#2563eb)",
 };
 
@@ -797,7 +797,7 @@ export default function SettingsMobileClient() {
 
   return (
     <ToastProvider>
-    <div style={{ minHeight:"100vh", background:THEME.appBg, fontFamily:"'Outfit','Segoe UI',system-ui,sans-serif", paddingBottom:80 }}>
+    <div style={{ minHeight:"100vh", background:THEME.appBg, fontFamily:"'Inter','Segoe UI',system-ui,sans-serif", paddingBottom:80 }}>
       <style jsx global>{`@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;-webkit-font-smoothing:antialiased;}body{margin:0;background:${THEME.appBg};}a{text-decoration:none;}input:focus{border-color:${THEME.teal}!important;outline:none!important;}`}</style>
 
       {/* Header */}
@@ -1500,7 +1500,7 @@ export default function SettingsMobileClient() {
                   <div style={{ fontWeight:700, fontSize:14, color:THEME.text, display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
                     <span>{row.label}</span>
                     {row.is_builtin && (
-                      <span style={{ fontSize:9, fontWeight:700, padding:"2px 5px", borderRadius:4, background:"#e2e8f0", color:THEME.muted, letterSpacing:0.3 }}>SIST</span>
+                      <span style={{ fontSize:9, fontWeight:700, padding:"2px 5px", borderRadius:4, background:"#EDE6D8", color:THEME.muted, letterSpacing:0.3 }}>SIST</span>
                     )}
                     {!row.is_active && (
                       <span style={{ fontSize:9, fontWeight:700, padding:"2px 5px", borderRadius:4, background:"#fee2e2", color:THEME.red, letterSpacing:0.3 }}>OFF</span>
@@ -1800,7 +1800,7 @@ export default function SettingsMobileClient() {
             )}
 
             {editingTreatment.isBuiltin && (
-              <div style={{ marginBottom:14, padding:"10px 14px", borderRadius:10, background:"#f1f5f9", border:`1px solid ${THEME.border}`, color:THEME.muted, fontSize:12 }}>
+              <div style={{ marginBottom:14, padding:"10px 14px", borderRadius:10, background:"#FAF7F2", border:`1px solid ${THEME.border}`, color:THEME.muted, fontSize:12 }}>
                 Voce di sistema — puoi modificare tutto.
               </div>
             )}
@@ -2037,7 +2037,7 @@ function MobileToggle({
   onChange: (v: boolean) => void;
 }) {
   const THEME_LOCAL = {
-    text: "#0f172a", muted: "#334155", border: "#cbd5e1", teal: "#0d9488",
+    text: "#1A1D24", muted: "#6B6455", border: "#E0D8C8", teal: "#0d9488",
   };
   return (
     <div
@@ -2060,7 +2060,7 @@ function MobileToggle({
         aria-checked={checked}
         style={{
           width: 48, height: 26, minWidth: 48, borderRadius: 13,
-          background: checked ? THEME_LOCAL.teal : "#cbd5e1",
+          background: checked ? THEME_LOCAL.teal : "#E0D8C8",
           position: "relative",
           transition: "background 0.2s",
           flexShrink: 0,

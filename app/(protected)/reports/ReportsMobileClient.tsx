@@ -10,18 +10,18 @@ import { usePrivacyMode, composeInitials } from "@/src/contexts/PrivacyModeConte
 
 /* ─── Theme ───────────────────────────────────────────────────────────── */
 const THEME = {
-  appBg:     "#f1f5f9",
+  appBg:     "#FAF7F2",
   panelBg:   "#ffffff",
-  panelSoft: "#f7f9fd",
-  text:      "#0f172a",
-  textSoft:  "#1e293b",
-  muted:     "#334155",
-  border:    "#cbd5e1",
+  panelSoft: "#FFFDF9",
+  text:      "#1A1D24",
+  textSoft:  "#3A3E46",
+  muted:     "#6B6455",
+  border:    "#E0D8C8",
   blue:      "#2563eb",
   green:     "#16a34a",
   red:       "#dc2626",
   amber:     "#f97316",
-  gray:      "#94a3b8",
+  gray:      "#A9A092",
   teal:      "#0d9488",
   gradient:  "linear-gradient(135deg, #0d9488, #2563eb)",
 };

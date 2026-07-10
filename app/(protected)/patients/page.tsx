@@ -379,7 +379,7 @@ export default function PatientsPage() {
     return (
       <div
         style={{
-          minHeight: "100vh", background: THEME.appBg, paddingBottom: BOTTOM_TAB_H + 16,
+          minHeight: "100vh", background: "#FAF7F2", paddingBottom: BOTTOM_TAB_H + 16,
           fontFamily: "Inter,-apple-system,sans-serif",
         }}
         onTouchStart={handlePullStart}
