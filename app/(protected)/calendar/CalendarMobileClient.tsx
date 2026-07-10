@@ -352,7 +352,23 @@ function CalendarPageInner() {
   const timelineScrollRef = useRef<HTMLDivElement>(null);
 
   /* view mode */
-  const [viewMode,       setViewMode]       = useState<"day"|"week"|"month">("day");
+  const [viewMode,       setViewMode]       = useState<"day"|"week"|"month">("week");
+
+  // Sabato on/off: condiviso tra Settimana e Mese, ricordato tra le sessioni
+  const [showSaturday, setShowSaturday] = useState(true);
+  useEffect(() => {
+    try { const v = localStorage.getItem("fisiohub_show_saturday"); if (v !== null) setShowSaturday(v === "1"); } catch {}
+  }, []);
+  const toggleSaturday = useCallback(() => {
+    setShowSaturday(prev => {
+      const next = !prev;
+      try { localStorage.setItem("fisiohub_show_saturday", next ? "1" : "0"); } catch {}
+      return next;
+    });
+  }, []);
+
+  // Settimana: all'apertura scrolla sull'ora attuale
+  const weekScrollRef = useRef<HTMLDivElement|null>(null);
   const [monthEvents,    setMonthEvents]    = useState<CalendarEvent[]>([]);
   const [monthLoading,   setMonthLoading]   = useState(false);
   const [monthDrawerDay, setMonthDrawerDay] = useState<Date|null>(null);
@@ -691,6 +707,14 @@ function CalendarPageInner() {
   useEffect(() => {
     if (viewMode === "week") { const { mon, end } = weekRange(currentDate); loadAppointments(mon, end); }
   }, [viewMode, currentDate, loadAppointments, weekRange]);
+
+  useEffect(() => {
+    if (viewMode !== "week" || loading) return;
+    const el = weekScrollRef.current; if (!el) return;
+    const now = new Date();
+    const nh = now.getHours() + now.getMinutes()/60;
+    el.scrollTop = Math.max(0, (nh - 7 - 1.5) * 44);
+  }, [viewMode, loading]);
 
   // Ricarica coerente con la vista corrente (usata dopo salvataggi/refresh)
   const reloadCurrent = useCallback(async () => {
@@ -2192,9 +2216,9 @@ function CalendarPageInner() {
             marginBottom:10,marginLeft:-14,marginRight:-14,
             borderTop:`1.5px solid ${THEME.border}`,borderBottom:`1.5px solid ${THEME.border}`}}>
             {/* Intestazioni giorni — Lun–Sab, no Domenica */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",
+            <div style={{display:"grid",gridTemplateColumns:`repeat(${showSaturday?6:5},1fr)`,
               borderBottom:`1px solid ${THEME.border}`,background:THEME.panelSoft}}>
-              {["Lun","Mar","Mer","Gio","Ven","Sab"].map((g,i)=>(
+              {(showSaturday?["Lun","Mar","Mer","Gio","Ven","Sab"]:["Lun","Mar","Mer","Gio","Ven"]).map((g,i)=>(
                 <div key={i} style={{textAlign:"center",padding:"7px 0",fontSize:9,fontWeight:700,
                   color:i===5?THEME.amber:THEME.muted}}>
                   {g}
@@ -2210,22 +2234,29 @@ function CalendarPageInner() {
               const today = new Date(); today.setHours(0,0,0,0);
 
               // Costruisci celle solo Lun–Sab (dow 0–5), salta domeniche
+              const cols = showSaturday ? 6 : 5;
+              const skipDow = (dw:number) => dw===6 || (!showSaturday && dw===5);
               const cells: (number|null)[] = [];
-              // Offset iniziale senza domeniche (se firstDow=6=Dom, la prima domenica va saltata)
-              const offsetNoDom = firstDow === 6 ? 0 : firstDow; // quante celle vuote Lun-Sab prima del 1°
-              for (let i=0; i<offsetNoDom; i++) cells.push(null);
+              // Offset: posizione del primo giorno visibile nella riga
+              let firstVisDow = 0;
               for (let d=1; d<=daysInMonth; d++) {
-                const dow = (new Date(year,month,d).getDay()+6)%7; // 0=Lun,6=Dom
-                if (dow === 6) continue; // salta domeniche
+                const dw = (new Date(year,month,d).getDay()+6)%7;
+                if (skipDow(dw)) continue;
+                firstVisDow = dw; break;
+              }
+              for (let i=0; i<firstVisDow; i++) cells.push(null);
+              for (let d=1; d<=daysInMonth; d++) {
+                const dw = (new Date(year,month,d).getDay()+6)%7;
+                if (skipDow(dw)) continue;
                 cells.push(d);
               }
-              while(cells.length%6!==0) cells.push(null);
+              while(cells.length%cols!==0) cells.push(null);
 
               return (
-                <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)"}}>
+                <div style={{display:"grid",gridTemplateColumns:`repeat(${cols},1fr)`}}>
                   {cells.map((day,idx)=>{
                     if (day===null) return <div key={`e-${idx}`} style={{minHeight:56,
-                      borderRight:idx%6<5?`1px solid ${THEME.border}`:"none",
+                      borderRight:idx%cols<cols-1?`1px solid ${THEME.border}`:"none",
                       borderBottom:`1px solid ${THEME.border}`}}/>;
 
                     const cellDate = new Date(year,month,day);
@@ -2243,7 +2274,7 @@ function CalendarPageInner() {
                         onClick={()=>{const c=new Date(cellDate);c.setHours(0,0,0,0);setCurrentDate(c);setMonthDrawerDay(c);}}
                         style={{
                           minHeight:56,padding:"4px 3px",
-                          borderRight:idx%6<5?`1px solid ${THEME.border}`:"none",
+                          borderRight:idx%cols<cols-1?`1px solid ${THEME.border}`:"none",
                           borderBottom:`1px solid ${THEME.border}`,
                           cursor:"pointer",
                           background:isSel?"rgba(37,99,235,0.07)":isT?"rgba(37,99,235,0.03)":"transparent",
@@ -2292,6 +2323,14 @@ function CalendarPageInner() {
                 </div>
               );
             })()}
+            <div style={{display:"flex",justifyContent:"flex-end",padding:"6px 10px",borderTop:`1px solid ${THEME.border}`}}>
+              <button onClick={toggleSaturday} style={{
+                border:`1px solid ${showSaturday?"#BFE0D3":THEME.line}`,
+                background:showSaturday?THEME.tealTint:THEME.panelBg,
+                color:showSaturday?THEME.tealDeep:THEME.warm500,
+                fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:99,cursor:"pointer",
+              }}>{showSaturday?"Sab ✓":"Sab"}</button>
+            </div>
             {monthLoading&&(
               <div style={{padding:12,textAlign:"center",fontSize:12,color:THEME.muted}}>Caricamento…</div>
             )}
@@ -2300,7 +2339,7 @@ function CalendarPageInner() {
           (() => {
             const HOUR_PX = 44, H_START = 7, H_END = 20;
             const { mon } = weekRange(currentDate);
-            const days = Array.from({length:6},(_,i)=>{ const d=new Date(mon); d.setDate(d.getDate()+i); return d; });
+            const days = Array.from({length: showSaturday ? 6 : 5},(_,i)=>{ const d=new Date(mon); d.setDate(d.getDate()+i); return d; });
             const now = new Date();
             const weekEvs = events.filter(e => e.status !== "cancelled");
             const totCount = weekEvs.length;
@@ -2310,18 +2349,13 @@ function CalendarPageInner() {
               const fn = ev.patient_first_name || "";
               let s = ev.patient_name || "";
               if (fn && s.toLowerCase().endsWith((" "+fn).toLowerCase())) s = s.slice(0, s.length-fn.length-1);
-              return fn ? `${s} ${fn[0]}.` : s;
+              return s || ev.patient_name;
             };
-            const colorFor = (ev: CalendarEvent) => {
-              if (ev.is_group) return "#7c3aed";
-              if (!ev.is_paid && (ev.status==="done"||ev.status==="not_paid")) return "#B45309";
-              const ls = getLocationCardStyle(ev as any, studioLocations as any);
-              return ls.borderColor || THEME.teal;
-            };
+
             return (
               <div style={{background:THEME.panelBg,border:`1px solid ${THEME.line}`,borderRadius:12,overflow:"hidden",marginBottom:10}}>
                 {/* Intestazioni giorno: tap → apre il Giorno */}
-                <div style={{display:"grid",gridTemplateColumns:"24px repeat(6,1fr)",borderBottom:`1px solid ${THEME.line}`}}>
+                <div style={{display:"grid",gridTemplateColumns:`24px repeat(${showSaturday?6:5},1fr)`,borderBottom:`1px solid ${THEME.line}`}}>
                   <div />
                   {days.map(d=>{ const t=isSameDay(d,now); return (
                     <button key={toISODateLocal(d)} onClick={()=>{setCurrentDate(d);setViewMode("day");}} style={{
@@ -2333,8 +2367,8 @@ function CalendarPageInner() {
                   );})}
                 </div>
                 {/* Corpo: 7→20, scorre in verticale */}
-                <div style={{maxHeight:"58vh",overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
-                  <div style={{display:"grid",gridTemplateColumns:"24px repeat(6,1fr)",height:(H_END-H_START)*HOUR_PX}}>
+                <div ref={weekScrollRef} style={{maxHeight:"58vh",overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+                  <div style={{display:"grid",gridTemplateColumns:`24px repeat(${showSaturday?6:5},1fr)`,height:(H_END-H_START)*HOUR_PX}}>
                     <div style={{position:"relative"}}>
                       {Array.from({length:H_END-H_START},(_,i)=>(
                         i===0?null:<span key={i} style={{position:"absolute",top:i*HOUR_PX,right:3,transform:"translateY(-50%)",fontSize:7.5,fontWeight:700,color:THEME.warm400}}>{H_START+i}</span>
@@ -2343,29 +2377,59 @@ function CalendarPageInner() {
                     {days.map(d=>{ const t=isSameDay(d,now);
                       const evs = weekEvs.filter(e=>isSameDay(e.start,d));
                       return (
-                        <div key={toISODateLocal(d)} style={{position:"relative",borderLeft:`1px solid ${THEME.lineFaint}`,
+                        <div key={toISODateLocal(d)}
+                          onClick={(e)=>{
+                            const r=(e.currentTarget as HTMLElement).getBoundingClientRect();
+                            const y=e.clientY-r.top;
+                            const h=H_START+Math.floor(y/HOUR_PX);
+                            const mm=(y%HOUR_PX)>=HOUR_PX/2?"30":"00";
+                            openCreate(`${String(h).padStart(2,"0")}:${mm}`, toISODateLocal(d));
+                          }}
+                          style={{position:"relative",cursor:"pointer",borderLeft:`1px solid ${THEME.lineFaint}`,
                           background:`repeating-linear-gradient(to bottom,${t?"rgba(13,148,136,0.045)":"transparent"} 0,${t?"rgba(13,148,136,0.045)":"transparent"} ${HOUR_PX-1}px,${THEME.lineFaint} ${HOUR_PX-1}px,${THEME.lineFaint} ${HOUR_PX}px)`}}>
-                          {evs.map(ev=>{
+                          {(() => {
+                            // Sovrapposizioni: corsie affiancate dentro il cluster
+                            const sorted=[...evs].sort((a,b)=>a.start.getTime()-b.start.getTime());
+                            const clusters: CalendarEvent[][]=[]; let cl: CalendarEvent[]=[]; let clEnd=-1;
+                            for (const ev of sorted){
+                              const s=ev.start.getTime();
+                              if(cl.length&&s>=clEnd){clusters.push(cl);cl=[];clEnd=-1;}
+                              cl.push(ev); clEnd=Math.max(clEnd,ev.end.getTime());
+                            }
+                            if(cl.length) clusters.push(cl);
+                            const laid: {ev:CalendarEvent;lane:number;of:number}[]=[];
+                            for (const grp of clusters){
+                              const ends:number[]=[]; const asg=new Map<string,number>();
+                              for(const ev of grp){
+                                let l=ends.findIndex(e2=>ev.start.getTime()>=e2);
+                                if(l===-1){l=ends.length;ends.push(0);}
+                                ends[l]=ev.end.getTime(); asg.set(ev.id,l);
+                              }
+                              for(const ev of grp) laid.push({ev,lane:asg.get(ev.id)!,of:ends.length});
+                            }
+                            return laid.map(({ev,lane,of})=>{
                             const sh=ev.start.getHours()+ev.start.getMinutes()/60;
                             const eh=ev.end.getHours()+ev.end.getMinutes()/60;
                             if (eh<=H_START||sh>=H_END) return null;
                             const top=Math.max(0,(sh-H_START)*HOUR_PX);
                             const height=Math.max(18,(Math.min(eh,H_END)-Math.max(sh,H_START))*HOUR_PX-2);
-                            const c=colorFor(ev);
+                            const c=statusColor(ev.status);
                             const small=height<30;
                             return (
-                              <button key={ev.id} onClick={()=>openEvent(ev)} style={{position:"absolute",top,height,left:1.5,right:1.5,
-                                border:"none",borderLeft:`3px solid ${c}`,borderRadius:5,background:`${c}1A`,
+                              <button key={ev.id} onClick={(e)=>{e.stopPropagation();openEvent(ev);}} style={{position:"absolute",top,height,
+                                left:`calc(${(lane*100/of).toFixed(3)}% + 1.5px)`,width:`calc(${(100/of).toFixed(3)}% - 3px)`,
+                                border:`1.5px solid ${c}`,borderRadius:6,background:`${c}12`,
                                 padding:"2px 3px",overflow:"hidden",textAlign:"left",cursor:"pointer",display:"block"}}>
-                                <p style={{margin:0,fontSize:7,fontWeight:800,lineHeight:1.2,color:c}}>
-                                  {fmtTime(ev.start)}{small?` ${labelFor(ev).split(" ").map(w=>w[0]||"").join("").slice(0,3).toUpperCase()}`:""}
+                                <p style={{margin:0,fontSize:7,fontWeight:800,lineHeight:1.2,color:THEME.text,opacity:0.75,whiteSpace:"nowrap",overflow:"hidden"}}>
+                                  {fmtTime(ev.start)}{small?` ${labelFor(ev)}`:""}
                                 </p>
                                 {!small&&(
-                                  <p style={{margin:0,fontSize:8,fontWeight:700,lineHeight:1.15,color:c,wordBreak:"break-word"}}>{labelFor(ev)}</p>
+                                  <p style={{margin:0,fontSize:8.5,fontWeight:700,lineHeight:1.15,color:THEME.text,wordBreak:"break-word"}}>{labelFor(ev)}</p>
                                 )}
                               </button>
                             );
-                          })}
+                            });
+                          })()}
                           {t&&(()=>{ const nh=now.getHours()+now.getMinutes()/60; if(nh<H_START||nh>H_END) return null; return (
                             <div style={{position:"absolute",left:0,right:0,top:(nh-H_START)*HOUR_PX,height:2,background:"#C0392B",zIndex:2}} />
                           );})()}
@@ -2377,7 +2441,13 @@ function CalendarPageInner() {
                 {/* Totali + guida */}
                 <div style={{display:"flex",alignItems:"center",gap:10,padding:"7px 10px",borderTop:`1px solid ${THEME.lineFaint}`}}>
                   <span style={{fontSize:10,fontWeight:800,color:THEME.text}}>{totCount} sedute · €{Math.round(totRev)}</span>
-                  <span style={{marginLeft:"auto",fontSize:9,color:THEME.warm400}}>tap sul blocco → seduta · sul giorno → agenda</span>
+                  <span style={{marginLeft:"auto",fontSize:9,color:THEME.warm400}}>spazio vuoto → nuova seduta</span>
+                  <button onClick={toggleSaturday} style={{
+                    border:`1px solid ${showSaturday?"#BFE0D3":THEME.line}`,
+                    background:showSaturday?THEME.tealTint:THEME.panelBg,
+                    color:showSaturday?THEME.tealDeep:THEME.warm500,
+                    fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:99,cursor:"pointer",flexShrink:0,
+                  }}>{showSaturday?"Sab ✓":"Sab"}</button>
                 </div>
               </div>
             );
