@@ -76,12 +76,17 @@ function calcAge(birthDate: string | null) {
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
+// Wrapper: su telefono la ricerca globale non esiste (il trigger flottante
+// sovrapporrebbe FAB e tab bar). Il gate sta QUI, fuori dal componente coi
+// suoi hook: montare/smontare un figlio è lecito, un early-return in mezzo
+// agli hook no (React #310).
 export default function GlobalSearch() {
-  // Su telefono la ricerca globale non esiste (il trigger flottante
-  // sovrapporrebbe FAB e tab bar): la pagina resta pulita come prima
-  // dell'unificazione.
   const isMobile = useIsMobile();
   if (isMobile !== false) return null;
+  return <GlobalSearchInner />;
+}
+
+function GlobalSearchInner() {
 
   const { privacyMode } = usePrivacyMode();
   const displayPhone = useDisplayPatientPhone();
