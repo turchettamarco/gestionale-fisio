@@ -713,7 +713,9 @@ function CalendarPageInner() {
     const el = weekScrollRef.current; if (!el) return;
     const now = new Date();
     const nh = now.getHours() + now.getMinutes()/60;
-    el.scrollTop = Math.max(0, (nh - 7 - 1.5) * 44);
+    const rect = el.getBoundingClientRect();
+    const target = rect.top + window.scrollY + Math.max(0, (nh - 7 - 1.5) * 44) - 130;
+    window.scrollTo({ top: Math.max(0, target) });
   }, [viewMode, loading]);
 
   // Ricarica coerente con la vista corrente (usata dopo salvataggi/refresh)
@@ -2327,7 +2329,7 @@ function CalendarPageInner() {
                 </div>
               );
             })()}
-            <div style={{display:"flex",justifyContent:"flex-end",padding:"6px 10px",borderTop:`1px solid ${THEME.border}`}}>
+            <div style={{display:"flex",justifyContent:"flex-start",padding:"6px 10px",borderTop:`1px solid ${THEME.border}`}}>
               <button onClick={toggleSaturday} style={{
                 border:`1px solid ${showSaturday?"#BFE0D3":THEME.line}`,
                 background:showSaturday?THEME.tealTint:THEME.panelBg,
@@ -2371,7 +2373,7 @@ function CalendarPageInner() {
                   );})}
                 </div>
                 {/* Corpo: 7→20, scorre in verticale */}
-                <div ref={weekScrollRef} style={{maxHeight:"58vh",overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+                <div ref={weekScrollRef}>
                   <div style={{display:"grid",gridTemplateColumns:`24px repeat(${showSaturday?6:5},1fr)`,height:(H_END-H_START)*HOUR_PX}}>
                     <div style={{position:"relative"}}>
                       {Array.from({length:H_END-H_START},(_,i)=>(
@@ -2444,14 +2446,14 @@ function CalendarPageInner() {
                 </div>
                 {/* Totali + guida */}
                 <div style={{display:"flex",alignItems:"center",gap:10,padding:"7px 10px",borderTop:`1px solid ${THEME.lineFaint}`}}>
-                  <span style={{fontSize:10,fontWeight:800,color:THEME.text}}>{totCount} sedute · €{Math.round(totRev)}</span>
-                  <span style={{marginLeft:"auto",fontSize:9,color:THEME.warm400}}>spazio vuoto → nuova seduta</span>
                   <button onClick={toggleSaturday} style={{
                     border:`1px solid ${showSaturday?"#BFE0D3":THEME.line}`,
                     background:showSaturday?THEME.tealTint:THEME.panelBg,
                     color:showSaturday?THEME.tealDeep:THEME.warm500,
                     fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:99,cursor:"pointer",flexShrink:0,
                   }}>{showSaturday?"Sab ✓":"Sab"}</button>
+                  <span style={{fontSize:10,fontWeight:800,color:THEME.text}}>{totCount} sedute · €{Math.round(totRev)}</span>
+                  <span style={{marginLeft:"auto",fontSize:9,color:THEME.warm400,paddingRight:2}}>spazio vuoto → nuova</span>
                 </div>
               </div>
             );
