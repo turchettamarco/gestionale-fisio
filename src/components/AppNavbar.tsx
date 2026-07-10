@@ -27,6 +27,8 @@ export type AppNavbarSection =
 export type AppNavbarProps = {
   /** Sezione attiva — evidenzia il link corrispondente nella nav */
   active: AppNavbarSection;
+  /** Rimuove l'ombra sotto la barra (per fondersi con l'header gradiente della home) */
+  flat?: boolean;
   /** Callback opzionale per il bottone refresh — se omesso il bottone non appare */
   onRefresh?: () => void;
   /** Solo calendario: click su notifica appuntamento → salta alla data in-pagina. */
@@ -35,7 +37,7 @@ export type AppNavbarProps = {
   bookingSection?: { enabled: boolean; pendingCount: number; onOpenPanel: () => void };
 };
 
-export default function AppNavbar({ active, onRefresh, onNotificationAppointmentClick, bookingSection }: AppNavbarProps) {
+export default function AppNavbar({ active, onRefresh, onNotificationAppointmentClick, bookingSection, flat }: AppNavbarProps) {
   // ── User menu (gestione interna: ogni pagina non deve preoccuparsene) ──
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -156,7 +158,7 @@ export default function AppNavbar({ active, onRefresh, onNotificationAppointment
           background: "linear-gradient(135deg,#0d9488,#2563eb)",
           padding: "0 20px", height: 54,
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          boxShadow: "0 2px 16px rgba(13,148,136,0.20)", gap: 8,
+          boxShadow: flat ? "none" : "0 2px 16px rgba(13,148,136,0.20)", gap: 8,
         }}
       >
         {/* Sinistra: logo + nav */}
