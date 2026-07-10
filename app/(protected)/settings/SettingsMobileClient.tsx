@@ -1172,7 +1172,7 @@ export default function SettingsMobileClient() {
                               cursor: "pointer",
                             }}
                           >
-                            ✏️ Modifica
+                            Modifica
                           </button>
                           <button
                             onClick={() => void toggleGuestActive(g)}
@@ -1366,7 +1366,7 @@ export default function SettingsMobileClient() {
           </div>
         </Section>
 
-        <Section id="report" title="📄 Report automatici" sub="Riepiloghi PDF via email">
+        <Section id="report" title="Report automatici" sub="Riepiloghi PDF via email">
           <div style={{ display:"flex", flexDirection:"column", gap:10, paddingTop:14 }}>
             <div style={{ padding:"10px 12px", borderRadius:8, background:"rgba(148,163,184,0.06)", fontSize:11, color:THEME.muted, lineHeight:1.5 }}>
               Ricevi un riepilogo PDF con sedute, incassi e nuovi pazienti. Ogni cadenza è indipendente.

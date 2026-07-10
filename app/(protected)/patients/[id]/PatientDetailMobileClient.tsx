@@ -233,7 +233,7 @@ function ErrBox({ msg }: { msg: string }) {
     <div style={{ padding: "10px 12px", borderRadius: 10, marginBottom: 10,
       background: "rgba(220,38,38,0.06)", border: "1.5px solid rgba(220,38,38,0.25)",
       color: "#7f1d1d", fontWeight: 600, fontSize: 13, whiteSpace: "pre-wrap" }}>
-      ⚠️ {msg}
+      {msg}
     </div>
   );
 }
@@ -937,12 +937,12 @@ export default function PatientDetailMobileClient({ patientId }: { patientId: st
               {patient.phone && (
                 <a href={`tel:${patient.phone}`} style={{ flex: 1, textAlign: "center", padding: 9,
                   borderRadius: 9, background: "rgba(13,148,136,0.1)", color: T.teal,
-                  fontSize: 12.5, fontWeight: 700, textDecoration: "none" }}>📞 Chiama</a>
+                  fontSize: 12.5, fontWeight: 700, textDecoration: "none" }}>Chiama</a>
               )}
               <button onClick={() => setActiveTab("info")} style={{ flex: 1, padding: 9,
                 borderRadius: 9, background: "rgba(37,99,235,0.08)", color: T.blue,
                 fontSize: 12.5, fontWeight: 700, border: "none", cursor: "pointer",
-                fontFamily: "inherit" }}>✏️ Modifica dati</button>
+                fontFamily: "inherit" }}>Modifica dati</button>
             </div>
           </div>
         )}
@@ -957,7 +957,7 @@ export default function PatientDetailMobileClient({ patientId }: { patientId: st
             {apptStats.paidRevenue > 0 && (
               <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
                 background: "rgba(22,163,74,0.08)", color: T.green, border: `1px solid rgba(22,163,74,0.2)` }}>
-                💰 €{apptStats.paidRevenue.toFixed(0)} incassati
+                €{apptStats.paidRevenue.toFixed(0)} incassati
               </span>
             )}
             {apptStats.unpaid > 0 && (
@@ -1310,7 +1310,7 @@ export default function PatientDetailMobileClient({ patientId }: { patientId: st
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
               }}
             >
-              📄 Attestato di presenza
+              Attestato di presenza
             </button>
 
             {/* Barra progresso ciclo */}
@@ -1331,7 +1331,7 @@ export default function PatientDetailMobileClient({ patientId }: { patientId: st
                 </div>
                 {progressPct >= 100 && (
                   <div style={{ marginTop: 8, fontSize: 11, fontWeight: 700, color: T.green, textAlign: "center" }}>
-                    ✅ Ciclo completato!
+                    Ciclo completato
                   </div>
                 )}
               </div>

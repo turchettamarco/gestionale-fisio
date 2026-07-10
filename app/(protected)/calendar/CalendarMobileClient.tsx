@@ -25,7 +25,7 @@ import PaidIconButton from "@/src/components/PaidIconButton";
 import NotificationsBell from "@/src/components/NotificationsBell";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
 import StatusSheet, { type StatusSheetAction } from "@/src/components/mobile/StatusSheet";
-import { Icon } from "@/src/components/icons";
+import { Icon, PulseDivider } from "@/src/components/icons";
 import GroupEventModalMobile, { type GroupEvent } from "@/src/components/mobile/GroupEventModalMobile";
 import {
   groupSearchPatientsApi,
@@ -1806,10 +1806,10 @@ function CalendarPageInner() {
                 padding: "1px 6px", borderRadius: 99,
                 letterSpacing: 0.4, flexShrink: 0,
               }}>
-                👥 {ev.participant_count ?? 0}/{ev.group_max_participants ?? 0}
+                <Icon name="users" size={10} color="currentColor" style={{display:"inline-block",verticalAlign:-1,marginRight:3}} />{ev.participant_count ?? 0}/{ev.group_max_participants ?? 0}
               </span>
             )}
-            {ev.location==="domicile"&&!ev.is_group&&<span style={{fontSize:11,flexShrink:0}}>🏠</span>}
+            {ev.location==="domicile"&&!ev.is_group&&<Icon name="home" size={11} color={THEME.warm400} style={{flexShrink:0}} />}
             <span style={{
               fontWeight:700, fontSize:13,
               color: ev.is_group ? "#fff" : THEME.text,
@@ -2291,7 +2291,7 @@ function CalendarPageInner() {
                             ...(isT?{background:THEME.blue,borderRadius:"50%",width:18,height:18,
                               display:"inline-flex",alignItems:"center",justifyContent:"center"}:{}),
                           }}>{day}</span>
-                          {hasDom&&<span style={{fontSize:7,marginLeft:2}}>🏠</span>}
+                          {hasDom&&<Icon name="home" size={8} color={THEME.warm500} style={{display:"inline-block",marginLeft:2,verticalAlign:-1}} />}
                         </div>
                         {/* Appuntamenti: orario + cognome (cognome = tutto tranne il nome) */}
                         {dayEvs.length>0&&(
@@ -2645,7 +2645,7 @@ function CalendarPageInner() {
               {!loading&&dayEvents.length===0&&(
                 <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",
                   alignItems:"center",justifyContent:"center",gap:10,pointerEvents:"none"}}>
-                  <div style={{fontSize:36,opacity:0.25}}>📅</div>
+                  <div style={{display:"flex",justifyContent:"center",opacity:0.6}}><PulseDivider width={64} color={THEME.border} /></div>
                   <div style={{fontSize:14,fontWeight:700,color:THEME.muted}}>Nessun appuntamento</div>
                   <div style={{fontSize:12,color:THEME.muted,opacity:0.6}}>Tocca + per aggiungerne uno</div>
                 </div>
@@ -2734,7 +2734,7 @@ function CalendarPageInner() {
                               fontSize: 9, fontWeight: 800, color: "#fff",
                               background: "#0d9488",
                               padding: "1px 6px", borderRadius: 99, flexShrink: 0,
-                            }}>👥 {ev.participant_count ?? 0}/{ev.group_max_participants ?? 0}</span>
+                            }}><Icon name="users" size={10} color="currentColor" style={{display:"inline-block",verticalAlign:-1,marginRight:3}} />{ev.participant_count ?? 0}/{ev.group_max_participants ?? 0}</span>
                           )}
                           <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                             {isGroup ? (ev.group_title || "Gruppo") : ev.patient_name}
@@ -2744,7 +2744,7 @@ function CalendarPageInner() {
                         <div style={{fontSize:11,color:THEME.muted,marginTop:2,display:"flex",gap:6}}>
                           <span>{fmtTime(ev.start)}–{fmtTime(ev.end)}</span>
                           <span style={{color:col}}>{statusLabel(ev.status)}</span>
-                          {ev.location==="domicile"&&<span>🏠</span>}
+                          {ev.location==="domicile"&&<Icon name="home" size={10} color="currentColor" style={{display:"inline-block",verticalAlign:-1}} />}
                         </div>
                       </div>
                       {typeof ev.amount==="number"&&ev.amount>0&&(
@@ -3029,7 +3029,7 @@ function CalendarPageInner() {
                     }
                   }}
                   disabled={busy}>
-                  📄 Attestato
+                  Attestato
                 </LightBtn>
               )}
               <LightBtn v="danger" onClick={deleteEvent} disabled={busy}>🗑 Elimina</LightBtn>
@@ -3406,7 +3406,7 @@ function ErrorBox({children}:{children:React.ReactNode}) {
   return (
     <div style={{background:"rgba(220,38,38,0.06)",border:"1.5px solid rgba(220,38,38,0.25)",
       color:"#7f1d1d",padding:"10px 13px",borderRadius:10,fontSize:13,fontWeight:600}}>
-      ⚠️ {children}
+      {children}
     </div>
   );
 }
@@ -3520,7 +3520,7 @@ function CreateModal(props:CreateModalProps) {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 9, flex: 1, minWidth: 0 }}>
-            <span style={{ fontSize: 18, flexShrink: 0 }}>👥</span>
+            <Icon name="users" size={18} color={THEME.muted} style={{ flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{
                 fontSize: 13, fontWeight: 700,

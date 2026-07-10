@@ -27,6 +27,7 @@ import { studioPdfHeader, studioHeaderCss } from "@/src/lib/pdfHeader";
 import AppNavbar from "@/src/components/AppNavbar";
 import MobileTabBar from "@/src/components/MobileTabBar";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
+import { Icon } from "@/src/components/icons";
 import { ToastProvider, showToast } from "@/src/components/mobile/ToastProvider";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
@@ -684,11 +685,11 @@ ${studioPdfHeader(currentStudio,{docTitle:"Contratto di Noleggio",docSubtitle:"M
                             setEditEnd(n.end_date);
                             setEditPricePerDay(String(n.price_per_day));
                           }}
-                            style={{background:"none",border:"none",cursor:"pointer",color:THEME.muted,fontSize:13,padding:2,flexShrink:0}}>✏️</button>
+                            style={{background:"none",border:"none",cursor:"pointer",color:THEME.muted,fontSize:13,padding:2,flexShrink:0}}><Icon name="edit" size={13} color="currentColor" /></button>
                         </div>
                         {n.patient_phone
                           ? <div style={{fontSize:12,color:THEME.muted}}>{displayPhone(n.patient_phone)}</div>
-                          : <div style={{fontSize:11,color:THEME.amber,fontWeight:600}}>⚠️ Nessun telefono</div>
+                          : <div style={{fontSize:11,color:THEME.amber,fontWeight:600}}>Nessun telefono</div>
                         }
                         {!n.patient_id && (
                           <button onClick={()=>createPatientFromNoleggio(n)} disabled={creatingPatient===n.id}
@@ -736,7 +737,7 @@ ${studioPdfHeader(currentStudio,{docTitle:"Contratto di Noleggio",docSubtitle:"M
                     🖨️ Ricevuta
                   </button>
                   <button onClick={()=>printContratto(n)} style={{padding:"9px 6px",borderRadius:10,border:"1.5px solid rgba(124,58,237,0.3)",background:"rgba(124,58,237,0.05)",color:"#7c3aed",cursor:"pointer",fontWeight:700,fontSize:12}}>
-                    📄 Contratto
+                    Contratto
                   </button>
                 </div>
                 <button onClick={()=>deleteNoleggio(n.id)} style={{marginTop:8,width:"100%",padding:"8px",borderRadius:10,border:"1px solid rgba(220,38,38,0.2)",background:"rgba(220,38,38,0.04)",color:THEME.red,cursor:"pointer",fontWeight:600,fontSize:12}}>
@@ -818,7 +819,7 @@ ${studioPdfHeader(currentStudio,{docTitle:"Contratto di Noleggio",docSubtitle:"M
                     <button onClick={()=>setEditingUnits(false)} style={{ padding:"4px 10px", borderRadius:6, border:`1px solid ${THEME.border}`, background:"transparent", color:THEME.muted, fontWeight:600, fontSize:12, cursor:"pointer" }}>✕</button>
                   </>
                 ) : (
-                  <button onClick={()=>{setTempUnits(String(totalUnits));setEditingUnits(true);}} style={{ padding:"4px 12px", borderRadius:6, border:`1px solid ${THEME.border}`, background:THEME.panelSoft, color:THEME.text, fontWeight:700, fontSize:13, cursor:"pointer" }}>{totalUnits} ✏️</button>
+                  <button onClick={()=>{setTempUnits(String(totalUnits));setEditingUnits(true);}} style={{ padding:"4px 12px", borderRadius:6, border:`1px solid ${THEME.border}`, background:THEME.panelSoft, color:THEME.text, fontWeight:700, fontSize:13, cursor:"pointer" }}>{totalUnits} <Icon name="edit" size={12} color="currentColor" style={{display:"inline-block",verticalAlign:-2,marginLeft:2}} /></button>
                 )}
               </div>
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
@@ -1011,11 +1012,11 @@ ${studioPdfHeader(currentStudio,{docTitle:"Contratto di Noleggio",docSubtitle:"M
                         setEditEnd(n.end_date);
                         setEditPricePerDay(String(n.price_per_day));
                       }}
-                        style={{ background:"none", border:"none", cursor:"pointer", color:THEME.muted, fontSize:13, padding:2, lineHeight:1 }} title="Modifica noleggio">✏️</button>
+                        style={{ background:"none", border:"none", cursor:"pointer", color:THEME.muted, fontSize:13, padding:2, lineHeight:1 }} title="Modifica noleggio"><Icon name="edit" size={13} color="currentColor" /></button>
                     </div>
                     {n.patient_phone
                       ? <div style={{ fontSize:12, color:THEME.muted }}>{displayPhone(n.patient_phone)}</div>
-                      : <div style={{ fontSize:11, color:THEME.amber, fontWeight:600 }}>⚠️ Nessun telefono</div>
+                      : <div style={{ fontSize:11, color:THEME.amber, fontWeight:600 }}>Nessun telefono</div>
                     }
                     {!n.patient_id && (
                       <button onClick={()=>createPatientFromNoleggio(n)} disabled={creatingPatient===n.id}
@@ -1056,7 +1057,7 @@ ${studioPdfHeader(currentStudio,{docTitle:"Contratto di Noleggio",docSubtitle:"M
                   🖨️ Ricevuta
                 </button>
                 <button onClick={()=>printContratto(n)} style={{ padding:"6px 10px", borderRadius:6, border:"1px solid rgba(124,58,237,0.3)", background:"rgba(124,58,237,0.05)", color:"#7c3aed", cursor:"pointer", fontWeight:700, fontSize:11 }}>
-                  📄 Contratto
+                  Contratto
                 </button>
                 <button onClick={()=>deleteNoleggio(n.id)} style={{ padding:"6px 10px", borderRadius:6, border:`1px solid rgba(220,38,38,0.25)`, background:"rgba(220,38,38,0.04)", color:THEME.red, cursor:"pointer", fontWeight:700, fontSize:11 }}>
                   Elimina

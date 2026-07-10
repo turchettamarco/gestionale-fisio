@@ -31,6 +31,7 @@ import {
 import AppNavbar from "@/src/components/AppNavbar";
 import MobileTabBar from "@/src/components/MobileTabBar";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
+import { Icon } from "@/src/components/icons";
 import { normalizePhoneForWA, openWhatsApp } from "@/src/lib/whatsapp";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -422,12 +423,12 @@ export default function PatientsPage() {
             <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,0.2)",
                 padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", whiteSpace: "nowrap" }}>
-                👥 {stats.total}
+                <Icon name="users" size={12} color="currentColor" style={{display:"inline-block",verticalAlign:-1,marginRight:4}} />{stats.total}
               </span>
               {stats.incomplete > 0 && (
                 <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: "rgba(249,115,22,0.35)",
                   padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", whiteSpace: "nowrap" }}>
-                  ⚠️ {stats.incomplete}
+                  {stats.incomplete} incompleti
                 </span>
               )}
             </div>
@@ -472,7 +473,7 @@ export default function PatientsPage() {
           {/* Ricerca */}
           <div style={{ position: "relative", marginBottom: 10 }}>
             <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
-              fontSize: 15, pointerEvents: "none", color: THEME.muted }}>🔍</span>
+              fontSize: 15, pointerEvents: "none", color: THEME.muted }}><Icon name="search" size={15} color="currentColor" /></span>
             <input
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
@@ -498,7 +499,7 @@ export default function PatientsPage() {
             <div style={{ padding: "10px 12px", borderRadius: 10, marginBottom: 10,
               background: "rgba(220,38,38,0.06)", border: "1.5px solid rgba(220,38,38,0.25)",
               color: "#7f1d1d", fontWeight: 600, fontSize: 13 }}>
-              ⚠️ {error}
+              {error}
             </div>
           )}
 
@@ -579,7 +580,7 @@ export default function PatientsPage() {
                           </div>
                           {appt && (
                             <div style={{ marginTop: 3, fontSize: 11, fontWeight: 600, color: THEME.blue }}>
-                              📅 {formatApptDate(appt.start_at)}
+                              {formatApptDate(appt.start_at)}
                             </div>
                           )}
                         </Link>
@@ -594,7 +595,7 @@ export default function PatientsPage() {
                               background: "rgba(37,99,235,0.08)",
                               border: `1.5px solid rgba(37,99,235,0.2)`,
                               textDecoration: "none", fontSize: 16,
-                            }}>📞</a>
+                            }}><Icon name="phone" size={13} color="currentColor" /></a>
                           )}
                           {/* WhatsApp */}
                           {waPhone && (

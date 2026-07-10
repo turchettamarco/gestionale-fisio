@@ -405,7 +405,7 @@ export default function NewPatientPage() {
   if (isMobile) {
     return (
       <div style={{
-        minHeight: "100vh", background: THEME.appBg,
+        minHeight: "100vh", background: isMobile ? "#FAF7F2" : THEME.appBg,
         fontFamily: "Inter,-apple-system,sans-serif",
       }}>
 

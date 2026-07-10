@@ -809,7 +809,7 @@ export default function ReportsMobile() {
           <div style={{padding:"12px 14px",borderRadius:12,
             background:"rgba(220,38,38,0.06)",border:`1.5px solid rgba(220,38,38,0.25)`,
             color:"#7f1d1d",fontWeight:600,fontSize:13}}>
-            ⚠️ {error}
+            {error}
           </div>
         ):(
           <>
@@ -924,7 +924,7 @@ export default function ReportsMobile() {
                   }}>
                     <div style={{padding:"12px 16px",borderBottom:`1px solid ${THEME.border}`,
                       fontSize:12,fontWeight:700,color:THEME.text}}>
-                      ⏰ Arretrati mesi precedenti
+                      Arretrati mesi precedenti
                     </div>
                     {arrearsMonths.slice(0,4).map((m,i)=>(
                       <div key={m.month} style={{
@@ -1023,7 +1023,7 @@ export default function ReportsMobile() {
                       <div style={{display:"flex",justifyContent:"space-between",
                         alignItems:"center",marginBottom:10}}>
                         <span style={{fontSize:13,fontWeight:700,color:THEME.text}}>
-                          📅 {labels[selectedDay]}
+                          {labels[selectedDay]}
                         </span>
                         <button onClick={()=>{setSelectedDay(null);setDayDetails([]);}} style={{
                           background:"none",border:"none",cursor:"pointer",
@@ -1074,7 +1074,7 @@ export default function ReportsMobile() {
                 <div style={{padding:"13px 16px",borderBottom:`1.5px solid ${THEME.border}`,
                   display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                   <span style={{fontSize:13,fontWeight:700,color:THEME.text}}>
-                    💰 Pagati ({rawData.length})
+                    Pagati ({rawData.length})
                   </span>
                   <span style={{fontSize:12,fontWeight:700,color:THEME.green}}>
                     {currency.format(statistics.total)}
@@ -1148,7 +1148,7 @@ export default function ReportsMobile() {
                 }}>
                   <div style={{padding:"13px 16px",borderBottom:`1.5px solid ${THEME.border}`,
                     fontSize:13,fontWeight:700,color:THEME.text}}>
-                    ⚠️ Non pagati ({unpaidTherapiesAll.length})
+                    Non pagati ({unpaidTherapiesAll.length})
                   </div>
                   {unpaidTherapiesAll.length===0?(
                     <div style={{padding:28,textAlign:"center",color:THEME.green,
@@ -1182,7 +1182,7 @@ export default function ReportsMobile() {
                               <span>{new Date(t.date).toLocaleDateString("it-IT")}</span>
                               <span>{t.treatment_type}</span>
                               <span style={{color:t.days_since>30?THEME.red:THEME.amber,fontWeight:700}}>
-                                ⏰ {t.days_since}g fa
+                                {t.days_since}g fa
                               </span>
                             </div>
                           </div>
@@ -1240,7 +1240,7 @@ export default function ReportsMobile() {
                 }}>
                   <div style={{padding:"13px 16px",borderBottom:`1.5px solid ${THEME.border}`,
                     fontSize:13,fontWeight:700,color:THEME.text}}>
-                    📅 Periodo selezionato
+                    Periodo selezionato
                   </div>
                   {(()=>{
                     const {from,to}=getRange(period,baseDate);

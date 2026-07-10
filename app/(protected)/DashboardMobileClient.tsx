@@ -1891,7 +1891,7 @@ export default function DashboardMobileClient() {
                           padding: "1px 6px", borderRadius: 99,
                           letterSpacing: 0.4, flexShrink: 0,
                         }}>
-                          👥 GRUPPO · {count}/{max}
+                          GRUPPO · {count}/{max}
                         </span>
                         <span style={{
                           fontVariantNumeric: "tabular-nums", fontWeight: 800,
@@ -2003,7 +2003,7 @@ export default function DashboardMobileClient() {
                             }}>{privacyMode ? maskName(a.patients) : fullName(a.patients)}</span>
                           )}
                           
-                          {a.location === "domicile" && <span style={{ fontSize: 10, flexShrink: 0, opacity: 0.7 }}>🏠</span>}
+                          {a.location === "domicile" && <Icon name="home" size={11} color={THEME.warm400} style={{ flexShrink: 0 }} />}
                           {a.package_id && <PackageBadge packageId={a.package_id} variant="compact" />}
                           <span style={{
                             fontSize: 11, color: THEME.gray, fontWeight: 500, flexShrink: 0,
@@ -2231,7 +2231,7 @@ export default function DashboardMobileClient() {
                                     padding: "1px 6px", borderRadius: 99,
                                     letterSpacing: 0.4, flexShrink: 0,
                                   }}>
-                                    👥 GRUPPO · {count}/{max}
+                                    GRUPPO · {count}/{max}
                                   </span>
                                   <span style={{
                                     flex: 1, minWidth: 0,
@@ -2397,7 +2397,7 @@ export default function DashboardMobileClient() {
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 9, flex: 1, minWidth: 0 }}>
-                <span style={{ fontSize: 18, flexShrink: 0 }}>👥</span>
+                <Icon name="users" size={18} color={THEME.muted} style={{ flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
                     fontSize: 13, fontWeight: 700,
@@ -2832,7 +2832,7 @@ export default function DashboardMobileClient() {
                       type="text"
                       value={qaPartSearchQ}
                       onChange={(e) => setQaPartSearchQ(e.target.value)}
-                      placeholder="🔍 Cerca paziente…"
+                      placeholder="Cerca paziente…"
                       style={{
                         width: "100%", padding: "9px 12px", borderRadius: 8,
                         border: `1.5px solid ${THEME.border}`,
@@ -2958,7 +2958,7 @@ export default function DashboardMobileClient() {
                       borderRadius: 6,
                       fontSize: 10, color: "#7f1d1d",
                     }}>
-                      ⚠️ Troppi pazienti. Aumenta il max o rimuovi qualcuno.
+                      Troppi pazienti. Aumenta il max o rimuovi qualcuno.
                     </div>
                   )}
                 </div>
@@ -3102,10 +3102,10 @@ export default function DashboardMobileClient() {
                 <strong>{waConfirmData.patientFirstName}</strong>
               </div>
               <div style={{ color: THEME.muted, fontSize: 12, fontWeight: 600 }}>
-                📞 {waConfirmData.patientPhone}
+                <Icon name="phone" size={12} color={THEME.warm500} style={{ display: "inline-block", verticalAlign: -1, marginRight: 4 }} />{waConfirmData.patientPhone}
               </div>
               <div style={{ color: THEME.muted, fontSize: 12, fontWeight: 600, marginTop: 6 }}>
-                📅 {formatDateRelative(waConfirmData.startDate)} alle {waConfirmData.time}
+                <Icon name="calendar" size={12} color={THEME.warm500} style={{ display: "inline-block", verticalAlign: -1, marginRight: 4 }} />{formatDateRelative(waConfirmData.startDate)} alle {waConfirmData.time}
               </div>
             </div>
 
