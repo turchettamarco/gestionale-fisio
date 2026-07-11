@@ -582,6 +582,9 @@ function DomiciliInner() {
 
   // ── Drag & Drop: spostamento e riordino accessi ──
   const [dragAccessId, setDragAccessId] = useState<string | null>(null);
+  // Ghost mobile: anteprima della card che segue il dito durante il drag
+  const [touchGhost, setTouchGhost] = useState<{ x: number; y: number; label: string; fromISO: string; color: string } | null>(null);
+  const [touchOverDay, setTouchOverDay] = useState<string | null>(null);
 
   // Sposta un accesso in un altro giorno: cambia SOLO la sua data (spostamento eccezionale)
   const moveAccessToDay = async (accessId: string, newDayISO: string) => {
@@ -611,6 +614,14 @@ function DomiciliInner() {
           if (touchDragRef.current?.accessId === a.id) {
             touchDragRef.current.activated = true;
             setDragAccessId(a.id);
+            const pat = patientById.get(a.coop_patient_id);
+            const coop = pat ? coopById.get(pat.cooperative_id) : null;
+            setTouchGhost({
+              x: touchDragRef.current.lastX, y: touchDragRef.current.lastY,
+              label: pat ? `${pat.cognome} ${pat.nome}` : "Accesso",
+              fromISO: a.data,
+              color: coop?.colore || THEME.teal,
+            });
             try { (navigator as any).vibrate?.(25); } catch {}
           }
         }, 350),
@@ -630,12 +641,20 @@ function DomiciliInner() {
       }
       e.preventDefault();
       st.lastX = t.clientX; st.lastY = t.clientY;
+      // ghost segue il dito
+      setTouchGhost(g => g ? { ...g, x: t.clientX, y: t.clientY } : g);
+      // evidenza live del giorno sotto il dito
+      const el = document.elementFromPoint(t.clientX, t.clientY);
+      const dayEl = (el as HTMLElement | null)?.closest?.("[data-drop-day]") as HTMLElement | null;
+      setTouchOverDay(dayEl?.dataset.dropDay || null);
     },
     onTouchEnd: () => {
       const st = touchDragRef.current;
       touchDragRef.current = null;
       if (st?.timer) clearTimeout(st.timer);
       setDragAccessId(null);
+      setTouchGhost(null);
+      setTouchOverDay(null);
       if (!st?.activated) return;
       suppressClickRef.current = true;
       setTimeout(() => { suppressClickRef.current = false; }, 400);
@@ -798,6 +817,28 @@ function DomiciliInner() {
 
   const sharedModals = (
     <>
+      {/* Ghost drag mobile: anteprima che segue il dito */}
+      {touchGhost && (
+        <div style={{
+          position: "fixed", left: touchGhost.x, top: touchGhost.y - 16,
+          transform: "translate(-50%, -100%)", zIndex: 3000, pointerEvents: "none",
+          background: "#fff", border: `1.5px solid ${touchGhost.color}`,
+          borderRadius: 12, padding: "9px 14px",
+          boxShadow: "0 14px 34px rgba(15,23,42,.3)",
+          minWidth: 150, maxWidth: 240,
+        }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {touchGhost.label}
+          </div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: touchOverDay && touchOverDay !== touchGhost.fromISO ? "#0e7490" : "#94a3b8", marginTop: 1 }}>
+            {touchOverDay && touchOverDay !== touchGhost.fromISO
+              ? `Sposta a ${fmtIT(touchOverDay)}`
+              : touchOverDay === touchGhost.fromISO
+                ? "Rilascia su una card per riordinare"
+                : "Trascina su un giorno o su una card"}
+          </div>
+        </div>
+      )}
       <PaiPatientModal
         open={patientModal.open}
         onClose={() => setPatientModal({ open: false, patient: null, startWithPhoto: false })}
@@ -1046,10 +1087,12 @@ function DomiciliInner() {
                     // data-drop-day: trascinando una card qui sopra, l'accesso si sposta a questo giorno
                     return (
                       <button key={iso} data-drop-day={iso} onClick={() => setAnchor(d)} style={{
-                        border: `1px ${dragAccessId ? "dashed" : "solid"} ${dragAccessId ? "#67e8f9" : sel ? THEME.teal : THEME.border}`,
-                        background: dragAccessId ? "#ecfeff" : sel ? THEME.teal : "#fff",
-                        color: sel ? "#fff" : THEME.text,
+                        border: `1.5px ${dragAccessId && touchOverDay !== iso ? "dashed" : "solid"} ${touchOverDay === iso ? "#0891b2" : dragAccessId ? "#67e8f9" : sel ? THEME.teal : THEME.border}`,
+                        background: touchOverDay === iso ? "#a5f3fc" : dragAccessId ? "#ecfeff" : sel ? THEME.teal : "#fff",
+                        color: touchOverDay === iso ? "#164e63" : sel ? "#fff" : THEME.text,
                         borderRadius: 12, padding: "7px 0 6px", cursor: "pointer",
+                        transform: touchOverDay === iso ? "scale(1.08)" : "none",
+                        transition: "transform .12s ease, background .12s ease",
                       }}>
                         <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: .5, color: sel ? "#ccfbf1" : isToday ? THEME.tealDark : THEME.label }}>{DOW_LABELS[i + 1]}</div>
                         <div style={{ fontSize: 15.5, fontWeight: 800 }}>{d.getDate()}</div>
@@ -1182,7 +1225,13 @@ function DomiciliInner() {
                   const list = accByDay.get(iso) || [];
                   const isToday = iso === todayISO;
                   return (
-                    <div key={iso} data-drop-day={iso} style={{ background: dragAccessId ? "#ecfeff" : "#fff", borderRadius: 14, border: `1px ${dragAccessId ? "dashed #67e8f9" : `solid ${THEME.borderSoft}`}`, overflow: "hidden" }}>
+                    <div key={iso} data-drop-day={iso} style={{
+                      background: touchOverDay === iso ? "#cffafe" : dragAccessId ? "#ecfeff" : "#fff",
+                      borderRadius: 14,
+                      border: touchOverDay === iso ? "2px solid #0891b2" : `1px ${dragAccessId ? "dashed #67e8f9" : `solid ${THEME.borderSoft}`}`,
+                      overflow: "hidden",
+                      transition: "background .12s ease",
+                    }}>
                       <button
                         onClick={() => { setAnchor(d); setCalView("giorno"); }}
                         style={{
