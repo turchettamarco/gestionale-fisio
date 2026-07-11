@@ -25,6 +25,7 @@ const ITEMS: TabItem[] = [
   { href: "/patients", label: "Pazienti", icon: "users", match: ["/patients"] },
   { href: "/reports", label: "Report", icon: "chart", match: ["/reports"] },
   { href: "/noleggio", label: "Noleggio", icon: "plug", match: ["/noleggio"] },
+  { href: "/domicili", label: "Domicili", icon: "pulse", match: ["/domicili"] },
   { href: "/settings", label: "Impost.", icon: "settings", match: ["/settings"] },
 ];
 

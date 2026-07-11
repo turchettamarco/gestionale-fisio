@@ -22,7 +22,7 @@ import { useCurrentStudio } from "@/src/contexts/StudioContext";
 
 export type AppNavbarSection =
   | "home" | "calendar" | "reports" | "noleggio" | "patients"
-  | "contabilita" | "settings" | "piano" | "none";
+  | "domicili" | "contabilita" | "settings" | "piano" | "none";
 
 export type AppNavbarProps = {
   /** Sezione attiva — evidenzia il link corrispondente nella nav */
@@ -124,6 +124,7 @@ export default function AppNavbar({ active, onRefresh, onNotificationAppointment
     { href: "/reports",  label: "Report",     key: "reports"  },
     { href: "/noleggio", label: "Noleggio",   key: "noleggio" },
     { href: "/patients", label: "Pazienti",   key: "patients" },
+    { href: "/domicili", label: "Domicili",   key: "domicili" },
     { href: "/contabilita", label: "Contabilità", key: "contabilita" },
   ];
 
