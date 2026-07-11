@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon, type IconName } from "./icons";
 import { COLORS } from "@/src/theme/tokens";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
 
 // ─────────────────────────────────────────────────────────────────────
 // Barra di navigazione inferiore — Restyling Direzione A (R1).
@@ -33,6 +34,9 @@ const ITEMS: TabItem[] = [
 const BAR_CONTENT_H = 48;
 
 export default function MobileTabBar() {
+  const { studio } = useCurrentStudio();
+  const items = ITEMS.filter(it => it.href !== "/domicili" || studio?.feature_domicili === true);
+
   const pathname = usePathname() || "/";
 
   const isActive = (item: TabItem) => {
@@ -51,7 +55,7 @@ export default function MobileTabBar() {
         boxShadow: "0 -1px 8px rgba(26,29,36,0.04)",
       }}
     >
-      {ITEMS.map(item => {
+      {items.map(item => {
         const active = isActive(item);
         const color = active ? COLORS.teal : COLORS.warm400;
         return (

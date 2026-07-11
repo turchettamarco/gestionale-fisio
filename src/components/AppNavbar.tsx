@@ -118,7 +118,7 @@ export default function AppNavbar({ active, onRefresh, onNotificationAppointment
 
   const userInitials = userEmail ? userEmail.slice(0, 2).toUpperCase() : "?";
 
-  const navItems: { href: string; label: string; key: AppNavbarSection }[] = [
+  const allNavItems: { href: string; label: string; key: AppNavbarSection }[] = [
     { href: "/",         label: "Home",       key: "home"     },
     { href: "/calendar", label: "Calendario", key: "calendar" },
     { href: "/reports",  label: "Report",     key: "reports"  },
@@ -127,6 +127,8 @@ export default function AppNavbar({ active, onRefresh, onNotificationAppointment
     { href: "/domicili", label: "Domicili",   key: "domicili" },
     { href: "/contabilita", label: "Contabilità", key: "contabilita" },
   ];
+  // Domicili: visibile solo se il feature flag dello studio è attivo (mig. 056)
+  const navItems = allNavItems.filter(it => it.key !== "domicili" || currentStudio?.feature_domicili === true);
 
   // Color tokens hardcoded per indipendenza dal contesto theme di una pagina
   const COL = {

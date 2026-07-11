@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 // ═══════════════════════════════════════════════════════════════════════════
 // DOMICILI COOPERATIVE — pagina UNIFICATA (desktop + mobile, useIsMobile)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -513,6 +515,24 @@ function DomiciliInner() {
   // ─── Guard viewport ──────────────────────────────────────────────────────
   if (isMobile === null) {
     return <div style={{ minHeight: "100vh", background: THEME.appBg }} />;
+  }
+
+  // ─── Guard feature flag (mig. 056): sezione attiva solo se abilitata ─────
+  // (posizionato DOPO tutti gli hook — mai return prima degli hook)
+  if (studio && studio.feature_domicili !== true) {
+    return (
+      <div style={{ minHeight: "100vh", background: THEME.appBg, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+        <div style={{ background: "#fff", border: `1px solid ${THEME.border}`, borderRadius: 14, padding: "26px 28px", maxWidth: 420, textAlign: "center" }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: THEME.text, marginBottom: 8 }}>Sezione non disponibile</div>
+          <div style={{ fontSize: 13, color: THEME.mutedLight, lineHeight: 1.6, marginBottom: 16 }}>
+            La sezione Domicili Cooperative non è attiva per questo studio.
+          </div>
+          <Link href="/" style={{ display: "inline-block", padding: "10px 18px", borderRadius: 10, background: THEME.teal, color: "#fff", fontSize: 13, fontWeight: 700, textDecoration: "none" }}>
+            Torna alla home
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   const activeCoops = cooperatives.filter(c => c.attiva);
