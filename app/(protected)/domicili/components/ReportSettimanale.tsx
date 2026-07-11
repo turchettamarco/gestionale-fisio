@@ -206,8 +206,8 @@ export default function ReportSettimanale({
     padding: isMobile ? 0 : 20,
   };
   const sheet: React.CSSProperties = isMobile
-    ? { background: "#fff", width: "100%", maxHeight: "92vh", borderRadius: "18px 18px 0 0", display: "flex", flexDirection: "column", overflow: "hidden" }
-    : { background: "#fff", width: 760, maxWidth: "96vw", maxHeight: "90vh", borderRadius: 16, display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 60px rgba(15,23,42,.25)" };
+    ? { background: "#fff", color: T.text, width: "100%", maxHeight: "92vh", borderRadius: "18px 18px 0 0", display: "flex", flexDirection: "column", overflow: "hidden" }
+    : { background: "#fff", color: T.text, width: 760, maxWidth: "96vw", maxHeight: "90vh", borderRadius: 16, display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 60px rgba(15,23,42,.25)" };
 
   const th: React.CSSProperties = {
     fontSize: 9.5, letterSpacing: .5, textTransform: "uppercase", color: "#64748b",
@@ -215,7 +215,7 @@ export default function ReportSettimanale({
   };
   const td: React.CSSProperties = {
     borderBottom: "1px solid #eef2f6", padding: "9px 4px", textAlign: "center",
-    fontSize: 13, fontWeight: 700,
+    fontSize: 13, fontWeight: 700, color: T.text,
   };
 
   const cellSym = (a: CoopAccess | null) => {
@@ -240,7 +240,7 @@ export default function ReportSettimanale({
               {coop ? coop.nome : "Tutte le cooperative"} · {fmtWeekRange(weekStart)}
             </div>
           </div>
-          <button onClick={onClose} style={{ border: `1px solid ${T.border}`, background: "#fff", borderRadius: 10, padding: "6px 12px", fontWeight: 700, cursor: "pointer" }}>✕</button>
+          <button onClick={onClose} style={{ border: `1px solid ${T.border}`, background: "#fff", color: T.text, borderRadius: 10, padding: "6px 12px", fontWeight: 700, cursor: "pointer" }}>✕</button>
         </div>
 
         <div style={{ overflowY: "auto", flex: 1, padding: isMobile ? "4px 6px" : "6px 12px" }}>
@@ -305,7 +305,7 @@ export default function ReportSettimanale({
             }}>
             {pdfBusy ? "Genero PDF…" : "Scarica PDF"}
           </button>
-          <button onClick={onClose} style={{ flex: isMobile ? 1 : .5, border: `1px solid ${T.border}`, background: "#fff", borderRadius: 10, padding: "11px 0", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>
+          <button onClick={onClose} style={{ flex: isMobile ? 1 : .5, border: `1px solid ${T.border}`, background: "#fff", color: T.text, borderRadius: 10, padding: "11px 0", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>
             Chiudi
           </button>
         </div>

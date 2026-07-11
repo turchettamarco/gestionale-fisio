@@ -578,8 +578,8 @@ export default function PaiPatientModal({
     padding: isMobile ? 0 : 20,
   };
   const sheet: React.CSSProperties = isMobile
-    ? { background: "#fff", width: "100%", maxHeight: "94vh", borderRadius: "18px 18px 0 0", display: "flex", flexDirection: "column", overflow: "hidden" }
-    : { background: "#fff", width: 680, maxWidth: "96vw", maxHeight: "92vh", borderRadius: 16, display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 60px rgba(15,23,42,.25)" };
+    ? { background: "#fff", color: T.text, width: "100%", maxHeight: "94vh", borderRadius: "18px 18px 0 0", display: "flex", flexDirection: "column", overflow: "hidden" }
+    : { background: "#fff", color: T.text, width: 680, maxWidth: "96vw", maxHeight: "92vh", borderRadius: 16, display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 60px rgba(15,23,42,.25)" };
 
   const sec: React.CSSProperties = {
     fontSize: 11, fontWeight: 800, letterSpacing: .8, textTransform: "uppercase",

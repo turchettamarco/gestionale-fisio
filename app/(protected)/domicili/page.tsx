@@ -1031,7 +1031,7 @@ function DomiciliInner() {
     const dayAccesses = (accByDay.get(anchorISO) || []);
 
     return (
-      <div style={{ minHeight: "100vh", background: THEME.appBg, paddingBottom: 130, overflowX: "hidden", width: "100%", maxWidth: "100%" }}>
+      <div style={{ minHeight: "100vh", background: THEME.appBg, color: THEME.text, paddingBottom: 130, overflowX: "hidden", width: "100%", maxWidth: "100%" }}>
         {/* Header */}
         <div style={{ padding: "16px 16px 10px", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ flex: 1 }}>
@@ -1433,7 +1433,7 @@ function DomiciliInner() {
   const dayList = accByDay.get(anchorISO) || [];
 
   return (
-    <div style={{ minHeight: "100vh", background: THEME.appBg, overflowX: "hidden" }}>
+    <div style={{ minHeight: "100vh", background: THEME.appBg, color: THEME.text, overflowX: "hidden" }}>
       <AppNavbar active="domicili" onRefresh={refreshAll} />
 
       <div style={{ maxWidth: 1380, margin: "0 auto", padding: "22px 24px 40px" }}>
