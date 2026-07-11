@@ -51,6 +51,7 @@ export type CoopPatient = {
   giorni_orari: GiornoOrario[];
   note: string | null;
   stato: CoopPatientStato;
+  pianificazione_retroattiva?: boolean; // mig. 057: modalità inizio memorizzata
   created_at: string;
   updated_at: string;
 };

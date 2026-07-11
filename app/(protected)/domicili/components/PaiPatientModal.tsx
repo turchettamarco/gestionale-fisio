@@ -185,9 +185,9 @@ export default function PaiPatientModal({
     // startMode iniziale coerente col paziente: se ha già accessi passati
     // "fatto" (quindi pianificazione retroattiva già applicata), riseleziona
     // "retroattivo"; altrimenti "da oggi".
-    const todayISO0 = localISO(new Date());
-    const hasPastDone = (patientAccesses || []).some(a => a.stato === "fatto" && a.data < todayISO0);
-    setStartMode(hasPastDone ? "attivazione" : "oggi");
+    // Modalità inizio: ora è un dato REALE del paziente (mig. 057), non più indovinato.
+    const savedRetro = patient?.pianificazione_retroattiva === true;
+    setStartMode(savedRetro ? "attivazione" : "oggi");
 
     if (patient) {
       setForm({
@@ -209,7 +209,7 @@ export default function PaiPatientModal({
       const g = new Map<number, string>();
       (patient.giorni_orari || []).forEach(x => g.set(x.dow, normTime(x.orario) || ""));
       setGiorni(g);
-      originalPlanRef.current = planSignature(patient.giorni_orari || [], patient.data_scadenza, patient.tot_accessi) + `|${hasPastDone ? "attivazione" : "oggi"}|${patient.data_attivazione || ""}`;
+      originalPlanRef.current = planSignature(patient.giorni_orari || [], patient.data_scadenza, patient.tot_accessi) + `|${savedRetro ? "attivazione" : "oggi"}|${patient.data_attivazione || ""}`;
       setStep("form");
     } else {
       setForm({ ...EMPTY_FORM, cooperative_id: defaultCooperativeId || cooperatives[0]?.id || "" });
@@ -395,6 +395,7 @@ export default function PaiPatientModal({
         giorni_orari: giorniArray,
         note: form.note.trim() || null,
         stato: form.stato,
+        pianificazione_retroattiva: startMode === "attivazione",
         updated_at: new Date().toISOString(),
       };
 
@@ -522,6 +523,7 @@ export default function PaiPatientModal({
           tot_accessi: Number.isFinite(totAcc!) && totAcc! > 0 ? totAcc : null,
           operatori: r.operatori || null,
           giorni_orari, note: null, stato: "attivo",
+          pianificazione_retroattiva: !!(b.dataInizio && b.dataInizio < localISO(new Date())),
           updated_at: new Date().toISOString(),
         };
         const { data: ins, error: insErr } = await supabase
@@ -801,7 +803,7 @@ export default function PaiPatientModal({
                   </div>
 
                   {/* Inizio pianificazione: da oggi oppure retroattivo dalla data di attivazione */}
-                  {form.data_attivazione && form.data_attivazione < localISO(new Date()) && giorni.size > 0 && (
+                  {((form.data_attivazione && form.data_attivazione < localISO(new Date())) || startMode === "attivazione") && giorni.size > 0 && (
                     <div style={{
                       marginTop: 10, background: T.soft, border: `1px solid ${T.border}`,
                       borderRadius: 10, padding: "10px 12px",
