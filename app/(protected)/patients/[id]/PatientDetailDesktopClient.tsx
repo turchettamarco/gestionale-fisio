@@ -355,10 +355,12 @@ function safeNumToStr(n: number | null | undefined) {
 export default function PatientDetailDesktopClient({
   params,
 }: {
-  params: Promise<{ id: string }> | { id: string };
+  // page.tsx risolve già i params (React.use) e ci passa l'oggetto pronto:
+  // qui basta leggerlo. Un secondo React.use() su un oggetto normale
+  // scatena React #438 ("unsupported type passed to use()").
+  params: { id: string };
 }) {
-  const resolvedParams = React.use(params as any) as { id: string };
-  const patientId = resolvedParams.id;
+  const patientId = params.id;
 
   // Studio corrente (multi-tenancy) — per firma e indirizzo nei messaggi
   const { studio: currentStudio } = useCurrentStudio();
