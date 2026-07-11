@@ -215,6 +215,7 @@ export function generateAccessDates(
   patient: Pick<CoopPatient, "giorni_orari" | "data_attivazione" | "data_scadenza" | "tot_accessi">,
   existing: { data: string; stato: string }[],
   from?: Date,
+  closedDates?: Set<string>,   // giorni chiusi (ferie/chiusure): saltati e slittati
 ): { data: string; orario: string | null; stato: string }[] {
   const giorni = (patient.giorni_orari || []).filter(g => g && g.dow >= 1 && g.dow <= 6);
   if (giorni.length === 0) return [];
@@ -260,6 +261,8 @@ export function generateAccessDates(
 
   for (let d = new Date(start); d.getTime() <= end.getTime() && out.length < budget; d = addDays(d, 1)) {
     const dow = dowOf(d);
+    const isoD = localISO(d);
+    if (closedDates && closedDates.has(isoD)) continue; // giorno chiuso → salta, slitta avanti
     if (!orarioByDow.has(dow)) continue;
     const iso = localISO(d);
     if (taken.has(iso)) continue;

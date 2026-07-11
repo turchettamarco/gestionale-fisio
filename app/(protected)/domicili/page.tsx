@@ -43,6 +43,7 @@ import {
   COOP_PRESETS, COOP_COLOR_CHOICES, DOW_LABELS,
   localISO, parseISODate, addDays, mondayOf, fmtShort, fmtIT, fmtWeekRange,
   fmtDayLong, fmtMonthYear, normTime, daysUntil, computeCounters, ageFrom,
+  generateAccessDates,
 } from "@/src/lib/domicili/types";
 
 // ─── Theme (piatto, alto contrasto) ──────────────────────────────────────────
@@ -86,58 +87,107 @@ async function generatePlannerPdf(opts: {
   coop: Cooperative | null;
   patientById: Map<string, CoopPatient>;
   accesses: CoopAccess[];   // già filtrati a settimana + perimetro
+  coopById?: Map<string, Cooperative>;
 }) {
   const { jsPDF } = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default;
 
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
   const days = Array.from({ length: 6 }, (_, i) => addDays(opts.weekStart, i));
+  const DOW_FULL = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
 
+  // Progressivo accessi per paziente (ordine cronologico su tutti i suoi accessi non saltati)
+  const seqByAccessId = new Map<string, number>();
+  const byPatient = new Map<string, CoopAccess[]>();
+  opts.accesses.forEach(a => {
+    const arr = byPatient.get(a.coop_patient_id) || [];
+    arr.push(a); byPatient.set(a.coop_patient_id, arr);
+  });
+
+  // Intestazione documento
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
+  doc.setFontSize(15);
   doc.setTextColor(15, 23, 42);
-  doc.text(`Planner settimanale domicili — ${opts.coop ? opts.coop.nome : "Tutte le cooperative"}`, 12, 14);
+  doc.text(`Giro visite domicili — ${opts.coop ? opts.coop.nome : "Tutte le cooperative"}`, 14, 16);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(9.5);
-  doc.setTextColor(51, 65, 85);
-  doc.text(`Settimana ${fmtWeekRange(opts.weekStart)}`, 12, 20);
-  doc.text(`Generato il ${new Date().toLocaleDateString("it-IT")}`, pageW - 12, 14, { align: "right" });
+  doc.setFontSize(10);
+  doc.setTextColor(71, 85, 105);
+  doc.text(`Settimana ${fmtWeekRange(opts.weekStart)}`, 14, 22);
+  doc.text(`Generato il ${new Date().toLocaleDateString("it-IT")}`, pageW - 14, 16, { align: "right" });
 
-  const head = [days.map((d, i) => `${DOW_LABELS[i + 1]} ${d.getDate()}`)];
-  const body = [days.map(d => {
+  const totWeek = opts.accesses.filter(a => a.stato !== "saltato").length;
+  doc.text(`${totWeek} access${totWeek === 1 ? "o" : "i"} in settimana`, pageW - 14, 22, { align: "right" });
+
+  let cursorY = 28;
+
+  days.forEach(d => {
     const iso = localISO(d);
     const list = opts.accesses
       .filter(a => a.data === iso && a.stato !== "saltato")
       .sort((a, b) => (a.orario || "99:99").localeCompare(b.orario || "99:99"));
-    return list.map(a => {
-      const p = opts.patientById.get(a.coop_patient_id);
-      if (!p) return "";
-      const l1 = `${a.orario ? a.orario + "  " : ""}${p.cognome.toUpperCase()} ${p.nome}`;
-      const l2 = [p.citta, p.recapiti].filter(Boolean).join("  ·  ");
-      return l2 ? `${l1}\n${l2}` : l1;
-    }).filter(Boolean).join("\n\n");
-  })];
 
-  autoTable(doc, {
-    startY: 25,
-    head, body,
-    theme: "grid",
-    styles: { font: "helvetica", fontSize: 8.5, cellPadding: 3, valign: "top", textColor: [15, 23, 42], lineColor: [203, 213, 225] },
-    headStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: "bold", halign: "center", fontSize: 9 },
-    bodyStyles: { minCellHeight: 120 },
-    margin: { left: 12, right: 12 },
+    if (list.length === 0) return; // salta i giorni senza visite
+
+    const dowIdx = (d.getDay() + 6) % 7;
+    const rows = list.map(a => {
+      const p = opts.patientById.get(a.coop_patient_id);
+      if (!p) return ["", "", "", "", ""];
+      // progressivo: posizione dell'accesso tra tutti quelli del paziente nel range
+      const all = (byPatient.get(p.id) || []).slice().sort((x, y) => x.data.localeCompare(y.data));
+      const prog = all.findIndex(x => x.id === a.id) + 1;
+      const progLabel = p.tot_accessi ? `${prog}/${p.tot_accessi}` : `${prog}`;
+      return [
+        a.orario || "—",
+        `${p.cognome.toUpperCase()} ${p.nome}`,
+        p.citta || "—",
+        p.recapiti || "—",
+        progLabel,
+      ];
+    });
+
+    autoTable(doc, {
+      startY: cursorY,
+      head: [[{ content: `${DOW_FULL[dowIdx]} ${d.getDate()}  ·  ${list.length} visit${list.length === 1 ? "a" : "e"}`, colSpan: 5, styles: { halign: "left", fillColor: [13, 148, 136], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 10.5 } }],
+             ["Ora", "Paziente", "Città", "Telefono", "Acc."]],
+      body: rows,
+      theme: "grid",
+      styles: { font: "helvetica", fontSize: 9.5, cellPadding: 2.5, valign: "middle", textColor: [15, 23, 42], lineColor: [226, 232, 240] },
+      headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontStyle: "bold", fontSize: 8.5 },
+      columnStyles: {
+        0: { cellWidth: 16, fontStyle: "bold" },
+        1: { cellWidth: "auto", fontStyle: "bold" },
+        2: { cellWidth: 34 },
+        3: { cellWidth: 34 },
+        4: { cellWidth: 16, halign: "center" },
+      },
+      margin: { left: 14, right: 14 },
+      didParseCell: (data: any) => {
+        // la riga-titolo del giorno (head prima riga) mantiene lo stile del content
+        if (data.section === "head" && data.row.index === 0) {
+          data.cell.styles.fillColor = [13, 148, 136];
+          data.cell.styles.textColor = [255, 255, 255];
+        }
+      },
+    });
+
+    cursorY = (doc as any).lastAutoTable.finalY + 6;
+    if (cursorY > pageH - 24) { doc.addPage(); cursorY = 18; }
   });
 
-  doc.setFontSize(8);
-  doc.setTextColor(100, 116, 139);
-  doc.text(
-    "Generato con FisioHub — sezione Domicili Cooperative (dati separati dal gestionale studio)",
-    12, doc.internal.pageSize.getHeight() - 8
-  );
+  // Footer su ogni pagina
+  const pageCount = (doc as any).internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(148, 163, 184);
+    doc.text("FisioHub — Domicili Cooperative (dati separati dal gestionale studio)", 14, pageH - 8);
+    doc.text(`Pagina ${i} di ${pageCount}`, pageW - 14, pageH - 8, { align: "right" });
+  }
 
   const slug = (opts.coop?.nome || "tutte").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-  doc.save(`planner-domicili-${slug}-${localISO(opts.weekStart)}.pdf`);
+  doc.save(`giro-visite-${slug}-${localISO(opts.weekStart)}.pdf`);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -177,6 +227,8 @@ function DomiciliInner() {
   const [patients, setPatients] = useState<CoopPatient[]>([]);
   const [rangeAccesses, setRangeAccesses] = useState<CoopAccess[]>([]);
   const [allLite, setAllLite] = useState<AccessesLite[]>([]);
+  const [chiusure, setChiusure] = useState<{ id: string; data_da: string; data_a: string; motivo: string | null }[]>([]);
+  const [ferieForm, setFerieForm] = useState<{ da: string; a: string }>({ da: "", a: "" });
   const [counterMode, setCounterMode] = useState<CounterMode>("manuale");
 
   // ─── Stato UI ────────────────────────────────────────────────────────────
@@ -220,15 +272,17 @@ function DomiciliInner() {
   const loadAll = useCallback(async (sid: string) => {
     setLoading(true);
 
-    const [coopsRes, patsRes, setRes] = await Promise.all([
+    const [coopsRes, patsRes, setRes, chiusRes] = await Promise.all([
       supabase.from("cooperatives").select("*").eq("studio_id", sid).order("created_at"),
       supabase.from("coop_patients").select("*").eq("studio_id", sid).order("cognome"),
       supabase.from("domicili_settings").select("counter_mode").eq("studio_id", sid).maybeSingle(),
+      supabase.from("domicili_chiusure").select("id, data_da, data_a, motivo").eq("studio_id", sid).order("data_da"),
     ]);
 
     const mode: CounterMode = (setRes.data?.counter_mode as CounterMode) || "manuale";
     setCounterMode(mode);
     setCooperatives((coopsRes.data || []) as Cooperative[]);
+    setChiusure((chiusRes.data || []) as any[]);
     setPatients((patsRes.data || []).map(p => ({ ...p, giorni_orari: p.giorni_orari || [] })) as CoopPatient[]);
 
     // Catch-up automatico: i pianificati dei giorni passati diventano "fatto"
@@ -245,6 +299,17 @@ function DomiciliInner() {
 
     setLoading(false);
   }, [todayISO]);
+
+  // Insieme di tutte le date chiuse (espande i periodi ferie giorno per giorno)
+  const closedDatesSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of chiusure) {
+      let d = parseISODate(c.data_da);
+      const end = parseISODate(c.data_a);
+      while (d.getTime() <= end.getTime()) { s.add(localISO(d)); d = addDays(d, 1); }
+    }
+    return s;
+  }, [chiusure]);
 
   useEffect(() => {
     if (!studioId) return;
@@ -395,6 +460,83 @@ function DomiciliInner() {
       if (!found) return [...prev, { coop_patient_id: pid, data: dataISO, stato }];
       return prev.map(a => a.coop_patient_id === pid && a.data === dataISO ? { ...a, stato } : a);
     });
+  };
+
+  // ─── Chiusure / Ferie ────────────────────────────────────────────────────
+  // Ricalcola i futuri pianificati di TUTTI i pazienti coinvolti, saltando i
+  // giorni chiusi (gli accessi slittano al primo giorno-fisso utile).
+  const ricalcolaConChiusure = async (sid: string, closed: Set<string>) => {
+    const todayISOx = localISO(new Date());
+    // per ogni paziente attivo con giorni fissi, rigenera i pianificati futuri
+    for (const p of patients) {
+      if (p.stato !== "attivo") continue;
+      if (!p.giorni_orari || p.giorni_orari.length === 0) continue;
+      // accessi esistenti del paziente
+      const { data: exist } = await supabase
+        .from("coop_accesses").select("id, data, stato")
+        .eq("coop_patient_id", p.id);
+      const rows = (exist || []) as { id: string; data: string; stato: string }[];
+      // cancella i pianificati futuri (li rigeneriamo saltando le chiusure)
+      const toDelete = rows.filter(a => a.stato === "pianificato" && a.data >= todayISOx);
+      if (toDelete.length > 0) {
+        await supabase.from("coop_accesses").delete().in("id", toDelete.map(a => a.id));
+      }
+      // "keep": fatti + saltati + eventuali pianificati passati
+      const keep = rows.filter(a => !(a.stato === "pianificato" && a.data >= todayISOx));
+      const dates = generateAccessDates(
+        { giorni_orari: p.giorni_orari, data_attivazione: p.data_attivazione, data_scadenza: p.data_scadenza, tot_accessi: p.tot_accessi },
+        keep, undefined, closed,
+      );
+      const futuri = dates.filter(d => d.data >= todayISOx && d.stato === "pianificato");
+      if (futuri.length > 0) {
+        await supabase.from("coop_accesses").insert(
+          futuri.map(d => ({ studio_id: sid, coop_patient_id: p.id, data: d.data, orario: d.orario, stato: "pianificato" }))
+        );
+      }
+    }
+  };
+
+  const addChiusura = async (dataDa: string, dataA: string, motivo: string) => {
+    if (!studioId) return;
+    const { data: ins, error } = await supabase.from("domicili_chiusure")
+      .insert({ studio_id: studioId, data_da: dataDa, data_a: dataA, motivo: motivo || null })
+      .select("id, data_da, data_a, motivo").single();
+    if (error) { notify.error("Errore salvataggio chiusura"); return; }
+    // aggiorna set locale e ricalcola
+    const newChiusure = [...chiusure, ins as any];
+    setChiusure(newChiusure);
+    const closed = new Set<string>();
+    for (const c of newChiusure) {
+      let d = parseISODate(c.data_da); const end = parseISODate(c.data_a);
+      while (d.getTime() <= end.getTime()) { closed.add(localISO(d)); d = addDays(d, 1); }
+    }
+    notify.info("Ricalcolo accessi in corso…");
+    await ricalcolaConChiusure(studioId, closed);
+    await loadAll(studioId);
+    loadRange(studioId, calView, anchor);
+    notify.success("Chiusura salvata e accessi ricalcolati");
+  };
+
+  const removeChiusura = async (id: string) => {
+    if (!studioId) return;
+    await supabase.from("domicili_chiusure").delete().eq("id", id);
+    const newChiusure = chiusure.filter(c => c.id !== id);
+    setChiusure(newChiusure);
+    const closed = new Set<string>();
+    for (const c of newChiusure) {
+      let d = parseISODate(c.data_da); const end = parseISODate(c.data_a);
+      while (d.getTime() <= end.getTime()) { closed.add(localISO(d)); d = addDays(d, 1); }
+    }
+    await ricalcolaConChiusure(studioId, closed);
+    await loadAll(studioId);
+    loadRange(studioId, calView, anchor);
+    notify.success("Chiusura rimossa");
+  };
+
+  const toggleGiornoChiuso = async (dayISO: string) => {
+    const existing = chiusure.find(c => c.data_da === dayISO && c.data_a === dayISO);
+    if (existing) { await removeChiusura(existing.id); }
+    else { await addChiusura(dayISO, dayISO, "Chiuso"); }
   };
 
   const toggleFatto = async (a: CoopAccess) => {
@@ -655,6 +797,50 @@ function DomiciliInner() {
           <input type="checkbox" checked={showConclusi} onChange={e => setShowConclusi(e.target.checked)} style={{ accentColor: THEME.teal }} />
           Mostra pazienti conclusi
         </label>
+
+        {/* ── Ferie / Chiusure ── */}
+        <div style={{ borderTop: `1px solid ${THEME.borderSoft}`, marginTop: 12, paddingTop: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: THEME.text, marginBottom: 4 }}>Ferie e chiusure</div>
+          <div style={{ fontSize: 12, color: THEME.mutedLight, lineHeight: 1.45, marginBottom: 10 }}>
+            Nei giorni indicati non vengono pianificati accessi: quelli previsti slittano ai giorni utili successivi.
+          </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 8 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: THEME.mutedLight }}>Dal</span>
+              <input type="date" value={ferieForm.da} onChange={e => setFerieForm(f => ({ ...f, da: e.target.value }))}
+                style={{ padding: "7px 8px", borderRadius: 8, border: `1.5px solid ${THEME.border}`, fontSize: 12.5, fontWeight: 600, color: THEME.text, background: "#fff" }} />
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: THEME.mutedLight }}>Al</span>
+              <input type="date" value={ferieForm.a} onChange={e => setFerieForm(f => ({ ...f, a: e.target.value }))}
+                style={{ padding: "7px 8px", borderRadius: 8, border: `1.5px solid ${THEME.border}`, fontSize: 12.5, fontWeight: 600, color: THEME.text, background: "#fff" }} />
+            </label>
+            <button
+              onClick={async () => {
+                if (!ferieForm.da) { notify.warning("Scegli almeno la data di inizio"); return; }
+                const da = ferieForm.da, a = ferieForm.a || ferieForm.da;
+                if (a < da) { notify.warning("La data finale è prima di quella iniziale"); return; }
+                await addChiusura(da, a, "Ferie");
+                setFerieForm({ da: "", a: "" });
+              }}
+              style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: THEME.teal, color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+              Aggiungi
+            </button>
+          </div>
+          {chiusure.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 5, maxHeight: 160, overflowY: "auto" }}>
+              {chiusure.map(c => (
+                <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, background: THEME.panelSoft, border: `1px solid ${THEME.borderSoft}`, borderRadius: 8, padding: "6px 10px" }}>
+                  <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: THEME.text }}>
+                    {c.data_da === c.data_a ? fmtIT(c.data_da) : `${fmtIT(c.data_da)} → ${fmtIT(c.data_a)}`}
+                    {c.motivo ? <span style={{ fontWeight: 600, color: THEME.mutedLight }}>{"  ·  " + c.motivo}</span> : null}
+                  </span>
+                  <button onClick={() => removeChiusura(c.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: THEME.mutedLight, fontSize: 14 }}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </>
   );
@@ -767,6 +953,28 @@ function DomiciliInner() {
                 </div>
 
                 <div style={{ padding: "0 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+                  {(() => {
+                    const chiuso = closedDatesSet.has(anchorISO);
+                    return (
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: 8,
+                        background: chiuso ? "#fef2f2" : THEME.panelSoft,
+                        border: `1px solid ${chiuso ? "#fecaca" : THEME.borderSoft}`,
+                        borderRadius: 10, padding: "8px 11px",
+                      }}>
+                        <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: chiuso ? THEME.red : THEME.mutedLight }}>
+                          {chiuso ? "Giorno chiuso" : "Giorno lavorativo"}
+                        </span>
+                        <button onClick={() => toggleGiornoChiuso(anchorISO)} style={{
+                          padding: "6px 11px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer",
+                          border: `1px solid ${chiuso ? THEME.border : "#fecaca"}`,
+                          background: chiuso ? "#fff" : "#fef2f2", color: chiuso ? THEME.text : THEME.red,
+                        }}>
+                          {chiuso ? "Riapri" : "Non lavoro"}
+                        </button>
+                      </div>
+                    );
+                  })()}
                   {loading && <div style={{ textAlign: "center", color: THEME.mutedLight, fontSize: 13, padding: 24 }}>Carico…</div>}
                   {!loading && dayAccesses.length === 0 && (
                     <div style={{ textAlign: "center", color: THEME.mutedLight, fontSize: 13, padding: "26px 10px", background: "#fff", borderRadius: 14, border: `1px dashed ${THEME.border}` }}>
@@ -1138,6 +1346,29 @@ function DomiciliInner() {
                   {/* ── GIORNO ── */}
                   {calView === "giorno" && (
                     <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                      {(() => {
+                        const iso = localISO(anchor);
+                        const chiuso = closedDatesSet.has(iso);
+                        return (
+                          <div style={{
+                            display: "flex", alignItems: "center", gap: 10, marginBottom: 4,
+                            background: chiuso ? "#fef2f2" : THEME.panelSoft,
+                            border: `1px solid ${chiuso ? "#fecaca" : THEME.borderSoft}`,
+                            borderRadius: 10, padding: "9px 12px",
+                          }}>
+                            <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700, color: chiuso ? THEME.red : THEME.mutedLight }}>
+                              {chiuso ? "Giorno chiuso — non lavori" : "Giorno lavorativo"}
+                            </span>
+                            <button onClick={() => toggleGiornoChiuso(iso)} style={{
+                              padding: "7px 12px", borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+                              border: `1px solid ${chiuso ? THEME.border : "#fecaca"}`,
+                              background: chiuso ? "#fff" : "#fef2f2", color: chiuso ? THEME.text : THEME.red,
+                            }}>
+                              {chiuso ? "Riapri questo giorno" : "Oggi non lavoro"}
+                            </button>
+                          </div>
+                        );
+                      })()}
                       {dayList.length === 0 && !loading && (
                         <div style={{ padding: "30px 10px", textAlign: "center", fontSize: 13, color: THEME.mutedLight, border: `1px dashed ${THEME.border}`, borderRadius: 12 }}>
                           Nessun accesso in questo giorno.
@@ -1212,8 +1443,8 @@ function DomiciliInner() {
                         const list = accByDay.get(iso) || [];
                         return (
                           <div key={iso} style={{
-                            background: isToday ? "#f0fdfa" : THEME.panelSoft,
-                            border: `1px solid ${THEME.borderSoft}`,
+                            background: closedDatesSet.has(iso) ? "#fef2f2" : isToday ? "#f0fdfa" : THEME.panelSoft,
+                            border: `1px solid ${closedDatesSet.has(iso) ? "#fecaca" : THEME.borderSoft}`,
                             borderRadius: 13, padding: "9px 8px 10px", minHeight: 190,
                             display: "flex", flexDirection: "column", gap: 7,
                           }}>
