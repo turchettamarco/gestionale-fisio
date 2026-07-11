@@ -107,6 +107,7 @@ type PatientOption = { id: string; label: string; phone: string | null; firstNam
 import { MOBILE_THEME as THEME } from "@/src/theme/tokens";
 import { Icon, PulseDivider } from "@/src/components/icons";
 import StatusSheet, { type StatusSheetAction } from "@/src/components/mobile/StatusSheet";
+import MobileSearchSheet from "@/src/components/mobile/MobileSearchSheet";
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
@@ -247,6 +248,7 @@ export default function DashboardMobileClient() {
 
   // R2 — Sheet stato seduta (tap sulla pill in agenda)
   const [statusSheetFor, setStatusSheetFor] = useState<Appointment | null>(null);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [statusSaving, setStatusSaving] = useState(false);
 
   async function handleSheetAction(appt: Appointment, action: StatusSheetAction) {
@@ -1486,6 +1488,12 @@ export default function DashboardMobileClient() {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={() => setMobileSearchOpen(true)} aria-label="Cerca" style={{
+              width: 34, height: 34, borderRadius: 10, border: "none", background: "transparent",
+              cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <Icon name="search" size={18} color="rgba(255,255,255,0.92)" />
+            </button>
             {/* Bell notifiche pazienti (Fase N2) */}
             <NotificationsBell
               enabled={currentStudio?.notify_bell_enabled !== false}
@@ -1676,6 +1684,8 @@ export default function DashboardMobileClient() {
             {pulling ? "↺ Aggiornamento…" : "↓ Rilascia per aggiornare"}
           </div>
         )}
+
+        {mobileSearchOpen && <MobileSearchSheet onClose={() => setMobileSearchOpen(false)} />}
 
         {/* ── R2: Sheet stato seduta ── */}
         {statusSheetFor && (
