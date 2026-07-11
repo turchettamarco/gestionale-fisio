@@ -213,18 +213,27 @@ export function generateAccessDates(
   patient: Pick<CoopPatient, "giorni_orari" | "data_attivazione" | "data_scadenza" | "tot_accessi">,
   existing: { data: string; stato: string }[],
   from?: Date,
-): { data: string; orario: string | null }[] {
+): { data: string; orario: string | null; stato: string }[] {
   const giorni = (patient.giorni_orari || []).filter(g => g && g.dow >= 1 && g.dow <= 6);
   if (giorni.length === 0) return [];
 
   const orarioByDow = new Map<number, string | null>();
   giorni.forEach(g => orarioByDow.set(g.dow, normTime(g.orario)));
 
-  const today = from ? new Date(from) : new Date();
-  let start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12);
-  if (patient.data_attivazione) {
-    const att = parseISODate(patient.data_attivazione);
-    if (att.getTime() > start.getTime()) start = att;
+  // Punto di partenza: se è passato "from" (data inizio scelta, anche retroattiva)
+  // si parte ESATTAMENTE da lì. Altrimenti da oggi, oppure dalla data di attivazione
+  // se questa è nel futuro. NB: la data retroattiva NON viene più scartata.
+  const nowMid = new Date();
+  const todayMid = new Date(nowMid.getFullYear(), nowMid.getMonth(), nowMid.getDate(), 12);
+  let start: Date;
+  if (from) {
+    start = new Date(from.getFullYear(), from.getMonth(), from.getDate(), 12);
+  } else {
+    start = todayMid;
+    if (patient.data_attivazione) {
+      const att = parseISODate(patient.data_attivazione);
+      if (att.getTime() > start.getTime()) start = att; // solo se attivazione futura
+    }
   }
 
   const end = patient.data_scadenza
@@ -237,14 +246,16 @@ export function generateAccessDates(
     : MAX_GENERATED;
 
   const taken = new Set(existing.map(a => a.data));
-  const out: { data: string; orario: string | null }[] = [];
+  const out: { data: string; orario: string | null; stato: string }[] = [];
 
   for (let d = new Date(start); d.getTime() <= end.getTime() && out.length < budget; d = addDays(d, 1)) {
     const dow = dowOf(d);
     if (!orarioByDow.has(dow)) continue;
     const iso = localISO(d);
     if (taken.has(iso)) continue;
-    out.push({ data: iso, orario: orarioByDow.get(dow) ?? null });
+    // I giorni già passati (<= oggi) nascono "fatto": il contatore scala da subito.
+    const stato = d.getTime() <= todayMid.getTime() ? "fatto" : "pianificato";
+    out.push({ data: iso, orario: orarioByDow.get(dow) ?? null, stato });
   }
   return out;
 }

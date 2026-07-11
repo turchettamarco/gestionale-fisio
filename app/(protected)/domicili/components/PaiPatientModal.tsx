@@ -161,7 +161,7 @@ export default function PaiPatientModal({
 }: Props) {
   const isEdit = !!patient;
 
-  const [step, setStep] = useState<"scelta" | "loading" | "form">("scelta");
+  const [step, setStep] = useState<"scelta" | "loading" | "form" | "batch">("scelta");
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [giorni, setGiorni] = useState<Map<number, string>>(new Map()); // dow → orario ("" = senza)
   const [incerti, setIncerti] = useState<string[]>([]);
@@ -181,7 +181,13 @@ export default function PaiPatientModal({
     setSaving(false);
     setIncerti([]);
     setFromPhoto(false);
-    setStartMode("oggi");
+
+    // startMode iniziale coerente col paziente: se ha già accessi passati
+    // "fatto" (quindi pianificazione retroattiva già applicata), riseleziona
+    // "retroattivo"; altrimenti "da oggi".
+    const todayISO0 = localISO(new Date());
+    const hasPastDone = (patientAccesses || []).some(a => a.stato === "fatto" && a.data < todayISO0);
+    setStartMode(hasPastDone ? "attivazione" : "oggi");
 
     if (patient) {
       setForm({
@@ -203,7 +209,7 @@ export default function PaiPatientModal({
       const g = new Map<number, string>();
       (patient.giorni_orari || []).forEach(x => g.set(x.dow, normTime(x.orario) || ""));
       setGiorni(g);
-      originalPlanRef.current = planSignature(patient.giorni_orari || [], patient.data_scadenza, patient.tot_accessi);
+      originalPlanRef.current = planSignature(patient.giorni_orari || [], patient.data_scadenza, patient.tot_accessi) + `|${hasPastDone ? "attivazione" : "oggi"}|${patient.data_attivazione || ""}`;
       setStep("form");
     } else {
       setForm({ ...EMPTY_FORM, cooperative_id: defaultCooperativeId || cooperatives[0]?.id || "" });
@@ -220,32 +226,85 @@ export default function PaiPatientModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  const [multiProgress, setMultiProgress] = useState<{ done: number; total: number } | null>(null);
+
+  // Flusso BATCH: più PAI insieme → lista (cognome, nome, data inizio) → salva tutti
+  type BatchRow = { extraction: PaiExtraction; cognome: string; nome: string; dataInizio: string };
+  const [batch, setBatch] = useState<BatchRow[] | null>(null);
+  const [batchSaving, setBatchSaving] = useState(false);
+  const [batchDone, setBatchDone] = useState(0);
+
   const set = <K extends keyof FormState>(k: K) => (v: FormState[K]) => setForm(f => ({ ...f, [k]: v }));
 
   // ─── Foto → estrazione AI ───────────────────────────────────────────
 
-  const onPickPhoto = async (file: File | null) => {
-    if (!file) return;
+  const onPickPhotos = async (files: FileList | File[] | null) => {
+    const arr = files ? Array.from(files) : [];
+    if (arr.length === 0) return;
     setError(null);
     setStep("loading");
+    setMultiProgress({ done: 0, total: arr.length });
     try {
-      const { base64, mediaType } = await fileToCompressedBase64(file);
-      const res = await fetch("/api/domicili/pai-foto", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image_base64: base64, image_media_type: mediaType }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Errore lettura modulo");
-      applyExtraction(data.result as PaiExtraction);
-      setFromPhoto(true);
-      setStep("form");
+      const results: PaiExtraction[] = [];
+      for (let i = 0; i < arr.length; i++) {
+        const { base64, mediaType } = await fileToCompressedBase64(arr[i]);
+        const res = await fetch("/api/domicili/pai-foto", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image_base64: base64, image_media_type: mediaType }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || `Errore lettura pagina ${i + 1}`);
+        results.push(data.result as PaiExtraction);
+        setMultiProgress({ done: i + 1, total: arr.length });
+      }
+      if (results.length === 1) {
+        applyExtraction(results[0]);
+        setFromPhoto(true);
+        setStep("form");
+      } else {
+        // Più PAI insieme: una riga per paziente, con data inizio modificabile
+        const today = localISO(new Date());
+        setBatch(results.map(r => ({
+          extraction: r,
+          cognome: r.cognome || "",
+          nome: r.nome || "",
+          dataInizio: r.data_attivazione || today,
+        })));
+        setStep("batch");
+      }
     } catch (e: any) {
       setError(e?.message || "Errore lettura modulo");
       setStep("scelta");
     } finally {
+      setMultiProgress(null);
       if (fileRef.current) fileRef.current.value = "";
     }
+  };
+
+  // Fonde più estrazioni: mantiene il primo valore non vuoto per ogni campo,
+  // concatena diagnosi/operatori se compaiono su pagine diverse.
+  const mergeExtractions = (list: PaiExtraction[]): PaiExtraction => {
+    const out: any = {};
+    const incerti = new Set<string>();
+    const keys: (keyof PaiExtraction)[] = [
+      "cooperativa","cognome","nome","data_nascita","residenza","citta","distretto",
+      "recapiti","diagnosi","data_arrivo","data_attivazione",
+      "prestazione","frequenza_settimanale","tot_accessi","operatori",
+    ];
+    for (const r of list) {
+      for (const k of keys) {
+        const v = (r as any)[k];
+        if (v == null || v === "") continue;
+        if (out[k] == null || out[k] === "") { out[k] = v; }
+        else if ((k === "diagnosi" || k === "operatori") && String(out[k]) !== String(v) && !String(out[k]).includes(String(v))) {
+          out[k] = `${out[k]} · ${v}`; // pagine diverse → concatena
+        }
+      }
+      (r.incerti || []).forEach(i => incerti.add(i));
+    }
+    out.incerti = Array.from(incerti);
+    return out as PaiExtraction;
   };
 
   const applyExtraction = (r: PaiExtraction) => {
@@ -267,7 +326,7 @@ export default function PaiPatientModal({
       distretto: r.distretto || "", recapiti: r.recapiti || "",
       diagnosi: r.diagnosi || "",
       data_arrivo: r.data_arrivo || "", data_attivazione: r.data_attivazione || "",
-      data_scadenza: r.data_scadenza || "",
+      // data_scadenza: NON letta dalla foto (impostazione manuale)
       prestazione: r.prestazione || "Fisioterapia",
       frequenza_settimanale: r.frequenza_settimanale != null ? String(r.frequenza_settimanale) : "",
       tot_accessi: r.tot_accessi != null ? String(r.tot_accessi) : "",
@@ -352,30 +411,47 @@ export default function PaiPatientModal({
         if (upErr) throw upErr;
         patientId = patient.id;
 
-        // Rigenera SOLO se la pianificazione è cambiata
-        const newPlan = planSignature(giorniArray, payload.data_scadenza, payload.tot_accessi);
+        // Rigenera se cambia la pianificazione OPPURE la modalità d'inizio
+        // (da oggi ↔ retroattivo). La firma include ora startMode+attivazione.
+        const newPlan = planSignature(giorniArray, payload.data_scadenza, payload.tot_accessi) + `|${startMode}|${payload.data_attivazione || ""}`;
         if (newPlan !== originalPlanRef.current && form.stato === "attivo") {
           const todayISO = localISO(new Date());
-          const { error: delErr } = await supabase
-            .from("coop_accesses").delete()
-            .eq("coop_patient_id", patientId)
-            .eq("stato", "pianificato")
-            .gte("data", todayISO);
-          if (delErr) throw delErr;
-
-          const keep = (patientAccesses || []).filter(a => !(a.stato === "pianificato" && a.data >= todayISO));
-          const dates = generateAccessDates(
-            { giorni_orari: giorniArray, data_attivazione: payload.data_attivazione, data_scadenza: payload.data_scadenza, tot_accessi: payload.tot_accessi },
-            keep,
-            fromDate,
-          );
-          if (dates.length > 0) {
-            const rows = dates.map(d => ({
-              studio_id: studioId, coop_patient_id: patientId,
-              data: d.data, orario: d.orario, stato: "pianificato",
-            }));
-            const { error: insErr } = await supabase.from("coop_accesses").insert(rows);
-            if (insErr) throw insErr;
+          if (startMode === "attivazione" && fromDate) {
+            // Retroattivo: rifà TUTTA la pianificazione da capo (passati=fatto, futuri=pianificato).
+            // Si cancellano solo gli accessi generati (pianificato + fatto), NON i "saltato" manuali.
+            const { error: delErr } = await supabase
+              .from("coop_accesses").delete()
+              .eq("coop_patient_id", patientId)
+              .in("stato", ["pianificato", "fatto"]);
+            if (delErr) throw delErr;
+            const keepSaltati = (patientAccesses || []).filter(a => a.stato === "saltato");
+            const dates = generateAccessDates(
+              { giorni_orari: giorniArray, data_attivazione: payload.data_attivazione, data_scadenza: payload.data_scadenza, tot_accessi: payload.tot_accessi },
+              keepSaltati, fromDate,
+            );
+            if (dates.length > 0) {
+              const rows = dates.map(d => ({ studio_id: studioId, coop_patient_id: patientId, data: d.data, orario: d.orario, stato: d.stato }));
+              const { error: insErr } = await supabase.from("coop_accesses").insert(rows);
+              if (insErr) throw insErr;
+            }
+          } else {
+            // Da oggi: tocca solo i futuri "pianificato", lo storico (fatto) resta.
+            const { error: delErr } = await supabase
+              .from("coop_accesses").delete()
+              .eq("coop_patient_id", patientId)
+              .eq("stato", "pianificato")
+              .gte("data", todayISO);
+            if (delErr) throw delErr;
+            const keep = (patientAccesses || []).filter(a => !(a.stato === "pianificato" && a.data >= todayISO));
+            const dates = generateAccessDates(
+              { giorni_orari: giorniArray, data_attivazione: payload.data_attivazione, data_scadenza: payload.data_scadenza, tot_accessi: payload.tot_accessi },
+              keep, undefined,
+            );
+            if (dates.length > 0) {
+              const rows = dates.map(d => ({ studio_id: studioId, coop_patient_id: patientId, data: d.data, orario: d.orario, stato: d.stato }));
+              const { error: insErr } = await supabase.from("coop_accesses").insert(rows);
+              if (insErr) throw insErr;
+            }
           }
         }
       } else {
@@ -392,7 +468,7 @@ export default function PaiPatientModal({
         if (dates.length > 0) {
           const rows = dates.map(d => ({
             studio_id: studioId, coop_patient_id: patientId,
-            data: d.data, orario: d.orario, stato: "pianificato",
+            data: d.data, orario: d.orario, stato: d.stato,
           }));
           const { error: accErr } = await supabase.from("coop_accesses").insert(rows);
           if (accErr) throw accErr;
@@ -405,6 +481,70 @@ export default function PaiPatientModal({
       setError(e?.message || "Errore durante il salvataggio");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const saveBatch = async () => {
+    if (!batch) return;
+    // Cooperativa: usa quella estratta o, in mancanza, la default corrente
+    setError(null);
+    const validi = batch.filter(b => b.cognome.trim() && b.nome.trim());
+    if (validi.length === 0) { setError("Nessun paziente valido da salvare."); return; }
+    setBatchSaving(true);
+    setBatchDone(0);
+    try {
+      for (let i = 0; i < batch.length; i++) {
+        const b = batch[i];
+        if (!b.cognome.trim() || !b.nome.trim()) { setBatchDone(i + 1); continue; }
+        const r = b.extraction;
+        // match cooperativa
+        let coopId = defaultCooperativeId || "";
+        if (r.cooperativa) {
+          const found = cooperatives.find(c =>
+            c.nome.toLowerCase().includes(r.cooperativa!.toLowerCase()) ||
+            r.cooperativa!.toLowerCase().includes(c.nome.toLowerCase()));
+          if (found) coopId = found.id;
+        }
+        const freq = r.frequenza_settimanale != null ? Number(r.frequenza_settimanale) : null;
+        const totAcc = r.tot_accessi != null ? Number(r.tot_accessi) : null;
+        const giorni_orari: any[] = []; // l'AI non estrae i giorni fissi: si impostano poi nella scheda paziente
+        const payload: any = {
+          studio_id: studioId, cooperative_id: coopId || null,
+          cognome: b.cognome.trim(), nome: b.nome.trim(),
+          data_nascita: r.data_nascita || null,
+          residenza: r.residenza || null, citta: r.citta || null, distretto: r.distretto || null,
+          recapiti: r.recapiti || null, diagnosi: r.diagnosi || null,
+          data_arrivo: r.data_arrivo || null,
+          data_attivazione: b.dataInizio || null,   // ← data inizio scelta (anche retroattiva)
+          data_scadenza: r.data_scadenza || null,
+          prestazione: r.prestazione || "Fisioterapia",
+          frequenza_settimanale: Number.isFinite(freq!) && freq! > 0 ? freq : null,
+          tot_accessi: Number.isFinite(totAcc!) && totAcc! > 0 ? totAcc : null,
+          operatori: r.operatori || null,
+          giorni_orari, note: null, stato: "attivo",
+          updated_at: new Date().toISOString(),
+        };
+        const { data: ins, error: insErr } = await supabase
+          .from("coop_patients").insert(payload).select("id").single();
+        if (insErr) throw insErr;
+        // accessi dalla data inizio (retroattiva inclusa)
+        const fromDate = b.dataInizio ? parseISODate(b.dataInizio) : undefined;
+        const dates = generateAccessDates(
+          { giorni_orari, data_attivazione: payload.data_attivazione, data_scadenza: payload.data_scadenza, tot_accessi: payload.tot_accessi },
+          [], fromDate,
+        );
+        if (dates.length > 0) {
+          const rows = dates.map(d => ({ studio_id: studioId, coop_patient_id: ins.id, data: d.data, orario: d.orario, stato: d.stato }));
+          const { error: accErr } = await supabase.from("coop_accesses").insert(rows);
+          if (accErr) throw accErr;
+        }
+        setBatchDone(i + 1);
+      }
+      onSaved();
+      onClose();
+    } catch (e: any) {
+      setError(e?.message || "Errore durante il salvataggio multiplo");
+      setBatchSaving(false);
     }
   };
 
@@ -452,7 +592,7 @@ export default function PaiPatientModal({
   });
 
   return (
-    <div style={overlay} onClick={onClose}>
+    <div style={overlay}>
       <div style={sheet} onClick={e => e.stopPropagation()}>
 
         {/* Header */}
@@ -465,9 +605,9 @@ export default function PaiPatientModal({
 
         {/* input file nascosto (scatto su mobile) */}
         <input
-          ref={fileRef} type="file" accept="image/*" capture="environment"
+          ref={fileRef} type="file" accept="image/*" multiple
           style={{ display: "none" }}
-          onChange={e => onPickPhoto(e.target.files?.[0] || null)}
+          onChange={e => onPickPhotos(e.target.files)}
         />
 
         {/* ── STEP: scelta foto/manuale ── */}
@@ -475,14 +615,14 @@ export default function PaiPatientModal({
           <div style={{ padding: 22, display: "flex", flexDirection: "column", gap: 12 }}>
             {error && <div style={{ background: "#fef2f2", color: T.red, borderRadius: 10, padding: "10px 12px", fontSize: 13, fontWeight: 600 }}>{error}</div>}
             <button onClick={() => fileRef.current?.click()} style={{ ...btn("pri"), padding: "16px", fontSize: 15, display: "flex", alignItems: "center", gap: 12, justifyContent: "center" }}>
-              📷 Fotografa il Modulo PAI
+              Fotografa il Modulo PAI
             </button>
             <div style={{ textAlign: "center", fontSize: 12, color: T.muted }}>
-              La foto viene letta dall'AI e la scheda si precompila.<br />
-              Non viene salvata da nessuna parte.
+              Puoi caricare <b>più pagine insieme</b> (modulo, diagnosi, piano accessi):<br />
+              l'AI le legge tutte e unisce i dati. Le foto non vengono salvate.
             </div>
             <button onClick={() => setStep("form")} style={{ ...btn(), padding: "14px", fontSize: 14 }}>
-              ✏️ Inserimento manuale
+              Inserimento manuale
             </button>
           </div>
         )}
@@ -494,10 +634,60 @@ export default function PaiPatientModal({
               width: 40, height: 40, borderRadius: "50%", margin: "0 auto 14px",
               border: "4px solid #ccfbf1", borderTopColor: T.teal, animation: "paiSpin 1s linear infinite",
             }} />
-            <div style={{ fontSize: 14, fontWeight: 700, color: T.tealDark }}>Claude legge il modulo…</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.tealDark }}>
+              {multiProgress && multiProgress.total > 1 ? `Lettura PAI ${multiProgress.done + 1} di ${multiProgress.total}…` : "Claude legge il modulo…"}
+            </div>
             <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}>Date PAI, anagrafica, prestazione, accessi</div>
             <style>{`@keyframes paiSpin { to { transform: rotate(360deg) } }`}</style>
           </div>
+        )}
+
+        {/* ── STEP: batch (più PAI insieme) ── */}
+        {step === "batch" && batch && (
+          <>
+            <div style={{ padding: "14px 18px 6px" }}>
+              <div style={{ fontSize: 13, color: T.muted, fontWeight: 600, lineHeight: 1.5 }}>
+                <b style={{ color: T.text }}>{batch.length} PAI letti.</b> Controlla nome e cognome e imposta la
+                <b style={{ color: T.text }}> data d'inizio accessi</b> di ciascuno (puoi metterla anche nel passato: gli accessi verranno creati a ritroso). Poi salva tutti.
+              </div>
+              {error && <div style={{ marginTop: 10, background: "#fef2f2", color: T.red, borderRadius: 10, padding: "10px 12px", fontSize: 13, fontWeight: 600 }}>{error}</div>}
+            </div>
+            <div style={{ padding: "6px 18px 14px", overflowY: "auto", flex: 1 }}>
+              {batch.map((b, i) => (
+                <div key={i} style={{
+                  display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+                  border: `1px solid ${T.border}`, borderRadius: 12, padding: "10px 12px", marginBottom: 8,
+                  background: b.cognome.trim() && b.nome.trim() ? "#fff" : "#fef2f2",
+                }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: T.muted, width: 20, flexShrink: 0 }}>{i + 1}</span>
+                  <input value={b.cognome} placeholder="Cognome"
+                    onChange={e => setBatch(bs => bs!.map((x, j) => j === i ? { ...x, cognome: e.target.value } : x))}
+                    style={{ flex: "1 1 120px", minWidth: 90, padding: "8px 10px", borderRadius: 8, border: `1.5px solid ${T.border}`, fontSize: 13, fontWeight: 700, color: T.text, background: "#fff" }} />
+                  <input value={b.nome} placeholder="Nome"
+                    onChange={e => setBatch(bs => bs!.map((x, j) => j === i ? { ...x, nome: e.target.value } : x))}
+                    style={{ flex: "1 1 120px", minWidth: 90, padding: "8px 10px", borderRadius: 8, border: `1.5px solid ${T.border}`, fontSize: 13, fontWeight: 600, color: T.text, background: "#fff" }} />
+                  <label style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: T.muted }}>dal</span>
+                    <input type="date" value={b.dataInizio}
+                      onChange={e => setBatch(bs => bs!.map((x, j) => j === i ? { ...x, dataInizio: e.target.value } : x))}
+                      style={{ padding: "7px 8px", borderRadius: 8, border: `1.5px solid ${T.border}`, fontSize: 12.5, fontWeight: 600, color: T.text, background: "#fff" }} />
+                  </label>
+                  <button onClick={() => setBatch(bs => bs!.filter((_, j) => j !== i))}
+                    title="Togli dalla lista"
+                    style={{ border: "none", background: "transparent", cursor: "pointer", color: T.muted, fontSize: 16, flexShrink: 0, padding: "0 2px" }}>✕</button>
+                </div>
+              ))}
+              {batch.length === 0 && <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: 20 }}>Lista vuota.</div>}
+            </div>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", padding: "12px 18px", borderTop: `1px solid ${T.border}`, background: "#fff" }}>
+              {batchSaving && <span style={{ fontSize: 12, fontWeight: 700, color: T.tealDark }}>Salvo {batchDone}/{batch.length}…</span>}
+              <div style={{ flex: 1 }} />
+              <button onClick={onClose} disabled={batchSaving} style={btn()}>Annulla</button>
+              <button onClick={saveBatch} disabled={batchSaving || batch.length === 0} style={{ ...btn("pri"), opacity: batchSaving ? .6 : 1 }}>
+                {batchSaving ? "Salvo…" : `Salva ${batch.filter(b => b.cognome.trim() && b.nome.trim()).length} pazienti`}
+              </button>
+            </div>
+          </>
         )}
 
         {/* ── STEP: form ── */}
@@ -511,7 +701,7 @@ export default function PaiPatientModal({
                   ✓ Scheda precompilata dalla foto — controlla i campi prima di salvare.
                   {!isEdit && (
                     <button onClick={() => fileRef.current?.click()} style={{ marginLeft: 8, border: "none", background: "none", color: T.blue, fontWeight: 700, fontSize: 12.5, cursor: "pointer", textDecoration: "underline" }}>
-                      Rifai foto
+                      Aggiungi o rifai pagine
                     </button>
                   )}
                 </div>
@@ -621,7 +811,7 @@ export default function PaiPatientModal({
                       </div>
                       {([
                         { v: "oggi" as const, t: "Da oggi", d: "Crea solo gli accessi futuri." },
-                        { v: "attivazione" as const, t: `Dalla data di attivazione (${fmtIT(form.data_attivazione)}) — retroattivo`, d: "Crea anche i giorni già passati: con il contatore automatico verranno segnati \"fatto\" da soli, altrimenti li spunti tu." },
+                        { v: "attivazione" as const, t: `Dalla data d'inizio — retroattivo`, d: "Crea anche i giorni già passati: verranno segnati \"fatto\" così il contatore scala da subito." },
                       ]).map(o => (
                         <label key={o.v} style={{ display: "flex", gap: 9, alignItems: "flex-start", cursor: "pointer", padding: "5px 0" }}>
                           <input
@@ -629,9 +819,20 @@ export default function PaiPatientModal({
                             onChange={() => setStartMode(o.v)}
                             style={{ marginTop: 2, accentColor: T.teal }}
                           />
-                          <span>
+                          <span style={{ flex: 1 }}>
                             <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, color: T.text }}>{o.t}</span>
                             <span style={{ display: "block", fontSize: 11.5, fontWeight: 600, color: T.muted, lineHeight: 1.4 }}>{o.d}</span>
+                            {o.v === "attivazione" && startMode === "attivazione" && (
+                              <span style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 6 }}>
+                                <span style={{ fontSize: 11.5, fontWeight: 700, color: T.muted }}>Inizio accessi dal</span>
+                                <input
+                                  type="date" value={form.data_attivazione}
+                                  max={localISO(new Date())}
+                                  onChange={e => set("data_attivazione")(e.target.value)}
+                                  style={{ padding: "6px 8px", borderRadius: 8, border: `1.5px solid ${T.border}`, fontSize: 12.5, fontWeight: 700, color: T.text, background: "#fff" }}
+                                />
+                              </span>
+                            )}
                           </span>
                         </label>
                       ))}

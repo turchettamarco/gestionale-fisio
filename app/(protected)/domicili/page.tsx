@@ -44,8 +44,16 @@ import {
 } from "@/src/lib/domicili/types";
 
 // ─── Theme (piatto, alto contrasto) ──────────────────────────────────────────
+// helper: tinta chiara del colore cooperativa (card colorata leggibile)
+function coopTint(hex: string, alpha = 0.12): string {
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return "#F1F5F9";
+  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 const THEME = {
-  appBg: "#f1f5f9", panelBg: "#ffffff", panelSoft: "#f7f9fd",
+  appBg: "#FAF7F2", panelBg: "#ffffff", panelSoft: "#FFFDF9",
   text: "#0f172a", textSoft: "#1e293b",
   muted: "#334155",        // descrizioni / testo secondario importante
   mutedLight: "#475569",   // testo secondario
@@ -339,6 +347,18 @@ function DomiciliInner() {
     return weeks;
   }, [anchor]);
 
+  // Conteggio ACCESSI (non ore): per giorno, settimana visibile, mese corrente.
+  const accessCounts = useMemo(() => {
+    const perDay = new Map<string, number>();
+    accByDay.forEach((arr, iso) => perDay.set(iso, arr.filter(a => a.stato !== "saltato").length));
+    const weekTot = weekDays.reduce((s, d) => s + (perDay.get(localISO(d)) || 0), 0);
+    // mese: somma su tutti i giorni del mese corrente presenti nel range caricato
+    const y = anchor.getFullYear(), mo = anchor.getMonth();
+    let monthTot = 0;
+    perDay.forEach((n, iso) => { const dt = parseISODate(iso); if (dt.getFullYear() === y && dt.getMonth() === mo) monthTot += n; });
+    return { perDay, weekTot, monthTot };
+  }, [accByDay, weekDays, anchor]);
+
   const calTitle =
     calView === "giorno" ? fmtDayLong(anchor)
     : calView === "settimana" ? fmtWeekRange(weekStart)
@@ -568,7 +588,7 @@ function DomiciliInner() {
       background: "#f0fdfa", border: `1px solid ${THEME.borderSoft}`, borderRadius: 12,
       fontSize: 12, color: THEME.tealDark, fontWeight: 600,
     }}>
-      🔒 Sezione separata: questi pazienti non entrano in anagrafica, report, contabilità o Sistema TS.
+      Sezione separata: questi pazienti non entrano in anagrafica, report, contabilità o Sistema TS.
     </div>
   );
 
@@ -586,7 +606,7 @@ function DomiciliInner() {
         boxShadow: "0 16px 44px rgba(15,23,42,.18)",
         padding: 16, width: isMobile ? "auto" : 330,
       }}>
-        <div style={{ fontSize: 14, fontWeight: 800, color: THEME.text, marginBottom: 10 }}>Avanzamento contatore accessi</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: THEME.text, marginBottom: 10 }}>Avanzamento contatore accessi</div>
         {(["manuale", "automatico"] as CounterMode[]).map(mode => (
           <label key={mode} style={{
             display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 10px",
@@ -600,7 +620,7 @@ function DomiciliInner() {
               onChange={() => saveCounterMode(mode)} style={{ marginTop: 2, accentColor: THEME.teal }}
             />
             <span>
-              <span style={{ fontSize: 13.5, fontWeight: 800, color: THEME.text, display: "block" }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: THEME.text, display: "block" }}>
                 {mode === "manuale" ? "Spunta manuale" : "Automatico"}
               </span>
               <span style={{ fontSize: 12.5, color: THEME.muted, lineHeight: 1.45 }}>
@@ -627,14 +647,14 @@ function DomiciliInner() {
     const dayAccesses = (accByDay.get(anchorISO) || []);
 
     return (
-      <div style={{ minHeight: "100vh", background: THEME.appBg, paddingBottom: 130 }}>
+      <div style={{ minHeight: "100vh", background: THEME.appBg, paddingBottom: 130, overflowX: "hidden", width: "100%", maxWidth: "100%" }}>
         {/* Header */}
         <div style={{ padding: "16px 16px 10px", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 21, fontWeight: 800, color: THEME.text }}>Domicili</div>
-            <div style={{ fontSize: 11.5, color: THEME.mutedLight, fontWeight: 600 }}>🔒 Cooperative · dati separati dallo studio</div>
+            <div style={{ fontSize: 11.5, color: THEME.mutedLight, fontWeight: 600 }}>Cooperative · dati separati dallo studio</div>
           </div>
-          <button onClick={() => setDocSheet(true)} style={mBtnIcon()} title="Report / Planner / Messaggio">📄</button>
+          <button onClick={() => setDocSheet(true)} style={mBtnIcon()} title="Report / Planner / Messaggio"><Icon name="chart" size={17} color={THEME.mutedLight} /></button>
           <div style={{ position: "relative" }}>
             <button onClick={() => setSettingsOpen(o => !o)} style={mBtnIcon()}>
               <Icon name="settings" size={17} color={THEME.muted} />
@@ -644,7 +664,7 @@ function DomiciliInner() {
         {settingsPanel}
 
         {/* Pill cooperative */}
-        <div style={{ display: "flex", gap: 8, overflowX: "auto", padding: "0 16px 10px" }}>
+        <div style={{ display: "flex", gap: 8, overflowX: "auto", padding: "0 16px 10px", scrollbarWidth: "none", msOverflowStyle: "none" }} className="no-scrollbar">
           <CoopPill label="Tutte" active={selectedCoopId === "all"} color={THEME.teal} onClick={() => setSelectedCoopId("all")} />
           {activeCoops.map(c => (
             <CoopPill
@@ -741,23 +761,27 @@ function DomiciliInner() {
                     const fatto = a.stato === "fatto";
                     const saltato = a.stato === "saltato";
                     return (
-                      <div key={a.id} style={{
-                        background: "#fff", borderRadius: 14, border: `1px solid ${THEME.borderSoft}`,
-                        borderLeft: `4px solid ${coop?.colore || THEME.teal}`,
+                      <div key={a.id}
+                        onClick={() => setPatientModal({ open: true, patient: p, startWithPhoto: false })}
+                        style={{
+                        cursor: "pointer",
+                        background: coopTint(coop?.colore || THEME.teal), borderRadius: 14,
+                        border: `1px solid ${coop?.colore || THEME.teal}`,
                         padding: "12px 14px", opacity: saltato ? .55 : 1,
                       }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 15, fontWeight: 800, color: THEME.text, textDecoration: saltato ? "line-through" : "none" }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: THEME.text, textDecoration: saltato ? "line-through" : "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                               {displayName(`${p.cognome} ${p.nome}`)}
                             </div>
+                            {coop?.nome && <div style={{ fontSize: 10.5, fontWeight: 700, color: coop.colore || THEME.tealDark, textTransform: "uppercase", letterSpacing: .3, marginTop: 1 }}>{coop.nome}</div>}
                             <div style={{ fontSize: 12.5, color: THEME.mutedLight, fontWeight: 600, marginTop: 2 }}>
                               {[p.residenza, p.citta].filter(Boolean).join(", ") || p.prestazione}
                             </div>
                           </div>
                           <div style={{ textAlign: "right" }}>
-                            <div style={{ fontSize: 13.5, fontWeight: 800, color: THEME.tealDark }}>{a.orario || "—"}</div>
-                            <div style={{ fontSize: 10.5, fontWeight: 800, color: saltato ? THEME.red : THEME.mutedLight }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: THEME.tealDark }}>{a.orario || "—"}</div>
+                            <div style={{ fontSize: 10.5, fontWeight: 700, color: saltato ? THEME.red : THEME.mutedLight }}>
                               {saltato ? "Saltato" : prog ? `Accesso ${prog}${p.tot_accessi ? `/${p.tot_accessi}` : ""}` : ""}
                             </div>
                           </div>
@@ -765,7 +789,7 @@ function DomiciliInner() {
 
                         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
                           {!saltato && (
-                            <button onClick={() => toggleFatto(a)} style={{
+                            <button onClick={e => { e.stopPropagation(); toggleFatto(a); }} style={{
                               flex: 1, border: fatto ? `1px solid ${THEME.borderSoft}` : "none",
                               borderRadius: 10, padding: "10px 0",
                               fontSize: 13.5, fontWeight: 800, cursor: "pointer",
@@ -791,7 +815,7 @@ function DomiciliInner() {
                             </a>
                           )}
                           <div style={{ position: "relative" }}>
-                            <button onClick={() => setMenuFor(m => m === a.id ? null : a.id)} style={{ ...mBtnIcon(), height: "100%" }}>⋯</button>
+                            <button onClick={e => { e.stopPropagation(); setMenuFor(m => m === a.id ? null : a.id); }} style={{ ...mBtnIcon(), height: "100%" }}>⋯</button>
                             {menuFor === a.id && (
                               <AccessMenu a={a} onSaltato={() => setSaltato(a)} onRemove={() => removeAccess(a)} onOrario={t => { updateOrario(a, t); setMenuFor(null); }} onClose={() => setMenuFor(null)} alignRight />
                             )}
@@ -852,7 +876,7 @@ function DomiciliInner() {
                             opacity: saltato ? .5 : 1,
                           }}>
                             <span style={{ width: 8, height: 8, borderRadius: "50%", background: coop?.colore || THEME.teal, flexShrink: 0 }} />
-                            <span style={{ fontSize: 12.5, fontWeight: 800, color: THEME.tealDark, width: 42, flexShrink: 0 }}>{a.orario || "—"}</span>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: THEME.tealDark, width: 42, flexShrink: 0 }}>{a.orario || "—"}</span>
                             <span style={{ flex: 1, minWidth: 0 }}>
                               <span style={{ display: "block", fontSize: 13, fontWeight: 800, color: THEME.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textDecoration: saltato ? "line-through" : "none" }}>
                                 {displayName(`${p.cognome} ${p.nome}`)}
@@ -860,7 +884,7 @@ function DomiciliInner() {
                               <span style={{ display: "block", fontSize: 11, fontWeight: 600, color: THEME.mutedLight }}>{p.citta || ""}</span>
                             </span>
                             {!saltato && (
-                              <button onClick={() => toggleFatto(a)} style={{
+                              <button onClick={e => { e.stopPropagation(); toggleFatto(a); }} style={{
                                 width: 34, height: 34, borderRadius: 9, cursor: "pointer", flexShrink: 0,
                                 border: `1px solid ${fatto ? "#bbf7d0" : THEME.border}`,
                                 background: fatto ? "#dcfce7" : "#fff",
@@ -925,7 +949,7 @@ function DomiciliInner() {
           <div style={{ padding: "0 16px", display: "flex", flexDirection: "column", gap: 10 }}>
             {scopePatients.length === 0 && !loading && (
               <div style={{ textAlign: "center", color: THEME.mutedLight, fontSize: 13, padding: "26px 10px", background: "#fff", borderRadius: 14, border: `1px dashed ${THEME.border}` }}>
-                Nessun paziente. Fotografa un Modulo PAI con il tasto 📷.
+                Nessun paziente. Aggiungi un PAI col tasto qui sotto.
               </div>
             )}
             {scopePatients.map(p => (
@@ -956,7 +980,7 @@ function DomiciliInner() {
               boxShadow: "0 8px 20px rgba(15,23,42,.28)",
             }}
             title="Nuovo PAI da foto"
-          >📷</button>
+          ><Icon name="plus" size={22} color="#fff" /></button>
         )}
 
         {/* Foglio documenti: report / planner / messaggio */}
@@ -982,7 +1006,7 @@ function DomiciliInner() {
   const dayList = accByDay.get(anchorISO) || [];
 
   return (
-    <div style={{ minHeight: "100vh", background: THEME.appBg }}>
+    <div style={{ minHeight: "100vh", background: THEME.appBg, overflowX: "hidden" }}>
       <AppNavbar active="domicili" onRefresh={refreshAll} />
 
       <div style={{ maxWidth: 1380, margin: "0 auto", padding: "22px 24px 40px" }}>
@@ -992,18 +1016,22 @@ function DomiciliInner() {
           <div style={{ flex: 1, minWidth: 280 }}>
             <div style={{ fontSize: 24, fontWeight: 800, color: THEME.text }}>Domicili Cooperative</div>
             <div style={{ fontSize: 13, color: THEME.mutedLight, fontWeight: 600, marginTop: 2 }}>
-              🔒 Pazienti PAI a domicilio — sezione separata: non entra in anagrafica, report, contabilità o Sistema TS.
+              Pazienti PAI a domicilio — sezione separata: non entra in anagrafica, report, contabilità o Sistema TS.
+            </div>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 8, background: "#fff", border: `1px solid ${THEME.border}`, borderRadius: 10, padding: "6px 12px" }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: THEME.mutedLight, textTransform: "uppercase", letterSpacing: .4 }}>Accessi {fmtMonthYear(anchor)}</span>
+              <span style={{ fontSize: 16, fontWeight: 800, color: THEME.tealDark }}>{accessCounts.monthTot}</span>
             </div>
           </div>
           <button onClick={() => setPatientModal({ open: true, patient: null, startWithPhoto: true })} style={dBtn("pri")}>
-            📷 Nuovo PAI da foto
+            Nuovo PAI da foto
           </button>
           <button onClick={() => setPatientModal({ open: true, patient: null, startWithPhoto: false })} style={dBtn()}>
             <Icon name="plus" size={15} color={THEME.text} /> Manuale
           </button>
-          <button onClick={() => setReportOpen(true)} style={dBtn()}>📄 Report</button>
-          <button onClick={openPlanner} style={dBtn()}>🖨 Planner</button>
-          <button onClick={() => setMsgOpen(true)} style={dBtn()}>💬 Messaggio</button>
+          <button onClick={() => setReportOpen(true)} style={dBtn()}>Report</button>
+          <button onClick={openPlanner} style={dBtn()}>Planner</button>
+          <button onClick={() => setMsgOpen(true)} style={dBtn()}>Messaggio</button>
           <div style={{ position: "relative" }}>
             <button onClick={() => setSettingsOpen(o => !o)} style={{ ...dBtn(), padding: "10px 12px" }} title="Impostazioni sezione">
               <Icon name="settings" size={16} color={THEME.muted} />
@@ -1064,7 +1092,7 @@ function DomiciliInner() {
 
             {/* ═══ VISTA CALENDARIO ═══ */}
             {mainView === "calendario" && (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 16, alignItems: "start" }}>
+              <div>
 
                 {/* ── Pannello calendario ── */}
                 <div style={{ background: THEME.panelBg, borderRadius: 16, border: `1px solid ${THEME.borderSoft}`, padding: 16 }}>
@@ -1103,23 +1131,27 @@ function DomiciliInner() {
                         const fatto = a.stato === "fatto";
                         const saltato = a.stato === "saltato";
                         return (
-                          <div key={a.id} style={{
+                          <div key={a.id}
+                            onClick={() => setPatientModal({ open: true, patient: p, startWithPhoto: false })}
+                            style={{
+                            cursor: "pointer",
                             position: "relative", display: "flex", alignItems: "center", gap: 12,
-                            background: "#fff", border: `1px solid ${THEME.borderSoft}`,
-                            borderLeft: `4px solid ${coop?.colore || THEME.teal}`,
+                            background: coopTint(coop?.colore || THEME.teal),
+                            border: `1px solid ${coop?.colore || THEME.teal}`,
                             borderRadius: 12, padding: "11px 14px",
                             opacity: saltato ? .55 : 1,
                           }}>
                             <input
                               type="checkbox" checked={fatto} disabled={saltato}
-                              onChange={() => toggleFatto(a)}
-                              style={{ accentColor: THEME.teal, width: 17, height: 17, cursor: "pointer" }}
+                              onClick={e => e.stopPropagation()} onChange={() => toggleFatto(a)}
+                              style={{ accentColor: coop?.colore || THEME.teal, width: 17, height: 17, cursor: "pointer" }}
                             />
-                            <div style={{ fontSize: 15, fontWeight: 800, color: THEME.tealDark, width: 52 }}>{a.orario || "—"}</div>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: coop?.colore || THEME.tealDark, width: 52 }}>{a.orario || "—"}</div>
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 14.5, fontWeight: 800, color: THEME.text, textDecoration: saltato ? "line-through" : "none" }}>
+                              <div style={{ fontSize: 15, fontWeight: 700, color: THEME.text, textDecoration: saltato ? "line-through" : "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                 {displayName(`${p.cognome} ${p.nome}`)}
                               </div>
+                              {coop?.nome && <div style={{ fontSize: 10, fontWeight: 700, color: coop.colore || THEME.tealDark, textTransform: "uppercase", letterSpacing: .3 }}>{coop.nome}</div>}
                               <div style={{ fontSize: 12.5, color: THEME.mutedLight, fontWeight: 600 }}>
                                 {[p.residenza, p.citta].filter(Boolean).join(", ")}
                                 {p.recapiti ? `  ·  ${displayPhone(p.recapiti)}` : ""}
@@ -1128,7 +1160,7 @@ function DomiciliInner() {
                             <div style={{ fontSize: 12, fontWeight: 800, color: saltato ? THEME.red : THEME.mutedLight, whiteSpace: "nowrap" }}>
                               {saltato ? "Saltato" : prog ? `${prog}${p.tot_accessi ? `/${p.tot_accessi}` : ""}` : ""}
                             </div>
-                            <button onClick={() => setMenuFor(m => m === a.id ? null : a.id)} style={{
+                            <button onClick={e => { e.stopPropagation(); setMenuFor(m => m === a.id ? null : a.id); }} style={{
                               border: "none", background: "transparent", cursor: "pointer",
                               color: THEME.label, fontSize: 17, lineHeight: 1, padding: "2px 4px",
                             }}>⋯</button>
@@ -1148,6 +1180,11 @@ function DomiciliInner() {
 
                   {/* ── SETTIMANA ── */}
                   {calView === "settimana" && (
+                    <>
+                    <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                      <span style={{ fontSize: 11.5, fontWeight: 700, color: THEME.mutedLight }}>Totale settimana:</span>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: THEME.tealDark }}>{accessCounts.weekTot} accessi</span>
+                    </div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 10 }}>
                       {weekDays.map((d, i) => {
                         const iso = localISO(d);
@@ -1166,6 +1203,9 @@ function DomiciliInner() {
                               </span>
                               <span style={{ fontSize: 13.5, fontWeight: 800, color: THEME.text }}>{d.getDate()}</span>
                               {isToday && <span style={{ fontSize: 9.5, fontWeight: 800, color: THEME.tealDark }}>OGGI</span>}
+                              <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 800, color: THEME.mutedLight }}>
+                                {accessCounts.perDay.get(localISO(d)) || 0}
+                              </span>
                             </div>
 
                             {list.map(a => {
@@ -1178,23 +1218,26 @@ function DomiciliInner() {
                               const counters = countersByPatient.get(p.id);
                               const low = counters?.rimanenti != null && counters.rimanenti <= 3;
                               return (
-                                <div key={a.id} style={{
-                                  position: "relative", background: "#fff",
-                                  border: `1px solid ${THEME.borderSoft}`,
-                                  borderLeft: `3.5px solid ${coop?.colore || THEME.teal}`,
+                                <div key={a.id}
+                                  onClick={() => setPatientModal({ open: true, patient: p, startWithPhoto: false })}
+                                  style={{
+                                  cursor: "pointer",
+                                  position: "relative",
+                                  background: coopTint(coop?.colore || THEME.teal),
+                                  border: `1px solid ${coop?.colore || THEME.teal}`,
                                   borderRadius: 9, padding: "7px 8px",
                                   opacity: saltato ? .5 : 1,
                                 }}>
                                   <div style={{ display: "flex", alignItems: "flex-start", gap: 7 }}>
                                     <input
                                       type="checkbox" checked={fatto} disabled={saltato}
-                                      onChange={() => toggleFatto(a)}
-                                      style={{ accentColor: THEME.teal, width: 15, height: 15, cursor: "pointer", flexShrink: 0, marginTop: 1 }}
+                                      onClick={e => e.stopPropagation()} onChange={() => toggleFatto(a)}
+                                      style={{ accentColor: coop?.colore || THEME.teal, width: 15, height: 15, cursor: "pointer", flexShrink: 0, marginTop: 1 }}
                                       title={fatto ? "Segnato fatto" : "Segna fatto"}
                                     />
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                       <div style={{
-                                        fontSize: 12, fontWeight: 800, color: THEME.text,
+                                        fontSize: 12.5, fontWeight: 700, color: THEME.text,
                                         whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
                                         textDecoration: saltato ? "line-through" : "none",
                                       }}>
@@ -1208,7 +1251,7 @@ function DomiciliInner() {
                                         {low && !saltato && <span style={{ color: THEME.red }}> !</span>}
                                       </div>
                                     </div>
-                                    <button onClick={() => setMenuFor(m => m === a.id ? null : a.id)} style={{
+                                    <button onClick={e => { e.stopPropagation(); setMenuFor(m => m === a.id ? null : a.id); }} style={{
                                       border: "none", background: "transparent", cursor: "pointer",
                                       color: THEME.label, fontSize: 15, lineHeight: 1, padding: "2px 3px", flexShrink: 0,
                                     }}>⋯</button>
@@ -1229,6 +1272,7 @@ function DomiciliInner() {
                         );
                       })}
                     </div>
+                    </>
                   )}
 
                   {/* ── MESE ── */}
@@ -1295,34 +1339,7 @@ function DomiciliInner() {
                   )}
                 </div>
 
-                {/* ── Sidebar pazienti ── */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 800, color: THEME.text, flex: 1 }}>
-                      Pazienti {selectedCoop ? selectedCoop.nome : ""} ({scopePatients.length})
-                    </div>
-                    <button onClick={() => setPatientModal({ open: true, patient: null, startWithPhoto: false })} style={{ ...dBtn(), padding: "6px 11px", fontSize: 12 }}>
-                      ＋
-                    </button>
-                  </div>
-
-                  {loading && <div style={{ fontSize: 12.5, color: THEME.mutedLight, padding: 12 }}>Carico…</div>}
-                  {!loading && scopePatients.length === 0 && (
-                    <div style={{ background: "#fff", border: `1px dashed ${THEME.border}`, borderRadius: 14, padding: "22px 14px", textAlign: "center", fontSize: 12.5, color: THEME.mutedLight }}>
-                      Nessun paziente qui.<br />Fotografa un Modulo PAI con "📷 Nuovo PAI da foto".
-                    </div>
-                  )}
-                  {scopePatients.map(p => (
-                    <PatientCard
-                      key={p.id} p={p} coop={coopById.get(p.cooperative_id)}
-                      counters={countersByPatient.get(p.id)}
-                      displayName={displayName}
-                      onClick={() => setPatientModal({ open: true, patient: p, startWithPhoto: false })}
-                    />
-                  ))}
-
-                  {isolationNote}
-                </div>
+                {isolationNote}
               </div>
             )}
 
@@ -1428,16 +1445,16 @@ function PatientCard({ p, coop, counters, displayName, onClick }: {
 
   return (
     <div onClick={onClick} style={{
-      background: "#fff", border: `1px solid ${THEME.borderSoft}`,
-      borderLeft: `4px solid ${coop?.colore || THEME.teal}`,
+      background: coopTint(coop?.colore || THEME.teal), border: `1px solid ${coop?.colore || THEME.teal}`,
       borderRadius: 14, padding: "11px 13px", cursor: "pointer",
       opacity: p.stato === "concluso" ? .55 : p.stato === "sospeso" ? .75 : 1,
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 800, color: THEME.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: THEME.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {displayName(`${p.cognome} ${p.nome}`)}{age != null ? ` · ${age}a` : ""}
           </div>
+          {coop?.nome && <div style={{ fontSize: 10, fontWeight: 700, color: coop.colore || THEME.tealDark, textTransform: "uppercase", letterSpacing: .3 }}>{coop.nome}</div>}
           <div style={{ fontSize: 11.5, color: THEME.mutedLight, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {[p.citta, p.prestazione].filter(Boolean).join(" · ")}
           </div>
@@ -1824,9 +1841,11 @@ function MobileDocSheet({ onClose, onReport, onPlanner, onMessage }: {
       border: `1px solid ${THEME.borderSoft}`, background: "#fff", borderRadius: 13,
       padding: "13px 14px", cursor: "pointer", marginBottom: 8,
     }}>
-      <span style={{ fontSize: 20 }}>{icon}</span>
+      <span style={{ width: 34, height: 34, borderRadius: 9, background: THEME.panelSoft, border: `1px solid ${THEME.borderSoft}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <Icon name={icon as any} size={17} color={THEME.tealDark} />
+      </span>
       <span>
-        <span style={{ display: "block", fontSize: 14, fontWeight: 800, color: THEME.text }}>{title}</span>
+        <span style={{ display: "block", fontSize: 14, fontWeight: 700, color: THEME.text }}>{title}</span>
         <span style={{ display: "block", fontSize: 12, fontWeight: 600, color: THEME.mutedLight }}>{sub}</span>
       </span>
     </button>
@@ -1840,9 +1859,9 @@ function MobileDocSheet({ onClose, onReport, onPlanner, onMessage }: {
         background: "#f8fafc", width: "100%", borderRadius: "18px 18px 0 0", padding: "16px 16px 20px",
       }}>
         <div style={{ fontSize: 14.5, fontWeight: 800, color: THEME.text, marginBottom: 12 }}>Documenti e invii</div>
-        {row("📄", "Report settimanale", "A schermo + PDF, per cooperativa o tutte", onReport)}
-        {row("🖨", "Planner settimana (PDF)", "Il giro visite con orari, paesi e telefoni", onPlanner)}
-        {row("💬", "Messaggio accessi", "Testo pronto da copiare nel gruppo della cooperativa", onMessage)}
+        {row("chart", "Report settimanale", "A schermo + PDF, per cooperativa o tutte", onReport)}
+        {row("calendar", "Planner settimana (PDF)", "Il giro visite con orari, paesi e telefoni", onPlanner)}
+        {row("whatsapp", "Messaggio accessi", "Testo pronto da copiare nel gruppo della cooperativa", onMessage)}
         <button onClick={onClose} style={{
           width: "100%", border: `1px solid ${THEME.border}`, background: "#fff", borderRadius: 13,
           padding: "12px 0", fontSize: 13.5, fontWeight: 700, color: THEME.text, cursor: "pointer", marginTop: 2,

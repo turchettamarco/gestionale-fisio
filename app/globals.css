@@ -267,3 +267,7 @@ body {
 .month-evt-row:hover .month-evt-wa {
   opacity: 1 !important;
 }
+
+/* Nasconde la scrollbar orizzontale delle strip scrollabili (day-strip domicili) */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
