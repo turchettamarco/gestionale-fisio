@@ -92,114 +92,90 @@ async function generatePlannerPdf(opts: {
   const { jsPDF } = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default;
 
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  // Vista SETTIMANALE: griglia 6 colonne (Lun–Sab), una visita per cella.
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const days = Array.from({ length: 6 }, (_, i) => addDays(opts.weekStart, i));
   const DOW_FULL = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
 
-  // Progressivo accessi per paziente (ordine cronologico su tutti i suoi accessi non saltati)
-  const seqByAccessId = new Map<string, number>();
-  const byPatient = new Map<string, CoopAccess[]>();
-  opts.accesses.forEach(a => {
-    const arr = byPatient.get(a.coop_patient_id) || [];
-    arr.push(a); byPatient.set(a.coop_patient_id, arr);
-  });
-
-  // Intestazione documento
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(15);
-  doc.setTextColor(15, 23, 42);
-  doc.text(`Giro visite domicili — ${opts.coop ? opts.coop.nome : "Tutte le cooperative"}`, 14, 16);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(71, 85, 105);
-  doc.text(`Settimana ${fmtWeekRange(opts.weekStart)}`, 14, 22);
-  doc.text(`Generato il ${new Date().toLocaleDateString("it-IT")}`, pageW - 14, 16, { align: "right" });
-
-  const totWeek = opts.accesses.filter(a => a.stato !== "saltato").length;
-  doc.text(`${totWeek} access${totWeek === 1 ? "o" : "i"} in settimana`, pageW - 14, 22, { align: "right" });
-
-  let cursorY = 28;
-
-  days.forEach(d => {
+  const perDay = days.map(d => {
     const iso = localISO(d);
-    const list = opts.accesses
+    return opts.accesses
       .filter(a => a.data === iso && a.stato !== "saltato")
-      .sort((a, b) => (a.orario || "99:99").localeCompare(b.orario || "99:99"));
+      .sort((a, b) => {
+        const oa = a.ordine, ob = b.ordine;
+        if (oa != null && ob != null && oa !== ob) return oa - ob;
+        if (oa != null && ob == null) return -1;
+        if (oa == null && ob != null) return 1;
+        return (a.orario || "99:99").localeCompare(b.orario || "99:99");
+      });
+  });
+  const totWeek = perDay.reduce((s, l) => s + l.length, 0);
 
-    if (list.length === 0) return; // salta i giorni senza visite
+  // Intestazione
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.setTextColor(15, 23, 42);
+  doc.text(`Planner settimana — ${opts.coop ? opts.coop.nome : "Tutte le cooperative"}`, 10, 13);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9.5);
+  doc.setTextColor(71, 85, 105);
+  doc.text(fmtWeekRange(opts.weekStart), 10, 19);
+  doc.text(`${totWeek} accessi`, pageW - 10, 13, { align: "right" });
+  doc.text(`Generato il ${new Date().toLocaleDateString("it-IT")}`, pageW - 10, 19, { align: "right" });
 
-    const dowIdx = (d.getDay() + 6) % 7;
-    const rows = list.map(a => {
+  // Griglia: intestazioni giorno, poi una riga per "slot" (i-esima visita del giorno)
+  const maxN = Math.max(1, ...perDay.map(l => l.length));
+  const head = [days.map((d, i) => `${DOW_FULL[i]} ${d.getDate()}   ·   ${perDay[i].length}`)];
+  const body = Array.from({ length: maxN }, (_, r) =>
+    days.map((_, i) => {
+      const a = perDay[i][r];
+      if (!a) return "";
       const p = opts.patientById.get(a.coop_patient_id);
-      if (!p) return ["", "", "", "", ""];
-      // progressivo: posizione dell'accesso tra tutti quelli del paziente nel range
-      const all = (byPatient.get(p.id) || []).slice().sort((x, y) => x.data.localeCompare(y.data));
-      const prog = all.findIndex(x => x.id === a.id) + 1;
-      const progLabel = p.tot_accessi ? `${prog}/${p.tot_accessi}` : `${prog}`;
-      return [
-        a.orario || "—",
-        `${p.cognome.toUpperCase()} ${p.nome}`,
-        p.citta || "—",
-        p.recapiti || "—",
-        progLabel,
-      ];
-    });
+      if (!p) return "";
+      const line2 = [a.orario || "", p.citta || ""].filter(Boolean).join("  ·  ");
+      return `${p.cognome.toUpperCase()} ${p.nome}${line2 ? "\n" + line2 : ""}`;
+    })
+  );
 
-    // Titolo del giorno come banda separata (non dentro la tabella): più netto
-    doc.setFillColor(13, 148, 136);
-    doc.roundedRect(14, cursorY, pageW - 28, 9, 1.5, 1.5, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(255, 255, 255);
-    doc.text(`${DOW_FULL[dowIdx]} ${d.getDate()}`, 18, cursorY + 6.2);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.text(`${list.length} visit${list.length === 1 ? "a" : "e"}`, pageW - 18, cursorY + 6.2, { align: "right" });
-    cursorY += 11;
-
-    autoTable(doc, {
-      startY: cursorY,
-      head: [["Ora", "Paziente", "Città", "Telefono", "Acc."]],
-      body: rows,
-      theme: "striped",
-      styles: {
-        font: "helvetica", fontSize: 10, cellPadding: { top: 3.5, bottom: 3.5, left: 4, right: 4 },
-        valign: "middle", textColor: [15, 23, 42],
-        lineColor: [203, 213, 225], lineWidth: 0.1,
-      },
-      headStyles: {
-        fillColor: [248, 250, 252], textColor: [71, 85, 105], fontStyle: "bold", fontSize: 8,
-        lineColor: [203, 213, 225], lineWidth: 0.1, cellPadding: { top: 2.5, bottom: 2.5, left: 4, right: 4 },
-      },
-      alternateRowStyles: { fillColor: [249, 250, 251] },
-      columnStyles: {
-        0: { cellWidth: 18, fontStyle: "bold", textColor: [15, 118, 110] },
-        1: { cellWidth: "auto", fontStyle: "bold" },
-        2: { cellWidth: 36, textColor: [71, 85, 105] },
-        3: { cellWidth: 36, textColor: [71, 85, 105] },
-        4: { cellWidth: 16, halign: "center", fontStyle: "bold", textColor: [71, 85, 105] },
-      },
-      margin: { left: 14, right: 14 },
-    });
-
-    cursorY = (doc as any).lastAutoTable.finalY + 9;
-    if (cursorY > pageH - 24) { doc.addPage(); cursorY = 18; }
+  autoTable(doc, {
+    startY: 24,
+    head, body,
+    theme: "grid",
+    styles: {
+      font: "helvetica", fontSize: 8.5, cellPadding: { top: 2.5, bottom: 2.5, left: 2.5, right: 2 },
+      valign: "top", textColor: [15, 23, 42],
+      lineColor: [148, 163, 184], lineWidth: 0.15,
+      minCellHeight: 11,
+    },
+    headStyles: {
+      fillColor: [13, 148, 136], textColor: [255, 255, 255],
+      fontStyle: "bold", fontSize: 9, halign: "left",
+      lineColor: [13, 148, 136], lineWidth: 0.15,
+      cellPadding: { top: 3, bottom: 3, left: 2.5, right: 2 },
+    },
+    alternateRowStyles: { fillColor: [250, 250, 249] },
+    margin: { left: 10, right: 10 },
+    didParseCell: (data: any) => {
+      // prima riga della cella (nome) più marcata la rendiamo col fontStyle bold globale?
+      // autoTable non mixa stili nella cella: usiamo bold sull'intera cella
+      if (data.section === "body" && data.cell.raw) data.cell.styles.fontStyle = "bold";
+    },
   });
 
-  // Footer su ogni pagina
+  // Footer
   const pageCount = (doc as any).internal.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
     doc.setFontSize(8);
     doc.setTextColor(148, 163, 184);
-    doc.text("FisioHub — Domicili Cooperative (dati separati dal gestionale studio)", 14, pageH - 8);
-    doc.text(`Pagina ${i} di ${pageCount}`, pageW - 14, pageH - 8, { align: "right" });
+    doc.text("FisioHub — Domicili Cooperative", 10, pageH - 6);
+    doc.text(`Pagina ${i} di ${pageCount}`, pageW - 10, pageH - 6, { align: "right" });
   }
 
   const slug = (opts.coop?.nome || "tutte").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-  doc.save(`giro-visite-${slug}-${localISO(opts.weekStart)}.pdf`);
+  doc.save(`planner-settimana-${slug}-${localISO(opts.weekStart)}.pdf`);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -691,7 +667,6 @@ function DomiciliInner() {
       const idx = ids.indexOf(st.overCard);
       ids.splice(idx < 0 ? ids.length : idx, 0, st.accessId);
       reorderInDay(st.fromISO, ids);
-      notify.success("Ordine aggiornato");
     } else if (st.overDay && st.overDay !== st.fromISO) {
       moveAccessToDay(st.accessId, st.overDay);
     }
