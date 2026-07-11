@@ -67,6 +67,7 @@ export type CoopAccess = {
   stato: CoopAccessStato;
   fatto_alle: string | null;
   note: string | null;
+  ordine?: number | null;   // mig. 059: ordine manuale a scaletta nel giorno
 };
 
 export type CounterMode = "manuale" | "automatico";

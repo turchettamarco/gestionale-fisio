@@ -27,7 +27,7 @@ import Link from "next/link";
 // compare solo come pallino, badge o barra laterale sottile.
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { usePrivacyMode, usePrivacyDisplay, useDisplayPatientPhone } from "@/src/contexts/PrivacyModeContext";
@@ -147,32 +147,44 @@ async function generatePlannerPdf(opts: {
       ];
     });
 
+    // Titolo del giorno come banda separata (non dentro la tabella): più netto
+    doc.setFillColor(13, 148, 136);
+    doc.roundedRect(14, cursorY, pageW - 28, 9, 1.5, 1.5, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(255, 255, 255);
+    doc.text(`${DOW_FULL[dowIdx]} ${d.getDate()}`, 18, cursorY + 6.2);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text(`${list.length} visit${list.length === 1 ? "a" : "e"}`, pageW - 18, cursorY + 6.2, { align: "right" });
+    cursorY += 11;
+
     autoTable(doc, {
       startY: cursorY,
-      head: [[{ content: `${DOW_FULL[dowIdx]} ${d.getDate()}  ·  ${list.length} visit${list.length === 1 ? "a" : "e"}`, colSpan: 5, styles: { halign: "left", fillColor: [13, 148, 136], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 10.5 } }],
-             ["Ora", "Paziente", "Città", "Telefono", "Acc."]],
+      head: [["Ora", "Paziente", "Città", "Telefono", "Acc."]],
       body: rows,
-      theme: "grid",
-      styles: { font: "helvetica", fontSize: 9.5, cellPadding: 2.5, valign: "middle", textColor: [15, 23, 42], lineColor: [226, 232, 240] },
-      headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontStyle: "bold", fontSize: 8.5 },
+      theme: "striped",
+      styles: {
+        font: "helvetica", fontSize: 10, cellPadding: { top: 3.5, bottom: 3.5, left: 4, right: 4 },
+        valign: "middle", textColor: [15, 23, 42],
+        lineColor: [203, 213, 225], lineWidth: 0.1,
+      },
+      headStyles: {
+        fillColor: [248, 250, 252], textColor: [71, 85, 105], fontStyle: "bold", fontSize: 8,
+        lineColor: [203, 213, 225], lineWidth: 0.1, cellPadding: { top: 2.5, bottom: 2.5, left: 4, right: 4 },
+      },
+      alternateRowStyles: { fillColor: [249, 250, 251] },
       columnStyles: {
-        0: { cellWidth: 16, fontStyle: "bold" },
+        0: { cellWidth: 18, fontStyle: "bold", textColor: [15, 118, 110] },
         1: { cellWidth: "auto", fontStyle: "bold" },
-        2: { cellWidth: 34 },
-        3: { cellWidth: 34 },
-        4: { cellWidth: 16, halign: "center" },
+        2: { cellWidth: 36, textColor: [71, 85, 105] },
+        3: { cellWidth: 36, textColor: [71, 85, 105] },
+        4: { cellWidth: 16, halign: "center", fontStyle: "bold", textColor: [71, 85, 105] },
       },
       margin: { left: 14, right: 14 },
-      didParseCell: (data: any) => {
-        // la riga-titolo del giorno (head prima riga) mantiene lo stile del content
-        if (data.section === "head" && data.row.index === 0) {
-          data.cell.styles.fillColor = [13, 148, 136];
-          data.cell.styles.textColor = [255, 255, 255];
-        }
-      },
     });
 
-    cursorY = (doc as any).lastAutoTable.finalY + 6;
+    cursorY = (doc as any).lastAutoTable.finalY + 9;
     if (cursorY > pageH - 24) { doc.addPage(); cursorY = 18; }
   });
 
@@ -390,6 +402,12 @@ function DomiciliInner() {
       m.set(a.data, arr);
     });
     m.forEach(arr => arr.sort((a, b) => {
+      // 1) ordine manuale (scaletta) se impostato su entrambi
+      const oa = a.ordine, ob = b.ordine;
+      if (oa != null && ob != null && oa !== ob) return oa - ob;
+      if (oa != null && ob == null) return -1;
+      if (oa == null && ob != null) return 1;
+      // 2) altrimenti per orario
       const ta = a.orario || "99:99", tb = b.orario || "99:99";
       if (ta !== tb) return ta.localeCompare(tb);
       const pa = patientById.get(a.coop_patient_id), pb = patientById.get(b.coop_patient_id);
@@ -560,6 +578,94 @@ function DomiciliInner() {
     setMenuFor(null);
     const { error } = await supabase.from("coop_accesses").update(patch).eq("id", a.id);
     if (error) { notify.error("Errore salvataggio"); refreshAll(); }
+  };
+
+  // ── Drag & Drop: spostamento e riordino accessi ──
+  const [dragAccessId, setDragAccessId] = useState<string | null>(null);
+
+  // Sposta un accesso in un altro giorno: cambia SOLO la sua data (spostamento eccezionale)
+  const moveAccessToDay = async (accessId: string, newDayISO: string) => {
+    const a = rangeAccesses.find(x => x.id === accessId);
+    if (!a || a.data === newDayISO) return;
+    setRangeAccesses(prev => prev.map(x => x.id === accessId ? { ...x, data: newDayISO } : x));
+    patchLite(a.coop_patient_id, a.data, null);
+    patchLite(a.coop_patient_id, newDayISO, a.stato);
+    const { error } = await supabase.from("coop_accesses").update({ data: newDayISO }).eq("id", accessId);
+    if (error) { notify.error("Errore spostamento"); refreshAll(); }
+    else notify.success("Accesso spostato");
+  };
+
+  // Touch drag (mobile): long-press 350ms per attivare, poi trascina;
+  // al rilascio, elementFromPoint trova la card (riordino) o il giorno (spostamento).
+  const suppressClickRef = useRef(false);
+  const touchDragRef = useRef<{ accessId: string; fromISO: string; startX: number; startY: number; lastX: number; lastY: number; activated: boolean; timer: any } | null>(null);
+
+  const accessTouchHandlers = (a: CoopAccess) => ({
+    onTouchStart: (e: React.TouchEvent) => {
+      const t = e.touches[0];
+      const st = {
+        accessId: a.id, fromISO: a.data,
+        startX: t.clientX, startY: t.clientY, lastX: t.clientX, lastY: t.clientY,
+        activated: false,
+        timer: setTimeout(() => {
+          if (touchDragRef.current?.accessId === a.id) {
+            touchDragRef.current.activated = true;
+            setDragAccessId(a.id);
+            try { (navigator as any).vibrate?.(25); } catch {}
+          }
+        }, 350),
+      };
+      touchDragRef.current = st;
+    },
+    onTouchMove: (e: React.TouchEvent) => {
+      const st = touchDragRef.current;
+      if (!st) return;
+      const t = e.touches[0];
+      if (!st.activated) {
+        // se scrolla prima dell'attivazione, annulla il long-press
+        if (Math.abs(t.clientX - st.startX) > 8 || Math.abs(t.clientY - st.startY) > 8) {
+          clearTimeout(st.timer); touchDragRef.current = null;
+        }
+        return;
+      }
+      e.preventDefault();
+      st.lastX = t.clientX; st.lastY = t.clientY;
+    },
+    onTouchEnd: () => {
+      const st = touchDragRef.current;
+      touchDragRef.current = null;
+      if (st?.timer) clearTimeout(st.timer);
+      setDragAccessId(null);
+      if (!st?.activated) return;
+      suppressClickRef.current = true;
+      setTimeout(() => { suppressClickRef.current = false; }, 400);
+      const el = document.elementFromPoint(st.lastX, st.lastY);
+      const cardEl = (el as HTMLElement | null)?.closest?.("[data-access-card]") as HTMLElement | null;
+      const dayEl = (el as HTMLElement | null)?.closest?.("[data-drop-day]") as HTMLElement | null;
+      if (cardEl && cardEl.dataset.accessDay === st.fromISO && cardEl.dataset.accessCard !== st.accessId) {
+        // stesso giorno → riordino a scaletta: inserisci prima della card bersaglio
+        const ids = (accByDay.get(st.fromISO) || []).map(x => x.id).filter(id => id !== st.accessId);
+        const idx = ids.indexOf(cardEl.dataset.accessCard!);
+        ids.splice(idx < 0 ? ids.length : idx, 0, st.accessId);
+        reorderInDay(st.fromISO, ids);
+        notify.success("Ordine aggiornato");
+      } else if (dayEl?.dataset.dropDay && dayEl.dataset.dropDay !== st.fromISO) {
+        moveAccessToDay(st.accessId, dayEl.dataset.dropDay);
+      }
+    },
+  });
+
+  // Riordina a scaletta dentro lo stesso giorno: assegna "ordine" progressivo
+  const reorderInDay = async (dayISO: string, orderedIds: string[]) => {
+    // aggiorna locale
+    setRangeAccesses(prev => {
+      const map = new Map(orderedIds.map((id, i) => [id, i]));
+      return prev.map(x => map.has(x.id) ? { ...x, ordine: map.get(x.id)! } : x);
+    });
+    // persisti
+    await Promise.all(orderedIds.map((id, i) =>
+      supabase.from("coop_accesses").update({ ordine: i }).eq("id", id)
+    ));
   };
 
   const updateOrario = async (a: CoopAccess, time: string) => {
@@ -937,10 +1043,11 @@ function DomiciliInner() {
                     const sel = iso === anchorISO;
                     const isToday = iso === todayISO;
                     const count = (accByDay.get(iso) || []).length;
+                    // data-drop-day: trascinando una card qui sopra, l'accesso si sposta a questo giorno
                     return (
-                      <button key={iso} onClick={() => setAnchor(d)} style={{
-                        border: `1px solid ${sel ? THEME.teal : THEME.border}`,
-                        background: sel ? THEME.teal : "#fff",
+                      <button key={iso} data-drop-day={iso} onClick={() => setAnchor(d)} style={{
+                        border: `1px ${dragAccessId ? "dashed" : "solid"} ${dragAccessId ? "#67e8f9" : sel ? THEME.teal : THEME.border}`,
+                        background: dragAccessId ? "#ecfeff" : sel ? THEME.teal : "#fff",
                         color: sel ? "#fff" : THEME.text,
                         borderRadius: 12, padding: "7px 0 6px", cursor: "pointer",
                       }}>
@@ -990,12 +1097,14 @@ function DomiciliInner() {
                     const saltato = a.stato === "saltato";
                     return (
                       <div key={a.id}
-                        onClick={() => setPatientModal({ open: true, patient: p, startWithPhoto: false })}
+                        data-access-card={a.id} data-access-day={a.data}
+                        {...accessTouchHandlers(a)}
+                        onClick={() => { if (suppressClickRef.current) return; setPatientModal({ open: true, patient: p, startWithPhoto: false }); }}
                         style={{
                         cursor: "pointer",
                         background: coopTint(coop?.colore || THEME.teal), borderRadius: 14,
-                        border: `1px solid ${coop?.colore || THEME.teal}`,
-                        padding: "12px 14px", opacity: saltato ? .55 : 1,
+                        border: `1px ${dragAccessId === a.id ? "dashed" : "solid"} ${coop?.colore || THEME.teal}`,
+                        padding: "12px 14px", opacity: dragAccessId === a.id ? .5 : saltato ? .55 : 1,
                       }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
@@ -1073,7 +1182,7 @@ function DomiciliInner() {
                   const list = accByDay.get(iso) || [];
                   const isToday = iso === todayISO;
                   return (
-                    <div key={iso} style={{ background: "#fff", borderRadius: 14, border: `1px solid ${THEME.borderSoft}`, overflow: "hidden" }}>
+                    <div key={iso} data-drop-day={iso} style={{ background: dragAccessId ? "#ecfeff" : "#fff", borderRadius: 14, border: `1px ${dragAccessId ? "dashed #67e8f9" : `solid ${THEME.borderSoft}`}`, overflow: "hidden" }}>
                       <button
                         onClick={() => { setAnchor(d); setCalView("giorno"); }}
                         style={{
@@ -1098,10 +1207,15 @@ function DomiciliInner() {
                         const fatto = a.stato === "fatto";
                         const saltato = a.stato === "saltato";
                         return (
-                          <div key={a.id} style={{
+                          <div key={a.id}
+                            data-access-card={a.id} data-access-day={a.data}
+                            {...accessTouchHandlers(a)}
+                            onClick={() => { if (suppressClickRef.current) return; setPatientModal({ open: true, patient: p, startWithPhoto: false }); }}
+                            style={{
                             display: "flex", alignItems: "center", gap: 9,
                             padding: "9px 13px", borderBottom: `1px solid #f1f5f9`,
-                            opacity: saltato ? .5 : 1,
+                            cursor: "pointer",
+                            opacity: dragAccessId === a.id ? .5 : saltato ? .5 : 1,
                           }}>
                             <span style={{ width: 8, height: 8, borderRadius: "50%", background: coop?.colore || THEME.teal, flexShrink: 0 }} />
                             <span style={{ fontSize: 13, fontWeight: 700, color: THEME.tealDark, width: 42, flexShrink: 0 }}>{a.orario || "—"}</span>
@@ -1383,14 +1497,27 @@ function DomiciliInner() {
                         const saltato = a.stato === "saltato";
                         return (
                           <div key={a.id}
-                            onClick={() => setPatientModal({ open: true, patient: p, startWithPhoto: false })}
+                            draggable
+                            onDragStart={e => { setDragAccessId(a.id); e.dataTransfer.effectAllowed = "move"; }}
+                            onDragEnd={() => setDragAccessId(null)}
+                            onDragOver={e => e.preventDefault()}
+                            onDrop={e => {
+                              e.preventDefault(); e.stopPropagation();
+                              if (!dragAccessId || dragAccessId === a.id) return;
+                              const ids = dayList.map(x => x.id).filter(id => id !== dragAccessId);
+                              const idx = ids.indexOf(a.id);
+                              ids.splice(idx < 0 ? ids.length : idx, 0, dragAccessId);
+                              reorderInDay(a.data, ids);
+                              setDragAccessId(null);
+                            }}
+                            onClick={() => { if (suppressClickRef.current) return; setPatientModal({ open: true, patient: p, startWithPhoto: false }); }}
                             style={{
-                            cursor: "pointer",
+                            cursor: dragAccessId === a.id ? "grabbing" : "pointer",
                             position: "relative", display: "flex", alignItems: "center", gap: 12,
                             background: coopTint(coop?.colore || THEME.teal),
                             border: `1px solid ${coop?.colore || THEME.teal}`,
                             borderRadius: 12, padding: "11px 14px",
-                            opacity: saltato ? .55 : 1,
+                            opacity: dragAccessId === a.id ? .4 : saltato ? .55 : 1,
                           }}>
                             <input
                               type="checkbox" checked={fatto} disabled={saltato}
@@ -1442,9 +1569,12 @@ function DomiciliInner() {
                         const isToday = iso === todayISO;
                         const list = accByDay.get(iso) || [];
                         return (
-                          <div key={iso} style={{
-                            background: closedDatesSet.has(iso) ? "#fef2f2" : isToday ? "#f0fdfa" : THEME.panelSoft,
-                            border: `1px solid ${closedDatesSet.has(iso) ? "#fecaca" : THEME.borderSoft}`,
+                          <div key={iso}
+                            onDragOver={e => { e.preventDefault(); }}
+                            onDrop={e => { e.preventDefault(); if (dragAccessId) { moveAccessToDay(dragAccessId, iso); setDragAccessId(null); } }}
+                            style={{
+                            background: dragAccessId ? "#ecfeff" : closedDatesSet.has(iso) ? "#fef2f2" : isToday ? "#f0fdfa" : THEME.panelSoft,
+                            border: `1px ${dragAccessId ? "dashed #67e8f9" : "solid"} ${dragAccessId ? "#67e8f9" : closedDatesSet.has(iso) ? "#fecaca" : THEME.borderSoft}`,
                             borderRadius: 13, padding: "9px 8px 10px", minHeight: 190,
                             display: "flex", flexDirection: "column", gap: 7,
                           }}>
@@ -1470,14 +1600,17 @@ function DomiciliInner() {
                               const low = counters?.rimanenti != null && counters.rimanenti <= 3;
                               return (
                                 <div key={a.id}
+                                  draggable
+                                  onDragStart={e => { setDragAccessId(a.id); e.dataTransfer.effectAllowed = "move"; }}
+                                  onDragEnd={() => setDragAccessId(null)}
                                   onClick={() => setPatientModal({ open: true, patient: p, startWithPhoto: false })}
                                   style={{
-                                  cursor: "pointer",
+                                  cursor: dragAccessId === a.id ? "grabbing" : "grab",
                                   position: "relative",
                                   background: coopTint(coop?.colore || THEME.teal),
                                   border: `1px solid ${coop?.colore || THEME.teal}`,
                                   borderRadius: 9, padding: "7px 8px",
-                                  opacity: saltato ? .5 : 1,
+                                  opacity: dragAccessId === a.id ? .4 : saltato ? .5 : 1,
                                 }}>
                                   <div style={{ display: "flex", alignItems: "flex-start", gap: 7 }}>
                                     <input
