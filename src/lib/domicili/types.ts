@@ -195,6 +195,7 @@ export function daysUntil(iso: string | null | undefined): number | null {
 
 /** Cap di sicurezza se manca sia tot_accessi che data_scadenza. */
 const MAX_GENERATED = 60;           // ~5 mesi a 3/settimana
+const OPEN_ENDED_FUTURE_DAYS = 7 * 8; // pazienti senza tetto: pianifica 8 settimane avanti da oggi
 const MAX_HORIZON_DAYS = 7 * 26;    // 6 mesi
 
 /**
@@ -236,14 +237,22 @@ export function generateAccessDates(
     }
   }
 
+  const hasCap = patient.tot_accessi != null && patient.tot_accessi > 0;
+  // Fine generazione:
+  // - con scadenza esplicita → quella
+  // - con tetto accessi → orizzonte ampio (tanto lo ferma il budget)
+  // - senza tetto (paziente "a vita") → da OGGI + 8 settimane
+  //   (così i futuri restano scorrevoli e non si accumulano all'infinito)
   const end = patient.data_scadenza
     ? parseISODate(patient.data_scadenza)
-    : addDays(start, MAX_HORIZON_DAYS);
+    : hasCap
+      ? addDays(start, MAX_HORIZON_DAYS)
+      : addDays(todayMid, OPEN_ENDED_FUTURE_DAYS);
 
   const consumed = existing.filter(a => a.stato !== "saltato").length;
-  const budget = patient.tot_accessi != null && patient.tot_accessi > 0
-    ? Math.max(0, patient.tot_accessi - consumed)
-    : MAX_GENERATED;
+  const budget = hasCap
+    ? Math.max(0, patient.tot_accessi! - consumed)
+    : Number.POSITIVE_INFINITY; // senza tetto: nessun limite di conteggio, lo limita "end"
 
   const taken = new Set(existing.map(a => a.data));
   const out: { data: string; orario: string | null; stato: string }[] = [];
@@ -268,21 +277,24 @@ export type PatientCounters = {
   saltati: number;
   consumati: number;    // fatti + pianificati (impegno sul budget)
   rimanenti: number | null; // tot_accessi - fatti (null se tot assente)
+  fattiMese: number;    // accessi "fatto" nel mese corrente (per pazienti senza tetto)
 };
 
 export function computeCounters(
   patient: Pick<CoopPatient, "tot_accessi">,
-  accesses: { stato: string }[],
+  accesses: { stato: string; data?: string }[],
 ): PatientCounters {
-  let fatti = 0, pianificati = 0, saltati = 0;
+  let fatti = 0, pianificati = 0, saltati = 0, fattiMese = 0;
+  const now = new Date();
+  const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   for (const a of accesses) {
-    if (a.stato === "fatto") fatti++;
+    if (a.stato === "fatto") { fatti++; if (a.data && a.data.startsWith(ym)) fattiMese++; }
     else if (a.stato === "pianificato") pianificati++;
     else saltati++;
   }
   const tot = patient.tot_accessi;
   return {
-    fatti, pianificati, saltati,
+    fatti, pianificati, saltati, fattiMese,
     consumati: fatti + pianificati,
     rimanenti: tot != null && tot > 0 ? Math.max(0, tot - fatti) : null,
   };

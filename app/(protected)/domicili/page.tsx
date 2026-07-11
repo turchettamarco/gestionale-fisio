@@ -1479,9 +1479,14 @@ function PatientCard({ p, coop, counters, displayName, onClick }: {
             {[p.citta, p.prestazione].filter(Boolean).join(" · ")}
           </div>
         </div>
-        {tot != null && (
+        {tot != null ? (
           <div style={{ fontSize: 13, fontWeight: 800, color: THEME.tealDark, flexShrink: 0 }}>
             {fatti}/{tot}
+          </div>
+        ) : (
+          <div style={{ textAlign: "right", flexShrink: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: THEME.tealDark, lineHeight: 1 }}>{counters?.fattiMese ?? 0}</div>
+            <div style={{ fontSize: 9, fontWeight: 700, color: THEME.mutedLight, textTransform: "uppercase", letterSpacing: .3 }}>questo mese</div>
           </div>
         )}
       </div>
