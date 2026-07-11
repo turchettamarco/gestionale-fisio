@@ -587,6 +587,7 @@ function DomiciliInner() {
   const [touchOverCardId, setTouchOverCardId] = useState<string | null>(null);
   const ghostElRef = useRef<HTMLElement | null>(null);
   const grabOffsetRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+  const touchBlockerRef = useRef<((ev: TouchEvent) => void) | null>(null);
 
   // Sposta un accesso in un altro giorno: cambia SOLO la sua data (spostamento eccezionale)
   const moveAccessToDay = async (accessId: string, newDayISO: string) => {
@@ -647,6 +648,11 @@ function DomiciliInner() {
           clone.style.transition = "none";
           document.body.appendChild(clone);
           ghostElRef.current = clone;
+          // Blocca scroll e selezione a livello document (listener NON-passive:
+          // il preventDefault dentro i handler React è passive e non funziona)
+          const blocker = (ev: TouchEvent) => { ev.preventDefault(); };
+          document.addEventListener("touchmove", blocker, { passive: false });
+          touchBlockerRef.current = blocker;
           try { (navigator as any).vibrate?.(25); } catch {}
         }, 350),
       };
@@ -681,11 +687,22 @@ function DomiciliInner() {
       if (overCard !== st.overCard) { st.overCard = overCard; setTouchOverCardId(overCard); }
       if (overDay !== st.overDay) { st.overDay = overDay; setTouchOverDay(overDay); }
     },
+    onTouchCancel: () => {
+      const st = touchDragRef.current;
+      touchDragRef.current = null;
+      if (st?.timer) clearTimeout(st.timer);
+      clearTouchGhost();
+      if (touchBlockerRef.current) { document.removeEventListener("touchmove", touchBlockerRef.current); touchBlockerRef.current = null; }
+      setDragAccessId(null);
+      setTouchOverDay(null);
+      setTouchOverCardId(null);
+    },
     onTouchEnd: () => {
       const st = touchDragRef.current;
       touchDragRef.current = null;
       if (st?.timer) clearTimeout(st.timer);
       clearTouchGhost();
+      if (touchBlockerRef.current) { document.removeEventListener("touchmove", touchBlockerRef.current); touchBlockerRef.current = null; }
       setDragAccessId(null);
       setTouchOverDay(null);
       setTouchOverCardId(null);
@@ -1158,7 +1175,8 @@ function DomiciliInner() {
                         border: `1px ${dragAccessId === a.id ? "dashed" : "solid"} ${coop?.colore || THEME.teal}`,
                         padding: "12px 14px", opacity: dragAccessId === a.id ? .35 : saltato ? .55 : 1,
                         boxShadow: touchOverCardId === a.id ? "inset 0 3px 0 #2563eb, 0 0 8px rgba(37,99,235,.5)" : "none",
-                      }}>
+                        userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
+                      } as React.CSSProperties}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 15, fontWeight: 700, color: THEME.text, textDecoration: saltato ? "line-through" : "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -1277,7 +1295,8 @@ function DomiciliInner() {
                             opacity: dragAccessId === a.id ? .35 : saltato ? .5 : 1,
                             boxShadow: touchOverCardId === a.id ? "inset 0 3px 0 #2563eb" : "none",
                             background: touchOverCardId === a.id ? "#eff6ff" : undefined,
-                          }}>
+                            userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
+                          } as React.CSSProperties}>
                             <span style={{ width: 8, height: 8, borderRadius: "50%", background: coop?.colore || THEME.teal, flexShrink: 0 }} />
                             <span style={{ fontSize: 13, fontWeight: 700, color: THEME.tealDark, width: 42, flexShrink: 0 }}>{a.orario || "—"}</span>
                             <span style={{ flex: 1, minWidth: 0 }}>
@@ -1559,15 +1578,16 @@ function DomiciliInner() {
                         return (
                           <div key={a.id}
                             draggable
-                            onDragStart={e => { setDragAccessId(a.id); e.dataTransfer.effectAllowed = "move"; }}
+                            onDragStart={e => { setDragAccessId(a.id); try { e.dataTransfer.setData("text/access-id", a.id); } catch {} e.dataTransfer.effectAllowed = "move"; }}
                             onDragEnd={() => setDragAccessId(null)}
                             onDragOver={e => e.preventDefault()}
                             onDrop={e => {
                               e.preventDefault(); e.stopPropagation();
-                              if (!dragAccessId || dragAccessId === a.id) return;
-                              const ids = dayList.map(x => x.id).filter(id => id !== dragAccessId);
+                              const dragId = e.dataTransfer.getData("text/access-id") || dragAccessId;
+                              if (!dragId || dragId === a.id) return;
+                              const ids = dayList.map(x => x.id).filter(id => id !== dragId);
                               const idx = ids.indexOf(a.id);
-                              ids.splice(idx < 0 ? ids.length : idx, 0, dragAccessId);
+                              ids.splice(idx < 0 ? ids.length : idx, 0, dragId);
                               reorderInDay(a.data, ids);
                               setDragAccessId(null);
                             }}
@@ -1632,7 +1652,7 @@ function DomiciliInner() {
                         return (
                           <div key={iso}
                             onDragOver={e => { e.preventDefault(); }}
-                            onDrop={e => { e.preventDefault(); if (dragAccessId) { moveAccessToDay(dragAccessId, iso); setDragAccessId(null); } }}
+                            onDrop={e => { e.preventDefault(); const id = e.dataTransfer.getData("text/access-id") || dragAccessId; if (id) { moveAccessToDay(id, iso); setDragAccessId(null); } }}
                             style={{
                             background: dragAccessId ? "#ecfeff" : closedDatesSet.has(iso) ? "#fef2f2" : isToday ? "#f0fdfa" : THEME.panelSoft,
                             border: `1px ${dragAccessId ? "dashed #67e8f9" : "solid"} ${dragAccessId ? "#67e8f9" : closedDatesSet.has(iso) ? "#fecaca" : THEME.borderSoft}`,
@@ -1662,7 +1682,7 @@ function DomiciliInner() {
                               return (
                                 <div key={a.id}
                                   draggable
-                                  onDragStart={e => { setDragAccessId(a.id); e.dataTransfer.effectAllowed = "move"; }}
+                                  onDragStart={e => { setDragAccessId(a.id); try { e.dataTransfer.setData("text/access-id", a.id); } catch {} e.dataTransfer.effectAllowed = "move"; }}
                                   onDragEnd={() => setDragAccessId(null)}
                                   onClick={() => setPatientModal({ open: true, patient: p, startWithPhoto: false })}
                                   style={{
