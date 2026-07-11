@@ -582,9 +582,11 @@ function DomiciliInner() {
 
   // ── Drag & Drop: spostamento e riordino accessi ──
   const [dragAccessId, setDragAccessId] = useState<string | null>(null);
-  // Ghost mobile: anteprima della card che segue il dito durante il drag
-  const [touchGhost, setTouchGhost] = useState<{ x: number; y: number; label: string; fromISO: string; color: string } | null>(null);
+  // Drag touch: la card VERA viene clonata e segue il dito (come il calendario).
   const [touchOverDay, setTouchOverDay] = useState<string | null>(null);
+  const [touchOverCardId, setTouchOverCardId] = useState<string | null>(null);
+  const ghostElRef = useRef<HTMLElement | null>(null);
+  const grabOffsetRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
 
   // Sposta un accesso in un altro giorno: cambia SOLO la sua data (spostamento eccezionale)
   const moveAccessToDay = async (accessId: string, newDayISO: string) => {
@@ -598,32 +600,54 @@ function DomiciliInner() {
     else notify.success("Accesso spostato");
   };
 
-  // Touch drag (mobile): long-press 350ms per attivare, poi trascina;
-  // al rilascio, elementFromPoint trova la card (riordino) o il giorno (spostamento).
+  // Touch drag (mobile): long-press 350ms, poi la CARD CLONATA segue il dito
+  // (stesso feeling del calendario mobile: card piena che si muove + bersaglio evidenziato).
   const suppressClickRef = useRef(false);
-  const touchDragRef = useRef<{ accessId: string; fromISO: string; startX: number; startY: number; lastX: number; lastY: number; activated: boolean; timer: any } | null>(null);
+  const touchDragRef = useRef<{
+    accessId: string; fromISO: string;
+    startX: number; startY: number; lastX: number; lastY: number;
+    activated: boolean; timer: any;
+    cardEl: HTMLElement | null;
+    overDay: string | null; overCard: string | null;
+  } | null>(null);
+
+  const clearTouchGhost = () => {
+    if (ghostElRef.current) { ghostElRef.current.remove(); ghostElRef.current = null; }
+  };
 
   const accessTouchHandlers = (a: CoopAccess) => ({
     onTouchStart: (e: React.TouchEvent) => {
       const t = e.touches[0];
+      const cardEl = e.currentTarget as HTMLElement;
       const st = {
         accessId: a.id, fromISO: a.data,
         startX: t.clientX, startY: t.clientY, lastX: t.clientX, lastY: t.clientY,
-        activated: false,
+        activated: false, cardEl,
+        overDay: null as string | null, overCard: null as string | null,
         timer: setTimeout(() => {
-          if (touchDragRef.current?.accessId === a.id) {
-            touchDragRef.current.activated = true;
-            setDragAccessId(a.id);
-            const pat = patientById.get(a.coop_patient_id);
-            const coop = pat ? coopById.get(pat.cooperative_id) : null;
-            setTouchGhost({
-              x: touchDragRef.current.lastX, y: touchDragRef.current.lastY,
-              label: pat ? `${pat.cognome} ${pat.nome}` : "Accesso",
-              fromISO: a.data,
-              color: coop?.colore || THEME.teal,
-            });
-            try { (navigator as any).vibrate?.(25); } catch {}
-          }
+          const cur = touchDragRef.current;
+          if (cur?.accessId !== a.id || !cur.cardEl) return;
+          cur.activated = true;
+          setDragAccessId(a.id);
+          // Clona la card VERA: identica, piena larghezza, segue il dito
+          const rect = cur.cardEl.getBoundingClientRect();
+          grabOffsetRef.current = { dx: cur.startX - rect.left, dy: cur.startY - rect.top };
+          const clone = cur.cardEl.cloneNode(true) as HTMLElement;
+          clone.style.position = "fixed";
+          clone.style.left = `${rect.left}px`;
+          clone.style.top = `${rect.top}px`;
+          clone.style.width = `${rect.width}px`;
+          clone.style.height = `${rect.height}px`;
+          clone.style.margin = "0";
+          clone.style.zIndex = "3000";
+          clone.style.pointerEvents = "none";
+          clone.style.opacity = "0.96";
+          clone.style.boxShadow = "0 18px 42px rgba(15,23,42,.35)";
+          clone.style.transform = "scale(1.02)";
+          clone.style.transition = "none";
+          document.body.appendChild(clone);
+          ghostElRef.current = clone;
+          try { (navigator as any).vibrate?.(25); } catch {}
         }, 350),
       };
       touchDragRef.current = st;
@@ -633,7 +657,7 @@ function DomiciliInner() {
       if (!st) return;
       const t = e.touches[0];
       if (!st.activated) {
-        // se scrolla prima dell'attivazione, annulla il long-press
+        // scroll prima dell'attivazione → annulla il long-press
         if (Math.abs(t.clientX - st.startX) > 8 || Math.abs(t.clientY - st.startY) > 8) {
           clearTimeout(st.timer); touchDragRef.current = null;
         }
@@ -641,35 +665,42 @@ function DomiciliInner() {
       }
       e.preventDefault();
       st.lastX = t.clientX; st.lastY = t.clientY;
-      // ghost segue il dito
-      setTouchGhost(g => g ? { ...g, x: t.clientX, y: t.clientY } : g);
-      // evidenza live del giorno sotto il dito
-      const el = document.elementFromPoint(t.clientX, t.clientY);
-      const dayEl = (el as HTMLElement | null)?.closest?.("[data-drop-day]") as HTMLElement | null;
-      setTouchOverDay(dayEl?.dataset.dropDay || null);
+      // Il clone segue il dito mantenendo il punto di presa (zero salti)
+      const g = ghostElRef.current;
+      if (g) {
+        g.style.left = `${t.clientX - grabOffsetRef.current.dx}px`;
+        g.style.top = `${t.clientY - grabOffsetRef.current.dy}px`;
+      }
+      // Bersagli sotto il dito (il clone ha pointerEvents none, non interferisce)
+      const el = document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null;
+      const cardEl = el?.closest?.("[data-access-card]") as HTMLElement | null;
+      const dayEl = el?.closest?.("[data-drop-day]") as HTMLElement | null;
+      const overCard = cardEl && cardEl.dataset.accessDay === st.fromISO && cardEl.dataset.accessCard !== st.accessId
+        ? cardEl.dataset.accessCard! : null;
+      const overDay = dayEl?.dataset.dropDay || null;
+      if (overCard !== st.overCard) { st.overCard = overCard; setTouchOverCardId(overCard); }
+      if (overDay !== st.overDay) { st.overDay = overDay; setTouchOverDay(overDay); }
     },
     onTouchEnd: () => {
       const st = touchDragRef.current;
       touchDragRef.current = null;
       if (st?.timer) clearTimeout(st.timer);
+      clearTouchGhost();
       setDragAccessId(null);
-      setTouchGhost(null);
       setTouchOverDay(null);
+      setTouchOverCardId(null);
       if (!st?.activated) return;
       suppressClickRef.current = true;
       setTimeout(() => { suppressClickRef.current = false; }, 400);
-      const el = document.elementFromPoint(st.lastX, st.lastY);
-      const cardEl = (el as HTMLElement | null)?.closest?.("[data-access-card]") as HTMLElement | null;
-      const dayEl = (el as HTMLElement | null)?.closest?.("[data-drop-day]") as HTMLElement | null;
-      if (cardEl && cardEl.dataset.accessDay === st.fromISO && cardEl.dataset.accessCard !== st.accessId) {
-        // stesso giorno → riordino a scaletta: inserisci prima della card bersaglio
+      if (st.overCard) {
+        // stesso giorno → riordino: inserisci prima della card bersaglio
         const ids = (accByDay.get(st.fromISO) || []).map(x => x.id).filter(id => id !== st.accessId);
-        const idx = ids.indexOf(cardEl.dataset.accessCard!);
+        const idx = ids.indexOf(st.overCard);
         ids.splice(idx < 0 ? ids.length : idx, 0, st.accessId);
         reorderInDay(st.fromISO, ids);
         notify.success("Ordine aggiornato");
-      } else if (dayEl?.dataset.dropDay && dayEl.dataset.dropDay !== st.fromISO) {
-        moveAccessToDay(st.accessId, dayEl.dataset.dropDay);
+      } else if (st.overDay && st.overDay !== st.fromISO) {
+        moveAccessToDay(st.accessId, st.overDay);
       }
     },
   });
@@ -817,28 +848,6 @@ function DomiciliInner() {
 
   const sharedModals = (
     <>
-      {/* Ghost drag mobile: anteprima che segue il dito */}
-      {touchGhost && (
-        <div style={{
-          position: "fixed", left: touchGhost.x, top: touchGhost.y - 16,
-          transform: "translate(-50%, -100%)", zIndex: 3000, pointerEvents: "none",
-          background: "#fff", border: `1.5px solid ${touchGhost.color}`,
-          borderRadius: 12, padding: "9px 14px",
-          boxShadow: "0 14px 34px rgba(15,23,42,.3)",
-          minWidth: 150, maxWidth: 240,
-        }}>
-          <div style={{ fontSize: 13.5, fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {touchGhost.label}
-          </div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: touchOverDay && touchOverDay !== touchGhost.fromISO ? "#0e7490" : "#94a3b8", marginTop: 1 }}>
-            {touchOverDay && touchOverDay !== touchGhost.fromISO
-              ? `Sposta a ${fmtIT(touchOverDay)}`
-              : touchOverDay === touchGhost.fromISO
-                ? "Rilascia su una card per riordinare"
-                : "Trascina su un giorno o su una card"}
-          </div>
-        </div>
-      )}
       <PaiPatientModal
         open={patientModal.open}
         onClose={() => setPatientModal({ open: false, patient: null, startWithPhoto: false })}
@@ -1147,7 +1156,8 @@ function DomiciliInner() {
                         cursor: "pointer",
                         background: coopTint(coop?.colore || THEME.teal), borderRadius: 14,
                         border: `1px ${dragAccessId === a.id ? "dashed" : "solid"} ${coop?.colore || THEME.teal}`,
-                        padding: "12px 14px", opacity: dragAccessId === a.id ? .5 : saltato ? .55 : 1,
+                        padding: "12px 14px", opacity: dragAccessId === a.id ? .35 : saltato ? .55 : 1,
+                        boxShadow: touchOverCardId === a.id ? "inset 0 3px 0 #2563eb, 0 0 8px rgba(37,99,235,.5)" : "none",
                       }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
@@ -1264,7 +1274,9 @@ function DomiciliInner() {
                             display: "flex", alignItems: "center", gap: 9,
                             padding: "9px 13px", borderBottom: `1px solid #f1f5f9`,
                             cursor: "pointer",
-                            opacity: dragAccessId === a.id ? .5 : saltato ? .5 : 1,
+                            opacity: dragAccessId === a.id ? .35 : saltato ? .5 : 1,
+                            boxShadow: touchOverCardId === a.id ? "inset 0 3px 0 #2563eb" : "none",
+                            background: touchOverCardId === a.id ? "#eff6ff" : undefined,
                           }}>
                             <span style={{ width: 8, height: 8, borderRadius: "50%", background: coop?.colore || THEME.teal, flexShrink: 0 }} />
                             <span style={{ fontSize: 13, fontWeight: 700, color: THEME.tealDark, width: 42, flexShrink: 0 }}>{a.orario || "—"}</span>
