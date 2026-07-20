@@ -12,9 +12,16 @@ CREATE INDEX IF NOT EXISTS idx_domicili_chiusure_studio ON domicili_chiusure(stu
 
 ALTER TABLE domicili_chiusure ENABLE ROW LEVEL SECURITY;
 
+-- Idempotente: la tabella può già esistere da un'applicazione manuale
+-- precedente, quindi le policy vanno ricreate anziché create.
+DROP POLICY IF EXISTS domicili_chiusure_select ON domicili_chiusure;
 CREATE POLICY domicili_chiusure_select ON domicili_chiusure
   FOR SELECT USING (studio_id IN (SELECT my_studios()));
+
+DROP POLICY IF EXISTS domicili_chiusure_insert ON domicili_chiusure;
 CREATE POLICY domicili_chiusure_insert ON domicili_chiusure
   FOR INSERT WITH CHECK (studio_id IN (SELECT my_studios()));
+
+DROP POLICY IF EXISTS domicili_chiusure_delete ON domicili_chiusure;
 CREATE POLICY domicili_chiusure_delete ON domicili_chiusure
   FOR DELETE USING (studio_id IN (SELECT my_studios()));

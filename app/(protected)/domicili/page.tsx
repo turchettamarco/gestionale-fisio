@@ -615,10 +615,8 @@ function DomiciliInner() {
       refreshAll();
       return;
     }
-    // riallinea la scaletta del giorno di destinazione
-    await Promise.all(ids
-      .filter(id => id !== accessId)
-      .map((id, ) => supabase.from("coop_accesses").update({ ordine: orderMap.get(id)! }).eq("id", id)));
+    // riallinea la scaletta del giorno di destinazione (RPC atomica, con fallback)
+    await persistOrder(ids);
     notify.success("Accesso spostato");
   };
 
@@ -801,6 +799,10 @@ function DomiciliInner() {
     suppressClickRef.current = true;
     setTimeout(() => { suppressClickRef.current = false; }, 400);
     if (!commit || !st.overDay) return;
+    if (st.overDay !== st.fromISO && closedDatesSet.has(st.overDay)) {
+      notify.warning("Giorno chiuso: riaprilo dalle Chiusure per spostarci accessi");
+      return;
+    }
     const { ids, idx } = dropIndexFor(st.overDay, st.accessId, st.overCard, st.overAfter);
     if (st.overDay === st.fromISO) {
       const cur = (accByDay.get(st.fromISO) || []).map(x => x.id);
@@ -915,18 +917,70 @@ function DomiciliInner() {
 
   // Propaga l'orario agli altri accessi dello stesso paziente (da oggi in poi):
   // Marco va sempre alla stessa ora dallo stesso paziente.
+  // Persiste la scaletta: 1 sola chiamata (RPC 060); se la migrazione non è
+  // ancora applicata, fallback ai singoli update come prima.
+  const persistOrder = async (orderedIds: string[]) => {
+    const { error } = await supabase.rpc("domicili_reorder_day", { p_ids: orderedIds });
+    if (!error) return;
+    await Promise.all(orderedIds.map((id, i) =>
+      supabase.from("coop_accesses").update({ ordine: i }).eq("id", id)));
+  };
+
+  // Propaga l'orario a TUTTI gli accessi futuri pianificati del paziente,
+  // anche fuori dal range caricato. Salta slot occupati e giorni chiusi.
+  // Prova la RPC atomica (migrazione 060); senza, fallback con query dirette.
   const propagateOrario = async (patientId: string, orario: string, exceptId: string) => {
-    if (!propagaOrario) return 0;          // modalità "Solo questo"
+    if (!propagaOrario || !studioId) return 0;
     const slot = slotOfOrario(orario);
     if (slot === null) return 0;
-    const ids: string[] = [];
-    rangeAccesses.forEach(x => {
-      if (x.coop_patient_id !== patientId || x.id === exceptId) return;
-      if (x.data < todayISO || x.stato !== "pianificato") return;
-      if ((x.orario || "").slice(0, 5) === orario) return;
-      if (takenSlots(x.data, x.id).has(slot)) return;   // in quel giorno lo slot è preso
-      ids.push(x.id);
+
+    // ── Via maestra: RPC atomica server-side ──
+    const { data: rpcN, error: rpcErr } = await supabase.rpc("domicili_propaga_orario", {
+      p_studio_id: studioId, p_patient_id: patientId, p_orario: orario,
+      p_except_id: exceptId, p_from_date: todayISO,
     });
+    if (!rpcErr && typeof rpcN === "number") {
+      if (rpcN > 0) {
+        setRangeAccesses(prev => prev.map(x =>
+          x.coop_patient_id === patientId && x.id !== exceptId &&
+          x.data >= todayISO && x.stato === "pianificato" &&
+          !takenSlots(x.data, x.id).has(slot) && !closedDatesSet.has(x.data)
+            ? { ...x, orario } : x));
+      }
+      return rpcN;
+    }
+
+    // ── Fallback (migrazione 060 non ancora applicata) ──
+    const { data: futuri, error: e1 } = await supabase.from("coop_accesses")
+      .select("id, data, orario")
+      .eq("studio_id", studioId)
+      .eq("coop_patient_id", patientId)
+      .neq("id", exceptId)
+      .gte("data", todayISO)
+      .eq("stato", "pianificato");
+    if (e1 || !futuri?.length) return 0;
+    const cand = futuri.filter(x => (x.orario || "").slice(0, 5) !== orario);
+    if (!cand.length) return 0;
+    const dates = Array.from(new Set(cand.map(x => x.data)));
+    const [{ data: occ }, { data: chius }] = await Promise.all([
+      supabase.from("coop_accesses")
+        .select("id, data, orario")
+        .eq("studio_id", studioId)
+        .in("data", dates)
+        .not("orario", "is", null),
+      supabase.from("domicili_chiusure")
+        .select("data_da, data_a")
+        .eq("studio_id", studioId),
+    ]);
+    const occupied = new Set(
+      (occ || [])
+        .filter(o => slotOfOrario(o.orario) === slot)
+        .map(o => `${o.data}|${o.id}`));
+    const isClosed = (d: string) => (chius || []).some(c => d >= c.data_da && d <= c.data_a);
+    const ids = cand
+      .filter(x => !isClosed(x.data))
+      .filter(x => ![...occupied].some(k => k.startsWith(`${x.data}|`) && !k.endsWith(`|${x.id}`)))
+      .map(x => x.id);
     if (!ids.length) return 0;
     setRangeAccesses(prev => prev.map(x => ids.includes(x.id) ? { ...x, orario } : x));
     await Promise.all(ids.map(id =>
@@ -952,6 +1006,10 @@ function DomiciliInner() {
   const moveAccessToSlot = async (accessId: string, newDayISO: string, startMin: number) => {
     const a = rangeAccesses.find(x => x.id === accessId);
     if (!a) return;
+    if (newDayISO !== a.data && closedDatesSet.has(newDayISO)) {
+      notify.warning("Giorno chiuso: riaprilo dalle Chiusure per spostarci accessi");
+      return;
+    }
     // mai due accessi sullo stesso slot: se è occupato, scalo al primo libero
     const desired = Math.floor(startMin / 60);
     const slot = firstFreeSlot(newDayISO, desired, accessId);
@@ -979,8 +1037,7 @@ function DomiciliInner() {
         .map(x => ({ id: x.id, min: x.orario ? hhmmToMin(x.orario) : 9999 })),
       { id: accessId, min: tot },
     ].sort((p2, q2) => p2.min - q2.min).map(x => x.id);
-    await Promise.all(ordered.map((id, i) =>
-      supabase.from("coop_accesses").update({ ordine: i }).eq("id", id)));
+    await persistOrder(ordered);
 
     // stesso paziente, stessa ora anche negli altri giorni
     const n = await propagateOrario(a.coop_patient_id, orario, accessId);
@@ -1215,10 +1272,8 @@ function DomiciliInner() {
       const map = new Map(orderedIds.map((id, i) => [id, i]));
       return prev.map(x => map.has(x.id) ? { ...x, ordine: map.get(x.id)! } : x);
     });
-    // persisti
-    await Promise.all(orderedIds.map((id, i) =>
-      supabase.from("coop_accesses").update({ ordine: i }).eq("id", id)
-    ));
+    // persisti (RPC atomica, con fallback)
+    await persistOrder(orderedIds);
   };
 
   const updateOrario = async (a: CoopAccess, time: string) => {
@@ -1612,8 +1667,8 @@ function DomiciliInner() {
                     // data-drop-day: trascinando una card qui sopra, l'accesso si sposta a questo giorno
                     return (
                       <button key={iso} data-drop-day={iso} onClick={() => setAnchor(d)} style={{
-                        border: `1.5px ${dragAccessId && touchOverDay !== iso ? "dashed" : "solid"} ${touchOverDay === iso ? "#0891b2" : dragAccessId ? "#67e8f9" : sel ? THEME.teal : THEME.border}`,
-                        background: touchOverDay === iso ? "#a5f3fc" : dragAccessId ? "#ecfeff" : sel ? THEME.teal : "#fff",
+                        border: `1.5px ${dragAccessId && touchOverDay !== iso ? "dashed" : "solid"} ${touchOverDay === iso ? "#94a3b8" : dragAccessId ? THEME.border : sel ? THEME.teal : THEME.border}`,
+                        background: touchOverDay === iso ? "#f1f5f9" : sel ? THEME.teal : "#fff",
                         color: touchOverDay === iso ? "#164e63" : sel ? "#fff" : THEME.text,
                         borderRadius: 12, padding: "7px 0 6px", cursor: "pointer",
                         transform: touchOverDay === iso ? "scale(1.08)" : "none",
@@ -1787,12 +1842,17 @@ function DomiciliInner() {
                         const list = accByDay.get(iso) || [];
                         const pos = layoutDay(list);
                         const isTarget = dwOver?.dayIdx === dayIdx;
+                        const chiuso = closedDatesSet.has(iso);
+                        const colBg = chiuso
+                          ? (isTarget ? "rgba(239,68,68,0.10)" : "rgba(239,68,68,0.05)")
+                          : isTarget ? "rgba(100,116,139,0.08)"
+                          : t ? "rgba(13,148,136,0.045)" : "transparent";
                         return (
                           <div key={iso} data-drop-day={iso}
                             style={{
                               position: "relative",
                               borderLeft: `1px solid ${THEME.borderSoft}`,
-                              background: `repeating-linear-gradient(to bottom,${isTarget ? "rgba(100,116,139,0.08)" : t ? "rgba(13,148,136,0.045)" : "transparent"} 0,${isTarget ? "rgba(100,116,139,0.08)" : t ? "rgba(13,148,136,0.045)" : "transparent"} ${HOUR_PX - 1}px,${THEME.borderSoft} ${HOUR_PX - 1}px,${THEME.borderSoft} ${HOUR_PX}px)`,
+                              background: `repeating-linear-gradient(to bottom,${colBg} 0,${colBg} ${HOUR_PX - 1}px,${THEME.borderSoft} ${HOUR_PX - 1}px,${THEME.borderSoft} ${HOUR_PX}px)`,
                             }}>
                             {list.map(a => {
                               const p = patientById.get(a.coop_patient_id);
@@ -1831,8 +1891,9 @@ function DomiciliInner() {
                                 position: "absolute", left: 2, right: 2,
                                 top: (dwOver.startMin / 60) * HOUR_PX,
                                 height: (DW_SLOT_MIN / 60) * HOUR_PX - 2,
-                                border: "1.5px dashed #94a3b8", borderRadius: 6,
-                                background: "rgba(100,116,139,0.10)", zIndex: 4, pointerEvents: "none",
+                                border: `1.5px dashed ${chiuso ? "#ef4444" : "#94a3b8"}`, borderRadius: 6,
+                                background: chiuso ? "rgba(239,68,68,0.10)" : "rgba(100,116,139,0.10)",
+                                zIndex: 4, pointerEvents: "none",
                               }} />
                             )}
                             {t && (() => {
@@ -2318,8 +2379,8 @@ function DomiciliInner() {
                           <div key={iso}
                             data-drop-day={iso}
                             style={{
-                            background: touchOverDay === iso && dragAccessId ? "#cffafe" : dragAccessId ? "#ecfeff" : closedDatesSet.has(iso) ? "#fef2f2" : isToday ? "#f0fdfa" : THEME.panelSoft,
-                            border: touchOverDay === iso && dragAccessId ? "2px solid #0891b2" : `1px ${dragAccessId ? "dashed #67e8f9" : "solid"} ${dragAccessId ? "#67e8f9" : closedDatesSet.has(iso) ? "#fecaca" : THEME.borderSoft}`,
+                            background: touchOverDay === iso && dragAccessId ? "#f1f5f9" : closedDatesSet.has(iso) ? "#fef2f2" : isToday ? "#f0fdfa" : THEME.panelSoft,
+                            border: touchOverDay === iso && dragAccessId ? "1.5px solid #94a3b8" : `1px ${dragAccessId ? "dashed" : "solid"} ${closedDatesSet.has(iso) ? "#fecaca" : THEME.border}`,
                             borderRadius: 13, padding: "9px 8px 10px", minHeight: 190,
                             display: "flex", flexDirection: "column", gap: 7,
                             transition: "background .12s ease",
