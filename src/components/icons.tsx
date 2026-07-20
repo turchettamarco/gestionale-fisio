@@ -43,6 +43,7 @@ const PATHS: Record<string, React.ReactNode> = {
   // Firma del brand (pulse-line del logo)
   pulse:    <polyline points="3 12 7 12 10 6 14 18 17 12 21 12" />,
   pin:      <><path d="M12 21s-6-5.2-6-10a6 6 0 1 1 12 0c0 4.8-6 10-6 10z" /><circle cx="12" cy="11" r="2.5" /></>,
+  camera:   <><path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.7l1.2-2h6.2l1.2 2h2.7A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5z" /><circle cx="12" cy="13" r="3.2" /></>,
 };
 
 export type IconName = keyof typeof PATHS;

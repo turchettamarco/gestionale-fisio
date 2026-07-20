@@ -276,7 +276,9 @@ function DomiciliInner() {
   const [showConclusi, setShowConclusi] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [docSheet, setDocSheet] = useState(false); // mobile: foglio Report/Planner/Messaggio
+  const [docSheet, setDocSheet] = useState(false); // mobile: foglio documenti
+  const [docMenu, setDocMenu] = useState(false);   // desktop: menu "Documenti"
+  const [nuovoMenu, setNuovoMenu] = useState(false); // desktop: menu "Nuovo PAI"
 
   // Modali
   const [patientModal, setPatientModal] = useState<{ open: boolean; patient: CoopPatient | null; startWithPhoto: boolean }>({ open: false, patient: null, startWithPhoto: false });
@@ -1046,6 +1048,16 @@ function DomiciliInner() {
   // di giorno o orari. I pazienti non presenti nella sorgente vanno in coda
   // mantenendo il loro ordine attuale.
   const [copiaBusy, setCopiaBusy] = useState(false);
+  // Trend accessi: nascosto di default, si accende dalle Impostazioni.
+  // Persistito perché è una preferenza esplicita e visibile lì dentro.
+  const [showTrend, setShowTrend] = useState(false);
+  useEffect(() => {
+    try { setShowTrend(localStorage.getItem("domicili_show_trend") === "1"); } catch {}
+  }, []);
+  const toggleTrend = (v: boolean) => {
+    setShowTrend(v);
+    try { localStorage.setItem("domicili_show_trend", v ? "1" : "0"); } catch {}
+  };
   const copiaScalettaProssima = async () => {
     if (!studioId || copiaBusy) return;
     const dstMon = addDays(weekStart, 7);
@@ -1243,7 +1255,7 @@ function DomiciliInner() {
     return { months, coopIds, counts, max };
   }, [allLite, patientById, cooperatives, selectedCoopId, anchor]);
 
-  const trendPanel = trendMesi.max === 0 ? null : (
+  const trendPanel = (!showTrend || trendMesi.max === 0) ? null : (
     <div style={{ background: "#fff", border: `1px solid ${THEME.borderSoft}`, borderRadius: 12, padding: "8px 12px" }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
         <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: .4, textTransform: "uppercase", color: "#475569" }}>Trend accessi</span>
@@ -1858,10 +1870,11 @@ function DomiciliInner() {
   // cooperativa, con ora effettiva della spunta e riepilogo per paziente.
   // NOMI SEMPRE REALI (come gli export dei Report): documento fiscale,
   // la Modalità Privacy non si applica.
-  const loadMeseRows = async () => {
+  const loadMeseRows = async (base?: Date) => {
     if (!studioId) return null;
-    const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1, 12);
-    const last = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0, 12);
+    const ref = base || anchor;
+    const first = new Date(ref.getFullYear(), ref.getMonth(), 1, 12);
+    const last = new Date(ref.getFullYear(), ref.getMonth() + 1, 0, 12);
     const { data, error } = await supabase.from("coop_accesses")
       .select("id, coop_patient_id, data, orario, stato, fatto_alle, note")
       .eq("studio_id", studioId)
@@ -1870,7 +1883,7 @@ function DomiciliInner() {
     if (error || !data) { notify.error("Errore caricamento dati"); return null; }
     const scopeIds = new Set(scopePatients.map(p => p.id));
     const rows = data.filter(a => scopeIds.has(a.coop_patient_id));
-    if (!rows.length) { notify.info("Nessun accesso nel mese visualizzato"); return null; }
+    if (!rows.length) return [];
     // sezioni per cooperativa
     const byCoop = new Map<string, typeof rows>();
     rows.forEach(a => {
@@ -1884,6 +1897,34 @@ function DomiciliInner() {
     return sezioni;
   };
 
+
+  // ── Consuntivo: schermata con mese scegliibile e anteprima ───────────────
+  type SezioneCons = { coop: Cooperative | null; list: {
+    id: string; coop_patient_id: string; data: string; orario: string | null;
+    stato: string; fatto_alle: string | null; note: string | null;
+  }[] };
+  const [consOpen, setConsOpen] = useState(false);
+  const [consMese, setConsMese] = useState<Date>(() => new Date());
+  const [consData, setConsData] = useState<SezioneCons[] | null>(null);
+  const [consLoading, setConsLoading] = useState(false);
+
+  const openConsuntivo = () => {
+    setConsMese(new Date(anchor.getFullYear(), anchor.getMonth(), 1, 12));
+    setConsOpen(true);
+  };
+
+  useEffect(() => {
+    if (!consOpen) return;
+    let annullato = false;
+    setConsLoading(true);
+    (async () => {
+      const sez = await loadMeseRows(consMese);
+      if (!annullato) { setConsData((sez as SezioneCons[]) || []); setConsLoading(false); }
+    })();
+    return () => { annullato = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [consOpen, consMese, selectedCoopId]);
+
   const oraEffettiva = (fatto_alle: string | null) => {
     if (!fatto_alle) return "";
     const d = new Date(fatto_alle);
@@ -1891,29 +1932,85 @@ function DomiciliInner() {
   };
   const statoLabel = (st: string) => st === "fatto" ? "Fatto" : st === "saltato" ? "Saltato" : "Pianificato";
 
-  const openConsuntivoPdf = async () => {
-    const sezioni = await loadMeseRows();
-    if (!sezioni) return;
+  /** Riepilogo per paziente: è la tabella che finisce in fattura. */
+  const perPazienteOf = (list: SezioneCons["list"]) => {
+    const m = new Map<string, { fatti: number; saltati: number; pian: number }>();
+    list.forEach(a => {
+      const c = m.get(a.coop_patient_id) || { fatti: 0, saltati: 0, pian: 0 };
+      if (a.stato === "fatto") c.fatti++;
+      else if (a.stato === "saltato") c.saltati++;
+      else c.pian++;
+      m.set(a.coop_patient_id, c);
+    });
+    return Array.from(m.entries())
+      .map(([pid, c]) => {
+        const p = patientById.get(pid);
+        return { nome: p ? `${p.cognome} ${p.nome}` : "?", ...c };
+      })
+      .sort((x, y) => x.nome.localeCompare(y.nome));
+  };
+
+  const consuntivoPdf = async () => {
+    if (!consData?.length) return;
     const { jsPDF } = await import("jspdf");
     const autoTable = (await import("jspdf-autotable")).default;
     const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-    doc.setFontSize(14);
-    doc.text(`Consuntivo accessi domiciliari — ${fmtMonthYear(anchor)}`, 10, 14);
-    doc.setFontSize(9);
-    doc.setTextColor(100);
-    doc.text(`Generato il ${fmtIT(todayISO)}`, 10, 19);
-    doc.setTextColor(0);
-    let y = 26;
-    sezioni.forEach(({ coop, list }) => {
+    const W = doc.internal.pageSize.getWidth();
+
+    consData.forEach(({ coop, list }, si) => {
+      if (si > 0) doc.addPage();
       const fatti = list.filter(a => a.stato === "fatto").length;
       const saltati = list.filter(a => a.stato === "saltato").length;
       const pian = list.length - fatti - saltati;
-      doc.setFontSize(12);
-      doc.text(`${coop?.nome || "Cooperativa"} — ${fatti} fatti · ${saltati} saltati${pian ? ` · ${pian} pianificati` : ""}`, 10, y);
-      y += 3;
+
+      // Testata
+      doc.setFillColor(248, 250, 252);
+      doc.rect(0, 0, W, 30, "F");
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(15);
+      doc.text("Consuntivo accessi domiciliari", 12, 13);
+      doc.setFontSize(11);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`${coop?.nome || "Senza cooperativa"} · ${fmtMonthYear(consMese)}`, 12, 20.5);
+      doc.setFontSize(8.5);
+      doc.text(`Generato il ${fmtIT(todayISO)}`, W - 12, 20.5, { align: "right" });
+
+      // Riquadro totali
+      doc.setDrawColor(203, 213, 225);
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(12, 36, W - 24, 16, 2, 2, "FD");
+      doc.setFontSize(10);
+      doc.setTextColor(51, 65, 85);
+      doc.text(`Accessi effettuati: ${fatti}`, 18, 46);
+      doc.text(`Saltati: ${saltati}`, 78, 46);
+      if (pian) doc.text(`Ancora pianificati: ${pian}`, 118, 46);
+
+      // 1) Riepilogo per paziente — la tabella della fattura
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(11);
+      doc.text("Riepilogo per paziente", 12, 62);
       autoTable(doc, {
-        startY: y,
-        head: [["Data", "Ora", "Paziente", "Stato", "Eseguito alle", "Note"]],
+        startY: 65,
+        head: [["Paziente", "Effettuati", "Saltati"]],
+        body: perPazienteOf(list).map(r => [r.nome, String(r.fatti), String(r.saltati)]),
+        foot: [["Totale", String(fatti), String(saltati)]],
+        styles: { fontSize: 9.5, cellPadding: 2.2, lineColor: [226, 232, 240] },
+        headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontStyle: "bold" },
+        footStyles: { fillColor: [248, 250, 252], textColor: [15, 23, 42], fontStyle: "bold" },
+        columnStyles: { 1: { halign: "center", cellWidth: 26 }, 2: { halign: "center", cellWidth: 26 } },
+        margin: { left: 12, right: 12 },
+        theme: "grid",
+      });
+
+      // 2) Dettaglio giorno per giorno
+      let y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+      if (y > 240) { doc.addPage(); y = 20; }
+      doc.setFontSize(11);
+      doc.setTextColor(15, 23, 42);
+      doc.text("Dettaglio accessi", 12, y);
+      autoTable(doc, {
+        startY: y + 3,
+        head: [["Data", "Prev.", "Paziente", "Stato", "Eseguito", "Note"]],
         body: list.map(a => {
           const p = patientById.get(a.coop_patient_id);
           return [
@@ -1925,48 +2022,37 @@ function DomiciliInner() {
             a.note || "",
           ];
         }),
-        styles: { fontSize: 8, cellPadding: 1.4 },
+        styles: { fontSize: 8.5, cellPadding: 1.8, lineColor: [226, 232, 240] },
         headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontStyle: "bold" },
-        margin: { left: 10, right: 10 },
+        columnStyles: {
+          0: { cellWidth: 22 }, 1: { cellWidth: 14, halign: "center" },
+          3: { cellWidth: 20 }, 4: { cellWidth: 18, halign: "center" },
+        },
+        margin: { left: 12, right: 12 },
         theme: "grid",
+        didParseCell: d => {
+          if (d.section === "body" && d.column.index === 3 && d.cell.raw === "Saltato") {
+            d.cell.styles.textColor = [192, 57, 43];
+          }
+        },
       });
-      y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 5;
-      // riepilogo per paziente (per la fattura)
-      const perPaz = new Map<string, { fatti: number; saltati: number }>();
-      list.forEach(a => {
-        const k = a.coop_patient_id;
-        const c = perPaz.get(k) || { fatti: 0, saltati: 0 };
-        if (a.stato === "fatto") c.fatti++;
-        if (a.stato === "saltato") c.saltati++;
-        perPaz.set(k, c);
-      });
-      autoTable(doc, {
-        startY: y,
-        head: [["Paziente", "Accessi fatti", "Saltati"]],
-        body: Array.from(perPaz.entries())
-          .map(([pid, c]) => {
-            const p = patientById.get(pid);
-            return [p ? `${p.cognome} ${p.nome}` : "?", String(c.fatti), String(c.saltati)];
-          })
-          .sort((x, y2) => x[0].localeCompare(y2[0])),
-        styles: { fontSize: 8, cellPadding: 1.4 },
-        headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontStyle: "bold" },
-        margin: { left: 10, right: 10 },
-        theme: "grid",
-        tableWidth: 110,
-      });
-      y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 9;
-      if (y > 260) { doc.addPage(); y = 14; }
+
+      // Piè di pagina con numerazione
+      const pages = doc.getNumberOfPages();
+      doc.setPage(pages);
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`Pagina ${pages}`, W - 12, doc.internal.pageSize.getHeight() - 8, { align: "right" });
     });
-    const mm = `${anchor.getFullYear()}-${String(anchor.getMonth() + 1).padStart(2, "0")}`;
-    doc.save(`consuntivo-domicili-${selectedCoop ? selectedCoop.nome.toLowerCase().replace(/\s+/g, "-") : "tutte"}-${mm}.pdf`);
+
+    const mm = `${consMese.getFullYear()}-${String(consMese.getMonth() + 1).padStart(2, "0")}`;
+    doc.save(`consuntivo-domicili-${mm}.pdf`);
   };
 
-  const openConsuntivoCsv = async () => {
-    const sezioni = await loadMeseRows();
-    if (!sezioni) return;
-    const righe: string[] = ["cooperativa;data;ora;cognome;nome;stato;eseguito_alle;note"];
-    sezioni.forEach(({ coop, list }) => {
+  const consuntivoCsv = () => {
+    if (!consData?.length) return;
+    const righe: string[] = ["cooperativa;data;ora_prevista;cognome;nome;stato;eseguito_alle;note"];
+    consData.forEach(({ coop, list }) => {
       list.forEach(a => {
         const p = patientById.get(a.coop_patient_id);
         const esc = (v: string) => `"${(v || "").replace(/"/g, '""')}"`;
@@ -1977,7 +2063,7 @@ function DomiciliInner() {
         ].join(";"));
       });
     });
-    const mm = `${anchor.getFullYear()}-${String(anchor.getMonth() + 1).padStart(2, "0")}`;
+    const mm = `${consMese.getFullYear()}-${String(consMese.getMonth() + 1).padStart(2, "0")}`;
     const blob = new Blob(["\ufeff" + righe.join("\r\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a2 = document.createElement("a");
@@ -1986,6 +2072,96 @@ function DomiciliInner() {
     a2.click();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
   };
+
+  const consuntivoModal = consOpen && (
+    <div onClick={() => setConsOpen(false)} style={{
+      position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", zIndex: 1150,
+      display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center",
+      padding: isMobile ? 0 : 20,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: "#fff", width: "100%", maxWidth: 620,
+        borderRadius: isMobile ? "16px 16px 0 0" : 16,
+        border: `1px solid ${THEME.border}`,
+        maxHeight: isMobile ? "88vh" : "86vh", display: "flex", flexDirection: "column",
+      }}>
+        {/* testata: mese navigabile */}
+        <div style={{ padding: "14px 16px 12px", borderBottom: `1px solid ${THEME.borderSoft}` }}>
+          <div style={{ fontSize: 15.5, fontWeight: 700, color: THEME.text }}>Consuntivo mensile</div>
+          <div style={{ fontSize: 12, color: "#475569", marginTop: 2 }}>
+            Accessi del mese per cooperativa, per la fatturazione
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+            <button onClick={() => setConsMese(m => new Date(m.getFullYear(), m.getMonth() - 1, 1, 12))}
+              style={{ border: `1px solid ${THEME.border}`, background: "#fff", borderRadius: 8, padding: "5px 9px", cursor: "pointer", fontWeight: 700, color: THEME.text }}>‹</button>
+            <div style={{ flex: 1, textAlign: "center", fontSize: 13.5, fontWeight: 700, color: THEME.text }}>
+              {fmtMonthYear(consMese)}
+            </div>
+            <button onClick={() => setConsMese(m => new Date(m.getFullYear(), m.getMonth() + 1, 1, 12))}
+              style={{ border: `1px solid ${THEME.border}`, background: "#fff", borderRadius: 8, padding: "5px 9px", cursor: "pointer", fontWeight: 700, color: THEME.text }}>›</button>
+          </div>
+        </div>
+
+        {/* anteprima */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }}>
+          {consLoading && <div style={{ padding: 24, textAlign: "center", fontSize: 13, color: "#475569" }}>Carico…</div>}
+          {!consLoading && consData?.length === 0 && (
+            <div style={{ padding: 24, textAlign: "center", fontSize: 13, color: "#475569" }}>
+              Nessun accesso in {fmtMonthYear(consMese)}.
+            </div>
+          )}
+          {!consLoading && consData?.map(({ coop, list }) => {
+            const fatti = list.filter(a => a.stato === "fatto").length;
+            const saltati = list.filter(a => a.stato === "saltato").length;
+            const pian = list.length - fatti - saltati;
+            return (
+              <div key={coop?.id || "none"} style={{ marginBottom: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 7 }}>
+                  <span style={{ width: 9, height: 9, borderRadius: "50%", background: coop?.colore || THEME.teal }} />
+                  <span style={{ fontSize: 13.5, fontWeight: 700, color: THEME.text }}>{coop?.nome || "Senza cooperativa"}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, color: "#475569" }}>
+                    {fatti} effettuati · {saltati} saltati{pian ? ` · ${pian} pianificati` : ""}
+                  </span>
+                </div>
+                <div style={{ border: `1px solid ${THEME.borderSoft}`, borderRadius: 10, overflow: "hidden" }}>
+                  {perPazienteOf(list).map((r, i) => (
+                    <div key={r.nome} style={{
+                      display: "flex", alignItems: "center", gap: 8, padding: "7px 11px",
+                      borderTop: i === 0 ? "none" : `1px solid ${THEME.borderSoft}`,
+                      background: i % 2 ? "#fbfdfe" : "#fff",
+                    }}>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700, color: THEME.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.nome}</span>
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: THEME.green, width: 26, textAlign: "right" }}>{r.fatti}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: r.saltati ? THEME.red : "#cbd5e1", width: 26, textAlign: "right" }}>{r.saltati}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* azioni */}
+        <div style={{ display: "flex", gap: 8, padding: "12px 16px", borderTop: `1px solid ${THEME.borderSoft}` }}>
+          <button onClick={() => setConsOpen(false)} style={{
+            border: `1px solid ${THEME.border}`, background: "#fff", color: THEME.text,
+            borderRadius: 10, padding: "10px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer",
+          }}>Chiudi</button>
+          <div style={{ flex: 1 }} />
+          <button onClick={consuntivoCsv} disabled={!consData?.length} style={{
+            border: `1px solid ${THEME.border}`, background: "#fff", color: THEME.text,
+            borderRadius: 10, padding: "10px 16px", fontSize: 13, fontWeight: 700,
+            cursor: "pointer", opacity: consData?.length ? 1 : .5,
+          }}>CSV</button>
+          <button onClick={consuntivoPdf} disabled={!consData?.length} style={{
+            border: "none", background: THEME.teal, color: "#fff",
+            borderRadius: 10, padding: "10px 18px", fontSize: 13, fontWeight: 700,
+            cursor: "pointer", opacity: consData?.length ? 1 : .5,
+          }}>Scarica PDF</button>
+        </div>
+      </div>
+    </div>
+  );
 
   const openPlanner = async () => {
     const from = localISO(weekStart), to = localISO(addDays(weekStart, 5));
@@ -2103,6 +2279,27 @@ function DomiciliInner() {
   );
 
   // Popover impostazioni contatore (condiviso)
+  /** Riga di un menu a tendina desktop: icona, titolo, sottotitolo. */
+  const menuRow = (icon: string, title: string, sub: string, onClick: () => void) => (
+    <button onClick={onClick} style={{
+      display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+      border: "none", background: "transparent", borderRadius: 9,
+      padding: "9px 10px", cursor: "pointer",
+    }}>
+      <span style={{
+        width: 30, height: 30, borderRadius: 8, background: THEME.panelSoft,
+        border: `1px solid ${THEME.borderSoft}`, display: "flex",
+        alignItems: "center", justifyContent: "center", flexShrink: 0,
+      }}>
+        <Icon name={icon as never} size={15} color={THEME.tealDark} />
+      </span>
+      <span style={{ minWidth: 0 }}>
+        <span style={{ display: "block", fontSize: 13, fontWeight: 700, color: THEME.text }}>{title}</span>
+        <span style={{ display: "block", fontSize: 11.5, fontWeight: 600, color: "#475569" }}>{sub}</span>
+      </span>
+    </button>
+  );
+
   const settingsPanel = settingsOpen && (
     <>
       <div onClick={() => setSettingsOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 900 }} />
@@ -2144,6 +2341,10 @@ function DomiciliInner() {
         <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, fontWeight: 700, color: THEME.muted, padding: "8px 10px 2px", cursor: "pointer" }}>
           <input type="checkbox" checked={showConclusi} onChange={e => setShowConclusi(e.target.checked)} style={{ accentColor: THEME.teal }} />
           Mostra pazienti conclusi
+        </label>
+        <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, fontWeight: 700, color: THEME.muted, padding: "8px 10px 2px", cursor: "pointer" }}>
+          <input type="checkbox" checked={showTrend} onChange={e => toggleTrend(e.target.checked)} style={{ accentColor: THEME.teal }} />
+          Mostra trend accessi
         </label>
 
         {/* ── Ferie / Chiusure ── */}
@@ -2793,8 +2994,7 @@ function DomiciliInner() {
             onClose={() => setDocSheet(false)}
             onReport={() => { setDocSheet(false); setReportOpen(true); }}
             onPlanner={() => { setDocSheet(false); openPlanner(); }}
-            onConsuntivo={() => { setDocSheet(false); openConsuntivoPdf(); }}
-            onConsuntivoCsv={() => { setDocSheet(false); openConsuntivoCsv(); }}
+            onConsuntivo={() => { setDocSheet(false); openConsuntivo(); }}
             onMessage={() => { setDocSheet(false); setMsgOpen(true); }}
           />
         )}
@@ -2894,6 +3094,7 @@ function DomiciliInner() {
         })()}
 
         <MobileTabBar />
+        {consuntivoModal}
         {rinnovoModal}
         {sharedModals}
       </div>
@@ -2924,17 +3125,52 @@ function DomiciliInner() {
               <span style={{ fontSize: 16, fontWeight: 800, color: THEME.tealDark }}>{accessCounts.monthTot}</span>
             </div>
           </div>
-          <button onClick={() => setPatientModal({ open: true, patient: null, startWithPhoto: true })} style={dBtn("pri")}>
-            Nuovo PAI da foto
-          </button>
-          <button onClick={() => setPatientModal({ open: true, patient: null, startWithPhoto: false })} style={dBtn()}>
-            <Icon name="plus" size={15} color={THEME.text} /> Manuale
-          </button>
-          <button onClick={() => setReportOpen(true)} style={dBtn()}>Report</button>
-          <button onClick={openPlanner} style={dBtn()}>Planner</button>
-          <button onClick={openConsuntivoPdf} style={dBtn()} title="PDF del mese visualizzato, per la fatturazione alle cooperative">Consuntivo</button>
-          <button onClick={openConsuntivoCsv} style={dBtn()} title="Stesso contenuto in CSV per Excel">CSV</button>
-          <button onClick={() => setMsgOpen(true)} style={dBtn()}>Messaggio</button>
+          {/* Nuovo PAI: azione primaria + alternativa nel menu */}
+          <div style={{ position: "relative" }}>
+            <button onClick={() => setNuovoMenu(o => !o)} style={dBtn("pri")}>
+              Nuovo PAI ▾
+            </button>
+            {nuovoMenu && (
+              <>
+                <div onClick={() => setNuovoMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 900 }} />
+                <div style={{
+                  position: "absolute", top: 44, right: 0, zIndex: 950, width: 250,
+                  background: "#fff", border: `1px solid ${THEME.border}`, borderRadius: 12,
+                  boxShadow: "0 16px 44px rgba(15,23,42,.18)", padding: 6,
+                }}>
+                  {menuRow("camera", "Da foto del PAI", "Legge date, giorni e orari dalla foto",
+                    () => { setNuovoMenu(false); setPatientModal({ open: true, patient: null, startWithPhoto: true }); })}
+                  {menuRow("plus", "Inserimento manuale", "Compili tu i campi",
+                    () => { setNuovoMenu(false); setPatientModal({ open: true, patient: null, startWithPhoto: false }); })}
+                </div>
+              </>
+            )}
+          </div>
+          {/* Tutto ciò che produce un documento sta qui sotto */}
+          <div style={{ position: "relative" }}>
+            <button onClick={() => setDocMenu(o => !o)} style={dBtn()}>
+              Documenti ▾
+            </button>
+            {docMenu && (
+              <>
+                <div onClick={() => setDocMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 900 }} />
+                <div style={{
+                  position: "absolute", top: 44, right: 0, zIndex: 950, width: 290,
+                  background: "#fff", border: `1px solid ${THEME.border}`, borderRadius: 12,
+                  boxShadow: "0 16px 44px rgba(15,23,42,.18)", padding: 6,
+                }}>
+                  {menuRow("euro", "Consuntivo mensile", "Per fatturare alle cooperative — PDF o CSV",
+                    () => { setDocMenu(false); openConsuntivo(); })}
+                  {menuRow("chart", "Report settimanale", "A schermo e in PDF",
+                    () => { setDocMenu(false); setReportOpen(true); })}
+                  {menuRow("calendar", "Planner settimana", "Il giro visite con orari e telefoni",
+                    () => { setDocMenu(false); openPlanner(); })}
+                  {menuRow("whatsapp", "Messaggio accessi", "Testo pronto per il gruppo della cooperativa",
+                    () => { setDocMenu(false); setMsgOpen(true); })}
+                </div>
+              </>
+            )}
+          </div>
           <div style={{ position: "relative" }}>
             <button onClick={() => setSettingsOpen(o => !o)} style={{ ...dBtn(), padding: "10px 12px" }} title="Impostazioni sezione">
               <Icon name="settings" size={16} color={THEME.muted} />
@@ -3433,6 +3669,7 @@ function DomiciliInner() {
         )}
       </div>
 
+      {consuntivoModal}
       {rinnovoModal}
       {sharedModals}
     </div>
@@ -3910,9 +4147,9 @@ function EmptyCoops({ onPreset, onCustom, isMobile }: {
 }
 
 /** Foglio azioni mobile: report / planner / messaggio. */
-function MobileDocSheet({ onClose, onReport, onPlanner, onConsuntivo, onConsuntivoCsv, onMessage }: {
+function MobileDocSheet({ onClose, onReport, onPlanner, onConsuntivo, onMessage }: {
   onClose: () => void; onReport: () => void; onPlanner: () => void;
-  onConsuntivo: () => void; onConsuntivoCsv: () => void; onMessage: () => void;
+  onConsuntivo: () => void; onMessage: () => void;
 }) {
   const row = (icon: string, title: string, sub: string, onClick: () => void) => (
     <button onClick={onClick} style={{
@@ -3938,10 +4175,9 @@ function MobileDocSheet({ onClose, onReport, onPlanner, onConsuntivo, onConsunti
         background: "#f8fafc", width: "100%", borderRadius: "18px 18px 0 0", padding: "16px 16px 20px",
       }}>
         <div style={{ fontSize: 14.5, fontWeight: 800, color: THEME.text, marginBottom: 12 }}>Documenti e invii</div>
+        {row("euro", "Consuntivo mensile", "Per fatturare alle cooperative — PDF o CSV", onConsuntivo)}
         {row("chart", "Report settimanale", "A schermo + PDF, per cooperativa o tutte", onReport)}
         {row("calendar", "Planner settimana (PDF)", "Il giro visite con orari, paesi e telefoni", onPlanner)}
-        {row("euro", "Consuntivo mese (PDF)", "Accessi del mese per cooperativa, per la fatturazione", onConsuntivo)}
-        {row("check", "Consuntivo mese (CSV)", "Stesso contenuto in formato Excel", onConsuntivoCsv)}
         {row("whatsapp", "Messaggio accessi", "Testo pronto da copiare nel gruppo della cooperativa", onMessage)}
         <button onClick={onClose} style={{
           width: "100%", border: `1px solid ${THEME.border}`, background: "#fff", borderRadius: 13,
