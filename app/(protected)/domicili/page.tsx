@@ -664,6 +664,63 @@ function DomiciliInner() {
     }
   };
 
+  // ── Segna tutta la giornata ──────────────────────────────────────────────
+  // È un toggle: se sono già tutti fatti, riapre la giornata. I "saltati"
+  // non vengono toccati, hanno una loro ragione di essere.
+  const dayFattiState = useCallback((dayISO: string) => {
+    const list = (accByDay.get(dayISO) || []).filter(a => a.stato !== "saltato");
+    return { n: list.length, tutti: list.length > 0 && list.every(a => a.stato === "fatto") };
+  }, [accByDay]);
+
+  const toggleAllFatti = async (dayISO: string) => {
+    const list = (accByDay.get(dayISO) || []).filter(a => a.stato !== "saltato");
+    if (!list.length) return;
+    const tutti = list.every(a => a.stato === "fatto");
+    const patch = tutti
+      ? { stato: "pianificato" as const, fatto_alle: null }
+      : { stato: "fatto" as const, fatto_alle: new Date().toISOString() };
+    list.forEach(a => { patchLocal(a.id, patch); patchLite(a.coop_patient_id, a.data, patch.stato); });
+    const ids = list.map(a => a.id);
+    const accoda = () => {
+      ids.forEach(id => queuePending(id, patch));
+      notify.warning(`Offline: ${ids.length} spunte salvate, sincronizzo appena torna la rete`);
+    };
+    if (typeof navigator !== "undefined" && !navigator.onLine) { accoda(); return; }
+    const { error } = await supabase.from("coop_accesses").update(patch).in("id", ids);
+    if (!error) {
+      notify.success(tutti ? "Giornata riaperta" : `${ids.length} access${ids.length === 1 ? "o segnato" : "i segnati"} come fatt${ids.length === 1 ? "o" : "i"}`);
+    } else if (isNetworkError(error)) {
+      accoda();
+    } else {
+      notify.error("Errore salvataggio");
+      refreshAll();
+    }
+  };
+
+  /** Pulsante "segna tutti": size "sm" per le griglie, "md" per le intestazioni. */
+  const segnaTuttiBtn = (dayISO: string, size: "sm" | "md" = "md") => {
+    const { n, tutti } = dayFattiState(dayISO);
+    if (n === 0) return null;
+    const sm = size === "sm";
+    return (
+      <button
+        onClick={e => { e.stopPropagation(); toggleAllFatti(dayISO); }}
+        title={tutti ? "Riapri la giornata: riporta tutti a pianificato" : `Segna come fatti tutti gli accessi (${n})`}
+        style={{
+          display: "inline-flex", alignItems: "center", gap: sm ? 3 : 5, flexShrink: 0,
+          border: `1px solid ${tutti ? "#bbf7d0" : THEME.border}`,
+          background: tutti ? "#dcfce7" : "#fff",
+          color: tutti ? THEME.green : "#475569",
+          borderRadius: 99, cursor: "pointer",
+          fontSize: sm ? 9.5 : 12, fontWeight: 700,
+          padding: sm ? "2px 7px" : "6px 11px",
+          lineHeight: 1.3, whiteSpace: "nowrap",
+        }}>
+        ✓ {sm ? (tutti ? "fatti" : "tutti") : (tutti ? "Tutti fatti" : `Segna tutti (${n})`)}
+      </button>
+    );
+  };
+
   const toggleFatto = async (a: CoopAccess) => {
     const toFatto = a.stato !== "fatto";
     await applyStatoPatch(a, toFatto
@@ -2570,6 +2627,11 @@ function DomiciliInner() {
                       </div>
                     );
                   })()}
+                  {!loading && dayAccesses.length > 0 && (
+                    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                      {segnaTuttiBtn(anchorISO)}
+                    </div>
+                  )}
                   {loading && <div style={{ textAlign: "center", color: THEME.mutedLight, fontSize: 13, padding: 24 }}>Carico…</div>}
                   {!loading && dayAccesses.length === 0 && (
                     <div style={{ textAlign: "center", color: THEME.mutedLight, fontSize: 13, padding: "26px 10px", background: "#fff", borderRadius: 14, border: `1px dashed ${THEME.border}` }}>
@@ -2794,6 +2856,11 @@ function DomiciliInner() {
                                 </button>
                               );
                             })}
+                            {list.length > 0 && (
+                              <div style={{ position: "absolute", left: 0, right: 0, bottom: 4, display: "flex", justifyContent: "center", zIndex: 2 }}>
+                                {segnaTuttiBtn(iso, "sm")}
+                              </div>
+                            )}
                             {isTarget && dwOver && (() => {
                               const tgtOrario = minToHHMM(H_START * 60 + dwOver.startMin);
                               const allarme = chiuso || studioConflicts(iso, tgtOrario).length > 0;
@@ -3031,6 +3098,7 @@ function DomiciliInner() {
                       {list.length > 0 ? `${list.length} accessi` : "Nessun accesso"}
                     </p>
                   </div>
+                  {segnaTuttiBtn(monthSheetDay)}
                   <button onClick={() => { setAnchor(d); setCalView("giorno"); setMonthSheetDay(null); }} style={{
                     border: `1px solid ${THEME.border}`, background: "#fff", color: THEME.text,
                     fontSize: 12, fontWeight: 700, padding: "7px 12px", borderRadius: 9, cursor: "pointer",
@@ -3328,6 +3396,11 @@ function DomiciliInner() {
                           </div>
                         );
                       })()}
+                      {dayList.length > 0 && (
+                        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                          {segnaTuttiBtn(localISO(anchor))}
+                        </div>
+                      )}
                       {dayList.length === 0 && !loading && (
                         <div style={{ padding: "30px 10px", textAlign: "center", fontSize: 13, color: THEME.mutedLight, border: `1px dashed ${THEME.border}`, borderRadius: 12 }}>
                           Nessun accesso in questo giorno.
@@ -3454,6 +3527,9 @@ function DomiciliInner() {
                                 {accessCounts.perDay.get(localISO(d)) || 0}
                               </span>
                             </div>
+                            {list.length > 0 && (
+                              <div style={{ display: "flex", padding: "0 2px" }}>{segnaTuttiBtn(iso, "sm")}</div>
+                            )}
 
                             {list.map(a => {
                               const p = patientById.get(a.coop_patient_id);
@@ -3558,17 +3634,20 @@ function DomiciliInner() {
                                   display: "flex", flexDirection: "column",
                                 }}>
                                 {/* Il numero del giorno porta alla vista Giorno */}
-                                <button
-                                  onClick={() => { setAnchor(d); setCalView("giorno"); }}
-                                  title="Apri questo giorno"
-                                  style={{
-                                    alignSelf: "flex-start", border: "none", background: "transparent",
-                                    padding: 0, marginBottom: 4, cursor: "pointer",
-                                    fontSize: 12.5, fontWeight: 700,
-                                    color: inMonth ? (isToday ? THEME.tealDark : THEME.text) : THEME.placeholder,
-                                  }}>
-                                  {d.getDate()}
-                                </button>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                                  <button
+                                    onClick={() => { setAnchor(d); setCalView("giorno"); }}
+                                    title="Apri questo giorno"
+                                    style={{
+                                      border: "none", background: "transparent",
+                                      padding: 0, cursor: "pointer",
+                                      fontSize: 12.5, fontWeight: 700,
+                                      color: inMonth ? (isToday ? THEME.tealDark : THEME.text) : THEME.placeholder,
+                                    }}>
+                                    {d.getDate()}
+                                  </button>
+                                  <span style={{ marginLeft: "auto" }}>{segnaTuttiBtn(iso, "sm")}</span>
+                                </div>
                                 {/* Gli accessi: click sul paziente → scheda */}
                                 {shown.map(a => {
                                   const p = patientById.get(a.coop_patient_id);
