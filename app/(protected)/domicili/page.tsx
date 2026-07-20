@@ -189,17 +189,9 @@ export default function DomiciliPage() {
 }
 
 /* ─── Griglia settimana mobile (stessa resa del calendario pazienti) ─── */
-const DW_HOUR_PX  = 44;   // altezza di 1 ora
-const DW_H_START  = 7;    // prima ora visibile
-const DW_H_END    = 20;   // ultima ora visibile
-const DW_GUTTER   = 24;   // colonna orari a sinistra
-const DW_ROW_H    = 25;   // altezza di un accesso: le card stanno a filo, senza buchi
-const DW_TOP_PX   = (8 - DW_H_START) * DW_HOUR_PX; // la colonna parte dalle 08:00
-
-function hhmmToMin(s: string): number {
-  const [h, m] = s.split(":").map(Number);
-  return (h || 0) * 60 + (m || 0);
-}
+const DW_GUTTER   = 0;    // niente colonna orari: le colonne usano tutta la larghezza
+const DW_ROW_H    = 40;   // altezza di un accesso: le card stanno a filo, senza buchi
+const DW_TOP_PX   = 0;    // le card partono dal bordo alto della colonna
 
 function DomiciliInner() {
   const isMobile = useIsMobile();
@@ -833,7 +825,7 @@ function DomiciliInner() {
   } | null>(null);
   const [dwDragId, setDwDragId] = useState<string | null>(null);
   const [dwOver, setDwOver] = useState<{ dayIdx: number; idx: number } | null>(null);
-  const [showSabDw, setShowSabDw] = useState(true);
+  const [showSabDw, setShowSabDw] = useState(false);
 
   // Sabato attivabile/disattivabile come nel calendario
   const dwDays = useMemo(() => showSabDw ? weekDays : weekDays.slice(0, 5), [weekDays, showSabDw]);
@@ -1604,9 +1596,9 @@ function DomiciliInner() {
 
             {/* ── SETTIMANA: elenco per giorno ── */}
             {calView === "settimana" && (() => {
-              const HOUR_PX = DW_HOUR_PX, H_START = DW_H_START, H_END = DW_H_END;
               const nDays = showSabDw ? 6 : 5;
-              const now = new Date();
+              const maxRows = dwDays.reduce((m, d) => Math.max(m, (accByDay.get(localISO(d)) || []).length), 0);
+              const gridH = Math.max(6, maxRows + 1) * DW_ROW_H;
               const totCount = dwDays.reduce((s, d) => s + (accByDay.get(localISO(d)) || []).length, 0);
               const doneCount = dwDays.reduce((s, d) => s + (accByDay.get(localISO(d)) || []).filter(a => a.stato === "fatto").length, 0);
               return (
@@ -1630,15 +1622,8 @@ function DomiciliInner() {
                         );
                       })}
                     </div>
-                    {/* Corpo 7→20 */}
-                    <div ref={dwGridRef} style={{ display: "grid", gridTemplateColumns: `${DW_GUTTER}px repeat(${nDays},1fr)`, height: (H_END - H_START) * HOUR_PX }}>
-                      <div style={{ position: "relative" }}>
-                        {Array.from({ length: H_END - H_START }, (_, i) => (
-                          i === 0 ? null : (
-                            <span key={i} style={{ position: "absolute", top: i * HOUR_PX, right: 3, transform: "translateY(-50%)", fontSize: 7.5, fontWeight: 700, color: THEME.label }}>{H_START + i}</span>
-                          )
-                        ))}
-                      </div>
+                    {/* Corpo: colonne a tutta larghezza, righe da DW_ROW_H */}
+                    <div ref={dwGridRef} style={{ display: "grid", gridTemplateColumns: `repeat(${nDays},1fr)`, height: gridH }}>
                       {dwDays.map((d, dayIdx) => {
                         const iso = localISO(d);
                         const t = iso === todayISO;
@@ -1648,8 +1633,8 @@ function DomiciliInner() {
                           <div key={iso} data-drop-day={iso}
                             style={{
                               position: "relative",
-                              borderLeft: `1px solid ${THEME.borderSoft}`,
-                              background: `repeating-linear-gradient(to bottom,${t ? "rgba(13,148,136,0.045)" : "transparent"} 0,${t ? "rgba(13,148,136,0.045)" : "transparent"} ${HOUR_PX - 1}px,${THEME.borderSoft} ${HOUR_PX - 1}px,${THEME.borderSoft} ${HOUR_PX}px)`,
+                              borderLeft: dayIdx === 0 ? "none" : `1px solid ${THEME.borderSoft}`,
+                              background: `repeating-linear-gradient(to bottom,${t ? "rgba(13,148,136,0.045)" : "transparent"} 0,${t ? "rgba(13,148,136,0.045)" : "transparent"} ${DW_ROW_H - 1}px,${THEME.borderSoft} ${DW_ROW_H - 1}px,${THEME.borderSoft} ${DW_ROW_H}px)`,
                             }}>
                             {list.map((a, i) => {
                               const p = patientById.get(a.coop_patient_id);
@@ -1667,14 +1652,14 @@ function DomiciliInner() {
                                     position: "absolute", top: DW_TOP_PX + i * DW_ROW_H + shift,
                                     height: DW_ROW_H - 2, left: 1.5, right: 1.5,
                                     border: `1.5px solid ${c}`, borderRadius: 6, background: `${c}12`,
-                                    padding: "0 3px", overflow: "hidden", textAlign: "left",
+                                    padding: "0 7px", overflow: "hidden", textAlign: "left",
                                     cursor: "pointer", display: "block",
                                     opacity: saltato ? 0.5 : 1,
                                     transition: "top .12s ease",
                                     userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
                                   } as React.CSSProperties}>
                                   <span style={{
-                                    display: "block", fontSize: 10, fontWeight: 700, lineHeight: `${DW_ROW_H - 4}px`,
+                                    display: "block", fontSize: 12, fontWeight: 700, lineHeight: `${DW_ROW_H - 4}px`,
                                     color: THEME.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
                                     textDecoration: saltato ? "line-through" : "none",
                                   }}>{displayName(`${p.cognome}`)}</span>
@@ -1690,11 +1675,6 @@ function DomiciliInner() {
                                 background: "rgba(100,116,139,0.10)", zIndex: 4, pointerEvents: "none",
                               }} />
                             )}
-                            {t && (() => {
-                              const nh = now.getHours() + now.getMinutes() / 60;
-                              if (nh < H_START || nh > H_END) return null;
-                              return <div style={{ position: "absolute", left: 0, right: 0, top: (nh - H_START) * HOUR_PX, height: 2, background: "#C0392B", zIndex: 2 }} />;
-                            })()}
                           </div>
                         );
                       })}
