@@ -838,8 +838,12 @@ function DomiciliInner() {
   const [dwDragId, setDwDragId] = useState<string | null>(null);
   const [dwOver, setDwOver] = useState<{ dayIdx: number; startMin: number } | null>(null);
   const [showSabDw, setShowSabDw] = useState(false);
-  // Mese: pannello inferiore col dettaglio del giorno toccato
+  // Mese: pannello inferiore col dettaglio del giorno toccato (mobile)
   const [monthSheetDay, setMonthSheetDay] = useState<string | null>(null);
+  // Mese desktop: di default tutti gli accessi in colonna; "Vista compatta"
+  // li limita a 3 per giorno e ogni giorno si riapre col "+N altri".
+  const [mesePiuCompatto, setMesePiuCompatto] = useState(false);
+  const [meseGiorniAperti, setMeseGiorniAperti] = useState<Set<string>>(new Set());
   // "Solo questo"    = tocca solo l'accesso che stai spostando. SEMPRE il default.
   // "Tutti i giorni"  = l'ora si propaga agli altri accessi dello stesso paziente.
   // Volutamente NON persistito: riscrive l'orario su molti giorni, quindi va
@@ -2407,29 +2411,41 @@ function DomiciliInner() {
                     <div>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8, marginBottom: 8 }}>
                         {[1, 2, 3, 4, 5, 6].map(d => (
-                          <div key={d} style={{ textAlign: "center", fontSize: 10.5, fontWeight: 800, letterSpacing: .6, color: THEME.label }}>{DOW_LABELS[d]}</div>
+                          <div key={d} style={{ textAlign: "center", fontSize: 10.5, fontWeight: 700, letterSpacing: .6, color: THEME.label }}>{DOW_LABELS[d]}</div>
                         ))}
                       </div>
                       {monthWeeks.map((week, wi) => (
-                        <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8, marginBottom: 8 }}>
+                        <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8, marginBottom: 8, alignItems: "stretch" }}>
                           {week.map(d => {
                             const iso = localISO(d);
                             const inMonth = d.getMonth() === anchor.getMonth();
                             const isToday = iso === todayISO;
                             const list = accByDay.get(iso) || [];
-                            const shown = list.slice(0, 3);
+                            // Espansa di default. In modalità compatta mostra 3 righe,
+                            // salvo i giorni che hai aperto singolarmente col "+N altri".
+                            const compact = mesePiuCompatto && !meseGiorniAperti.has(iso);
+                            const shown = compact ? list.slice(0, 3) : list;
                             return (
-                              <div
-                                key={iso}
-                                onClick={() => { setAnchor(d); setCalView("giorno"); }}
+                              <div key={iso}
                                 style={{
                                   background: isToday ? "#f0fdfa" : inMonth ? "#fff" : "#f8fafc",
                                   border: `1px solid ${THEME.borderSoft}`,
-                                  borderRadius: 11, padding: "7px 8px", minHeight: 92, cursor: "pointer",
+                                  borderRadius: 11, padding: "7px 8px", minHeight: 92,
+                                  display: "flex", flexDirection: "column",
                                 }}>
-                                <div style={{ fontSize: 12.5, fontWeight: 800, color: inMonth ? (isToday ? THEME.tealDark : THEME.text) : THEME.placeholder, marginBottom: 4 }}>
+                                {/* Il numero del giorno porta alla vista Giorno */}
+                                <button
+                                  onClick={() => { setAnchor(d); setCalView("giorno"); }}
+                                  title="Apri questo giorno"
+                                  style={{
+                                    alignSelf: "flex-start", border: "none", background: "transparent",
+                                    padding: 0, marginBottom: 4, cursor: "pointer",
+                                    fontSize: 12.5, fontWeight: 700,
+                                    color: inMonth ? (isToday ? THEME.tealDark : THEME.text) : THEME.placeholder,
+                                  }}>
                                   {d.getDate()}
-                                </div>
+                                </button>
+                                {/* Gli accessi: click sul paziente → scheda */}
                                 {shown.map(a => {
                                   const p = patientById.get(a.coop_patient_id);
                                   if (!p) return null;
@@ -2437,9 +2453,17 @@ function DomiciliInner() {
                                   const fatto = a.stato === "fatto";
                                   const saltato = a.stato === "saltato";
                                   return (
-                                    <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2, opacity: saltato ? .5 : 1 }}>
+                                    <button key={a.id}
+                                      onClick={() => setPatientModal({ open: true, patient: p, startWithPhoto: false })}
+                                      title={`${p.cognome} ${p.nome}`}
+                                      style={{
+                                        display: "flex", alignItems: "center", gap: 4, marginBottom: 2,
+                                        width: "100%", border: "none", background: "transparent",
+                                        padding: 0, textAlign: "left", cursor: "pointer",
+                                        opacity: saltato ? .5 : 1,
+                                      }}>
                                       <span style={{ width: 6, height: 6, borderRadius: "50%", background: coop?.colore || THEME.teal, flexShrink: 0 }} />
-                                      <span style={{ fontSize: 10, fontWeight: 800, color: THEME.tealDark, flexShrink: 0 }}>{a.orario ? a.orario.slice(0, 5) : ""}</span>
+                                      <span style={{ fontSize: 10, fontWeight: 700, color: "#475569", flexShrink: 0 }}>{a.orario ? a.orario.slice(0, 5) : ""}</span>
                                       <span style={{
                                         fontSize: 10.5, fontWeight: 700, color: THEME.textSoft,
                                         whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
@@ -2447,20 +2471,53 @@ function DomiciliInner() {
                                       }}>
                                         {displayName(`${p.cognome}`)}
                                       </span>
-                                      {fatto && <span style={{ fontSize: 10, color: THEME.green, fontWeight: 800 }}>✓</span>}
-                                    </div>
+                                      {fatto && <span style={{ fontSize: 10, color: THEME.green, fontWeight: 700, marginLeft: "auto" }}>✓</span>}
+                                    </button>
                                   );
                                 })}
-                                {list.length > 3 && (
-                                  <div style={{ fontSize: 10, fontWeight: 800, color: THEME.mutedLight }}>+{list.length - 3} altri</div>
+                                {/* "+N altri" espande SOLO questo giorno, restando nel mese */}
+                                {compact && list.length > 3 && (
+                                  <button
+                                    onClick={() => setMeseGiorniAperti(prev => new Set(prev).add(iso))}
+                                    style={{
+                                      alignSelf: "flex-start", border: "none", background: "transparent",
+                                      padding: 0, marginTop: 1, cursor: "pointer",
+                                      fontSize: 10, fontWeight: 700, color: "#475569", textDecoration: "underline",
+                                    }}>
+                                    +{list.length - 3} altri
+                                  </button>
+                                )}
+                                {!compact && mesePiuCompatto && list.length > 3 && (
+                                  <button
+                                    onClick={() => setMeseGiorniAperti(prev => { const n = new Set(prev); n.delete(iso); return n; })}
+                                    style={{
+                                      alignSelf: "flex-start", border: "none", background: "transparent",
+                                      padding: 0, marginTop: 1, cursor: "pointer",
+                                      fontSize: 10, fontWeight: 700, color: "#475569", textDecoration: "underline",
+                                    }}>
+                                    mostra meno
+                                  </button>
                                 )}
                               </div>
                             );
                           })}
                         </div>
                       ))}
-                      <div style={{ fontSize: 11.5, color: THEME.mutedLight, fontWeight: 600, textAlign: "center" }}>
-                        Clicca un giorno per aprire la vista giorno.
+                      {/* Comando in basso: compatta / espandi tutto */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingTop: 2 }}>
+                        <button
+                          onClick={() => { setMesePiuCompatto(v => !v); setMeseGiorniAperti(new Set()); }}
+                          style={{
+                            border: `1px solid ${THEME.border}`, background: "#fff", color: THEME.text,
+                            fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 8, cursor: "pointer",
+                          }}>
+                          {mesePiuCompatto ? "Espandi tutto" : "Vista compatta"}
+                        </button>
+                        <span style={{ fontSize: 11.5, color: "#475569", fontWeight: 600 }}>
+                          {mesePiuCompatto
+                            ? "Massimo 3 per giorno — clicca “+N altri” per aprire il singolo giorno"
+                            : "Tutti gli accessi in colonna — clicca il numero del giorno per aprirlo"}
+                        </span>
                       </div>
                     </div>
                   )}
