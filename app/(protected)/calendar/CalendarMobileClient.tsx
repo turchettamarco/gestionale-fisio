@@ -2704,6 +2704,7 @@ function CalendarPageInner() {
                                 left:`calc(${(lane*100/of).toFixed(3)}% + 1.5px)`,width:`calc(${(100/of).toFixed(3)}% - 3px)`,
                                 border:`1.5px solid ${c}`,borderRadius:6,background:`${c}12`,
                                 padding:"2px 3px",overflow:"hidden",textAlign:"left",cursor:"pointer",display:"block",
+                                touchAction:"none",
                                 opacity:wkDragId===ev.id?0.22:1,
                                 transition:wkDragId?"none":"opacity 0.15s"}}>
                                 <p style={{margin:0,fontSize:7,fontWeight:800,lineHeight:1.2,color:THEME.text,opacity:0.75,whiteSpace:"nowrap",overflow:"hidden"}}>

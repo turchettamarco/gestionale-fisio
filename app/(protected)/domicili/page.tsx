@@ -188,10 +188,22 @@ export default function DomiciliPage() {
   );
 }
 
-/* ─── Griglia settimana mobile (stessa resa del calendario pazienti) ─── */
-const DW_GUTTER   = 0;    // niente colonna orari: le colonne usano tutta la larghezza
-const DW_ROW_H    = 40;   // altezza di un accesso: le card stanno a filo, senza buchi
-const DW_TOP_PX   = 0;    // le card partono dal bordo alto della colonna
+/* ─── Griglia settimana mobile: identica all'agenda del calendario ─── */
+const DW_HOUR_PX  = 44;   // altezza di 1 ora
+const DW_H_START  = 7;    // prima ora visibile
+const DW_H_END    = 20;   // ultima ora visibile
+const DW_GUTTER   = 24;   // colonna orari a sinistra
+const DW_SNAP_MIN = 30;   // snap del drag
+const DW_SLOT_MIN = 30;   // durata visiva di un accesso
+const DW_BASE_MIN = (8 - DW_H_START) * 60; // 08:00: da qui partono gli accessi senza orario
+
+function hhmmToMin(v: string): number {
+  const [h, m] = v.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+function minToHHMM(total: number): string {
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
 
 function DomiciliInner() {
   const isMobile = useIsMobile();
@@ -821,33 +833,92 @@ function DomiciliInner() {
     startX: number; startY: number;
     activated: boolean; viaTouch: boolean;
     cardEl: HTMLElement | null; timer: any;
-    dayIdx: number | null; idx: number | null;
+    dayIdx: number | null; startMin: number | null;
   } | null>(null);
   const [dwDragId, setDwDragId] = useState<string | null>(null);
-  const [dwOver, setDwOver] = useState<{ dayIdx: number; idx: number } | null>(null);
+  const [dwOver, setDwOver] = useState<{ dayIdx: number; startMin: number } | null>(null);
   const [showSabDw, setShowSabDw] = useState(false);
 
   // Sabato attivabile/disattivabile come nel calendario
   const dwDays = useMemo(() => showSabDw ? weekDays : weekDays.slice(0, 5), [weekDays, showSabDw]);
 
-  // Indice di inserimento nella colonna a partire dalla posizione verticale
-  const dwResolve = useCallback((x: number, topY: number, count: number) => {
+  // Posizione verticale (minuti da DW_H_START) di ogni accesso del giorno.
+  // Chi ha un orario sta al suo orario; chi non ce l'ha prende il primo slot
+  // da 30' libero dalle 08:00 in poi, seguendo la scaletta. Mai sovrapposti.
+  const layoutDay = useCallback((list: CoopAccess[]) => {
+    const maxSlot = ((DW_H_END - DW_H_START) * 60) / DW_SLOT_MIN;
+    const res = new Map<string, number>();
+    const taken = new Set<number>();
+    list.forEach(a => {
+      if (!a.orario) return;
+      const min = Math.max(0, Math.min((DW_H_END - DW_H_START) * 60 - DW_SLOT_MIN,
+        hhmmToMin(a.orario) - DW_H_START * 60));
+      const slot = Math.round(min / DW_SLOT_MIN);
+      res.set(a.id, slot * DW_SLOT_MIN);
+      taken.add(slot);
+    });
+    let slot = DW_BASE_MIN / DW_SLOT_MIN;
+    list.forEach(a => {
+      if (a.orario) return;
+      while (taken.has(slot) && slot < maxSlot - 1) slot++;
+      res.set(a.id, slot * DW_SLOT_MIN);
+      taken.add(slot);
+      slot++;
+    });
+    return res;
+  }, []);
+
+  // Coordinate schermo → { colonna giorno, minuti dall'inizio griglia }
+  const dwResolve = useCallback((x: number, topY: number) => {
     const grid = dwGridRef.current; if (!grid) return null;
     const r = grid.getBoundingClientRect();
     const nDays = showSabDw ? 6 : 5;
     const colW = (r.width - DW_GUTTER) / nDays;
     if (colW <= 0) return null;
     const dayIdx = Math.max(0, Math.min(nDays - 1, Math.floor((x - r.left - DW_GUTTER) / colW)));
-    const rel = topY - r.top - DW_TOP_PX;
-    const idx = Math.max(0, Math.min(count, Math.round(rel / DW_ROW_H)));
-    return { dayIdx, idx };
+    const rawMin = ((topY - r.top) / DW_HOUR_PX) * 60;
+    const maxMin = (DW_H_END - DW_H_START) * 60 - DW_SLOT_MIN;
+    const startMin = Math.max(0, Math.min(maxMin, Math.round(rawMin / DW_SNAP_MIN) * DW_SNAP_MIN));
+    return { dayIdx, startMin };
   }, [showSabDw]);
 
-  const dwPaintBadge = (ghostLeft: number, ghostTop: number, dayIdx: number, idx: number) => {
+  // Sposta un accesso: giorno + orario dello slot, poi riallinea la scaletta
+  const moveAccessToSlot = async (accessId: string, newDayISO: string, startMin: number) => {
+    const a = rangeAccesses.find(x => x.id === accessId);
+    if (!a) return;
+    const tot = DW_H_START * 60 + startMin;
+    const orario = minToHHMM(tot);
+    const fromISO = a.data;
+    if (fromISO === newDayISO && (a.orario || "").slice(0, 5) === orario) return;
+
+    setRangeAccesses(prev => prev.map(x => x.id === accessId ? { ...x, data: newDayISO, orario } : x));
+    if (fromISO !== newDayISO) {
+      patchLite(a.coop_patient_id, fromISO, null);
+      patchLite(a.coop_patient_id, newDayISO, a.stato);
+    }
+    const { error } = await supabase.from("coop_accesses")
+      .update({ data: newDayISO, orario }).eq("id", accessId);
+    if (error) {
+      if ((error as any).code === "23505") notify.warning("Questo paziente ha già un accesso in quel giorno");
+      else notify.error("Errore spostamento");
+      refreshAll();
+      return;
+    }
+    const ordered = [
+      ...(accByDay.get(newDayISO) || []).filter(x => x.id !== accessId)
+        .map(x => ({ id: x.id, min: x.orario ? hhmmToMin(x.orario) : 9999 })),
+      { id: accessId, min: tot },
+    ].sort((p2, q2) => p2.min - q2.min).map(x => x.id);
+    await Promise.all(ordered.map((id, i) =>
+      supabase.from("coop_accesses").update({ ordine: i }).eq("id", id)));
+    notify.success("Accesso spostato");
+  };
+
+  const dwPaintBadge = (ghostLeft: number, ghostTop: number, dayIdx: number, startMin: number) => {
     const b = dragBadgeRef.current; if (!b) return;
     const d = dwDays[dayIdx];
     const dow = d ? DOW_LABELS[(d.getDay() === 0 ? 7 : d.getDay())] || "" : "";
-    const text = `${dow} ${d ? d.getDate() : ""} · ${idx + 1}ª`;
+    const text = `${dow} ${d ? d.getDate() : ""} ${minToHHMM(DW_H_START * 60 + startMin)}`;
     if (b.textContent !== text) b.textContent = text;
     b.style.left = `${Math.max(6, Math.min(ghostLeft, window.innerWidth - 110))}px`;
     b.style.top = `${ghostTop > 42 ? ghostTop - 30 : ghostTop + 8}px`;
@@ -900,9 +971,8 @@ function DomiciliInner() {
     } else {
       document.body.style.userSelect = "none";
     }
-    const cnt0 = (accByDay.get(st.fromISO) || []).length;
-    const res = dwResolve(st.startX, st.startY - grabOffsetRef.current.dy, cnt0);
-    if (res) { st.dayIdx = res.dayIdx; st.idx = res.idx; setDwOver(res); dwPaintBadge(rect.left, st.startY - grabOffsetRef.current.dy, res.dayIdx, res.idx); }
+    const res = dwResolve(st.startX, st.startY - grabOffsetRef.current.dy);
+    if (res) { st.dayIdx = res.dayIdx; st.startMin = res.startMin; setDwOver(res); dwPaintBadge(rect.left, st.startY - grabOffsetRef.current.dy, res.dayIdx, res.startMin); }
   };
 
   const dwMoveTo = (x: number, y: number) => {
@@ -912,15 +982,12 @@ function DomiciliInner() {
     const gTop = y - grabOffsetRef.current.dy;
     const g = ghostElRef.current;
     if (g) { g.style.left = `${gLeft}px`; g.style.top = `${gTop}px`; }
-    const probe = dwResolve(x, gTop, 99);
-    const dISO = probe ? localISO(dwDays[probe.dayIdx]) : null;
-    const cnt = dISO ? (accByDay.get(dISO) || []).filter(z => z.id !== st.accessId).length : 0;
-    const res = dwResolve(x, gTop, cnt);
+    const res = dwResolve(x, gTop);
     if (res) {
-      dwPaintBadge(gLeft, gTop, res.dayIdx, res.idx);
-      if (res.dayIdx !== st.dayIdx || res.idx !== st.idx) {
+      dwPaintBadge(gLeft, gTop, res.dayIdx, res.startMin);
+      if (res.dayIdx !== st.dayIdx || res.startMin !== st.startMin) {
         const dayChanged = res.dayIdx !== st.dayIdx;
-        st.dayIdx = res.dayIdx; st.idx = res.idx;
+        st.dayIdx = res.dayIdx; st.startMin = res.startMin;
         setDwOver(res);
         if (dayChanged) { try { (navigator as any).vibrate?.(8); } catch {} }
       }
@@ -953,19 +1020,10 @@ function DomiciliInner() {
     if (!st?.activated) return;
     suppressClickRef.current = true;
     setTimeout(() => { suppressClickRef.current = false; }, 420);
-    if (!commit || st.dayIdx === null || st.idx === null) return;
+    if (!commit || st.dayIdx === null || st.startMin === null) return;
     const targetISO = localISO(dwDays[st.dayIdx]);
-    if (targetISO === st.fromISO) {
-      const ids = (accByDay.get(targetISO) || []).map(x => x.id).filter(id => id !== st.accessId);
-      const cur = (accByDay.get(targetISO) || []).map(x => x.id);
-      ids.splice(Math.min(st.idx, ids.length), 0, st.accessId);
-      if (cur.join("|") === ids.join("|")) return;
-      try { (navigator as any).vibrate?.(24); } catch {}
-      reorderInDay(targetISO, ids);
-      return;
-    }
     try { (navigator as any).vibrate?.(24); } catch {}
-    moveAccessToPosition(st.accessId, targetISO, st.idx);
+    moveAccessToSlot(st.accessId, targetISO, st.startMin);
   };
 
   const dwDragHandlers = (a: CoopAccess) => ({
@@ -975,7 +1033,7 @@ function DomiciliInner() {
         accessId: a.id, fromISO: a.data,
         startX: t.clientX, startY: t.clientY,
         activated: false, viaTouch: true, cardEl: e.currentTarget as HTMLElement,
-        dayIdx: null, idx: null, timer: setTimeout(dwActivate, 260),
+        dayIdx: null, startMin: null, timer: setTimeout(dwActivate, 260),
       };
     },
     onTouchMove: (e: React.TouchEvent) => {
@@ -998,7 +1056,7 @@ function DomiciliInner() {
         accessId: a.id, fromISO: a.data,
         startX: e.clientX, startY: e.clientY,
         activated: false, viaTouch: false, cardEl: e.currentTarget as HTMLElement,
-        dayIdx: null, idx: null, timer: null,
+        dayIdx: null, startMin: null, timer: null,
       };
       try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
     },
@@ -1596,14 +1654,14 @@ function DomiciliInner() {
 
             {/* ── SETTIMANA: elenco per giorno ── */}
             {calView === "settimana" && (() => {
+              const HOUR_PX = DW_HOUR_PX, H_START = DW_H_START, H_END = DW_H_END;
               const nDays = showSabDw ? 6 : 5;
-              const maxRows = dwDays.reduce((m, d) => Math.max(m, (accByDay.get(localISO(d)) || []).length), 0);
-              const gridH = Math.max(6, maxRows + 1) * DW_ROW_H;
+              const now = new Date();
               const totCount = dwDays.reduce((s, d) => s + (accByDay.get(localISO(d)) || []).length, 0);
               const doneCount = dwDays.reduce((s, d) => s + (accByDay.get(localISO(d)) || []).filter(a => a.stato === "fatto").length, 0);
               return (
                 <div style={{ padding: "0 16px" }}>
-                  <div style={{ background: "#fff", border: `1px solid ${THEME.borderSoft}`, borderRadius: 12, overflow: "hidden", marginBottom: 10 }}>
+                  <div style={{ background: "#fff", border: `1px solid ${THEME.borderSoft}`, borderRadius: 14, overflow: "hidden", marginBottom: 10 }}>
                     {/* Intestazioni giorno: tap → apre il Giorno */}
                     <div style={{ display: "grid", gridTemplateColumns: `${DW_GUTTER}px repeat(${nDays},1fr)`, borderBottom: `1px solid ${THEME.borderSoft}` }}>
                       <div />
@@ -1622,65 +1680,71 @@ function DomiciliInner() {
                         );
                       })}
                     </div>
-                    {/* Corpo: colonne a tutta larghezza, righe da DW_ROW_H */}
-                    <div ref={dwGridRef} style={{ display: "grid", gridTemplateColumns: `repeat(${nDays},1fr)`, height: gridH }}>
+                    {/* Corpo 7→20, come l'agenda */}
+                    <div ref={dwGridRef} style={{ display: "grid", gridTemplateColumns: `${DW_GUTTER}px repeat(${nDays},1fr)`, height: (H_END - H_START) * HOUR_PX }}>
+                      <div style={{ position: "relative" }}>
+                        {Array.from({ length: H_END - H_START }, (_, i) => (
+                          i === 0 ? null : (
+                            <span key={i} style={{ position: "absolute", top: i * HOUR_PX, right: 3, transform: "translateY(-50%)", fontSize: 7.5, fontWeight: 700, color: THEME.label }}>{H_START + i}</span>
+                          )
+                        ))}
+                      </div>
                       {dwDays.map((d, dayIdx) => {
                         const iso = localISO(d);
                         const t = iso === todayISO;
-                        const list = (accByDay.get(iso) || []).filter(a => a.id !== dwDragId);
+                        const list = accByDay.get(iso) || [];
+                        const pos = layoutDay(list);
                         const isTarget = dwOver?.dayIdx === dayIdx;
                         return (
                           <div key={iso} data-drop-day={iso}
                             style={{
                               position: "relative",
-                              borderLeft: dayIdx === 0 ? "none" : `1px solid ${THEME.borderSoft}`,
-                              background: `repeating-linear-gradient(to bottom,${t ? "rgba(13,148,136,0.045)" : "transparent"} 0,${t ? "rgba(13,148,136,0.045)" : "transparent"} ${DW_ROW_H - 1}px,${THEME.borderSoft} ${DW_ROW_H - 1}px,${THEME.borderSoft} ${DW_ROW_H}px)`,
+                              borderLeft: `1px solid ${THEME.borderSoft}`,
+                              background: `repeating-linear-gradient(to bottom,${isTarget ? "rgba(100,116,139,0.08)" : t ? "rgba(13,148,136,0.045)" : "transparent"} 0,${isTarget ? "rgba(100,116,139,0.08)" : t ? "rgba(13,148,136,0.045)" : "transparent"} ${HOUR_PX - 1}px,${THEME.borderSoft} ${HOUR_PX - 1}px,${THEME.borderSoft} ${HOUR_PX}px)`,
                             }}>
-                            {list.map((a, i) => {
+                            {list.map(a => {
                               const p = patientById.get(a.coop_patient_id);
                               if (!p) return null;
                               const coop = coopById.get(p.cooperative_id);
                               const c = coop?.colore || THEME.teal;
                               const saltato = a.stato === "saltato";
-                              const shift = isTarget && dwOver && i >= dwOver.idx ? DW_ROW_H : 0;
-                              // il cognome deve entrare INTERO: va a capo su 2 righe
-                              // e il corpo si riduce quanto serve
+                              const top = ((pos.get(a.id) ?? 0) / 60) * HOUR_PX;
+                              const height = Math.max(18, (DW_SLOT_MIN / 60) * HOUR_PX - 2);
                               const cognome = displayName(`${p.cognome}`);
-                              const fs = cognome.length <= 9 ? 12 : cognome.length <= 13 ? 11 : cognome.length <= 18 ? 10 : 9;
                               return (
                                 <button key={a.id}
                                   data-access-card={a.id} data-access-day={a.data}
                                   {...dwDragHandlers(a)}
                                   onClick={e => { e.stopPropagation(); if (suppressClickRef.current) return; setPatientModal({ open: true, patient: p, startWithPhoto: false }); }}
                                   style={{
-                                    position: "absolute", top: DW_TOP_PX + i * DW_ROW_H + shift,
-                                    height: DW_ROW_H - 2, left: 1.5, right: 1.5,
+                                    position: "absolute", top, height, left: 1.5, right: 1.5,
                                     border: `1.5px solid ${c}`, borderRadius: 6, background: `${c}12`,
-                                    padding: "0 5px", overflow: "hidden", textAlign: "left",
-                                    cursor: "pointer", display: "flex", alignItems: "center",
-                                    opacity: saltato ? 0.5 : 1,
-                                    transition: "top .12s ease",
+                                    padding: "1px 3px", overflow: "hidden", textAlign: "left",
+                                    cursor: "pointer", display: "block", touchAction: "none",
+                                    opacity: dwDragId === a.id ? 0.22 : saltato ? 0.5 : 1,
                                     userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
                                   } as React.CSSProperties}>
-                                  <span style={{
-                                    display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
-                                    fontSize: fs, fontWeight: 700, lineHeight: 1.12,
-                                    color: THEME.text, overflow: "hidden",
-                                    whiteSpace: "normal", overflowWrap: "anywhere", hyphens: "auto",
-                                    textDecoration: saltato ? "line-through" : "none",
-                                  } as React.CSSProperties}>{cognome}</span>
+                                  <p style={{
+                                    margin: 0, fontSize: 7, fontWeight: 700, lineHeight: 1.2,
+                                    color: THEME.text, opacity: .75, whiteSpace: "nowrap", overflow: "hidden",
+                                  }}>{a.orario ? a.orario.slice(0, 5) : ""} {cognome}</p>
                                 </button>
                               );
                             })}
                             {isTarget && dwOver && (
                               <div style={{
-                                position: "absolute", left: 1.5, right: 1.5,
-                                top: DW_TOP_PX + dwOver.idx * DW_ROW_H,
-                                height: DW_ROW_H - 2,
+                                position: "absolute", left: 2, right: 2,
+                                top: (dwOver.startMin / 60) * HOUR_PX,
+                                height: Math.max(18, (DW_SLOT_MIN / 60) * HOUR_PX - 2),
                                 border: "1.5px dashed #94a3b8", borderRadius: 6,
                                 background: "rgba(100,116,139,0.10)", zIndex: 4, pointerEvents: "none",
                               }} />
                             )}
+                            {t && (() => {
+                              const nh = now.getHours() + now.getMinutes() / 60;
+                              if (nh < H_START || nh > H_END) return null;
+                              return <div style={{ position: "absolute", left: 0, right: 0, top: (nh - H_START) * HOUR_PX, height: 2, background: "#C0392B", zIndex: 2 }} />;
+                            })()}
                           </div>
                         );
                       })}
