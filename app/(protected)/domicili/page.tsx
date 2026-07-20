@@ -40,7 +40,7 @@ import PaiPatientModal from "./components/PaiPatientModal";
 import ReportSettimanale from "./components/ReportSettimanale";
 import {
   Cooperative, CoopPatient, CoopAccess, CounterMode, PatientCounters,
-  COOP_PRESETS, COOP_COLOR_CHOICES, DOW_LABELS,
+  COOP_PRESETS, COOP_COLOR_CHOICES, DOW_LABELS, DOW_LABELS_FULL,
   localISO, parseISODate, addDays, mondayOf, fmtShort, fmtIT, fmtWeekRange,
   fmtDayLong, fmtMonthYear, normTime, daysUntil, computeCounters, ageFrom,
   generateAccessDates,
@@ -838,20 +838,18 @@ function DomiciliInner() {
   const [dwDragId, setDwDragId] = useState<string | null>(null);
   const [dwOver, setDwOver] = useState<{ dayIdx: number; startMin: number } | null>(null);
   const [showSabDw, setShowSabDw] = useState(false);
-  // "Solo questo"   = tocca solo l'accesso che stai spostando (default).
-  // "Tutti i giorni" = l'ora si propaga agli altri accessi dello stesso paziente.
+  // Mese: pannello inferiore col dettaglio del giorno toccato
+  const [monthSheetDay, setMonthSheetDay] = useState<string | null>(null);
+  // "Solo questo"    = tocca solo l'accesso che stai spostando. SEMPRE il default.
+  // "Tutti i giorni"  = l'ora si propaga agli altri accessi dello stesso paziente.
+  // Volutamente NON persistito: riscrive l'orario su molti giorni, quindi va
+  // riattivato consapevolmente ad ogni sessione invece di restare acceso.
   const [propagaOrario, setPropagaOrario] = useState(false);
   useEffect(() => {
-    try {
-      const v = localStorage.getItem("domicili_propaga_orario");
-      if (v !== null) setPropagaOrario(v === "1");
-    } catch {}
+    // ripulisce la vecchia preferenza salvata, che teneva acceso "Tutti i giorni"
+    try { localStorage.removeItem("domicili_propaga_orario"); } catch {}
   }, []);
-  const togglePropaga = () => setPropagaOrario(v => {
-    const n = !v;
-    try { localStorage.setItem("domicili_propaga_orario", n ? "1" : "0"); } catch {}
-    return n;
-  });
+  const togglePropaga = () => setPropagaOrario(v => !v);
 
   // Sabato attivabile/disattivabile come nel calendario
   const dwDays = useMemo(() => showSabDw ? weekDays : weekDays.slice(0, 5), [weekDays, showSabDw]);
@@ -1866,40 +1864,90 @@ function DomiciliInner() {
               );
             })()}
 
-            {/* ── MESE: mini griglia ── */}
+            {/* ── MESE: come il mese del calendario ── */}
             {calView === "mese" && (
-              <div style={{ padding: "0 16px" }}>
-                <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${THEME.borderSoft}`, padding: 10 }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 4, marginBottom: 6 }}>
-                    {[1, 2, 3, 4, 5, 6].map(d => (
-                      <div key={d} style={{ textAlign: "center", fontSize: 9.5, fontWeight: 800, letterSpacing: .5, color: THEME.label }}>{DOW_LABELS[d]}</div>
-                    ))}
-                  </div>
-                  {monthWeeks.map((week, wi) => (
-                    <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 4, marginBottom: 4 }}>
-                      {week.map(d => {
-                        const iso = localISO(d);
-                        const inMonth = d.getMonth() === anchor.getMonth();
-                        const count = (accByDay.get(iso) || []).length;
-                        const isToday = iso === todayISO;
-                        return (
-                          <button key={iso} onClick={() => { setAnchor(d); setCalView("giorno"); }} style={{
-                            border: `1px solid ${THEME.borderSoft}`,
-                            background: isToday ? "#f0fdfa" : "#fff",
-                            borderRadius: 9, padding: "7px 0 6px", cursor: "pointer",
-                          }}>
-                            <div style={{ fontSize: 12.5, fontWeight: 800, color: inMonth ? (isToday ? THEME.tealDark : THEME.text) : THEME.placeholder }}>{d.getDate()}</div>
-                            <div style={{ fontSize: 9.5, fontWeight: 800, marginTop: 2, color: count > 0 ? THEME.tealDark : "transparent" }}>
-                              {count > 0 ? count : "0"}
-                            </div>
-                          </button>
-                        );
-                      })}
+              <div style={{
+                background: "#fff", marginBottom: 10,
+                borderTop: `1px solid ${THEME.borderSoft}`, borderBottom: `1px solid ${THEME.borderSoft}`,
+              }}>
+                {/* Intestazioni Lun–Sab */}
+                <div style={{
+                  display: "grid", gridTemplateColumns: `repeat(${showSabDw ? 6 : 5},1fr)`,
+                  borderBottom: `1px solid ${THEME.borderSoft}`, background: THEME.panelSoft,
+                }}>
+                  {(showSabDw ? [1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5]).map(d => (
+                    <div key={d} style={{ textAlign: "center", padding: "7px 0", fontSize: 9, fontWeight: 700, color: THEME.label }}>
+                      {DOW_LABELS[d]}
                     </div>
                   ))}
                 </div>
-                <div style={{ fontSize: 11.5, color: THEME.mutedLight, fontWeight: 600, marginTop: 8, textAlign: "center" }}>
-                  Tocca un giorno per aprire la vista giorno.
+                {/* Celle */}
+                <div style={{ display: "grid", gridTemplateColumns: `repeat(${showSabDw ? 6 : 5},1fr)` }}>
+                  {monthWeeks.map((week, wi) => (
+                    (showSabDw ? week : week.slice(0, 5)).map((d, di) => {
+                      const iso = localISO(d);
+                      const inMonth = d.getMonth() === anchor.getMonth();
+                      const isToday = iso === todayISO;
+                      const cols = showSabDw ? 6 : 5;
+                      const list = accByDay.get(iso) || [];
+                      const chiuso = closedDatesSet.has(iso);
+                      return (
+                        <div key={`${wi}-${iso}`}
+                          onClick={() => setMonthSheetDay(iso)}
+                          style={{
+                            minHeight: 60, padding: "4px 3px", cursor: "pointer",
+                            borderRight: di < cols - 1 ? `1px solid ${THEME.borderSoft}` : "none",
+                            borderBottom: `1px solid ${THEME.borderSoft}`,
+                            background: chiuso ? "#fef2f2" : isToday ? "rgba(13,148,136,0.05)" : "transparent",
+                            opacity: inMonth ? 1 : 0.45,
+                          }}>
+                          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", marginBottom: 3 }}>
+                            <span style={{
+                              fontSize: 11, fontWeight: 700,
+                              color: isToday ? "#fff" : THEME.text,
+                              ...(isToday ? {
+                                background: THEME.teal, borderRadius: "50%", width: 18, height: 18,
+                                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                              } : {}),
+                            }}>{d.getDate()}</span>
+                          </div>
+                          {list.length > 0 && (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                              {list.slice(0, 3).map(a => {
+                                const p = patientById.get(a.coop_patient_id);
+                                if (!p) return null;
+                                const coop = coopById.get(p.cooperative_id);
+                                const c = coop?.colore || THEME.teal;
+                                return (
+                                  <div key={a.id} style={{
+                                    fontSize: 8, fontWeight: 700, lineHeight: 1.3,
+                                    color: THEME.text, background: `${c}1f`,
+                                    borderRadius: 3, padding: "1px 3px",
+                                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                    textDecoration: a.stato === "saltato" ? "line-through" : "none",
+                                  }}>{displayName(`${p.cognome}`)}</div>
+                                );
+                              })}
+                              {list.length > 3 && (
+                                <div style={{ fontSize: 8, fontWeight: 700, color: "#475569", paddingLeft: 2 }}>
+                                  +{list.length - 3}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  ))}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 12px" }}>
+                  <button onClick={() => setShowSabDw(v => !v)} style={{
+                    border: `1px solid ${THEME.border}`,
+                    background: showSabDw ? "#f1f5f9" : "#fff",
+                    color: showSabDw ? THEME.text : "#475569",
+                    fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 99, cursor: "pointer",
+                  }}>{showSabDw ? "Sab ✓" : "Sab"}</button>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "#475569" }}>tocca un giorno per vederlo</span>
                 </div>
               </div>
             )}
@@ -1954,6 +2002,89 @@ function DomiciliInner() {
             onMessage={() => { setDocSheet(false); setMsgOpen(true); }}
           />
         )}
+
+        {/* Mese: dettaglio del giorno toccato */}
+        {monthSheetDay && (() => {
+          const [yy, mm, dd] = monthSheetDay.split("-").map(Number);
+          const d = new Date(yy, mm - 1, dd, 12);
+          const list = accByDay.get(monthSheetDay) || [];
+          return (
+            <>
+              <div onClick={() => setMonthSheetDay(null)} style={{
+                position: "fixed", inset: 0, background: "rgba(15,23,42,.35)", zIndex: 900,
+              }} />
+              <div style={{
+                position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 901,
+                background: "#fff", borderRadius: "16px 16px 0 0",
+                maxHeight: "70vh", overflowY: "auto",
+                boxShadow: "0 -8px 30px rgba(15,23,42,.22)",
+                paddingBottom: 18,
+              }}>
+                <div style={{ display: "flex", justifyContent: "center", padding: "8px 0 4px" }}>
+                  <span style={{ width: 36, height: 4, borderRadius: 99, background: THEME.border }} />
+                </div>
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 10, padding: "6px 16px 10px",
+                  borderBottom: `1px solid ${THEME.borderSoft}`,
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: THEME.text }}>
+                      {DOW_LABELS_FULL[d.getDay() === 0 ? 7 : d.getDay()]} {d.getDate()}
+                    </p>
+                    <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: "#475569" }}>
+                      {list.length > 0 ? `${list.length} accessi` : "Nessun accesso"}
+                    </p>
+                  </div>
+                  <button onClick={() => { setAnchor(d); setCalView("giorno"); setMonthSheetDay(null); }} style={{
+                    border: `1px solid ${THEME.border}`, background: "#fff", color: THEME.text,
+                    fontSize: 12, fontWeight: 700, padding: "7px 12px", borderRadius: 9, cursor: "pointer",
+                  }}>Apri giorno</button>
+                </div>
+                {list.map(a => {
+                  const p = patientById.get(a.coop_patient_id);
+                  if (!p) return null;
+                  const coop = coopById.get(p.cooperative_id);
+                  const fatto = a.stato === "fatto";
+                  const saltato = a.stato === "saltato";
+                  return (
+                    <div key={a.id}
+                      onClick={() => { setMonthSheetDay(null); setPatientModal({ open: true, patient: p, startWithPhoto: false }); }}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 9,
+                        padding: "10px 16px", borderBottom: `1px solid ${THEME.borderSoft}`,
+                        cursor: "pointer", opacity: saltato ? .55 : 1,
+                      }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: coop?.colore || THEME.teal, flexShrink: 0 }} />
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: "#475569", width: 42, flexShrink: 0 }}>{a.orario ? a.orario.slice(0, 5) : "—"}</span>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{
+                          display: "block", fontSize: 13.5, fontWeight: 700, color: THEME.text,
+                          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                          textDecoration: saltato ? "line-through" : "none",
+                        }}>{displayName(`${p.cognome} ${p.nome}`)}</span>
+                        {p.citta && <span style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#475569" }}>{p.citta}</span>}
+                      </span>
+                      {!saltato && (
+                        <button onClick={e => { e.stopPropagation(); toggleFatto(a); }} style={{
+                          width: 34, height: 34, borderRadius: 9, cursor: "pointer", flexShrink: 0,
+                          border: `1px solid ${fatto ? "#bbf7d0" : THEME.border}`,
+                          background: fatto ? "#dcfce7" : "#fff",
+                          color: fatto ? THEME.green : "#475569",
+                          fontSize: 15, fontWeight: 700,
+                        }}>✓</button>
+                      )}
+                    </div>
+                  );
+                })}
+                {list.length === 0 && (
+                  <div style={{ padding: "18px 16px", fontSize: 12.5, color: "#475569" }}>
+                    Nessun accesso programmato in questo giorno.
+                  </div>
+                )}
+              </div>
+            </>
+          );
+        })()}
 
         <MobileTabBar />
         {sharedModals}
