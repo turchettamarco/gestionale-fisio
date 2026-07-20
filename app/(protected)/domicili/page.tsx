@@ -194,7 +194,7 @@ const DW_H_START  = 7;    // prima ora visibile
 const DW_H_END    = 20;   // ultima ora visibile
 const DW_GUTTER   = 24;   // colonna orari a sinistra
 const DW_SNAP_MIN = 30;   // snap del drag
-const DW_SLOT_MIN = 30;   // durata visiva di un accesso
+const DW_SLOT_MIN = 60;   // durata visiva di un accesso: 1 ora piena
 const DW_BASE_MIN = (8 - DW_H_START) * 60; // 08:00: da qui partono gli accessi senza orario
 
 function hhmmToMin(v: string): number {
@@ -851,11 +851,11 @@ function DomiciliInner() {
     const taken = new Set<number>();
     list.forEach(a => {
       if (!a.orario) return;
+      // chi ha un orario resta al minuto esatto (08:45 sta alle 08:45)
       const min = Math.max(0, Math.min((DW_H_END - DW_H_START) * 60 - DW_SLOT_MIN,
         hhmmToMin(a.orario) - DW_H_START * 60));
-      const slot = Math.round(min / DW_SLOT_MIN);
-      res.set(a.id, slot * DW_SLOT_MIN);
-      taken.add(slot);
+      res.set(a.id, min);
+      taken.add(Math.floor(min / DW_SLOT_MIN));
     });
     let slot = DW_BASE_MIN / DW_SLOT_MIN;
     list.forEach(a => {
@@ -1709,7 +1709,7 @@ function DomiciliInner() {
                               const c = coop?.colore || THEME.teal;
                               const saltato = a.stato === "saltato";
                               const top = ((pos.get(a.id) ?? 0) / 60) * HOUR_PX;
-                              const height = Math.max(18, (DW_SLOT_MIN / 60) * HOUR_PX - 2);
+                              const height = (DW_SLOT_MIN / 60) * HOUR_PX - 2;
                               const cognome = displayName(`${p.cognome}`);
                               return (
                                 <button key={a.id}
@@ -1719,15 +1719,18 @@ function DomiciliInner() {
                                   style={{
                                     position: "absolute", top, height, left: 1.5, right: 1.5,
                                     border: `1.5px solid ${c}`, borderRadius: 6, background: `${c}12`,
-                                    padding: "1px 3px", overflow: "hidden", textAlign: "left",
+                                    padding: "2px 5px", overflow: "hidden", textAlign: "left",
                                     cursor: "pointer", display: "block", touchAction: "none",
                                     opacity: dwDragId === a.id ? 0.22 : saltato ? 0.5 : 1,
                                     userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
                                   } as React.CSSProperties}>
                                   <p style={{
-                                    margin: 0, fontSize: 7, fontWeight: 700, lineHeight: 1.2,
-                                    color: THEME.text, opacity: .75, whiteSpace: "nowrap", overflow: "hidden",
-                                  }}>{a.orario ? a.orario.slice(0, 5) : ""} {cognome}</p>
+                                    margin: 0, fontSize: 10, fontWeight: 700, lineHeight: 1.15,
+                                    color: THEME.text, overflow: "hidden",
+                                    display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+                                    whiteSpace: "normal", overflowWrap: "anywhere",
+                                    textDecoration: saltato ? "line-through" : "none",
+                                  } as React.CSSProperties}>{cognome}</p>
                                 </button>
                               );
                             })}
@@ -1735,7 +1738,7 @@ function DomiciliInner() {
                               <div style={{
                                 position: "absolute", left: 2, right: 2,
                                 top: (dwOver.startMin / 60) * HOUR_PX,
-                                height: Math.max(18, (DW_SLOT_MIN / 60) * HOUR_PX - 2),
+                                height: (DW_SLOT_MIN / 60) * HOUR_PX - 2,
                                 border: "1.5px dashed #94a3b8", borderRadius: 6,
                                 background: "rgba(100,116,139,0.10)", zIndex: 4, pointerEvents: "none",
                               }} />
