@@ -838,9 +838,9 @@ function DomiciliInner() {
   const [dwDragId, setDwDragId] = useState<string | null>(null);
   const [dwOver, setDwOver] = useState<{ dayIdx: number; startMin: number } | null>(null);
   const [showSabDw, setShowSabDw] = useState(false);
+  // "Solo questo"   = tocca solo l'accesso che stai spostando (default).
   // "Tutti i giorni" = l'ora si propaga agli altri accessi dello stesso paziente.
-  // "Solo questo"   = tocca solo l'accesso che stai spostando.
-  const [propagaOrario, setPropagaOrario] = useState(true);
+  const [propagaOrario, setPropagaOrario] = useState(false);
   useEffect(() => {
     try {
       const v = localStorage.getItem("domicili_propaga_orario");
