@@ -205,6 +205,33 @@ function minToHHMM(total: number): string {
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
+/* ─── Navigazione e chiamate ─────────────────────────────────────────────── */
+function addrOf(p: { residenza: string | null; citta: string | null } | undefined): string | null {
+  if (!p) return null;
+  const a = [p.residenza, p.citta].filter(Boolean).join(", ").trim();
+  return a || null;
+}
+function mapsSearchUrl(p: { residenza: string | null; citta: string | null } | undefined): string | null {
+  const a = addrOf(p);
+  return a ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(a)}` : null;
+}
+function telHref(recapiti: string | null | undefined): string | null {
+  if (!recapiti) return null;
+  const m = recapiti.match(/\+?\d[\d\s./-]{5,}\d/);
+  return m ? `tel:${m[0].replace(/[^\d+]/g, "")}` : null;
+}
+/** URL Google Maps con il giro completo del giorno (max 10 tappe, limite di Maps). */
+function giroMapsUrl(addrs: string[]): { url: string; tagliate: number } | null {
+  const stops = addrs.filter(Boolean);
+  if (!stops.length) return null;
+  const usable = stops.slice(0, 10);
+  const dest = usable[usable.length - 1];
+  const way = usable.slice(0, -1);
+  const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}` +
+    (way.length ? `&waypoints=${way.map(encodeURIComponent).join("|")}` : "") + `&travelmode=driving`;
+  return { url, tagliate: stops.length - usable.length };
+}
+
 function DomiciliInner() {
   const isMobile = useIsMobile();
   const { studio } = useCurrentStudio();
@@ -550,27 +577,101 @@ function DomiciliInner() {
     else { await addChiusura(dayISO, dayISO, "Chiuso"); }
   };
 
-  const toggleFatto = async (a: CoopAccess) => {
-    const toFatto = a.stato !== "fatto";
-    const patch = toFatto
-      ? { stato: "fatto" as const, fatto_alle: new Date().toISOString() }
-      : { stato: "pianificato" as const, fatto_alle: null };
+  // ── Spunte offline-safe ──────────────────────────────────────────────────
+  // Dentro casa di un paziente il segnale spesso non c'è: la spunta viene
+  // salvata subito in locale, messa in coda, e sincronizzata al ritorno
+  // della rete. Ultima scrittura vince (una sola op in coda per accesso).
+  type PendingOp = { accessId: string; patch: { stato: "fatto" | "saltato" | "pianificato"; fatto_alle: string | null }; tries: number };
+  const PENDING_KEY = "domicili_pending_sync";
+  const [pendingCount, setPendingCount] = useState(0);
+  const flushingRef = useRef(false);
+
+  const readPending = (): PendingOp[] => {
+    try { return JSON.parse(localStorage.getItem(PENDING_KEY) || "[]"); } catch { return []; }
+  };
+  const writePending = (ops: PendingOp[]) => {
+    try { localStorage.setItem(PENDING_KEY, JSON.stringify(ops)); } catch {}
+    setPendingCount(ops.length);
+  };
+  const queuePending = (accessId: string, patch: PendingOp["patch"]) => {
+    const ops = readPending().filter(o => o.accessId !== accessId);
+    ops.push({ accessId, patch, tries: 0 });
+    writePending(ops);
+  };
+  const isNetworkError = (e: { message?: string } | null) =>
+    !!e?.message && /fetch|network|internet|connessione/i.test(e.message);
+
+  const flushPending = useCallback(async () => {
+    if (flushingRef.current) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    let ops = readPending();
+    if (!ops.length) return;
+    flushingRef.current = true;
+    try {
+      for (const op of [...ops]) {
+        const { error } = await supabase.from("coop_accesses").update(op.patch).eq("id", op.accessId);
+        if (!error) {
+          ops = ops.filter(o => o.accessId !== op.accessId);
+          writePending(ops);
+        } else if (isNetworkError(error)) {
+          break; // ancora offline: riprovo al prossimo giro
+        } else {
+          op.tries += 1;
+          if (op.tries >= 5) {
+            ops = ops.filter(o => o.accessId !== op.accessId);
+            notify.error("Una spunta non è stata sincronizzata");
+          }
+          writePending(ops);
+        }
+      }
+      if (!readPending().length) refreshAll(); // riallinea dopo il recupero
+    } finally {
+      flushingRef.current = false;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshAll]);
+
+  useEffect(() => {
+    setPendingCount(readPending().length);
+    void flushPending();
+    const onOnline = () => { void flushPending(); };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flushPending]);
+
+  const applyStatoPatch = async (a: CoopAccess, patch: PendingOp["patch"]) => {
     patchLocal(a.id, patch);
     patchLite(a.coop_patient_id, a.data, patch.stato);
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      queuePending(a.id, patch);
+      notify.warning("Offline: spunta salvata, sincronizzo appena torna la rete");
+      return;
+    }
     const { error } = await supabase.from("coop_accesses").update(patch).eq("id", a.id);
-    if (error) { notify.error("Errore salvataggio"); refreshAll(); }
+    if (!error) return;
+    if (isNetworkError(error)) {
+      queuePending(a.id, patch);
+      notify.warning("Offline: spunta salvata, sincronizzo appena torna la rete");
+    } else {
+      notify.error("Errore salvataggio");
+      refreshAll();
+    }
+  };
+
+  const toggleFatto = async (a: CoopAccess) => {
+    const toFatto = a.stato !== "fatto";
+    await applyStatoPatch(a, toFatto
+      ? { stato: "fatto", fatto_alle: new Date().toISOString() }
+      : { stato: "pianificato", fatto_alle: null });
   };
 
   const setSaltato = async (a: CoopAccess) => {
     const toSaltato = a.stato !== "saltato";
-    const patch = toSaltato
-      ? { stato: "saltato" as const, fatto_alle: null }
-      : { stato: "pianificato" as const, fatto_alle: null };
-    patchLocal(a.id, patch);
-    patchLite(a.coop_patient_id, a.data, patch.stato);
     setMenuFor(null);
-    const { error } = await supabase.from("coop_accesses").update(patch).eq("id", a.id);
-    if (error) { notify.error("Errore salvataggio"); refreshAll(); }
+    await applyStatoPatch(a, toSaltato
+      ? { stato: "saltato", fatto_alle: null }
+      : { stato: "pianificato", fatto_alle: null });
   };
 
   // ── Drag & Drop: spostamento e riordino accessi ──
@@ -894,6 +995,88 @@ function DomiciliInner() {
     const s = hhmmToMin(orario), e = s + 60;
     return (studioByDay.get(dayISO) || []).filter(x => x.from < e && x.to > s);
   }, [showStudio, studioByDay]);
+
+  // ── Giro del giorno: zone e Maps ─────────────────────────────────────────
+  // Rileva quando la scaletta "zigzaga" tra comuni (Pontecorvo → Cassino →
+  // Pontecorvo) e offre il raggruppamento per zona. Cambia SOLO l'ordine
+  // della scaletta: gli orari impostati non vengono toccati.
+  const giroInfo = useCallback((dayISO: string) => {
+    const list = accByDay.get(dayISO) || [];
+    const seq = list.map(a => (patientById.get(a.coop_patient_id)?.citta || "").trim()).filter(Boolean);
+    const compress: string[] = [];
+    seq.forEach(c => { if (compress[compress.length - 1] !== c) compress.push(c); });
+    const ritorni = Array.from(new Set(compress.filter((c, i) => compress.indexOf(c) < i)));
+    const addrs = list.map(a => addrOf(patientById.get(a.coop_patient_id))).filter((x): x is string => !!x);
+    return { list, ritorni, giro: giroMapsUrl(addrs) };
+  }, [accByDay, patientById]);
+
+  const reorderByZone = async (dayISO: string) => {
+    const list = accByDay.get(dayISO) || [];
+    if (list.length < 2) return;
+    const order: string[] = [];
+    const groups = new Map<string, CoopAccess[]>();
+    list.forEach(a => {
+      const city = (patientById.get(a.coop_patient_id)?.citta || "~senza città").trim();
+      if (!groups.has(city)) { groups.set(city, []); order.push(city); }
+      groups.get(city)!.push(a);
+    });
+    const ids = order.flatMap(city =>
+      groups.get(city)!
+        .slice()
+        .sort((x, y) => {
+          const mx = x.orario ? hhmmToMin(x.orario) : 9999;
+          const my = y.orario ? hhmmToMin(y.orario) : 9999;
+          return mx - my || (x.ordine ?? 0) - (y.ordine ?? 0);
+        })
+        .map(x => x.id));
+    const cur = list.map(x => x.id);
+    if (cur.join("|") === ids.join("|")) { notify.success("Scaletta già raggruppata per zona"); return; }
+    const pos = new Map(ids.map((id, i) => [id, i]));
+    setRangeAccesses(prev => prev.map(x => pos.has(x.id) ? { ...x, ordine: pos.get(x.id)! } : x));
+    await persistOrder(ids);
+    notify.success("Scaletta raggruppata per zona");
+  };
+
+  // ── PAI da attenzionare: scaduti con residui, esauriti, in scadenza ──────
+  const paiAlerts = useMemo(() => {
+    const today = parseISODate(todayISO);
+    const soon = addDays(today, 14);
+    const out: { p: CoopPatient; kind: "scaduto" | "esauriti" | "scadenza"; label: string }[] = [];
+    patients.forEach(p => {
+      if (p.stato !== "attivo") return;
+      if (selectedCoopId !== "all" && p.cooperative_id !== selectedCoopId) return;
+      const rim = countersByPatient.get(p.id)?.rimanenti ?? null;
+      const scad = p.data_scadenza ? parseISODate(p.data_scadenza) : null;
+      if (scad && scad < today && (rim ?? 0) > 0) out.push({ p, kind: "scaduto", label: `scaduto · ${rim} rim.` });
+      else if (rim !== null && rim <= 0) out.push({ p, kind: "esauriti", label: "accessi esauriti" });
+      else if (scad && scad <= soon && (rim ?? 0) > 0) out.push({ p, kind: "scadenza", label: `scade ${fmtShort(scad)} · ${rim} rim.` });
+    });
+    const rank = { scaduto: 0, esauriti: 1, scadenza: 2 } as const;
+    return out.sort((a, b) => rank[a.kind] - rank[b.kind]);
+  }, [patients, selectedCoopId, countersByPatient, todayISO]);
+
+  const paiAlertsPanel = paiAlerts.length === 0 ? null : (
+    <div style={{ background: "#fff", border: `1px solid ${THEME.border}`, borderRadius: 12, padding: "8px 11px" }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: .4, textTransform: "uppercase", color: "#475569" }}>
+        PAI da attenzionare ({paiAlerts.length})
+      </div>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingTop: 6, WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
+        {paiAlerts.map(({ p, kind, label }) => (
+          <button key={p.id}
+            onClick={() => setPatientModal({ open: true, patient: p, startWithPhoto: false })}
+            style={{
+              display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
+              border: `1px solid ${THEME.border}`, borderRadius: 99, background: "#fff",
+              padding: "5px 11px", cursor: "pointer",
+            }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: kind === "scadenza" ? "#f59e0b" : THEME.red, flexShrink: 0 }} />
+            <span style={{ fontSize: 11.5, fontWeight: 700, color: THEME.text, whiteSpace: "nowrap" }}>{displayName(`${p.cognome}`)}</span>
+            <span style={{ fontSize: 10.5, fontWeight: 600, color: "#475569", whiteSpace: "nowrap" }}>{label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 
   // Mese: pannello inferiore col dettaglio del giorno toccato (mobile)
   const [monthSheetDay, setMonthSheetDay] = useState<string | null>(null);
@@ -1702,8 +1885,16 @@ function DomiciliInner() {
                 <Icon name="chevronRight" size={16} color={THEME.muted} />
               </button>
             </div>
+            {paiAlertsPanel && <div style={{ padding: "0 16px 10px" }}>{paiAlertsPanel}</div>}
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 16px 12px" }}>
               <ViewSwitch value={calView} onChange={setCalView} compact />
+              {pendingCount > 0 && (
+                <button onClick={() => flushPending()} style={{
+                  border: "1px solid #fcd34d", background: "#fffbeb", color: "#92400e",
+                  fontSize: 11, fontWeight: 700, padding: "6px 10px", borderRadius: 99,
+                  cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+                }}>⇅ {pendingCount} offline</button>
+              )}
               <div style={{ flex: 1 }} />
               <button onClick={goToday} style={{ ...mBtnIcon(), width: "auto", padding: "0 14px", fontSize: 12, fontWeight: 800, color: THEME.tealDark }}>
                 Oggi
@@ -1757,6 +1948,40 @@ function DomiciliInner() {
                         }}>
                           {chiuso ? "Riapri" : "Non lavoro"}
                         </button>
+                      </div>
+                    );
+                  })()}
+                  {!loading && dayAccesses.length >= 2 && (() => {
+                    const g = giroInfo(anchorISO);
+                    if (!g.giro && g.ritorni.length === 0) return null;
+                    return (
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+                        background: "#fff", border: `1px solid ${THEME.borderSoft}`,
+                        borderRadius: 10, padding: "8px 11px",
+                      }}>
+                        {g.giro && (
+                          <a href={g.giro.url} target="_blank" rel="noopener noreferrer"
+                            onClick={() => { if (g.giro!.tagliate > 0) notify.warning(`Maps accetta 10 tappe: escluse le ultime ${g.giro!.tagliate}`); }}
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none",
+                              border: `1px solid ${THEME.border}`, borderRadius: 99, background: "#fff",
+                              padding: "6px 12px", fontSize: 12, fontWeight: 700, color: THEME.text,
+                            }}>
+                            <Icon name="pin" size={13} color={THEME.tealDark} /> Giro in Maps
+                          </a>
+                        )}
+                        {g.ritorni.length > 0 && (
+                          <>
+                            <button onClick={() => reorderByZone(anchorISO)} style={{
+                              border: `1px solid ${THEME.border}`, borderRadius: 99, background: "#fff",
+                              padding: "6px 12px", fontSize: 12, fontWeight: 700, color: THEME.text, cursor: "pointer",
+                            }}>Riordina per zona</button>
+                            <span style={{ fontSize: 10.5, fontWeight: 700, color: "#92400e" }}>
+                              ritorni su {g.ritorni.join(", ")}
+                            </span>
+                          </>
+                        )}
                       </div>
                     );
                   })()}
@@ -1828,8 +2053,19 @@ function DomiciliInner() {
                               fontSize: 13, fontWeight: 800, cursor: "pointer", background: "#fff", color: THEME.muted,
                             }}>↩ Ripristina</button>
                           )}
-                          {p.recapiti && (
-                            <a href={`tel:${p.recapiti.replace(/\s+/g, "")}`} style={{
+                          {mapsSearchUrl(p) && (
+                            <a href={mapsSearchUrl(p)!} target="_blank" rel="noopener noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              style={{
+                                width: 44, display: "flex", alignItems: "center", justifyContent: "center",
+                                border: `1px solid ${THEME.border}`, borderRadius: 10, background: "#fff",
+                                textDecoration: "none",
+                              }} title={addrOf(p) || ""}>
+                              <Icon name="pin" size={16} color={THEME.tealDark} />
+                            </a>
+                          )}
+                          {telHref(p.recapiti) && (
+                            <a href={telHref(p.recapiti)!} onClick={e => e.stopPropagation()} style={{
                               width: 44, display: "flex", alignItems: "center", justifyContent: "center",
                               border: `1px solid ${THEME.border}`, borderRadius: 10, background: "#fff",
                               textDecoration: "none",
@@ -2231,6 +2467,17 @@ function DomiciliInner() {
                         }}>{displayName(`${p.cognome} ${p.nome}`)}</span>
                         {p.citta && <span style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#475569" }}>{p.citta}</span>}
                       </span>
+                      {mapsSearchUrl(p) && (
+                        <a href={mapsSearchUrl(p)!} target="_blank" rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          style={{
+                            width: 34, height: 34, borderRadius: 9, flexShrink: 0,
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            border: `1px solid ${THEME.border}`, background: "#fff", textDecoration: "none",
+                          }} title={addrOf(p) || ""}>
+                          <Icon name="pin" size={15} color={THEME.tealDark} />
+                        </a>
+                      )}
                       {!saltato && (
                         <button onClick={e => { e.stopPropagation(); toggleFatto(a); }} style={{
                           width: 34, height: 34, borderRadius: 9, cursor: "pointer", flexShrink: 0,
@@ -2353,6 +2600,7 @@ function DomiciliInner() {
             {/* ═══ VISTA CALENDARIO ═══ */}
             {mainView === "calendario" && (
               <div>
+                {paiAlertsPanel && <div style={{ marginBottom: 12 }}>{paiAlertsPanel}</div>}
 
                 {/* ── Pannello calendario ── */}
                 <div style={{ background: THEME.panelBg, borderRadius: 16, border: `1px solid ${THEME.borderSoft}`, padding: 16 }}>
@@ -2371,6 +2619,13 @@ function DomiciliInner() {
                       Oggi
                     </button>
                     <ViewSwitch value={calView} onChange={setCalView} />
+                    {pendingCount > 0 && (
+                      <button onClick={() => flushPending()} style={{
+                        border: "1px solid #fcd34d", background: "#fffbeb", color: "#92400e",
+                        fontSize: 12, fontWeight: 700, padding: "7px 12px", borderRadius: 99,
+                        cursor: "pointer", whiteSpace: "nowrap",
+                      }}>⇅ {pendingCount} offline</button>
+                    )}
                     <button onClick={() => setShowStudio(v => !v)}
                       title="Segnala gli accessi che si accavallano con il calendario studio"
                       style={{
@@ -2407,6 +2662,36 @@ function DomiciliInner() {
                             }}>
                               {chiuso ? "Riapri questo giorno" : "Oggi non lavoro"}
                             </button>
+                          </div>
+                        );
+                      })()}
+                      {dayList.length >= 2 && (() => {
+                        const g = giroInfo(localISO(anchor));
+                        if (!g.giro && g.ritorni.length === 0) return null;
+                        return (
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            {g.giro && (
+                              <a href={g.giro.url} target="_blank" rel="noopener noreferrer"
+                                onClick={() => { if (g.giro!.tagliate > 0) notify.warning(`Maps accetta 10 tappe: escluse le ultime ${g.giro!.tagliate}`); }}
+                                style={{
+                                  display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none",
+                                  border: `1px solid ${THEME.border}`, borderRadius: 99, background: "#fff",
+                                  padding: "7px 13px", fontSize: 12.5, fontWeight: 700, color: THEME.text,
+                                }}>
+                                <Icon name="pin" size={13} color={THEME.tealDark} /> Giro in Maps
+                              </a>
+                            )}
+                            {g.ritorni.length > 0 && (
+                              <>
+                                <button onClick={() => reorderByZone(localISO(anchor))} style={{
+                                  border: `1px solid ${THEME.border}`, borderRadius: 99, background: "#fff",
+                                  padding: "7px 13px", fontSize: 12.5, fontWeight: 700, color: THEME.text, cursor: "pointer",
+                                }}>Riordina per zona</button>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: "#92400e" }}>
+                                  ritorni su {g.ritorni.join(", ")}
+                                </span>
+                              </>
+                            )}
                           </div>
                         );
                       })()}
@@ -2464,6 +2749,21 @@ function DomiciliInner() {
                             <div style={{ fontSize: 12, fontWeight: 800, color: saltato ? THEME.red : THEME.mutedLight, whiteSpace: "nowrap" }}>
                               {saltato ? "Saltato" : prog ? `${prog}${p.tot_accessi ? `/${p.tot_accessi}` : ""}` : ""}
                             </div>
+                            {mapsSearchUrl(p) && (
+                              <a href={mapsSearchUrl(p)!} target="_blank" rel="noopener noreferrer"
+                                onClick={e => e.stopPropagation()}
+                                title={addrOf(p) || ""}
+                                style={{ display: "flex", alignItems: "center", padding: "2px 3px", textDecoration: "none" }}>
+                                <Icon name="pin" size={15} color={THEME.tealDark} />
+                              </a>
+                            )}
+                            {telHref(p.recapiti) && (
+                              <a href={telHref(p.recapiti)!} onClick={e => e.stopPropagation()}
+                                title={displayPhone(p.recapiti)}
+                                style={{ display: "flex", alignItems: "center", padding: "2px 3px", textDecoration: "none" }}>
+                                <Icon name="phone" size={15} color={THEME.tealDark} />
+                              </a>
+                            )}
                             <button onClick={e => { e.stopPropagation(); setMenuFor(m => m === a.id ? null : a.id); }} style={{
                               border: "none", background: "transparent", cursor: "pointer",
                               color: THEME.label, fontSize: 17, lineHeight: 1, padding: "2px 4px",
