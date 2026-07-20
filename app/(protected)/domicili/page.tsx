@@ -1277,11 +1277,27 @@ function DomiciliInner() {
     ].sort((p2, q2) => p2.min - q2.min).map(x => x.id);
     await persistOrder(ordered);
 
-    // stesso paziente, stessa ora anche negli altri giorni
+    // stesso paziente, stessa ora anche negli altri giorni (e nel piano PAI)
     const n = await propagateOrario(a.coop_patient_id, orario, accessId);
+    if (propagaOrario) await syncPianificazioneOrario(a.coop_patient_id, orario);
     if (shifted) notify.warning(`Slot occupato: spostato alle ${orario}`);
     else if (n > 0) notify.success(`Spostato · ${orario} anche su altri ${n} giorni`);
     else notify.success("Accesso spostato");
+  };
+
+  // Punto debole chiuso: la propagazione aggiornava gli accessi ESISTENTI ma
+  // non la pianificazione (giorni_orari) del paziente, così i nuovi accessi
+  // generati in futuro nascevano con l'orario vecchio. Ora, quando propaghi
+  // con "Tutti i giorni", anche il piano prende il nuovo orario.
+  const syncPianificazioneOrario = async (patientId: string, orario: string) => {
+    const p = patients.find(x => x.id === patientId);
+    if (!p || !p.giorni_orari?.length) return;
+    if (p.giorni_orari.every(g => (g.orario || "") === orario)) return;
+    const nuovi = p.giorni_orari.map(g => ({ ...g, orario }));
+    setPatients(prev => prev.map(x => x.id === patientId ? { ...x, giorni_orari: nuovi } : x));
+    const { error } = await supabase.from("coop_patients")
+      .update({ giorni_orari: nuovi }).eq("id", patientId);
+    if (error) notify.error("Pianificazione non aggiornata");
   };
 
   const dwPaintBadge = (ghostLeft: number, ghostTop: number, dayIdx: number, startMin: number) => {
@@ -1603,6 +1619,140 @@ function DomiciliInner() {
   };
 
   // ─── Planner PDF ─────────────────────────────────────────────────────────
+
+  // ─── Consuntivo mensile per cooperativa ──────────────────────────────────
+  // Documento per la fatturazione: accessi del mese visualizzato, divisi per
+  // cooperativa, con ora effettiva della spunta e riepilogo per paziente.
+  // NOMI SEMPRE REALI (come gli export dei Report): documento fiscale,
+  // la Modalità Privacy non si applica.
+  const loadMeseRows = async () => {
+    if (!studioId) return null;
+    const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1, 12);
+    const last = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0, 12);
+    const { data, error } = await supabase.from("coop_accesses")
+      .select("id, coop_patient_id, data, orario, stato, fatto_alle, note")
+      .eq("studio_id", studioId)
+      .gte("data", localISO(first)).lte("data", localISO(last))
+      .order("data", { ascending: true }).order("ordine", { ascending: true });
+    if (error || !data) { notify.error("Errore caricamento dati"); return null; }
+    const scopeIds = new Set(scopePatients.map(p => p.id));
+    const rows = data.filter(a => scopeIds.has(a.coop_patient_id));
+    if (!rows.length) { notify.info("Nessun accesso nel mese visualizzato"); return null; }
+    // sezioni per cooperativa
+    const byCoop = new Map<string, typeof rows>();
+    rows.forEach(a => {
+      const cid = patientById.get(a.coop_patient_id)?.cooperative_id || "?";
+      const arr = byCoop.get(cid) || [];
+      arr.push(a); byCoop.set(cid, arr);
+    });
+    const sezioni = Array.from(byCoop.entries())
+      .map(([cid, list]) => ({ coop: coopById.get(cid) || null, list }))
+      .sort((x, y) => (x.coop?.nome || "").localeCompare(y.coop?.nome || ""));
+    return sezioni;
+  };
+
+  const oraEffettiva = (fatto_alle: string | null) => {
+    if (!fatto_alle) return "";
+    const d = new Date(fatto_alle);
+    return minToHHMM(d.getHours() * 60 + d.getMinutes());
+  };
+  const statoLabel = (st: string) => st === "fatto" ? "Fatto" : st === "saltato" ? "Saltato" : "Pianificato";
+
+  const openConsuntivoPdf = async () => {
+    const sezioni = await loadMeseRows();
+    if (!sezioni) return;
+    const { jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    doc.setFontSize(14);
+    doc.text(`Consuntivo accessi domiciliari — ${fmtMonthYear(anchor)}`, 10, 14);
+    doc.setFontSize(9);
+    doc.setTextColor(100);
+    doc.text(`Generato il ${fmtIT(todayISO)}`, 10, 19);
+    doc.setTextColor(0);
+    let y = 26;
+    sezioni.forEach(({ coop, list }) => {
+      const fatti = list.filter(a => a.stato === "fatto").length;
+      const saltati = list.filter(a => a.stato === "saltato").length;
+      const pian = list.length - fatti - saltati;
+      doc.setFontSize(12);
+      doc.text(`${coop?.nome || "Cooperativa"} — ${fatti} fatti · ${saltati} saltati${pian ? ` · ${pian} pianificati` : ""}`, 10, y);
+      y += 3;
+      autoTable(doc, {
+        startY: y,
+        head: [["Data", "Ora", "Paziente", "Stato", "Eseguito alle", "Note"]],
+        body: list.map(a => {
+          const p = patientById.get(a.coop_patient_id);
+          return [
+            fmtIT(a.data),
+            a.orario ? a.orario.slice(0, 5) : "—",
+            p ? `${p.cognome} ${p.nome}` : "?",
+            statoLabel(a.stato),
+            oraEffettiva(a.fatto_alle),
+            a.note || "",
+          ];
+        }),
+        styles: { fontSize: 8, cellPadding: 1.4 },
+        headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontStyle: "bold" },
+        margin: { left: 10, right: 10 },
+        theme: "grid",
+      });
+      y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 5;
+      // riepilogo per paziente (per la fattura)
+      const perPaz = new Map<string, { fatti: number; saltati: number }>();
+      list.forEach(a => {
+        const k = a.coop_patient_id;
+        const c = perPaz.get(k) || { fatti: 0, saltati: 0 };
+        if (a.stato === "fatto") c.fatti++;
+        if (a.stato === "saltato") c.saltati++;
+        perPaz.set(k, c);
+      });
+      autoTable(doc, {
+        startY: y,
+        head: [["Paziente", "Accessi fatti", "Saltati"]],
+        body: Array.from(perPaz.entries())
+          .map(([pid, c]) => {
+            const p = patientById.get(pid);
+            return [p ? `${p.cognome} ${p.nome}` : "?", String(c.fatti), String(c.saltati)];
+          })
+          .sort((x, y2) => x[0].localeCompare(y2[0])),
+        styles: { fontSize: 8, cellPadding: 1.4 },
+        headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontStyle: "bold" },
+        margin: { left: 10, right: 10 },
+        theme: "grid",
+        tableWidth: 110,
+      });
+      y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 9;
+      if (y > 260) { doc.addPage(); y = 14; }
+    });
+    const mm = `${anchor.getFullYear()}-${String(anchor.getMonth() + 1).padStart(2, "0")}`;
+    doc.save(`consuntivo-domicili-${selectedCoop ? selectedCoop.nome.toLowerCase().replace(/\s+/g, "-") : "tutte"}-${mm}.pdf`);
+  };
+
+  const openConsuntivoCsv = async () => {
+    const sezioni = await loadMeseRows();
+    if (!sezioni) return;
+    const righe: string[] = ["cooperativa;data;ora;cognome;nome;stato;eseguito_alle;note"];
+    sezioni.forEach(({ coop, list }) => {
+      list.forEach(a => {
+        const p = patientById.get(a.coop_patient_id);
+        const esc = (v: string) => `"${(v || "").replace(/"/g, '""')}"`;
+        righe.push([
+          esc(coop?.nome || ""), a.data, a.orario ? a.orario.slice(0, 5) : "",
+          esc(p?.cognome || ""), esc(p?.nome || ""), statoLabel(a.stato),
+          oraEffettiva(a.fatto_alle), esc(a.note || ""),
+        ].join(";"));
+      });
+    });
+    const mm = `${anchor.getFullYear()}-${String(anchor.getMonth() + 1).padStart(2, "0")}`;
+    const blob = new Blob(["\ufeff" + righe.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a2 = document.createElement("a");
+    a2.href = url;
+    a2.download = `consuntivo-domicili-${mm}.csv`;
+    a2.click();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  };
 
   const openPlanner = async () => {
     const from = localISO(weekStart), to = localISO(addDays(weekStart, 5));
@@ -2402,6 +2552,8 @@ function DomiciliInner() {
             onClose={() => setDocSheet(false)}
             onReport={() => { setDocSheet(false); setReportOpen(true); }}
             onPlanner={() => { setDocSheet(false); openPlanner(); }}
+            onConsuntivo={() => { setDocSheet(false); openConsuntivoPdf(); }}
+            onConsuntivoCsv={() => { setDocSheet(false); openConsuntivoCsv(); }}
             onMessage={() => { setDocSheet(false); setMsgOpen(true); }}
           />
         )}
@@ -2538,6 +2690,8 @@ function DomiciliInner() {
           </button>
           <button onClick={() => setReportOpen(true)} style={dBtn()}>Report</button>
           <button onClick={openPlanner} style={dBtn()}>Planner</button>
+          <button onClick={openConsuntivoPdf} style={dBtn()} title="PDF del mese visualizzato, per la fatturazione alle cooperative">Consuntivo</button>
+          <button onClick={openConsuntivoCsv} style={dBtn()} title="Stesso contenuto in CSV per Excel">CSV</button>
           <button onClick={() => setMsgOpen(true)} style={dBtn()}>Messaggio</button>
           <div style={{ position: "relative" }}>
             <button onClick={() => setSettingsOpen(o => !o)} style={{ ...dBtn(), padding: "10px 12px" }} title="Impostazioni sezione">
@@ -3505,8 +3659,9 @@ function EmptyCoops({ onPreset, onCustom, isMobile }: {
 }
 
 /** Foglio azioni mobile: report / planner / messaggio. */
-function MobileDocSheet({ onClose, onReport, onPlanner, onMessage }: {
-  onClose: () => void; onReport: () => void; onPlanner: () => void; onMessage: () => void;
+function MobileDocSheet({ onClose, onReport, onPlanner, onConsuntivo, onConsuntivoCsv, onMessage }: {
+  onClose: () => void; onReport: () => void; onPlanner: () => void;
+  onConsuntivo: () => void; onConsuntivoCsv: () => void; onMessage: () => void;
 }) {
   const row = (icon: string, title: string, sub: string, onClick: () => void) => (
     <button onClick={onClick} style={{
@@ -3534,6 +3689,8 @@ function MobileDocSheet({ onClose, onReport, onPlanner, onMessage }: {
         <div style={{ fontSize: 14.5, fontWeight: 800, color: THEME.text, marginBottom: 12 }}>Documenti e invii</div>
         {row("chart", "Report settimanale", "A schermo + PDF, per cooperativa o tutte", onReport)}
         {row("calendar", "Planner settimana (PDF)", "Il giro visite con orari, paesi e telefoni", onPlanner)}
+        {row("euro", "Consuntivo mese (PDF)", "Accessi del mese per cooperativa, per la fatturazione", onConsuntivo)}
+        {row("check", "Consuntivo mese (CSV)", "Stesso contenuto in formato Excel", onConsuntivoCsv)}
         {row("whatsapp", "Messaggio accessi", "Testo pronto da copiare nel gruppo della cooperativa", onMessage)}
         <button onClick={onClose} style={{
           width: "100%", border: `1px solid ${THEME.border}`, background: "#fff", borderRadius: 13,
