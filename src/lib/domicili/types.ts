@@ -286,13 +286,17 @@ export type PatientCounters = {
 };
 
 export function computeCounters(
-  patient: Pick<CoopPatient, "tot_accessi">,
+  patient: Pick<CoopPatient, "tot_accessi" | "data_attivazione">,
   accesses: { stato: string; data?: string }[],
 ): PatientCounters {
   let fatti = 0, pianificati = 0, saltati = 0, fattiMese = 0;
   const now = new Date();
   const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  // Ciclo corrente: gli accessi prima della data di attivazione appartengono
+  // a un PAI precedente (rinnovo) e non scalano il budget di quello nuovo.
+  const inizio = patient.data_attivazione || null;
   for (const a of accesses) {
+    if (inizio && a.data && a.data < inizio) continue;
     if (a.stato === "fatto") { fatti++; if (a.data && a.data.startsWith(ym)) fattiMese++; }
     else if (a.stato === "pianificato") pianificati++;
     else saltati++;

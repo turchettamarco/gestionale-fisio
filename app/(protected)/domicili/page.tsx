@@ -396,8 +396,11 @@ function DomiciliInner() {
 
   /** progressivo n° dell'accesso: chiave "pid|data" → indice tra i non saltati */
   const progressivo = useMemo(() => {
+    const inizioByPid = new Map(patients.map(p => [p.id, p.data_attivazione || null]));
     const grouped = new Map<string, AccessesLite[]>();
     allLite.forEach(a => {
+      const inizio = inizioByPid.get(a.coop_patient_id);
+      if (inizio && a.data < inizio) return; // ciclo precedente (rinnovo): non conta
       const arr = grouped.get(a.coop_patient_id) || [];
       arr.push(a);
       grouped.set(a.coop_patient_id, arr);
@@ -409,7 +412,7 @@ function DomiciliInner() {
         .forEach((a, i) => m.set(`${pid}|${a.data}`, i + 1));
     });
     return m;
-  }, [allLite]);
+  }, [allLite, patients]);
 
   /** Accessi del range visibile, nel perimetro, raggruppati per giorno ISO. */
   const accByDay = useMemo(() => {
@@ -1037,6 +1040,160 @@ function DomiciliInner() {
     notify.success("Scaletta raggruppata per zona");
   };
 
+  // ── Copia scaletta → prossima settimana ──────────────────────────────────
+  // Applica l'ORDINE del giro di questa settimana ai giorni corrispondenti
+  // della successiva. Tocca solo la scaletta: niente creazioni, spostamenti
+  // di giorno o orari. I pazienti non presenti nella sorgente vanno in coda
+  // mantenendo il loro ordine attuale.
+  const [copiaBusy, setCopiaBusy] = useState(false);
+  const copiaScalettaProssima = async () => {
+    if (!studioId || copiaBusy) return;
+    const dstMon = addDays(weekStart, 7);
+    const dstFrom = localISO(dstMon), dstTo = localISO(addDays(dstMon, 5));
+    setCopiaBusy(true);
+    try {
+      const { data: next, error } = await supabase.from("coop_accesses")
+        .select("id, coop_patient_id, data, ordine")
+        .eq("studio_id", studioId)
+        .gte("data", dstFrom).lte("data", dstTo)
+        .order("data").order("ordine");
+      if (error) { notify.error("Errore caricamento prossima settimana"); return; }
+      const dstByDay = new Map<string, { id: string; coop_patient_id: string; ordine: number | null }[]>();
+      (next || []).forEach(a => {
+        const arr = dstByDay.get(a.data) || [];
+        arr.push(a); dstByDay.set(a.data, arr);
+      });
+      let toccati = 0;
+      for (let i = 0; i < 6; i++) {
+        const src = (accByDay.get(localISO(addDays(weekStart, i))) || []).map(a => a.coop_patient_id);
+        const dst = dstByDay.get(localISO(addDays(dstMon, i))) || [];
+        if (!src.length || dst.length < 2) continue;
+        const rank = new Map(src.map((pid, ix) => [pid, ix]));
+        const sorted = dst.slice().sort((a, b) => {
+          const ra = rank.has(a.coop_patient_id) ? rank.get(a.coop_patient_id)! : 1000 + (a.ordine ?? 0);
+          const rb = rank.has(b.coop_patient_id) ? rank.get(b.coop_patient_id)! : 1000 + (b.ordine ?? 0);
+          return ra - rb;
+        }).map(x => x.id);
+        if (dst.map(x => x.id).join("|") === sorted.join("|")) continue;
+        await persistOrder(sorted);
+        toccati++;
+      }
+      if (toccati === 0) notify.info("La prossima settimana è già in quest'ordine");
+      else notify.success(`Ordine copiato su ${toccati} giorn${toccati === 1 ? "o" : "i"} (${fmtWeekRange(dstMon)})`);
+    } finally {
+      setCopiaBusy(false);
+    }
+  };
+
+  // ── Rinnovo PAI in un tocco ──────────────────────────────────────────────
+  // Chiude il ciclo attuale (i pianificati dal nuovo inizio in poi vengono
+  // rimossi), aggiorna date e budget, rigenera gli accessi con gli stessi
+  // giorni/orari. Lo storico fatti/saltati resta consultabile nel calendario
+  // e nei consuntivi; i contatori ripartono dal nuovo ciclo.
+  const [rinnovaFor, setRinnovaFor] = useState<CoopPatient | null>(null);
+  const [rinnAtt, setRinnAtt] = useState("");
+  const [rinnScad, setRinnScad] = useState("");
+  const [rinnTot, setRinnTot] = useState("");
+  const [rinnovaBusy, setRinnovaBusy] = useState(false);
+
+  const openRinnovo = (p: CoopPatient) => {
+    const durata = p.data_attivazione && p.data_scadenza
+      ? Math.max(14, Math.round((parseISODate(p.data_scadenza).getTime() - parseISODate(p.data_attivazione).getTime()) / 86_400_000))
+      : 60;
+    setRinnAtt(todayISO);
+    setRinnScad(localISO(addDays(parseISODate(todayISO), durata)));
+    setRinnTot(p.tot_accessi != null ? String(p.tot_accessi) : "");
+    setRinnovaFor(p);
+  };
+
+  const doRinnovo = async () => {
+    const p = rinnovaFor;
+    if (!p || !studioId || !rinnAtt) return;
+    setRinnovaBusy(true);
+    try {
+      // 1) via i pianificati del vecchio ciclo dal nuovo inizio in poi
+      await supabase.from("coop_accesses").delete()
+        .eq("coop_patient_id", p.id).eq("stato", "pianificato").gte("data", rinnAtt);
+      // 2) nuovo ciclo sul paziente
+      const patch = {
+        data_attivazione: rinnAtt,
+        data_scadenza: rinnScad || null,
+        tot_accessi: rinnTot ? Math.max(1, parseInt(rinnTot, 10) || 0) : null,
+        stato: "attivo" as const,
+      };
+      const { error: e1 } = await supabase.from("coop_patients").update(patch).eq("id", p.id);
+      if (e1) { notify.error("Errore rinnovo"); return; }
+      // 3) rigenera gli accessi (stessi giorni/orari, salta le chiusure)
+      const gen = generateAccessDates({ ...p, ...patch }, [], parseISODate(rinnAtt), closedDatesSet);
+      if (gen.length) {
+        const inCoda = new Map<string, number>();
+        allLite.forEach(a => { if (a.data >= rinnAtt) inCoda.set(a.data, (inCoda.get(a.data) || 0) + 1); });
+        const rows = gen.map(g => ({
+          studio_id: studioId, coop_patient_id: p.id, data: g.data, orario: g.orario,
+          stato: g.stato, fatto_alle: g.stato === "fatto" ? new Date().toISOString() : null,
+          ordine: inCoda.get(g.data) ?? 0,
+        }));
+        const { error: e2 } = await supabase.from("coop_accesses")
+          .upsert(rows, { onConflict: "coop_patient_id,data", ignoreDuplicates: true });
+        if (e2) notify.error("Alcuni accessi non sono stati rigenerati");
+      }
+      notify.success(`PAI rinnovato: ${gen.length} accessi in agenda`);
+      setRinnovaFor(null);
+      refreshAll();
+    } finally {
+      setRinnovaBusy(false);
+    }
+  };
+
+  const rinnovoModal = rinnovaFor && (
+    <div onClick={() => !rinnovaBusy && setRinnovaFor(null)} style={{
+      position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", zIndex: 1200,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 18,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: "#fff", borderRadius: 16, border: `1px solid ${THEME.border}`,
+        width: "100%", maxWidth: 400, padding: "18px 18px 16px",
+      }}>
+        <div style={{ fontSize: 15.5, fontWeight: 700, color: THEME.text }}>
+          Rinnova PAI — {displayName(`${rinnovaFor.cognome} ${rinnovaFor.nome}`)}
+        </div>
+        <div style={{ fontSize: 12, color: "#475569", lineHeight: 1.5, margin: "6px 0 14px" }}>
+          Chiude il ciclo attuale e rigenera gli accessi con gli stessi giorni e orari.
+          Lo storico resta consultabile; i contatori ripartono da zero.
+        </div>
+        {([
+          ["Nuova attivazione", rinnAtt, setRinnAtt, "date", true],
+          ["Nuova scadenza", rinnScad, setRinnScad, "date", false],
+          ["Totale accessi", rinnTot, setRinnTot, "number", false],
+        ] as const).map(([label, val, set, type, req]) => (
+          <label key={label} style={{ display: "block", marginBottom: 10 }}>
+            <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#475569", marginBottom: 3 }}>
+              {label}{req ? "" : " (opzionale)"}
+            </span>
+            <input type={type} value={val} onChange={e => set(e.target.value)}
+              min={type === "number" ? 1 : undefined}
+              style={{
+                width: "100%", boxSizing: "border-box", padding: "9px 10px",
+                border: `1px solid ${THEME.border}`, borderRadius: 9,
+                fontSize: 13.5, fontWeight: 600, color: THEME.text,
+              }} />
+          </label>
+        ))}
+        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          <button onClick={() => setRinnovaFor(null)} disabled={rinnovaBusy} style={{
+            flex: 1, border: `1px solid ${THEME.border}`, background: "#fff", color: THEME.text,
+            borderRadius: 10, padding: "10px 0", fontSize: 13, fontWeight: 700, cursor: "pointer",
+          }}>Annulla</button>
+          <button onClick={doRinnovo} disabled={rinnovaBusy || !rinnAtt} style={{
+            flex: 1, border: "none", background: THEME.teal, color: "#fff",
+            borderRadius: 10, padding: "10px 0", fontSize: 13, fontWeight: 700,
+            cursor: "pointer", opacity: rinnovaBusy || !rinnAtt ? .6 : 1,
+          }}>{rinnovaBusy ? "Rinnovo…" : "Rinnova"}</button>
+        </div>
+      </div>
+    </div>
+  );
+
   // ── PAI da attenzionare: scaduti con residui, esauriti, in scadenza ──────
   const paiAlerts = useMemo(() => {
     const today = parseISODate(todayISO);
@@ -1055,6 +1212,73 @@ function DomiciliInner() {
     return out.sort((a, b) => rank[a.kind] - rank[b.kind]);
   }, [patients, selectedCoopId, countersByPatient, todayISO]);
 
+  // ── Trend accessi: ultimi 6 mesi fino al mese visualizzato ──────────────
+  // SOLO conteggi (accessi fatti), volutamente nessun valore economico.
+  const trendMesi = useMemo(() => {
+    const months: { key: string; label: string }[] = [];
+    const base = new Date(anchor.getFullYear(), anchor.getMonth(), 1, 12);
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(base.getFullYear(), base.getMonth() - i, 1, 12);
+      months.push({
+        key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+        label: d.toLocaleDateString("it-IT", { month: "short" }).replace(".", ""),
+      });
+    }
+    const coopIds = selectedCoopId === "all" ? cooperatives.map(c => c.id) : [selectedCoopId];
+    const keys = new Set(months.map(m => m.key));
+    const counts = new Map<string, Map<string, number>>();
+    allLite.forEach(a => {
+      if (a.stato !== "fatto") return;
+      const mk = a.data.slice(0, 7);
+      if (!keys.has(mk)) return;
+      const cid = patientById.get(a.coop_patient_id)?.cooperative_id;
+      if (!cid) return;
+      if (selectedCoopId !== "all" && cid !== selectedCoopId) return;
+      const per = counts.get(mk) || new Map<string, number>();
+      per.set(cid, (per.get(cid) || 0) + 1);
+      counts.set(mk, per);
+    });
+    let max = 0;
+    counts.forEach(per => per.forEach(n => { if (n > max) max = n; }));
+    return { months, coopIds, counts, max };
+  }, [allLite, patientById, cooperatives, selectedCoopId, anchor]);
+
+  const trendPanel = trendMesi.max === 0 ? null : (
+    <div style={{ background: "#fff", border: `1px solid ${THEME.borderSoft}`, borderRadius: 12, padding: "8px 12px" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+        <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: .4, textTransform: "uppercase", color: "#475569" }}>Trend accessi</span>
+        <span style={{ fontSize: 10, fontWeight: 600, color: "#64748b" }}>fatti · ultimi 6 mesi</span>
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-end", paddingTop: 6 }}>
+        {trendMesi.months.map(m => {
+          const per = trendMesi.counts.get(m.key);
+          const tot = per ? Array.from(per.values()).reduce((a, b) => a + b, 0) : 0;
+          return (
+            <div key={m.key} style={{ flex: 1, textAlign: "center", minWidth: 0 }}>
+              <div style={{ fontSize: 9.5, fontWeight: 700, color: tot ? THEME.text : "transparent", lineHeight: 1.4 }}>{tot || "0"}</div>
+              <div style={{ display: "flex", gap: 2, alignItems: "flex-end", justifyContent: "center", height: 44 }}>
+                {trendMesi.coopIds.map(cid => {
+                  const n = per?.get(cid) || 0;
+                  const h = trendMesi.max ? Math.round((n / trendMesi.max) * 44) : 0;
+                  return (
+                    <div key={cid}
+                      title={`${coopById.get(cid)?.nome || ""}: ${n}`}
+                      style={{
+                        width: 9, height: Math.max(n ? 3 : 1, h),
+                        background: n ? (coopById.get(cid)?.colore || THEME.teal) : THEME.borderSoft,
+                        borderRadius: 3, opacity: .9,
+                      }} />
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 8.5, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>{m.label}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
   const paiAlertsPanel = paiAlerts.length === 0 ? null : (
     <div style={{ background: "#fff", border: `1px solid ${THEME.border}`, borderRadius: 12, padding: "8px 11px" }}>
       <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: .4, textTransform: "uppercase", color: "#475569" }}>
@@ -1072,6 +1296,15 @@ function DomiciliInner() {
             <span style={{ width: 7, height: 7, borderRadius: "50%", background: kind === "scadenza" ? "#f59e0b" : THEME.red, flexShrink: 0 }} />
             <span style={{ fontSize: 11.5, fontWeight: 700, color: THEME.text, whiteSpace: "nowrap" }}>{displayName(`${p.cognome}`)}</span>
             <span style={{ fontSize: 10.5, fontWeight: 600, color: "#475569", whiteSpace: "nowrap" }}>{label}</span>
+            {(kind === "scaduto" || kind === "esauriti") && (
+              <span
+                onClick={e => { e.stopPropagation(); openRinnovo(p); }}
+                style={{
+                  fontSize: 10.5, fontWeight: 700, color: THEME.tealDark,
+                  border: `1px solid ${THEME.border}`, borderRadius: 99,
+                  padding: "2px 8px", whiteSpace: "nowrap",
+                }}>Rinnova</span>
+            )}
           </button>
         ))}
       </div>
@@ -2036,6 +2269,7 @@ function DomiciliInner() {
               </button>
             </div>
             {paiAlertsPanel && <div style={{ padding: "0 16px 10px" }}>{paiAlertsPanel}</div>}
+            {trendPanel && <div style={{ padding: "0 16px 10px" }}>{trendPanel}</div>}
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 16px 12px" }}>
               <ViewSwitch value={calView} onChange={setCalView} compact />
               {pendingCount > 0 && (
@@ -2408,6 +2642,13 @@ function DomiciliInner() {
                           fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 99,
                           cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap",
                         }}>{showStudio ? "Studio ✓" : "Studio"}</button>
+                      <button onClick={copiaScalettaProssima} disabled={copiaBusy}
+                        title="Applica l'ordine del giro di questa settimana alla prossima"
+                        style={{
+                          border: `1px solid ${THEME.border}`, background: "#fff", color: "#475569",
+                          fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 99,
+                          cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap", opacity: copiaBusy ? .6 : 1,
+                        }}>{copiaBusy ? "Copio…" : "Copia →"}</button>
                       <span style={{ fontSize: 10, fontWeight: 700, marginLeft: "auto", whiteSpace: "nowrap", color: nConflitti > 0 ? THEME.red : THEME.text }}>
                         {nConflitti > 0 ? `${nConflitti} sovrapp.` : `${totCount} · ${doneCount} fatti`}
                       </span>
@@ -2653,6 +2894,7 @@ function DomiciliInner() {
         })()}
 
         <MobileTabBar />
+        {rinnovoModal}
         {sharedModals}
       </div>
     );
@@ -2792,6 +3034,7 @@ function DomiciliInner() {
                     <div style={{ flex: 1 }} />
                     <Legend />
                   </div>
+                  {trendPanel && <div style={{ marginBottom: 12 }}>{trendPanel}</div>}
 
                   {/* ── GIORNO ── */}
                   {calView === "giorno" && (
@@ -2940,6 +3183,13 @@ function DomiciliInner() {
                   {calView === "settimana" && (
                     <>
                     <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                      <button onClick={copiaScalettaProssima} disabled={copiaBusy}
+                        title="Applica l'ordine del giro di questa settimana alla prossima"
+                        style={{
+                          border: `1px solid ${THEME.border}`, background: "#fff", color: THEME.text,
+                          fontSize: 11.5, fontWeight: 700, padding: "5px 11px", borderRadius: 99,
+                          cursor: "pointer", marginRight: "auto", opacity: copiaBusy ? .6 : 1,
+                        }}>{copiaBusy ? "Copio…" : "Copia ordine → prossima settimana"}</button>
                       <span style={{ fontSize: 11.5, fontWeight: 700, color: THEME.mutedLight }}>Totale settimana:</span>
                       <span style={{ fontSize: 14, fontWeight: 800, color: THEME.tealDark }}>{accessCounts.weekTot} accessi</span>
                     </div>
@@ -3183,6 +3433,7 @@ function DomiciliInner() {
         )}
       </div>
 
+      {rinnovoModal}
       {sharedModals}
     </div>
   );
