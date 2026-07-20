@@ -166,6 +166,19 @@ type TouchDragState = {
   activated: boolean; activationTimer: ReturnType<typeof setTimeout> | null;
 };
 
+/* Drag cross-giorno nella vista settimana (mobile) */
+type WeekDragState = {
+  eventId: string;
+  durMin: number;
+  startX: number; startY: number;
+  activated: boolean;
+  viaTouch: boolean;
+  cardEl: HTMLElement | null;
+  timer: ReturnType<typeof setTimeout> | null;
+  dayIdx: number | null;      // colonna bersaglio (0 = lunedì)
+  startMin: number | null;    // minuti dalle WK_H_START
+};
+
 /* ─── Theme ───────────────────────────────────────────────────────────── */
 // THEME: token centrali Direzione A (R4 restyling)
 import { MOBILE_THEME as THEME } from "@/src/theme/tokens";
@@ -174,6 +187,12 @@ const PX_PER_HOUR    = 80;
 const BOTTOM_TAB_H = 60;
 const DEFAULT_START  = 7;
 const DEFAULT_END    = 22;
+/* Griglia vista settimana (mobile): condivisa tra render e drag cross-giorno */
+const WK_HOUR_PX  = 44;   // altezza di 1 ora
+const WK_H_START  = 7;    // prima ora visibile
+const WK_H_END    = 20;   // ultima ora visibile
+const WK_GUTTER   = 24;   // larghezza colonna orari a sinistra
+const WK_SNAP_MIN = 15;   // snap temporale durante il drag
 // Default neutro per il campo "Sede" nel form di creazione.
 // Il valore reale al salvataggio è currentStudio?.name (multi-tenancy).
 const DEFAULT_CLINIC = "Studio";
@@ -383,6 +402,18 @@ function CalendarPageInner() {
   const [touchDragY, _setTDY] = useState<number|null>(null);
   const [touchDraggingId, setTouchDraggingId] = useState<string|null>(null);
   const setTouchDragY = (y: number|null) => { touchDragYRef.current=y; _setTDY(y); };
+
+  /* drag cross-giorno vista settimana */
+  const weekGridRef        = useRef<HTMLDivElement|null>(null);
+  const wkDragRef          = useRef<WeekDragState|null>(null);
+  const wkGhostRef         = useRef<HTMLElement|null>(null);
+  const wkGrabRef          = useRef<{dx:number;dy:number}>({dx:0,dy:0});
+  const wkBlockerRef       = useRef<((e:TouchEvent)=>void)|null>(null);
+  const wkSuppressClickRef = useRef(false);
+  const wkAutoScrollRef    = useRef<number|null>(null);
+  const wkLastPtRef        = useRef<{x:number;y:number}>({x:0,y:0});
+  const [wkDragId,   setWkDragId]   = useState<string|null>(null);
+  const [wkDragOver, setWkDragOver] = useState<{dayIdx:number;startMin:number;durMin:number}|null>(null);
 
   /* swipe */
   const swipeXRef = useRef<number|null>(null);
@@ -721,7 +752,7 @@ function CalendarPageInner() {
   // Ricarica coerente con la vista corrente (usata dopo salvataggi/refresh)
   const reloadCurrent = useCallback(async () => {
     if (viewMode === "week") { const { mon, end } = weekRange(currentDate); await loadAppointments(mon, end); }
-    else await reloadCurrent();
+    else await loadAppointments(currentDate);
   }, [viewMode, currentDate, loadAppointments, weekRange]);
 
   // Carica il catalogo trattamenti dinamico (treatment_types) per lo studio corrente.
@@ -1639,18 +1670,21 @@ function CalendarPageInner() {
       createIsGroup,createGroupTitle,createGroupMax,createGroupPrice,currentStudio]);
 
   /* ── Move appointment (drag) ─────────────── */
-  const moveAppointment = useCallback(async (id:string,newStart:Date) => {
+  // silent=true → nessun overlay "busy": l'aggiornamento è ottimistico e
+  // il ricarico avviene in sottofondo (usato dal drag della vista settimana).
+  const moveAppointment = useCallback(async (id:string,newStart:Date,silent=false) => {
     const ev=events.find(x=>x.id===id);if (!ev) return;
     const durMin=Math.max(15,Math.round((ev.end.getTime()-ev.start.getTime())/60_000));
     const newEnd=new Date(newStart);newEnd.setMinutes(newEnd.getMinutes()+durMin);
-    setBusy(true);setError("");
+    if (!silent) setBusy(true);
+    setError("");
     setEvents(prev=>prev.map(x=>x.id===id?{...x,start:newStart,end:newEnd}:x));
     const {error:e}=await supabase.from("appointments")
       .update({start_at:newStart.toISOString(),end_at:newEnd.toISOString()}).eq("id",id);
-    if (e){setError(e.message);await loadAppointments(currentDate);}
-    else await loadAppointments(currentDate);
-    setBusy(false);
-  }, [events,currentDate,loadAppointments]);
+    if (e) setError(e.message);
+    await reloadCurrent();
+    if (!silent) setBusy(false);
+  }, [events,reloadCurrent]);
 
   /* ── Mouse drag ──────────────────────────── */
   const handleDragOver = useCallback((e:React.DragEvent<HTMLDivElement>) => {
@@ -1704,6 +1738,188 @@ function CalendarPageInner() {
     const ns=new Date(base);ns.setMinutes(ns.getMinutes()+totalMin);
     await moveAppointment(state.eventId,ns);
   }, [currentDate,dayStartHour,dayEndHour,moveAppointment]);
+
+  /* ── Drag cross-giorno (vista settimana) ─────────────────────────────
+     Long-press ~260ms su un appuntamento → il blocco "si stacca" e segue
+     il dito su tutta la griglia: cambia giorno (asse X) e ora (asse Y),
+     con snap a 15 minuti e anteprima live della destinazione.          */
+  const wkClearGhost = useCallback(() => {
+    if (wkGhostRef.current) { wkGhostRef.current.remove(); wkGhostRef.current = null; }
+  }, []);
+
+  // Da coordinate schermo → { colonna giorno, minuti dall'inizio griglia }
+  const wkResolve = useCallback((x:number, topY:number, durMin:number) => {
+    const grid = weekGridRef.current; if (!grid) return null;
+    const r = grid.getBoundingClientRect();
+    const nDays = showSaturday ? 6 : 5;
+    const colW = (r.width - WK_GUTTER) / nDays;
+    if (colW <= 0) return null;
+    const dayIdx = clamp(Math.floor((x - r.left - WK_GUTTER) / colW), 0, nDays - 1);
+    const rawMin = ((topY - r.top) / WK_HOUR_PX) * 60;
+    const maxMin = Math.max(0, (WK_H_END - WK_H_START) * 60 - durMin);
+    const startMin = clamp(Math.round(rawMin / WK_SNAP_MIN) * WK_SNAP_MIN, 0, maxMin);
+    return { dayIdx, startMin };
+  }, [showSaturday]);
+
+  const wkActivate = useCallback(() => {
+    const st = wkDragRef.current;
+    if (!st || st.activated || !st.cardEl) return;
+    st.activated = true;
+    setWkDragId(st.eventId);
+    const rect = st.cardEl.getBoundingClientRect();
+    wkGrabRef.current = { dx: st.startX - rect.left, dy: st.startY - rect.top };
+    const clone = st.cardEl.cloneNode(true) as HTMLElement;
+    clone.style.position = "fixed";
+    clone.style.left = `${rect.left}px`;
+    clone.style.top = `${rect.top}px`;
+    clone.style.width = `${rect.width}px`;
+    clone.style.height = `${rect.height}px`;
+    clone.style.margin = "0";
+    clone.style.zIndex = "3000";
+    clone.style.pointerEvents = "none";
+    clone.style.opacity = "0.96";
+    clone.style.background = THEME.panelBg;
+    clone.style.boxShadow = "0 14px 34px rgba(15,23,42,0.32)";
+    clone.style.transform = "scale(1.08)";
+    clone.style.transition = "none";
+    document.body.appendChild(clone);
+    wkGhostRef.current = clone;
+    if (st.viaTouch) {
+      // blocca lo scroll della pagina (il listener di React è passive)
+      const blocker = (e: TouchEvent) => { e.preventDefault(); };
+      document.addEventListener("touchmove", blocker, { passive: false });
+      wkBlockerRef.current = blocker;
+      try { (navigator as unknown as {vibrate?:(p:number)=>void}).vibrate?.(18); } catch {}
+    } else {
+      document.body.style.userSelect = "none";
+    }
+    const res = wkResolve(st.startX, st.startY - wkGrabRef.current.dy, st.durMin);
+    if (res) { st.dayIdx = res.dayIdx; st.startMin = res.startMin; setWkDragOver({ ...res, durMin: st.durMin }); }
+  }, [wkResolve]);
+
+  const wkStopAutoScroll = useCallback(() => {
+    if (wkAutoScrollRef.current !== null) { cancelAnimationFrame(wkAutoScrollRef.current); wkAutoScrollRef.current = null; }
+  }, []);
+
+  const wkMoveTo = useCallback((x:number, y:number) => {
+    const st = wkDragRef.current; if (!st?.activated) return;
+    wkLastPtRef.current = { x, y };
+    const g = wkGhostRef.current;
+    if (g) {
+      g.style.left = `${x - wkGrabRef.current.dx}px`;
+      g.style.top  = `${y - wkGrabRef.current.dy}px`;
+    }
+    const res = wkResolve(x, y - wkGrabRef.current.dy, st.durMin);
+    if (!res) return;
+    if (res.dayIdx !== st.dayIdx || res.startMin !== st.startMin) {
+      const dayChanged = res.dayIdx !== st.dayIdx;
+      st.dayIdx = res.dayIdx; st.startMin = res.startMin;
+      setWkDragOver({ ...res, durMin: st.durMin });
+      if (dayChanged) { try { (navigator as unknown as {vibrate?:(p:number)=>void}).vibrate?.(8); } catch {} }
+    }
+    // Auto-scroll quando il dito si avvicina al bordo alto/basso dello schermo
+    const EDGE = 80, SPEED = 10;
+    const nearEdge = y < EDGE || y > window.innerHeight - EDGE;
+    if (!nearEdge) { wkStopAutoScroll(); return; }
+    if (wkAutoScrollRef.current !== null) return;
+    const step = () => {
+      const s = wkDragRef.current;
+      if (!s?.activated) { wkAutoScrollRef.current = null; return; }
+      const p = wkLastPtRef.current;
+      const dir = p.y < EDGE ? -1 : p.y > window.innerHeight - EDGE ? 1 : 0;
+      if (dir === 0) { wkAutoScrollRef.current = null; return; }
+      window.scrollBy(0, dir * SPEED);
+      wkMoveToRef.current(p.x, p.y); // ri-calcola il bersaglio dopo lo scroll
+      wkAutoScrollRef.current = requestAnimationFrame(step);
+    };
+    wkAutoScrollRef.current = requestAnimationFrame(step);
+  }, [wkResolve, wkStopAutoScroll]);
+
+  const wkMoveToRef = useRef(wkMoveTo);
+  useEffect(() => { wkMoveToRef.current = wkMoveTo; }, [wkMoveTo]);
+
+  const wkFinish = useCallback(async (commit:boolean) => {
+    const st = wkDragRef.current; wkDragRef.current = null;
+    if (st?.timer) clearTimeout(st.timer);
+    wkStopAutoScroll();
+    wkClearGhost();
+    if (wkBlockerRef.current) { document.removeEventListener("touchmove", wkBlockerRef.current); wkBlockerRef.current = null; }
+    document.body.style.userSelect = "";
+    setWkDragId(null); setWkDragOver(null);
+    if (!st?.activated) return;
+    // evita che il tap sintetico riapra la scheda appuntamento
+    wkSuppressClickRef.current = true;
+    setTimeout(() => { wkSuppressClickRef.current = false; }, 420);
+    if (!commit || st.dayIdx === null || st.startMin === null) return;
+    const { mon } = weekRange(currentDate);
+    const target = new Date(mon);
+    target.setDate(target.getDate() + st.dayIdx);
+    target.setHours(WK_H_START, 0, 0, 0);
+    target.setMinutes(target.getMinutes() + st.startMin);
+    const ev = events.find(x => x.id === st.eventId);
+    if (ev && ev.start.getTime() === target.getTime()) return; // nulla da fare
+    try { (navigator as unknown as {vibrate?:(p:number)=>void}).vibrate?.(24); } catch {}
+    await moveAppointment(st.eventId, target, true);
+  }, [wkClearGhost, wkStopAutoScroll, weekRange, currentDate, events, moveAppointment]);
+
+  // Cleanup difensivo: se il componente smonta a drag attivo
+  useEffect(() => () => {
+    if (wkGhostRef.current) { wkGhostRef.current.remove(); wkGhostRef.current = null; }
+    if (wkBlockerRef.current) { document.removeEventListener("touchmove", wkBlockerRef.current); wkBlockerRef.current = null; }
+    if (wkAutoScrollRef.current !== null) { cancelAnimationFrame(wkAutoScrollRef.current); wkAutoScrollRef.current = null; }
+    document.body.style.userSelect = "";
+  }, []);
+
+  const wkDragHandlers = useCallback((ev: CalendarEvent) => {
+    const durMin = Math.max(15, Math.round((ev.end.getTime() - ev.start.getTime()) / 60_000));
+    return {
+      // ── Touch: long-press per attivare (lo scroll verticale resta libero) ──
+      onTouchStart: (e: React.TouchEvent) => {
+        const t = e.touches[0];
+        wkDragRef.current = {
+          eventId: ev.id, durMin, startX: t.clientX, startY: t.clientY,
+          activated: false, viaTouch: true, cardEl: e.currentTarget as HTMLElement,
+          dayIdx: null, startMin: null, timer: setTimeout(wkActivate, 260),
+        };
+      },
+      onTouchMove: (e: React.TouchEvent) => {
+        const st = wkDragRef.current; if (!st || !st.viaTouch) return;
+        const t = e.touches[0];
+        if (!st.activated) {
+          if (Math.abs(t.clientX - st.startX) > 8 || Math.abs(t.clientY - st.startY) > 8) {
+            if (st.timer) clearTimeout(st.timer);
+            wkDragRef.current = null;
+          }
+          return;
+        }
+        wkMoveTo(t.clientX, t.clientY);
+      },
+      onTouchEnd:    () => { void wkFinish(true); },
+      onTouchCancel: () => { void wkFinish(false); },
+      // ── Mouse/trackpad: si attiva subito al movimento ──
+      onPointerDown: (e: React.PointerEvent) => {
+        if (e.pointerType !== "mouse" || e.button !== 0) return;
+        wkDragRef.current = {
+          eventId: ev.id, durMin, startX: e.clientX, startY: e.clientY,
+          activated: false, viaTouch: false, cardEl: e.currentTarget as HTMLElement,
+          dayIdx: null, startMin: null, timer: null,
+        };
+        try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+      },
+      onPointerMove: (e: React.PointerEvent) => {
+        const st = wkDragRef.current; if (!st || st.viaTouch) return;
+        if (!st.activated) {
+          if (Math.abs(e.clientX - st.startX) > 6 || Math.abs(e.clientY - st.startY) > 6) wkActivate();
+          else return;
+        }
+        wkMoveTo(e.clientX, e.clientY);
+      },
+      onPointerUp: () => {
+        const st = wkDragRef.current; if (!st || st.viaTouch) return;
+        void wkFinish(true);
+      },
+    };
+  }, [wkActivate, wkMoveTo, wkFinish]);
 
   /* ── Logout ──────────────────────────────── */
   async function handleLogout() {
@@ -2350,7 +2566,7 @@ function CalendarPageInner() {
           </div>
         ) : viewMode==="week" ? (
           (() => {
-            const HOUR_PX = 44, H_START = 7, H_END = 20;
+            const HOUR_PX = WK_HOUR_PX, H_START = WK_H_START, H_END = WK_H_END;
             const { mon } = weekRange(currentDate);
             const days = Array.from({length: showSaturday ? 6 : 5},(_,i)=>{ const d=new Date(mon); d.setDate(d.getDate()+i); return d; });
             const now = new Date();
@@ -2368,7 +2584,7 @@ function CalendarPageInner() {
             return (
               <div style={{background:THEME.panelBg,border:`1px solid ${THEME.line}`,borderRadius:12,overflow:"hidden",marginBottom:10}}>
                 {/* Intestazioni giorno: tap → apre il Giorno */}
-                <div style={{display:"grid",gridTemplateColumns:`24px repeat(${showSaturday?6:5},1fr)`,borderBottom:`1px solid ${THEME.line}`}}>
+                <div style={{display:"grid",gridTemplateColumns:`${WK_GUTTER}px repeat(${showSaturday?6:5},1fr)`,borderBottom:`1px solid ${THEME.line}`}}>
                   <div />
                   {days.map(d=>{ const t=isSameDay(d,now); return (
                     <button key={toISODateLocal(d)} onClick={()=>{setCurrentDate(d);setViewMode("day");}} style={{
@@ -2381,25 +2597,28 @@ function CalendarPageInner() {
                 </div>
                 {/* Corpo: 7→20, scorre in verticale */}
                 <div ref={weekScrollRef}>
-                  <div style={{display:"grid",gridTemplateColumns:`24px repeat(${showSaturday?6:5},1fr)`,height:(H_END-H_START)*HOUR_PX}}>
+                  <div ref={weekGridRef} style={{display:"grid",gridTemplateColumns:`${WK_GUTTER}px repeat(${showSaturday?6:5},1fr)`,height:(H_END-H_START)*HOUR_PX}}>
                     <div style={{position:"relative"}}>
                       {Array.from({length:H_END-H_START},(_,i)=>(
                         i===0?null:<span key={i} style={{position:"absolute",top:i*HOUR_PX,right:3,transform:"translateY(-50%)",fontSize:7.5,fontWeight:700,color:THEME.warm400}}>{H_START+i}</span>
                       ))}
                     </div>
-                    {days.map(d=>{ const t=isSameDay(d,now);
+                    {days.map((d,dayIdx)=>{ const t=isSameDay(d,now);
                       const evs = weekEvs.filter(e=>isSameDay(e.start,d));
+                      const isDropTarget = wkDragOver?.dayIdx===dayIdx;
                       return (
                         <div key={toISODateLocal(d)}
                           onClick={(e)=>{
+                            if (wkSuppressClickRef.current) return;
                             const r=(e.currentTarget as HTMLElement).getBoundingClientRect();
                             const y=e.clientY-r.top;
                             const h=H_START+Math.floor(y/HOUR_PX);
                             const mm=(y%HOUR_PX)>=HOUR_PX/2?"30":"00";
                             openCreate(`${String(h).padStart(2,"0")}:${mm}`, toISODateLocal(d));
                           }}
-                          style={{position:"relative",cursor:"pointer",borderLeft:`1px solid ${THEME.lineFaint}`,
-                          background:`repeating-linear-gradient(to bottom,${t?"rgba(13,148,136,0.045)":"transparent"} 0,${t?"rgba(13,148,136,0.045)":"transparent"} ${HOUR_PX-1}px,${THEME.lineFaint} ${HOUR_PX-1}px,${THEME.lineFaint} ${HOUR_PX}px)`}}>
+                          style={{position:"relative",cursor:"pointer",
+                          borderLeft:`1px solid ${isDropTarget?"#94a3b8":THEME.lineFaint}`,
+                          background:`repeating-linear-gradient(to bottom,${isDropTarget?"rgba(100,116,139,0.10)":t?"rgba(13,148,136,0.045)":"transparent"} 0,${isDropTarget?"rgba(100,116,139,0.10)":t?"rgba(13,148,136,0.045)":"transparent"} ${HOUR_PX-1}px,${THEME.lineFaint} ${HOUR_PX-1}px,${THEME.lineFaint} ${HOUR_PX}px)`}}>
                           {(() => {
                             // Sovrapposizioni: corsie affiancate dentro il cluster
                             const sorted=[...evs].sort((a,b)=>a.start.getTime()-b.start.getTime());
@@ -2429,10 +2648,15 @@ function CalendarPageInner() {
                             const c=statusColor(ev.status);
                             const small=height<30;
                             return (
-                              <button key={ev.id} onClick={(e)=>{e.stopPropagation();openEvent(ev);}} style={{position:"absolute",top,height,
+                              <button key={ev.id}
+                                {...wkDragHandlers(ev)}
+                                onClick={(e)=>{e.stopPropagation();if(wkSuppressClickRef.current)return;openEvent(ev);}}
+                                style={{position:"absolute",top,height,
                                 left:`calc(${(lane*100/of).toFixed(3)}% + 1.5px)`,width:`calc(${(100/of).toFixed(3)}% - 3px)`,
                                 border:`1.5px solid ${c}`,borderRadius:6,background:`${c}12`,
-                                padding:"2px 3px",overflow:"hidden",textAlign:"left",cursor:"pointer",display:"block"}}>
+                                padding:"2px 3px",overflow:"hidden",textAlign:"left",cursor:"pointer",display:"block",
+                                opacity:wkDragId===ev.id?0.22:1,
+                                transition:wkDragId?"none":"opacity 0.15s"}}>
                                 <p style={{margin:0,fontSize:7,fontWeight:800,lineHeight:1.2,color:THEME.text,opacity:0.75,whiteSpace:"nowrap",overflow:"hidden"}}>
                                   {fmtTime(ev.start)}{small?` ${labelFor(ev)}`:""}
                                 </p>
@@ -2442,6 +2666,20 @@ function CalendarPageInner() {
                               </button>
                             );
                             });
+                          })()}
+                          {isDropTarget&&wkDragOver&&(()=>{
+                            const tot = H_START*60 + wkDragOver.startMin;
+                            const hh = String(Math.floor(tot/60)).padStart(2,"0");
+                            const mm = String(tot%60).padStart(2,"0");
+                            const pTop = (wkDragOver.startMin/60)*HOUR_PX;
+                            const pH   = Math.max(18,(wkDragOver.durMin/60)*HOUR_PX-2);
+                            return (
+                              <div style={{position:"absolute",top:pTop,height:pH,left:2,right:2,
+                                border:"1.5px dashed #64748b",borderRadius:6,background:"rgba(100,116,139,0.12)",
+                                zIndex:4,pointerEvents:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                <span style={{fontSize:9,fontWeight:700,color:"#334155"}}>{hh}:{mm}</span>
+                              </div>
+                            );
                           })()}
                           {t&&(()=>{ const nh=now.getHours()+now.getMinutes()/60; if(nh<H_START||nh>H_END) return null; return (
                             <div style={{position:"absolute",left:0,right:0,top:(nh-H_START)*HOUR_PX,height:2,background:"#C0392B",zIndex:2}} />
@@ -2460,7 +2698,9 @@ function CalendarPageInner() {
                     fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:99,cursor:"pointer",flexShrink:0,
                   }}>{showSaturday?"Sab ✓":"Sab"}</button>
                   <span style={{fontSize:10,fontWeight:800,color:THEME.text}}>{totCount} sedute · €{Math.round(totRev)}</span>
-                  <span style={{marginLeft:"auto",fontSize:9,color:THEME.warm400,paddingRight:2}}>spazio vuoto → nuova</span>
+                  <span style={{marginLeft:"auto",fontSize:9,color:"#475569",paddingRight:2,textAlign:"right",lineHeight:1.3}}>
+                    spazio vuoto → nuova<br/>tieni premuto → sposta
+                  </span>
                 </div>
               </div>
             );
