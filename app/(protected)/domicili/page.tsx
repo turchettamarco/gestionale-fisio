@@ -561,20 +561,48 @@ function DomiciliInner() {
   // Drag touch: la card VERA viene clonata e segue il dito (come il calendario).
   const [touchOverDay, setTouchOverDay] = useState<string | null>(null);
   const [touchOverCardId, setTouchOverCardId] = useState<string | null>(null);
+  const [touchOverAfter, setTouchOverAfter] = useState(false);
+  // Riga di inserimento: sopra o sotto la card bersaglio (neutra, niente glow)
+  const dropIndicator = (id: string) =>
+    touchOverCardId === id ? (touchOverAfter ? "inset 0 -3px 0 #334155" : "inset 0 3px 0 #334155") : "none";
   const ghostElRef = useRef<HTMLElement | null>(null);
   const grabOffsetRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
   const touchBlockerRef = useRef<((ev: TouchEvent) => void) | null>(null);
 
-  // Sposta un accesso in un altro giorno: cambia SOLO la sua data (spostamento eccezionale)
-  const moveAccessToDay = async (accessId: string, newDayISO: string) => {
+  // Sposta un accesso in un altro giorno INSERENDOLO in una posizione precisa
+  // della scaletta di quel giorno (data + ordine in un colpo solo).
+  const moveAccessToPosition = async (accessId: string, newDayISO: string, index: number) => {
     const a = rangeAccesses.find(x => x.id === accessId);
-    if (!a || a.data === newDayISO) return;
-    setRangeAccesses(prev => prev.map(x => x.id === accessId ? { ...x, data: newDayISO } : x));
-    patchLite(a.coop_patient_id, a.data, null);
-    patchLite(a.coop_patient_id, newDayISO, a.stato);
-    const { error } = await supabase.from("coop_accesses").update({ data: newDayISO }).eq("id", accessId);
-    if (error) { notify.error("Errore spostamento"); refreshAll(); }
-    else notify.success("Accesso spostato");
+    if (!a) return;
+    const fromISO = a.data;
+    const ids = (accByDay.get(newDayISO) || []).map(x => x.id).filter(id => id !== accessId);
+    ids.splice(Math.max(0, Math.min(index, ids.length)), 0, accessId);
+    const orderMap = new Map(ids.map((id, i) => [id, i]));
+
+    // aggiornamento ottimistico
+    setRangeAccesses(prev => prev.map(x => {
+      if (x.id === accessId) return { ...x, data: newDayISO, ordine: orderMap.get(accessId) ?? 0 };
+      return orderMap.has(x.id) ? { ...x, ordine: orderMap.get(x.id)! } : x;
+    }));
+    if (fromISO !== newDayISO) {
+      patchLite(a.coop_patient_id, fromISO, null);
+      patchLite(a.coop_patient_id, newDayISO, a.stato);
+    }
+
+    const { error } = await supabase.from("coop_accesses")
+      .update({ data: newDayISO, ordine: orderMap.get(accessId) ?? 0 })
+      .eq("id", accessId);
+    if (error) {
+      if ((error as any).code === "23505") notify.warning("Questo paziente ha già un accesso in quel giorno");
+      else notify.error("Errore spostamento");
+      refreshAll();
+      return;
+    }
+    // riallinea la scaletta del giorno di destinazione
+    await Promise.all(ids
+      .filter(id => id !== accessId)
+      .map((id, ) => supabase.from("coop_accesses").update({ ordine: orderMap.get(id)! }).eq("id", id)));
+    notify.success("Accesso spostato");
   };
 
   // ── Drag UNIFICATO ──────────────────────────────────────────────────────
@@ -589,10 +617,22 @@ function DomiciliInner() {
     activated: boolean; timer: any; viaTouch: boolean;
     cardEl: HTMLElement | null;
     overDay: string | null; overCard: string | null;
+    overAfter: boolean;           // drop sotto la card bersaglio invece che sopra
   } | null>(null);
+
+  // Badge "Mer 22 · 3ª" che segue il dito (DOM diretto: nessun re-render)
+  const dragBadgeRef = useRef<HTMLElement | null>(null);
+  // Auto-scroll quando il dito arriva ai bordi dello schermo
+  const autoScrollRef = useRef<number | null>(null);
+  const lastPtRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  const stopAutoScroll = () => {
+    if (autoScrollRef.current !== null) { cancelAnimationFrame(autoScrollRef.current); autoScrollRef.current = null; }
+  };
 
   const clearTouchGhost = () => {
     if (ghostElRef.current) { ghostElRef.current.remove(); ghostElRef.current = null; }
+    if (dragBadgeRef.current) { dragBadgeRef.current.remove(); dragBadgeRef.current = null; }
   };
 
   const activateDrag = () => {
@@ -617,6 +657,23 @@ function DomiciliInner() {
     clone.style.transition = "none";
     document.body.appendChild(clone);
     ghostElRef.current = clone;
+    // Badge compatto con giorno + posizione nella scaletta
+    const badge = document.createElement("div");
+    badge.style.position = "fixed";
+    badge.style.zIndex = "3001";
+    badge.style.pointerEvents = "none";
+    badge.style.background = "#ffffff";
+    badge.style.border = "1px solid #cbd5e1";
+    badge.style.borderRadius = "8px";
+    badge.style.padding = "3px 8px";
+    badge.style.fontSize = "11px";
+    badge.style.fontWeight = "700";
+    badge.style.lineHeight = "1.2";
+    badge.style.whiteSpace = "nowrap";
+    badge.style.color = "#334155";
+    badge.style.boxShadow = "0 2px 8px rgba(15,23,42,0.12)";
+    document.body.appendChild(badge);
+    dragBadgeRef.current = badge;
     if (cur.viaTouch) {
       // blocca scroll/gesti (listener NON-passive: quello di React è passive)
       const blocker = (ev: TouchEvent) => { ev.preventDefault(); };
@@ -628,49 +685,126 @@ function DomiciliInner() {
     }
   };
 
+  // Calcola l'indice di inserimento nella scaletta del giorno bersaglio
+  const dropIndexFor = (targetISO: string, accessId: string, overCard: string | null, after: boolean) => {
+    const ids = (accByDay.get(targetISO) || []).map(x => x.id).filter(id => id !== accessId);
+    if (!overCard) return { ids, idx: ids.length };
+    const i = ids.indexOf(overCard);
+    if (i < 0) return { ids, idx: ids.length };
+    return { ids, idx: after ? i + 1 : i };
+  };
+
+  const paintDragBadge = (ghostLeft: number, ghostTop: number) => {
+    const b = dragBadgeRef.current; const st = touchDragRef.current;
+    if (!b || !st) return;
+    if (st.overDay) {
+      const [yy, mm, dd] = st.overDay.split("-").map(Number);
+      const d = new Date(yy, mm - 1, dd, 12);
+      const dow = DOW_LABELS[d.getDay() === 0 ? 7 : d.getDay()] || "";
+      const { idx } = dropIndexFor(st.overDay, st.accessId, st.overCard, st.overAfter);
+      const text = `${dow} ${d.getDate()} · ${idx + 1}ª`;
+      if (b.textContent !== text) b.textContent = text;
+      b.style.display = "block";
+    } else {
+      b.style.display = "none";
+    }
+    const above = ghostTop > 42;
+    b.style.left = `${Math.max(6, Math.min(ghostLeft, window.innerWidth - 110))}px`;
+    b.style.top = `${above ? ghostTop - 30 : ghostTop + 8}px`;
+  };
+
   const dragMoveTo = (x: number, y: number) => {
     const st = touchDragRef.current;
     if (!st?.activated) return;
     st.lastX = x; st.lastY = y;
+    lastPtRef.current = { x, y };
+    const gLeft = x - grabOffsetRef.current.dx;
+    const gTop = y - grabOffsetRef.current.dy;
     const g = ghostElRef.current;
-    if (g) {
-      g.style.left = `${x - grabOffsetRef.current.dx}px`;
-      g.style.top = `${y - grabOffsetRef.current.dy}px`;
-    }
+    if (g) { g.style.left = `${gLeft}px`; g.style.top = `${gTop}px`; }
+
     const el = document.elementFromPoint(x, y) as HTMLElement | null;
     const cardEl = el?.closest?.("[data-access-card]") as HTMLElement | null;
     const dayEl = el?.closest?.("[data-drop-day]") as HTMLElement | null;
-    const overCard = cardEl && cardEl.dataset.accessDay === st.fromISO && cardEl.dataset.accessCard !== st.accessId
-      ? cardEl.dataset.accessCard! : null;
-    const overDay = dayEl?.dataset.dropDay || null;
+
+    // Ora il riordino vale su QUALSIASI giorno, non solo su quello di partenza
+    let overCard: string | null = null;
+    let after = false;
+    if (cardEl && cardEl.dataset.accessCard !== st.accessId) {
+      overCard = cardEl.dataset.accessCard || null;
+      const r = cardEl.getBoundingClientRect();
+      after = y > r.top + r.height / 2; // metà bassa → inserisci sotto
+    }
+    // il giorno lo prendo dal contenitore o, in mancanza, dalla card sotto il dito
+    const overDay = dayEl?.dataset.dropDay || cardEl?.dataset.accessDay || null;
+
+    const changed = overCard !== st.overCard || overDay !== st.overDay || after !== st.overAfter;
     if (overCard !== st.overCard) { st.overCard = overCard; setTouchOverCardId(overCard); }
-    if (overDay !== st.overDay) { st.overDay = overDay; setTouchOverDay(overDay); }
+    if (overDay !== st.overDay) {
+      const dayChanged = overDay !== st.overDay;
+      st.overDay = overDay; setTouchOverDay(overDay);
+      if (dayChanged && overDay) { try { (navigator as any).vibrate?.(8); } catch {} }
+    }
+    if (after !== st.overAfter) setTouchOverAfter(after);
+    st.overAfter = after;
+    paintDragBadge(gLeft, gTop);
+    void changed;
+
+    // Auto-scroll ai bordi (la settimana mobile è più alta dello schermo)
+    const EDGE = 80, SPEED = 10;
+    if (y >= EDGE && y <= window.innerHeight - EDGE) { stopAutoScroll(); return; }
+    if (autoScrollRef.current !== null) return;
+    const step = () => {
+      const s = touchDragRef.current;
+      if (!s?.activated) { autoScrollRef.current = null; return; }
+      const p = lastPtRef.current;
+      const dir = p.y < EDGE ? -1 : p.y > window.innerHeight - EDGE ? 1 : 0;
+      if (dir === 0) { autoScrollRef.current = null; return; }
+      window.scrollBy(0, dir * SPEED);
+      dragMoveTo(p.x, p.y); // ricalcola il bersaglio dopo lo scroll
+      if (autoScrollRef.current === null) return; // dragMoveTo ha fermato il loop
+      autoScrollRef.current = requestAnimationFrame(step);
+    };
+    autoScrollRef.current = requestAnimationFrame(step);
   };
 
   const finishDrag = (commit: boolean) => {
     const st = touchDragRef.current;
     touchDragRef.current = null;
     if (st?.timer) clearTimeout(st.timer);
+    stopAutoScroll();
     clearTouchGhost();
     if (touchBlockerRef.current) { document.removeEventListener("touchmove", touchBlockerRef.current); touchBlockerRef.current = null; }
     document.body.style.userSelect = "";
     setDragAccessId(null);
     setTouchOverDay(null);
     setTouchOverCardId(null);
+    setTouchOverAfter(false);
     if (!st?.activated) return;
     suppressClickRef.current = true;
     setTimeout(() => { suppressClickRef.current = false; }, 400);
-    if (!commit) return;
-    if (st.overCard) {
-      // stesso giorno → riordino a scaletta: inserisci prima della card bersaglio
-      const ids = (accByDay.get(st.fromISO) || []).map(x => x.id).filter(id => id !== st.accessId);
-      const idx = ids.indexOf(st.overCard);
-      ids.splice(idx < 0 ? ids.length : idx, 0, st.accessId);
+    if (!commit || !st.overDay) return;
+    const { ids, idx } = dropIndexFor(st.overDay, st.accessId, st.overCard, st.overAfter);
+    if (st.overDay === st.fromISO) {
+      const cur = (accByDay.get(st.fromISO) || []).map(x => x.id);
+      ids.splice(idx, 0, st.accessId);
+      if (cur.join("|") === ids.join("|")) return; // nessun cambiamento reale
+      try { (navigator as any).vibrate?.(24); } catch {}
       reorderInDay(st.fromISO, ids);
-    } else if (st.overDay && st.overDay !== st.fromISO) {
-      moveAccessToDay(st.accessId, st.overDay);
+    } else {
+      try { (navigator as any).vibrate?.(24); } catch {}
+      moveAccessToPosition(st.accessId, st.overDay, idx);
     }
   };
+
+  // Cleanup difensivo: se la pagina smonta con un drag attivo
+  useEffect(() => () => {
+    if (ghostElRef.current) { ghostElRef.current.remove(); ghostElRef.current = null; }
+    if (dragBadgeRef.current) { dragBadgeRef.current.remove(); dragBadgeRef.current = null; }
+    if (touchBlockerRef.current) { document.removeEventListener("touchmove", touchBlockerRef.current); touchBlockerRef.current = null; }
+    if (autoScrollRef.current !== null) { cancelAnimationFrame(autoScrollRef.current); autoScrollRef.current = null; }
+    document.body.style.userSelect = "";
+  }, []);
 
   const accessTouchHandlers = (a: CoopAccess) => ({
     // ── Mobile (touch, long-press) ──
@@ -680,8 +814,8 @@ function DomiciliInner() {
         accessId: a.id, fromISO: a.data,
         startX: t.clientX, startY: t.clientY, lastX: t.clientX, lastY: t.clientY,
         activated: false, viaTouch: true, cardEl: e.currentTarget as HTMLElement,
-        overDay: null, overCard: null,
-        timer: setTimeout(activateDrag, 350),
+        overDay: null, overCard: null, overAfter: false,
+        timer: setTimeout(activateDrag, 260),
       };
     },
     onTouchMove: (e: React.TouchEvent) => {
@@ -707,7 +841,7 @@ function DomiciliInner() {
         accessId: a.id, fromISO: a.data,
         startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY,
         activated: false, viaTouch: false, cardEl: e.currentTarget as HTMLElement,
-        overDay: null, overCard: null, timer: null,
+        overDay: null, overCard: null, overAfter: false, timer: null,
       };
       try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
     },
@@ -1179,7 +1313,7 @@ function DomiciliInner() {
                         background: coopTint(coop?.colore || THEME.teal), borderRadius: 14,
                         border: `1px ${dragAccessId === a.id ? "dashed" : "solid"} ${coop?.colore || THEME.teal}`,
                         padding: "12px 14px", opacity: dragAccessId === a.id ? .35 : saltato ? .55 : 1,
-                        boxShadow: touchOverCardId === a.id ? "inset 0 3px 0 #2563eb, 0 0 8px rgba(37,99,235,.5)" : "none",
+                        boxShadow: dropIndicator(a.id),
                         userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
                       } as React.CSSProperties}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1259,14 +1393,14 @@ function DomiciliInner() {
                   const isToday = iso === todayISO;
                   return (
                     <div key={iso} data-drop-day={iso} style={{
-                      background: touchOverDay === iso ? "#cffafe" : dragAccessId ? "#ecfeff" : "#fff",
+                      background: touchOverDay === iso ? "#f1f5f9" : "#fff",
                       borderRadius: 14,
-                      border: touchOverDay === iso ? "2px solid #0891b2" : `1px ${dragAccessId ? "dashed #67e8f9" : `solid ${THEME.borderSoft}`}`,
+                      border: touchOverDay === iso ? "1.5px solid #94a3b8" : `1px ${dragAccessId ? "dashed" : "solid"} ${THEME.borderSoft}`,
                       overflow: "hidden",
                       transition: "background .12s ease",
                     }}>
                       <button
-                        onClick={() => { setAnchor(d); setCalView("giorno"); }}
+                        onClick={() => { if (suppressClickRef.current) return; setAnchor(d); setCalView("giorno"); }}
                         style={{
                           width: "100%", display: "flex", alignItems: "center", gap: 8,
                           padding: "9px 13px", border: "none", cursor: "pointer", textAlign: "left",
@@ -1298,8 +1432,8 @@ function DomiciliInner() {
                             padding: "9px 13px", borderBottom: `1px solid #f1f5f9`,
                             cursor: "pointer",
                             opacity: dragAccessId === a.id ? .35 : saltato ? .5 : 1,
-                            boxShadow: touchOverCardId === a.id ? "inset 0 3px 0 #2563eb" : "none",
-                            background: touchOverCardId === a.id ? "#eff6ff" : undefined,
+                            boxShadow: dropIndicator(a.id),
+                            background: touchOverCardId === a.id ? "#f8fafc" : undefined,
                             userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
                           } as React.CSSProperties}>
                             <span style={{ width: 8, height: 8, borderRadius: "50%", background: coop?.colore || THEME.teal, flexShrink: 0 }} />
@@ -1593,7 +1727,7 @@ function DomiciliInner() {
                             border: `1px solid ${coop?.colore || THEME.teal}`,
                             borderRadius: 12, padding: "11px 14px",
                             opacity: dragAccessId === a.id ? .35 : saltato ? .55 : 1,
-                            boxShadow: touchOverCardId === a.id ? "inset 0 3px 0 #2563eb, 0 0 8px rgba(37,99,235,.5)" : "none",
+                            boxShadow: dropIndicator(a.id),
                           } as React.CSSProperties}>
                             <input
                               type="checkbox" checked={fatto} disabled={saltato}
@@ -1687,7 +1821,7 @@ function DomiciliInner() {
                                   border: `1px solid ${coop?.colore || THEME.teal}`,
                                   borderRadius: 9, padding: "7px 8px",
                                   opacity: dragAccessId === a.id ? .35 : saltato ? .5 : 1,
-                                  boxShadow: touchOverCardId === a.id ? "inset 0 3px 0 #2563eb, 0 0 8px rgba(37,99,235,.5)" : "none",
+                                  boxShadow: dropIndicator(a.id),
                                 } as React.CSSProperties}>
                                   <div style={{ display: "flex", alignItems: "flex-start", gap: 7 }}>
                                     <input
