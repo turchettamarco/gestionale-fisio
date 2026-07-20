@@ -193,7 +193,7 @@ const DW_HOUR_PX  = 44;   // altezza di 1 ora
 const DW_H_START  = 7;    // prima ora visibile
 const DW_H_END    = 20;   // ultima ora visibile
 const DW_GUTTER   = 24;   // colonna orari a sinistra
-const DW_SNAP_MIN = 30;   // snap del drag
+const DW_SNAP_MIN = 60;   // snap del drag: uno slot da 1 ora
 const DW_SLOT_MIN = 60;   // durata visiva di un accesso: 1 ora piena
 const DW_BASE_MIN = (8 - DW_H_START) * 60; // 08:00: da qui partono gli accessi senza orario
 
@@ -842,31 +842,80 @@ function DomiciliInner() {
   // Sabato attivabile/disattivabile come nel calendario
   const dwDays = useMemo(() => showSabDw ? weekDays : weekDays.slice(0, 5), [weekDays, showSabDw]);
 
-  // Posizione verticale (minuti da DW_H_START) di ogni accesso del giorno.
-  // Chi ha un orario sta al suo orario; chi non ce l'ha prende il primo slot
-  // da 30' libero dalle 08:00 in poi, seguendo la scaletta. Mai sovrapposti.
+  // La giornata è una pila di slot da 1 ora (7…19). Ogni accesso ne occupa uno
+  // solo: MAI due accessi sovrapposti. Priorità a chi ha un orario impostato;
+  // chi non ce l'ha riempie gli slot liberi dalle 08:00 in poi.
+  const DW_MAX_SLOT = DW_H_END - DW_H_START - 1;
+
+  const slotOfOrario = useCallback((orario: string | null | undefined) => {
+    if (!orario) return null;
+    const s = Math.floor((hhmmToMin(orario) - DW_H_START * 60) / 60);
+    return Math.max(0, Math.min(DW_MAX_SLOT, s));
+  }, [DW_MAX_SLOT]);
+
+  // Slot già occupati da accessi CON orario in un dato giorno
+  const takenSlots = useCallback((dayISO: string, exceptId?: string) => {
+    const set = new Set<number>();
+    rangeAccesses.forEach(a => {
+      if (a.data !== dayISO || a.id === exceptId) return;
+      const s = slotOfOrario(a.orario);
+      if (s !== null) set.add(s);
+    });
+    return set;
+  }, [rangeAccesses, slotOfOrario]);
+
+  // Primo slot libero a partire da quello desiderato (prima sotto, poi sopra)
+  const firstFreeSlot = useCallback((dayISO: string, desired: number, exceptId?: string) => {
+    const taken = takenSlots(dayISO, exceptId);
+    for (let s = desired; s <= DW_MAX_SLOT; s++) if (!taken.has(s)) return s;
+    for (let s = desired - 1; s >= 0; s--) if (!taken.has(s)) return s;
+    return desired;
+  }, [takenSlots, DW_MAX_SLOT]);
+
   const layoutDay = useCallback((list: CoopAccess[]) => {
-    const maxSlot = ((DW_H_END - DW_H_START) * 60) / DW_SLOT_MIN;
     const res = new Map<string, number>();
     const taken = new Set<number>();
-    list.forEach(a => {
-      if (!a.orario) return;
-      // chi ha un orario resta al minuto esatto (08:45 sta alle 08:45)
-      const min = Math.max(0, Math.min((DW_H_END - DW_H_START) * 60 - DW_SLOT_MIN,
-        hhmmToMin(a.orario) - DW_H_START * 60));
-      res.set(a.id, min);
-      taken.add(Math.floor(min / DW_SLOT_MIN));
+    // 1) prima chi ha l'orario: si prende il suo slot
+    const timed = list.filter(a => a.orario)
+      .sort((a, b) => hhmmToMin(a.orario!) - hhmmToMin(b.orario!));
+    timed.forEach(a => {
+      let s = slotOfOrario(a.orario)!;
+      while (taken.has(s) && s < DW_MAX_SLOT) s++;      // difesa: mai sovrapposti
+      while (taken.has(s) && s > 0) s--;
+      res.set(a.id, s * 60);
+      taken.add(s);
     });
-    let slot = DW_BASE_MIN / DW_SLOT_MIN;
+    // 2) poi chi non ce l'ha, negli slot rimasti liberi dalle 08:00
+    let slot = DW_BASE_MIN / 60;
     list.forEach(a => {
       if (a.orario) return;
-      while (taken.has(slot) && slot < maxSlot - 1) slot++;
-      res.set(a.id, slot * DW_SLOT_MIN);
+      while (taken.has(slot) && slot < DW_MAX_SLOT) slot++;
+      res.set(a.id, slot * 60);
       taken.add(slot);
       slot++;
     });
     return res;
-  }, []);
+  }, [slotOfOrario, DW_MAX_SLOT]);
+
+  // Propaga l'orario agli altri accessi dello stesso paziente (da oggi in poi):
+  // Marco va sempre alla stessa ora dallo stesso paziente.
+  const propagateOrario = async (patientId: string, orario: string, exceptId: string) => {
+    const slot = slotOfOrario(orario);
+    if (slot === null) return 0;
+    const ids: string[] = [];
+    rangeAccesses.forEach(x => {
+      if (x.coop_patient_id !== patientId || x.id === exceptId) return;
+      if (x.data < todayISO || x.stato !== "pianificato") return;
+      if ((x.orario || "").slice(0, 5) === orario) return;
+      if (takenSlots(x.data, x.id).has(slot)) return;   // in quel giorno lo slot è preso
+      ids.push(x.id);
+    });
+    if (!ids.length) return 0;
+    setRangeAccesses(prev => prev.map(x => ids.includes(x.id) ? { ...x, orario } : x));
+    await Promise.all(ids.map(id =>
+      supabase.from("coop_accesses").update({ orario }).eq("id", id)));
+    return ids.length;
+  };
 
   // Coordinate schermo → { colonna giorno, minuti dall'inizio griglia }
   const dwResolve = useCallback((x: number, topY: number) => {
@@ -886,8 +935,12 @@ function DomiciliInner() {
   const moveAccessToSlot = async (accessId: string, newDayISO: string, startMin: number) => {
     const a = rangeAccesses.find(x => x.id === accessId);
     if (!a) return;
-    const tot = DW_H_START * 60 + startMin;
+    // mai due accessi sullo stesso slot: se è occupato, scalo al primo libero
+    const desired = Math.floor(startMin / 60);
+    const slot = firstFreeSlot(newDayISO, desired, accessId);
+    const tot = (DW_H_START + slot) * 60;
     const orario = minToHHMM(tot);
+    const shifted = slot !== desired;
     const fromISO = a.data;
     if (fromISO === newDayISO && (a.orario || "").slice(0, 5) === orario) return;
 
@@ -911,7 +964,12 @@ function DomiciliInner() {
     ].sort((p2, q2) => p2.min - q2.min).map(x => x.id);
     await Promise.all(ordered.map((id, i) =>
       supabase.from("coop_accesses").update({ ordine: i }).eq("id", id)));
-    notify.success("Accesso spostato");
+
+    // stesso paziente, stessa ora anche negli altri giorni
+    const n = await propagateOrario(a.coop_patient_id, orario, accessId);
+    if (shifted) notify.warning(`Slot occupato: spostato alle ${orario}`);
+    else if (n > 0) notify.success(`Spostato · ${orario} anche su altri ${n} giorni`);
+    else notify.success("Accesso spostato");
   };
 
   const dwPaintBadge = (ghostLeft: number, ghostTop: number, dayIdx: number, startMin: number) => {
@@ -1143,10 +1201,23 @@ function DomiciliInner() {
   };
 
   const updateOrario = async (a: CoopAccess, time: string) => {
-    const orario = time || null;
+    if (!time) {
+      patchLocal(a.id, { orario: null });
+      const { error } = await supabase.from("coop_accesses").update({ orario: null }).eq("id", a.id);
+      if (error) { notify.error("Errore salvataggio"); refreshAll(); }
+      return;
+    }
+    // stessa regola del drag: mai due accessi sullo stesso slot
+    const desired = slotOfOrario(time);
+    const slot = firstFreeSlot(a.data, desired ?? 0, a.id);
+    const orario = minToHHMM((DW_H_START + slot) * 60);
+    const shifted = desired !== null && slot !== desired;
     patchLocal(a.id, { orario });
     const { error } = await supabase.from("coop_accesses").update({ orario }).eq("id", a.id);
-    if (error) { notify.error("Errore salvataggio"); refreshAll(); }
+    if (error) { notify.error("Errore salvataggio"); refreshAll(); return; }
+    const n = await propagateOrario(a.coop_patient_id, orario, a.id);
+    if (shifted) notify.warning(`Slot occupato: impostato alle ${orario}`);
+    else if (n > 0) notify.success(`${orario} applicato anche su altri ${n} giorni`);
   };
 
   const removeAccess = async (a: CoopAccess) => {
