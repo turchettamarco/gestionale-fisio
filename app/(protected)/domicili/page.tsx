@@ -188,6 +188,23 @@ export default function DomiciliPage() {
   );
 }
 
+/* ─── Griglia settimana mobile (stessa resa del calendario pazienti) ─── */
+const DW_HOUR_PX  = 44;   // altezza di 1 ora
+const DW_H_START  = 7;    // prima ora visibile
+const DW_H_END    = 20;   // ultima ora visibile
+const DW_GUTTER   = 24;   // colonna orari a sinistra
+const DW_SNAP_MIN = 30;   // snap del drag
+const DW_SLOT_MIN = 30;   // durata visiva di un accesso
+const DW_BASE_MIN = (8 - DW_H_START) * 60; // 08:00: da qui partono gli accessi senza orario
+
+function hhmmToMin(s: string): number {
+  const [h, m] = s.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+function minToHHMM(total: number): string {
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
 function DomiciliInner() {
   const isMobile = useIsMobile();
   const { studio } = useCurrentStudio();
@@ -806,6 +823,250 @@ function DomiciliInner() {
     document.body.style.userSelect = "";
   }, []);
 
+  /* ═══ Vista settimana mobile a griglia oraria ═══════════════════════════
+     Stessa resa e stesso drag della settimana nel calendario pazienti.
+     Chi ha un orario sta al suo orario; chi non ce l'ha occupa il primo
+     slot da 30' libero a partire dalle 08:00, seguendo la scaletta.      */
+  const dwGridRef = useRef<HTMLDivElement | null>(null);
+  const dwDragRef = useRef<{
+    accessId: string; fromISO: string;
+    startX: number; startY: number;
+    activated: boolean; viaTouch: boolean;
+    cardEl: HTMLElement | null; timer: any;
+    dayIdx: number | null; startMin: number | null;
+  } | null>(null);
+  const [dwDragId, setDwDragId] = useState<string | null>(null);
+  const [dwOver, setDwOver] = useState<{ dayIdx: number; startMin: number } | null>(null);
+
+  // Posizione verticale (minuti da DW_H_START) di ogni accesso del giorno
+  const layoutDay = useCallback((list: CoopAccess[]) => {
+    const maxSlot = ((DW_H_END - DW_H_START) * 60) / DW_SLOT_MIN;
+    const res = new Map<string, number>();
+    const taken = new Set<number>();
+    list.forEach(a => {
+      if (!a.orario) return;
+      const min = Math.max(0, Math.min((DW_H_END - DW_H_START) * 60 - DW_SLOT_MIN,
+        hhmmToMin(a.orario) - DW_H_START * 60));
+      res.set(a.id, min);
+      taken.add(Math.floor(min / DW_SLOT_MIN));
+    });
+    let slot = DW_BASE_MIN / DW_SLOT_MIN;
+    list.forEach(a => {
+      if (a.orario) return;
+      while (taken.has(slot) && slot < maxSlot - 1) slot++;
+      res.set(a.id, slot * DW_SLOT_MIN);
+      taken.add(slot);
+      slot++;
+    });
+    return res;
+  }, []);
+
+  // Coordinate schermo → { colonna giorno, minuti dall'inizio griglia }
+  const dwResolve = useCallback((x: number, topY: number) => {
+    const grid = dwGridRef.current; if (!grid) return null;
+    const r = grid.getBoundingClientRect();
+    const colW = (r.width - DW_GUTTER) / 6;
+    if (colW <= 0) return null;
+    const dayIdx = Math.max(0, Math.min(5, Math.floor((x - r.left - DW_GUTTER) / colW)));
+    const rawMin = ((topY - r.top) / DW_HOUR_PX) * 60;
+    const maxMin = (DW_H_END - DW_H_START) * 60 - DW_SLOT_MIN;
+    const startMin = Math.max(0, Math.min(maxMin, Math.round(rawMin / DW_SNAP_MIN) * DW_SNAP_MIN));
+    return { dayIdx, startMin };
+  }, []);
+
+  // Sposta un accesso nello slot indicato: data + orario, poi riallinea la scaletta
+  const moveAccessToSlot = async (accessId: string, newDayISO: string, startMin: number) => {
+    const a = rangeAccesses.find(x => x.id === accessId);
+    if (!a) return;
+    const tot = DW_H_START * 60 + startMin;
+    const orario = minToHHMM(tot);
+    const fromISO = a.data;
+    if (fromISO === newDayISO && (a.orario || "").slice(0, 5) === orario) return;
+
+    setRangeAccesses(prev => prev.map(x => x.id === accessId ? { ...x, data: newDayISO, orario } : x));
+    if (fromISO !== newDayISO) {
+      patchLite(a.coop_patient_id, fromISO, null);
+      patchLite(a.coop_patient_id, newDayISO, a.stato);
+    }
+    const { error } = await supabase.from("coop_accesses")
+      .update({ data: newDayISO, orario }).eq("id", accessId);
+    if (error) {
+      if ((error as any).code === "23505") notify.warning("Questo paziente ha già un accesso in quel giorno");
+      else notify.error("Errore spostamento");
+      refreshAll();
+      return;
+    }
+    // scaletta del giorno di destinazione riordinata cronologicamente
+    const ordered = [
+      ...(accByDay.get(newDayISO) || []).filter(x => x.id !== accessId)
+        .map(x => ({ id: x.id, min: x.orario ? hhmmToMin(x.orario) : 9999 })),
+      { id: accessId, min: tot },
+    ].sort((p, q) => p.min - q.min).map(x => x.id);
+    await Promise.all(ordered.map((id, i) =>
+      supabase.from("coop_accesses").update({ ordine: i }).eq("id", id)));
+    notify.success("Accesso spostato");
+  };
+
+  const dwPaintBadge = (ghostLeft: number, ghostTop: number, dayIdx: number, startMin: number) => {
+    const b = dragBadgeRef.current; if (!b) return;
+    const d = weekDays[dayIdx];
+    const dow = d ? DOW_LABELS[(d.getDay() === 0 ? 7 : d.getDay())] || "" : "";
+    const text = `${dow} ${d ? d.getDate() : ""} ${minToHHMM(DW_H_START * 60 + startMin)}`;
+    if (b.textContent !== text) b.textContent = text;
+    b.style.left = `${Math.max(6, Math.min(ghostLeft, window.innerWidth - 110))}px`;
+    b.style.top = `${ghostTop > 42 ? ghostTop - 30 : ghostTop + 8}px`;
+  };
+
+  const dwActivate = () => {
+    const st = dwDragRef.current;
+    if (!st || st.activated || !st.cardEl) return;
+    st.activated = true;
+    setDwDragId(st.accessId);
+    const rect = st.cardEl.getBoundingClientRect();
+    grabOffsetRef.current = { dx: st.startX - rect.left, dy: st.startY - rect.top };
+    const clone = st.cardEl.cloneNode(true) as HTMLElement;
+    clone.style.position = "fixed";
+    clone.style.left = `${rect.left}px`;
+    clone.style.top = `${rect.top}px`;
+    clone.style.width = `${rect.width}px`;
+    clone.style.height = `${rect.height}px`;
+    clone.style.margin = "0";
+    clone.style.zIndex = "3000";
+    clone.style.pointerEvents = "none";
+    clone.style.opacity = "0.96";
+    clone.style.background = "#fff";
+    clone.style.boxShadow = "0 14px 34px rgba(15,23,42,0.32)";
+    clone.style.transform = "scale(1.08)";
+    document.body.appendChild(clone);
+    ghostElRef.current = clone;
+
+    const badge = document.createElement("div");
+    badge.style.position = "fixed";
+    badge.style.zIndex = "3001";
+    badge.style.pointerEvents = "none";
+    badge.style.background = "#ffffff";
+    badge.style.border = "1px solid #cbd5e1";
+    badge.style.borderRadius = "8px";
+    badge.style.padding = "3px 8px";
+    badge.style.fontSize = "11px";
+    badge.style.fontWeight = "700";
+    badge.style.whiteSpace = "nowrap";
+    badge.style.color = "#334155";
+    badge.style.boxShadow = "0 2px 8px rgba(15,23,42,0.12)";
+    document.body.appendChild(badge);
+    dragBadgeRef.current = badge;
+
+    if (st.viaTouch) {
+      const blocker = (ev: TouchEvent) => { ev.preventDefault(); };
+      document.addEventListener("touchmove", blocker, { passive: false });
+      touchBlockerRef.current = blocker;
+      try { (navigator as any).vibrate?.(18); } catch {}
+    } else {
+      document.body.style.userSelect = "none";
+    }
+    const res = dwResolve(st.startX, st.startY - grabOffsetRef.current.dy);
+    if (res) { st.dayIdx = res.dayIdx; st.startMin = res.startMin; setDwOver(res); dwPaintBadge(rect.left, st.startY - grabOffsetRef.current.dy, res.dayIdx, res.startMin); }
+  };
+
+  const dwMoveTo = (x: number, y: number) => {
+    const st = dwDragRef.current; if (!st?.activated) return;
+    lastPtRef.current = { x, y };
+    const gLeft = x - grabOffsetRef.current.dx;
+    const gTop = y - grabOffsetRef.current.dy;
+    const g = ghostElRef.current;
+    if (g) { g.style.left = `${gLeft}px`; g.style.top = `${gTop}px`; }
+    const res = dwResolve(x, gTop);
+    if (res) {
+      dwPaintBadge(gLeft, gTop, res.dayIdx, res.startMin);
+      if (res.dayIdx !== st.dayIdx || res.startMin !== st.startMin) {
+        const dayChanged = res.dayIdx !== st.dayIdx;
+        st.dayIdx = res.dayIdx; st.startMin = res.startMin;
+        setDwOver(res);
+        if (dayChanged) { try { (navigator as any).vibrate?.(8); } catch {} }
+      }
+    }
+    const EDGE = 80, SPEED = 10;
+    if (y >= EDGE && y <= window.innerHeight - EDGE) { stopAutoScroll(); return; }
+    if (autoScrollRef.current !== null) return;
+    const step = () => {
+      const s = dwDragRef.current;
+      if (!s?.activated) { autoScrollRef.current = null; return; }
+      const p = lastPtRef.current;
+      const dir = p.y < EDGE ? -1 : p.y > window.innerHeight - EDGE ? 1 : 0;
+      if (dir === 0) { autoScrollRef.current = null; return; }
+      window.scrollBy(0, dir * SPEED);
+      dwMoveTo(p.x, p.y);
+      if (autoScrollRef.current === null) return;
+      autoScrollRef.current = requestAnimationFrame(step);
+    };
+    autoScrollRef.current = requestAnimationFrame(step);
+  };
+
+  const dwFinish = (commit: boolean) => {
+    const st = dwDragRef.current; dwDragRef.current = null;
+    if (st?.timer) clearTimeout(st.timer);
+    stopAutoScroll();
+    clearTouchGhost();
+    if (touchBlockerRef.current) { document.removeEventListener("touchmove", touchBlockerRef.current); touchBlockerRef.current = null; }
+    document.body.style.userSelect = "";
+    setDwDragId(null); setDwOver(null);
+    if (!st?.activated) return;
+    suppressClickRef.current = true;
+    setTimeout(() => { suppressClickRef.current = false; }, 420);
+    if (!commit || st.dayIdx === null || st.startMin === null) return;
+    const targetISO = localISO(weekDays[st.dayIdx]);
+    try { (navigator as any).vibrate?.(24); } catch {}
+    moveAccessToSlot(st.accessId, targetISO, st.startMin);
+  };
+
+  const dwDragHandlers = (a: CoopAccess) => ({
+    onTouchStart: (e: React.TouchEvent) => {
+      const t = e.touches[0];
+      dwDragRef.current = {
+        accessId: a.id, fromISO: a.data,
+        startX: t.clientX, startY: t.clientY,
+        activated: false, viaTouch: true, cardEl: e.currentTarget as HTMLElement,
+        dayIdx: null, startMin: null, timer: setTimeout(dwActivate, 260),
+      };
+    },
+    onTouchMove: (e: React.TouchEvent) => {
+      const st = dwDragRef.current; if (!st || !st.viaTouch) return;
+      const t = e.touches[0];
+      if (!st.activated) {
+        if (Math.abs(t.clientX - st.startX) > 8 || Math.abs(t.clientY - st.startY) > 8) {
+          if (st.timer) clearTimeout(st.timer);
+          dwDragRef.current = null;
+        }
+        return;
+      }
+      dwMoveTo(t.clientX, t.clientY);
+    },
+    onTouchEnd: () => dwFinish(true),
+    onTouchCancel: () => dwFinish(false),
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.pointerType !== "mouse" || e.button !== 0) return;
+      dwDragRef.current = {
+        accessId: a.id, fromISO: a.data,
+        startX: e.clientX, startY: e.clientY,
+        activated: false, viaTouch: false, cardEl: e.currentTarget as HTMLElement,
+        dayIdx: null, startMin: null, timer: null,
+      };
+      try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      const st = dwDragRef.current; if (!st || st.viaTouch) return;
+      if (!st.activated) {
+        if (Math.abs(e.clientX - st.startX) > 6 || Math.abs(e.clientY - st.startY) > 6) dwActivate();
+        else return;
+      }
+      dwMoveTo(e.clientX, e.clientY);
+    },
+    onPointerUp: () => {
+      const st = dwDragRef.current; if (!st || st.viaTouch) return;
+      dwFinish(true);
+    },
+  });
+
   const accessTouchHandlers = (a: CoopAccess) => ({
     // ── Mobile (touch, long-press) ──
     onTouchStart: (e: React.TouchEvent) => {
@@ -1385,85 +1646,120 @@ function DomiciliInner() {
             )}
 
             {/* ── SETTIMANA: elenco per giorno ── */}
-            {calView === "settimana" && (
-              <div style={{ padding: "0 16px", display: "flex", flexDirection: "column", gap: 12 }}>
-                {weekDays.map((d, i) => {
-                  const iso = localISO(d);
-                  const list = accByDay.get(iso) || [];
-                  const isToday = iso === todayISO;
-                  return (
-                    <div key={iso} data-drop-day={iso} style={{
-                      background: touchOverDay === iso ? "#f1f5f9" : "#fff",
-                      borderRadius: 14,
-                      border: touchOverDay === iso ? "1.5px solid #94a3b8" : `1px ${dragAccessId ? "dashed" : "solid"} ${THEME.borderSoft}`,
-                      overflow: "hidden",
-                      transition: "background .12s ease",
-                    }}>
-                      <button
-                        onClick={() => { if (suppressClickRef.current) return; setAnchor(d); setCalView("giorno"); }}
-                        style={{
-                          width: "100%", display: "flex", alignItems: "center", gap: 8,
-                          padding: "9px 13px", border: "none", cursor: "pointer", textAlign: "left",
-                          background: isToday ? "#f0fdfa" : "#f8fafc",
-                          borderBottom: `1px solid ${THEME.borderSoft}`,
-                        }}>
-                        <span style={{ fontSize: 12, fontWeight: 800, color: isToday ? THEME.tealDark : THEME.text }}>
-                          {DOW_LABELS[i + 1]} {d.getDate()}
-                        </span>
-                        {isToday && <span style={{ fontSize: 9.5, fontWeight: 800, color: THEME.tealDark }}>OGGI</span>}
-                        <span style={{ flex: 1 }} />
-                        <span style={{ fontSize: 11, fontWeight: 700, color: THEME.mutedLight }}>
-                          {list.length > 0 ? `${list.length} accessi` : "—"}
-                        </span>
-                      </button>
-                      {list.map(a => {
-                        const p = patientById.get(a.coop_patient_id);
-                        if (!p) return null;
-                        const coop = coopById.get(p.cooperative_id);
-                        const fatto = a.stato === "fatto";
-                        const saltato = a.stato === "saltato";
+            {calView === "settimana" && (() => {
+              const HOUR_PX = DW_HOUR_PX, H_START = DW_H_START, H_END = DW_H_END;
+              const now = new Date();
+              const totCount = weekDays.reduce((s, d) => s + (accByDay.get(localISO(d)) || []).length, 0);
+              const doneCount = weekDays.reduce((s, d) => s + (accByDay.get(localISO(d)) || []).filter(a => a.stato === "fatto").length, 0);
+              return (
+                <div style={{ padding: "0 16px" }}>
+                  <div style={{ background: "#fff", border: `1px solid ${THEME.borderSoft}`, borderRadius: 12, overflow: "hidden", marginBottom: 10 }}>
+                    {/* Intestazioni giorno: tap → apre il Giorno */}
+                    <div style={{ display: "grid", gridTemplateColumns: `${DW_GUTTER}px repeat(6,1fr)`, borderBottom: `1px solid ${THEME.borderSoft}` }}>
+                      <div />
+                      {weekDays.map((d, i) => {
+                        const iso = localISO(d); const t = iso === todayISO;
                         return (
-                          <div key={a.id}
-                            data-access-card={a.id} data-access-day={a.data}
-                            {...accessTouchHandlers(a)}
-                            onClick={() => { if (suppressClickRef.current) return; setPatientModal({ open: true, patient: p, startWithPhoto: false }); }}
+                          <button key={iso}
+                            onClick={() => { if (suppressClickRef.current) return; setAnchor(d); setCalView("giorno"); }}
                             style={{
-                            display: "flex", alignItems: "center", gap: 9,
-                            padding: "9px 13px", borderBottom: `1px solid #f1f5f9`,
-                            cursor: "pointer",
-                            opacity: dragAccessId === a.id ? .35 : saltato ? .5 : 1,
-                            boxShadow: dropIndicator(a.id),
-                            background: touchOverCardId === a.id ? "#f8fafc" : undefined,
-                            userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
-                          } as React.CSSProperties}>
-                            <span style={{ width: 8, height: 8, borderRadius: "50%", background: coop?.colore || THEME.teal, flexShrink: 0 }} />
-                            <span style={{ fontSize: 13, fontWeight: 700, color: THEME.tealDark, width: 42, flexShrink: 0 }}>{a.orario || "—"}</span>
-                            <span style={{ flex: 1, minWidth: 0 }}>
-                              <span style={{ display: "block", fontSize: 13, fontWeight: 800, color: THEME.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textDecoration: saltato ? "line-through" : "none" }}>
-                                {displayName(`${p.cognome} ${p.nome}`)}
-                              </span>
-                              <span style={{ display: "block", fontSize: 11, fontWeight: 600, color: THEME.mutedLight }}>{p.citta || ""}</span>
-                            </span>
-                            {!saltato && (
-                              <button onClick={e => { e.stopPropagation(); toggleFatto(a); }} style={{
-                                width: 34, height: 34, borderRadius: 9, cursor: "pointer", flexShrink: 0,
-                                border: `1px solid ${fatto ? "#bbf7d0" : THEME.border}`,
-                                background: fatto ? "#dcfce7" : "#fff",
-                                color: fatto ? THEME.green : THEME.mutedLight,
-                                fontSize: 15, fontWeight: 800,
-                              }}>✓</button>
+                              border: "none", cursor: "pointer", textAlign: "center", padding: "5px 0 6px",
+                              background: t ? THEME.teal : "transparent",
+                            }}>
+                            <p style={{ margin: 0, fontSize: 8, fontWeight: 700, letterSpacing: ".04em", color: t ? "rgba(255,255,255,.88)" : THEME.label }}>{DOW_LABELS[i + 1]}</p>
+                            <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: t ? "#fff" : THEME.text }}>{d.getDate()}</p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {/* Corpo 7→20 */}
+                    <div ref={dwGridRef} style={{ display: "grid", gridTemplateColumns: `${DW_GUTTER}px repeat(6,1fr)`, height: (H_END - H_START) * HOUR_PX }}>
+                      <div style={{ position: "relative" }}>
+                        {Array.from({ length: H_END - H_START }, (_, i) => (
+                          i === 0 ? null : (
+                            <span key={i} style={{ position: "absolute", top: i * HOUR_PX, right: 3, transform: "translateY(-50%)", fontSize: 7.5, fontWeight: 700, color: THEME.label }}>{H_START + i}</span>
+                          )
+                        ))}
+                      </div>
+                      {weekDays.map((d, dayIdx) => {
+                        const iso = localISO(d);
+                        const t = iso === todayISO;
+                        const list = accByDay.get(iso) || [];
+                        const pos = layoutDay(list);
+                        const isTarget = dwOver?.dayIdx === dayIdx;
+                        const closed = closedDatesSet.has(iso);
+                        return (
+                          <div key={iso} data-drop-day={iso}
+                            style={{
+                              position: "relative",
+                              borderLeft: `1px solid ${isTarget ? "#94a3b8" : THEME.borderSoft}`,
+                              background: `repeating-linear-gradient(to bottom,${isTarget ? "rgba(100,116,139,0.10)" : closed ? "rgba(239,68,68,0.05)" : t ? "rgba(13,148,136,0.045)" : "transparent"} 0,${isTarget ? "rgba(100,116,139,0.10)" : closed ? "rgba(239,68,68,0.05)" : t ? "rgba(13,148,136,0.045)" : "transparent"} ${HOUR_PX - 1}px,${THEME.borderSoft} ${HOUR_PX - 1}px,${THEME.borderSoft} ${HOUR_PX}px)`,
+                            }}>
+                            {list.map(a => {
+                              const p = patientById.get(a.coop_patient_id);
+                              if (!p) return null;
+                              const coop = coopById.get(p.cooperative_id);
+                              const c = coop?.colore || THEME.teal;
+                              const fatto = a.stato === "fatto";
+                              const saltato = a.stato === "saltato";
+                              const top = (pos.get(a.id) ?? 0) / 60 * HOUR_PX;
+                              const height = Math.max(18, (DW_SLOT_MIN / 60) * HOUR_PX - 2);
+                              return (
+                                <button key={a.id}
+                                  data-access-card={a.id} data-access-day={a.data}
+                                  {...dwDragHandlers(a)}
+                                  onClick={e => { e.stopPropagation(); if (suppressClickRef.current) return; setPatientModal({ open: true, patient: p, startWithPhoto: false }); }}
+                                  style={{
+                                    position: "absolute", top, height, left: 1.5, right: 1.5,
+                                    border: `1px solid ${THEME.borderSoft}`,
+                                    borderLeft: `3px solid ${c}`,
+                                    borderRadius: 6, background: fatto ? "#f6fefa" : "#fff",
+                                    padding: "1px 3px", overflow: "hidden", textAlign: "left",
+                                    cursor: "pointer", display: "flex", alignItems: "center", gap: 3,
+                                    opacity: dwDragId === a.id ? 0.22 : saltato ? 0.5 : 1,
+                                    userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
+                                  } as React.CSSProperties}>
+                                  {a.orario && (
+                                    <span style={{ fontSize: 7.5, fontWeight: 700, color: "#475569", flexShrink: 0 }}>{a.orario.slice(0, 5)}</span>
+                                  )}
+                                  <span style={{
+                                    fontSize: 8.5, fontWeight: 700, color: THEME.text, minWidth: 0,
+                                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                                    textDecoration: saltato ? "line-through" : "none",
+                                  }}>{displayName(`${p.cognome}`)}</span>
+                                  {fatto && <span style={{ fontSize: 8, fontWeight: 700, color: THEME.green, marginLeft: "auto", flexShrink: 0 }}>✓</span>}
+                                </button>
+                              );
+                            })}
+                            {isTarget && dwOver && (
+                              <div style={{
+                                position: "absolute", left: 2, right: 2,
+                                top: (dwOver.startMin / 60) * HOUR_PX,
+                                height: Math.max(18, (DW_SLOT_MIN / 60) * HOUR_PX - 2),
+                                border: "1.5px dashed #94a3b8", borderRadius: 6,
+                                background: "rgba(100,116,139,0.10)", zIndex: 4, pointerEvents: "none",
+                              }} />
                             )}
+                            {t && (() => {
+                              const nh = now.getHours() + now.getMinutes() / 60;
+                              if (nh < H_START || nh > H_END) return null;
+                              return <div style={{ position: "absolute", left: 0, right: 0, top: (nh - H_START) * HOUR_PX, height: 2, background: "#C0392B", zIndex: 2 }} />;
+                            })()}
                           </div>
                         );
                       })}
-                      {list.length === 0 && (
-                        <div style={{ padding: "10px 13px", fontSize: 12, color: THEME.placeholder }}>Nessun accesso</div>
-                      )}
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                    {/* Totali + guida */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", borderTop: `1px solid ${THEME.borderSoft}` }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: THEME.text }}>{totCount} accessi · {doneCount} fatti</span>
+                      <span style={{ marginLeft: "auto", fontSize: 9, color: "#475569", textAlign: "right", lineHeight: 1.3 }}>
+                        tocca il giorno → apre<br />tieni premuto → sposta
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* ── MESE: mini griglia ── */}
             {calView === "mese" && (
