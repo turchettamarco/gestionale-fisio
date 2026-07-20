@@ -838,6 +838,20 @@ function DomiciliInner() {
   const [dwDragId, setDwDragId] = useState<string | null>(null);
   const [dwOver, setDwOver] = useState<{ dayIdx: number; startMin: number } | null>(null);
   const [showSabDw, setShowSabDw] = useState(false);
+  // "Tutti i giorni" = l'ora si propaga agli altri accessi dello stesso paziente.
+  // "Solo questo"   = tocca solo l'accesso che stai spostando.
+  const [propagaOrario, setPropagaOrario] = useState(true);
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem("domicili_propaga_orario");
+      if (v !== null) setPropagaOrario(v === "1");
+    } catch {}
+  }, []);
+  const togglePropaga = () => setPropagaOrario(v => {
+    const n = !v;
+    try { localStorage.setItem("domicili_propaga_orario", n ? "1" : "0"); } catch {}
+    return n;
+  });
 
   // Sabato attivabile/disattivabile come nel calendario
   const dwDays = useMemo(() => showSabDw ? weekDays : weekDays.slice(0, 5), [weekDays, showSabDw]);
@@ -900,6 +914,7 @@ function DomiciliInner() {
   // Propaga l'orario agli altri accessi dello stesso paziente (da oggi in poi):
   // Marco va sempre alla stessa ora dallo stesso paziente.
   const propagateOrario = async (patientId: string, orario: string, exceptId: string) => {
+    if (!propagaOrario) return 0;          // modalità "Solo questo"
     const slot = slotOfOrario(orario);
     if (slot === null) return 0;
     const ids: string[] = [];
@@ -1098,11 +1113,15 @@ function DomiciliInner() {
       const st = dwDragRef.current; if (!st || !st.viaTouch) return;
       const t = e.touches[0];
       if (!st.activated) {
+        // la card ha touchAction:none, quindi muovere il dito NON è mai uno
+        // scroll: è sempre intenzione di spostare → attivo subito il drag
+        // invece di annullarlo (prima partiva il tap e si apriva la modale)
         if (Math.abs(t.clientX - st.startX) > 8 || Math.abs(t.clientY - st.startY) > 8) {
           if (st.timer) clearTimeout(st.timer);
-          dwDragRef.current = null;
+          dwActivate();
+        } else {
+          return;
         }
-        return;
       }
       dwMoveTo(t.clientX, t.clientY);
     },
@@ -1831,7 +1850,15 @@ function DomiciliInner() {
                         color: showSabDw ? THEME.text : "#475569",
                         fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 99, cursor: "pointer", flexShrink: 0,
                       }}>{showSabDw ? "Sab ✓" : "Sab"}</button>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: THEME.text }}>{totCount} accessi · {doneCount} fatti</span>
+                      <button onClick={togglePropaga}
+                        title="Se attivo, l'ora impostata vale anche per gli altri giorni dello stesso paziente"
+                        style={{
+                          border: `1px solid ${THEME.border}`,
+                          background: propagaOrario ? "#f1f5f9" : "#fff",
+                          color: propagaOrario ? THEME.text : "#475569",
+                          fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 99, cursor: "pointer", flexShrink: 0,
+                        }}>{propagaOrario ? "Tutti i giorni ✓" : "Solo questo"}</button>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: THEME.text, marginLeft: "auto" }}>{totCount} · {doneCount} fatti</span>
                     </div>
                   </div>
                 </div>

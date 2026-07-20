@@ -1935,11 +1935,14 @@ function CalendarPageInner() {
         const st = wkDragRef.current; if (!st || !st.viaTouch) return;
         const t = e.touches[0];
         if (!st.activated) {
+          // il blocco ha touchAction:none → muovere non è mai scroll: attivo
+          // subito il drag invece di annullarlo e far partire il tap
           if (Math.abs(t.clientX - st.startX) > 8 || Math.abs(t.clientY - st.startY) > 8) {
             if (st.timer) clearTimeout(st.timer);
-            wkDragRef.current = null;
+            wkActivate();
+          } else {
+            return;
           }
-          return;
         }
         wkMoveTo(t.clientX, t.clientY);
       },
