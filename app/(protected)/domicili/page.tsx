@@ -1592,6 +1592,17 @@ function DomiciliInner() {
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 16px 12px" }}>
               <ViewSwitch value={calView} onChange={setCalView} compact />
+              <button onClick={togglePropaga}
+                title="Se attivo, l'ora che imposti vale anche per gli altri giorni dello stesso paziente"
+                style={{
+                  border: `1px solid ${THEME.border}`,
+                  background: propagaOrario ? "#f1f5f9" : "#fff",
+                  color: propagaOrario ? THEME.text : "#475569",
+                  fontSize: 11, fontWeight: 700, padding: "6px 11px", borderRadius: 99,
+                  cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap",
+                }}>
+                {propagaOrario ? "Ora · tutti i giorni" : "Ora · solo questo"}
+              </button>
               <div style={{ flex: 1 }} />
               <button onClick={goToday} style={{ ...mBtnIcon(), width: "auto", padding: "0 14px", fontSize: 12, fontWeight: 800, color: THEME.tealDark }}>
                 Oggi
@@ -1850,15 +1861,7 @@ function DomiciliInner() {
                         color: showSabDw ? THEME.text : "#475569",
                         fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 99, cursor: "pointer", flexShrink: 0,
                       }}>{showSabDw ? "Sab ✓" : "Sab"}</button>
-                      <button onClick={togglePropaga}
-                        title="Se attivo, l'ora impostata vale anche per gli altri giorni dello stesso paziente"
-                        style={{
-                          border: `1px solid ${THEME.border}`,
-                          background: propagaOrario ? "#f1f5f9" : "#fff",
-                          color: propagaOrario ? THEME.text : "#475569",
-                          fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 99, cursor: "pointer", flexShrink: 0,
-                        }}>{propagaOrario ? "Tutti i giorni ✓" : "Solo questo"}</button>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: THEME.text, marginLeft: "auto" }}>{totCount} · {doneCount} fatti</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: THEME.text }}>{totCount} accessi · {doneCount} fatti</span>
                     </div>
                   </div>
                 </div>
@@ -2072,6 +2075,17 @@ function DomiciliInner() {
                       Oggi
                     </button>
                     <ViewSwitch value={calView} onChange={setCalView} />
+                    <button onClick={togglePropaga}
+                      title="Se attivo, l'ora che imposti vale anche per gli altri giorni dello stesso paziente"
+                      style={{
+                        border: `1px solid ${THEME.border}`,
+                        background: propagaOrario ? "#f1f5f9" : "#fff",
+                        color: propagaOrario ? THEME.text : "#475569",
+                        fontSize: 12, fontWeight: 700, padding: "7px 12px", borderRadius: 99,
+                        cursor: "pointer", whiteSpace: "nowrap",
+                      }}>
+                      {propagaOrario ? "Ora · tutti i giorni" : "Ora · solo questo"}
+                    </button>
                     <div style={{ flex: 1 }} />
                     <Legend />
                   </div>
