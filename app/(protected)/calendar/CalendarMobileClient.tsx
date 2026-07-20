@@ -192,7 +192,7 @@ const WK_HOUR_PX  = 44;   // altezza di 1 ora
 const WK_H_START  = 7;    // prima ora visibile
 const WK_H_END    = 20;   // ultima ora visibile
 const WK_GUTTER   = 24;   // larghezza colonna orari a sinistra
-const WK_SNAP_MIN = 15;   // snap temporale durante il drag
+const WK_SNAP_MIN = 30;   // snap temporale durante il drag (18:00, 18:30, …)
 // Default neutro per il campo "Sede" nel form di creazione.
 // Il valore reale al salvataggio è currentStudio?.name (multi-tenancy).
 const DEFAULT_CLINIC = "Studio";
@@ -407,6 +407,7 @@ function CalendarPageInner() {
   const weekGridRef        = useRef<HTMLDivElement|null>(null);
   const wkDragRef          = useRef<WeekDragState|null>(null);
   const wkGhostRef         = useRef<HTMLElement|null>(null);
+  const wkBadgeRef         = useRef<HTMLElement|null>(null);
   const wkGrabRef          = useRef<{dx:number;dy:number}>({dx:0,dy:0});
   const wkBlockerRef       = useRef<((e:TouchEvent)=>void)|null>(null);
   const wkSuppressClickRef = useRef(false);
@@ -1742,10 +1743,32 @@ function CalendarPageInner() {
   /* ── Drag cross-giorno (vista settimana) ─────────────────────────────
      Long-press ~260ms su un appuntamento → il blocco "si stacca" e segue
      il dito su tutta la griglia: cambia giorno (asse X) e ora (asse Y),
-     con snap a 15 minuti e anteprima live della destinazione.          */
+     con snap a 30 minuti e anteprima live della destinazione.          */
   const wkClearGhost = useCallback(() => {
     if (wkGhostRef.current) { wkGhostRef.current.remove(); wkGhostRef.current = null; }
+    if (wkBadgeRef.current) { wkBadgeRef.current.remove(); wkBadgeRef.current = null; }
   }, []);
+
+  // Etichetta compatta "Mer 18:30" per il badge che segue il dito
+  const wkSlotLabel = useCallback((dayIdx:number, startMin:number) => {
+    const { mon } = weekRange(currentDate);
+    const d = new Date(mon); d.setDate(d.getDate() + dayIdx);
+    const tot = WK_H_START * 60 + startMin;
+    const hh = String(Math.floor(tot / 60)).padStart(2, "0");
+    const mm = String(tot % 60).padStart(2, "0");
+    return `${formatWeekdayShort(d)} ${hh}:${mm}`;
+  }, [weekRange, currentDate]);
+
+  // Riposiziona/aggiorna il badge orario (DOM diretto: zero re-render, massima fluidità)
+  const wkPaintBadge = useCallback((ghostLeft:number, ghostTop:number, dayIdx:number, startMin:number) => {
+    const b = wkBadgeRef.current; if (!b) return;
+    const text = wkSlotLabel(dayIdx, startMin);
+    if (b.textContent !== text) b.textContent = text;
+    // sopra al blocco; se non c'è spazio in alto, sotto al dito
+    const above = ghostTop > 42;
+    b.style.left = `${clamp(ghostLeft, 6, window.innerWidth - 96)}px`;
+    b.style.top  = `${above ? ghostTop - 30 : ghostTop + 8}px`;
+  }, [wkSlotLabel]);
 
   // Da coordinate schermo → { colonna giorno, minuti dall'inizio griglia }
   const wkResolve = useCallback((x:number, topY:number, durMin:number) => {
@@ -1784,6 +1807,24 @@ function CalendarPageInner() {
     clone.style.transition = "none";
     document.body.appendChild(clone);
     wkGhostRef.current = clone;
+    // Badge orario: piccolo, neutro, sopra al blocco. Non copre la griglia.
+    const badge = document.createElement("div");
+    badge.style.position = "fixed";
+    badge.style.zIndex = "3001";
+    badge.style.pointerEvents = "none";
+    badge.style.background = "#ffffff";
+    badge.style.border = "1px solid #cbd5e1";
+    badge.style.borderRadius = "8px";
+    badge.style.padding = "3px 8px";
+    badge.style.fontSize = "11px";
+    badge.style.fontWeight = "700";
+    badge.style.lineHeight = "1.2";
+    badge.style.whiteSpace = "nowrap";
+    badge.style.color = "#334155";
+    badge.style.boxShadow = "0 2px 8px rgba(15,23,42,0.12)";
+    badge.style.transition = "none";
+    document.body.appendChild(badge);
+    wkBadgeRef.current = badge;
     if (st.viaTouch) {
       // blocca lo scroll della pagina (il listener di React è passive)
       const blocker = (e: TouchEvent) => { e.preventDefault(); };
@@ -1794,8 +1835,12 @@ function CalendarPageInner() {
       document.body.style.userSelect = "none";
     }
     const res = wkResolve(st.startX, st.startY - wkGrabRef.current.dy, st.durMin);
-    if (res) { st.dayIdx = res.dayIdx; st.startMin = res.startMin; setWkDragOver({ ...res, durMin: st.durMin }); }
-  }, [wkResolve]);
+    if (res) {
+      st.dayIdx = res.dayIdx; st.startMin = res.startMin;
+      setWkDragOver({ ...res, durMin: st.durMin });
+      wkPaintBadge(rect.left, st.startY - wkGrabRef.current.dy, res.dayIdx, res.startMin);
+    }
+  }, [wkResolve, wkPaintBadge]);
 
   const wkStopAutoScroll = useCallback(() => {
     if (wkAutoScrollRef.current !== null) { cancelAnimationFrame(wkAutoScrollRef.current); wkAutoScrollRef.current = null; }
@@ -1804,13 +1849,16 @@ function CalendarPageInner() {
   const wkMoveTo = useCallback((x:number, y:number) => {
     const st = wkDragRef.current; if (!st?.activated) return;
     wkLastPtRef.current = { x, y };
+    const gLeft = x - wkGrabRef.current.dx;
+    const gTop  = y - wkGrabRef.current.dy;
     const g = wkGhostRef.current;
     if (g) {
-      g.style.left = `${x - wkGrabRef.current.dx}px`;
-      g.style.top  = `${y - wkGrabRef.current.dy}px`;
+      g.style.left = `${gLeft}px`;
+      g.style.top  = `${gTop}px`;
     }
-    const res = wkResolve(x, y - wkGrabRef.current.dy, st.durMin);
+    const res = wkResolve(x, gTop, st.durMin);
     if (!res) return;
+    wkPaintBadge(gLeft, gTop, res.dayIdx, res.startMin);
     if (res.dayIdx !== st.dayIdx || res.startMin !== st.startMin) {
       const dayChanged = res.dayIdx !== st.dayIdx;
       st.dayIdx = res.dayIdx; st.startMin = res.startMin;
@@ -1833,7 +1881,7 @@ function CalendarPageInner() {
       wkAutoScrollRef.current = requestAnimationFrame(step);
     };
     wkAutoScrollRef.current = requestAnimationFrame(step);
-  }, [wkResolve, wkStopAutoScroll]);
+  }, [wkResolve, wkPaintBadge, wkStopAutoScroll]);
 
   const wkMoveToRef = useRef(wkMoveTo);
   useEffect(() => { wkMoveToRef.current = wkMoveTo; }, [wkMoveTo]);
@@ -1865,6 +1913,7 @@ function CalendarPageInner() {
   // Cleanup difensivo: se il componente smonta a drag attivo
   useEffect(() => () => {
     if (wkGhostRef.current) { wkGhostRef.current.remove(); wkGhostRef.current = null; }
+    if (wkBadgeRef.current) { wkBadgeRef.current.remove(); wkBadgeRef.current = null; }
     if (wkBlockerRef.current) { document.removeEventListener("touchmove", wkBlockerRef.current); wkBlockerRef.current = null; }
     if (wkAutoScrollRef.current !== null) { cancelAnimationFrame(wkAutoScrollRef.current); wkAutoScrollRef.current = null; }
     document.body.style.userSelect = "";
@@ -2668,17 +2717,12 @@ function CalendarPageInner() {
                             });
                           })()}
                           {isDropTarget&&wkDragOver&&(()=>{
-                            const tot = H_START*60 + wkDragOver.startMin;
-                            const hh = String(Math.floor(tot/60)).padStart(2,"0");
-                            const mm = String(tot%60).padStart(2,"0");
                             const pTop = (wkDragOver.startMin/60)*HOUR_PX;
                             const pH   = Math.max(18,(wkDragOver.durMin/60)*HOUR_PX-2);
                             return (
                               <div style={{position:"absolute",top:pTop,height:pH,left:2,right:2,
-                                border:"1.5px dashed #64748b",borderRadius:6,background:"rgba(100,116,139,0.12)",
-                                zIndex:4,pointerEvents:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                                <span style={{fontSize:9,fontWeight:700,color:"#334155"}}>{hh}:{mm}</span>
-                              </div>
+                                border:"1.5px dashed #94a3b8",borderRadius:6,background:"rgba(100,116,139,0.10)",
+                                zIndex:4,pointerEvents:"none"}} />
                             );
                           })()}
                           {t&&(()=>{ const nh=now.getHours()+now.getMinutes()/60; if(nh<H_START||nh>H_END) return null; return (
@@ -2699,7 +2743,7 @@ function CalendarPageInner() {
                   }}>{showSaturday?"Sab ✓":"Sab"}</button>
                   <span style={{fontSize:10,fontWeight:800,color:THEME.text}}>{totCount} sedute · €{Math.round(totRev)}</span>
                   <span style={{marginLeft:"auto",fontSize:9,color:"#475569",paddingRight:2,textAlign:"right",lineHeight:1.3}}>
-                    spazio vuoto → nuova<br/>tieni premuto → sposta
+                    spazio vuoto → nuova<br/>tieni premuto → sposta (30 min)
                   </span>
                 </div>
               </div>
