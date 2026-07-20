@@ -1643,6 +1643,10 @@ function DomiciliInner() {
                               const c = coop?.colore || THEME.teal;
                               const saltato = a.stato === "saltato";
                               const shift = isTarget && dwOver && i >= dwOver.idx ? DW_ROW_H : 0;
+                              // il cognome deve entrare INTERO: va a capo su 2 righe
+                              // e il corpo si riduce quanto serve
+                              const cognome = displayName(`${p.cognome}`);
+                              const fs = cognome.length <= 9 ? 12 : cognome.length <= 13 ? 11 : cognome.length <= 18 ? 10 : 9;
                               return (
                                 <button key={a.id}
                                   data-access-card={a.id} data-access-day={a.data}
@@ -1652,17 +1656,19 @@ function DomiciliInner() {
                                     position: "absolute", top: DW_TOP_PX + i * DW_ROW_H + shift,
                                     height: DW_ROW_H - 2, left: 1.5, right: 1.5,
                                     border: `1.5px solid ${c}`, borderRadius: 6, background: `${c}12`,
-                                    padding: "0 7px", overflow: "hidden", textAlign: "left",
-                                    cursor: "pointer", display: "block",
+                                    padding: "0 5px", overflow: "hidden", textAlign: "left",
+                                    cursor: "pointer", display: "flex", alignItems: "center",
                                     opacity: saltato ? 0.5 : 1,
                                     transition: "top .12s ease",
                                     userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
                                   } as React.CSSProperties}>
                                   <span style={{
-                                    display: "block", fontSize: 12, fontWeight: 700, lineHeight: `${DW_ROW_H - 4}px`,
-                                    color: THEME.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                                    display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+                                    fontSize: fs, fontWeight: 700, lineHeight: 1.12,
+                                    color: THEME.text, overflow: "hidden",
+                                    whiteSpace: "normal", overflowWrap: "anywhere", hyphens: "auto",
                                     textDecoration: saltato ? "line-through" : "none",
-                                  }}>{displayName(`${p.cognome}`)}</span>
+                                  } as React.CSSProperties}>{cognome}</span>
                                 </button>
                               );
                             })}
