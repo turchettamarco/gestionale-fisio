@@ -840,6 +840,61 @@ function DomiciliInner() {
   const [dwDragId, setDwDragId] = useState<string | null>(null);
   const [dwOver, setDwOver] = useState<{ dayIdx: number; startMin: number } | null>(null);
   const [showSabDw, setShowSabDw] = useState(false);
+  // ── Sovrapposizione agenda studio ────────────────────────────────────────
+  // Mostra in trasparenza gli appuntamenti del calendario normale, per vedere
+  // se un accesso a domicilio si accavalla con una seduta in studio.
+  // Parte sempre spento e NON viene persistito.
+  const [showStudio, setShowStudio] = useState(false);
+  const [studioAppts, setStudioAppts] = useState<{
+    id: string; data: string; from: number; to: number; nome: string;
+  }[]>([]);
+
+  useEffect(() => {
+    if (!showStudio || !studioId) { setStudioAppts([]); return; }
+    let annullato = false;
+    (async () => {
+      const { from, to } = viewRange(calView, anchor);
+      const dal = new Date(from); dal.setHours(0, 0, 0, 0);
+      const al = new Date(to); al.setHours(23, 59, 59, 999);
+      const { data, error } = await supabase.from("appointments")
+        .select("id, start_at, end_at, status, patients:patient_id(first_name, last_name)")
+        .eq("studio_id", studioId)
+        .gte("start_at", dal.toISOString())
+        .lte("start_at", al.toISOString())
+        .neq("status", "cancelled");
+      if (annullato || error || !data) return;
+      setStudioAppts(data.map(a => {
+        const st = new Date(a.start_at as string);
+        const en = new Date(a.end_at as string);
+        const pt = a.patients as unknown as { first_name?: string; last_name?: string } | null;
+        const full = `${pt?.last_name ?? ""} ${pt?.first_name ?? ""}`.trim();
+        return {
+          id: a.id as string,
+          data: localISO(st),
+          from: st.getHours() * 60 + st.getMinutes(),
+          to: en.getHours() * 60 + en.getMinutes(),
+          nome: full ? displayName(full) : "Studio",
+        };
+      }));
+    })();
+    return () => { annullato = true; };
+  }, [showStudio, studioId, calView, anchor, displayName]);
+
+  const studioByDay = useMemo(() => {
+    const m = new Map<string, typeof studioAppts>();
+    studioAppts.forEach(a => { const arr = m.get(a.data) || []; arr.push(a); m.set(a.data, arr); });
+    m.forEach(arr => arr.sort((x, y) => x.from - y.from));
+    return m;
+  }, [studioAppts]);
+
+  // Conflitti: solo per accessi CON orario. Quelli senza orario stanno in slot
+  // riempiti d'ufficio dalle 08:00, quindi segnalarli darebbe falsi allarmi.
+  const studioConflicts = useCallback((dayISO: string, orario: string | null | undefined) => {
+    if (!showStudio || !orario) return [];
+    const s = hhmmToMin(orario), e = s + 60;
+    return (studioByDay.get(dayISO) || []).filter(x => x.from < e && x.to > s);
+  }, [showStudio, studioByDay]);
+
   // Mese: pannello inferiore col dettaglio del giorno toccato (mobile)
   const [monthSheetDay, setMonthSheetDay] = useState<string | null>(null);
   // Mese desktop: di default tutti gli accessi in colonna; "Vista compatta"
@@ -1743,6 +1798,12 @@ function DomiciliInner() {
                           </div>
                           <div style={{ textAlign: "right" }}>
                             <div style={{ fontSize: 14, fontWeight: 700, color: THEME.tealDark }}>{a.orario || "—"}</div>
+                            {studioConflicts(a.data, a.orario).length > 0 && (
+                              <div style={{ fontSize: 9.5, fontWeight: 700, color: THEME.red, whiteSpace: "nowrap" }}
+                                title={studioConflicts(a.data, a.orario).map(x => `${minToHHMM(x.from)} ${x.nome}`).join(", ")}>
+                                ⚠ studio
+                              </div>
+                            )}
                             <div style={{ fontSize: 10.5, fontWeight: 700, color: saltato ? THEME.red : THEME.mutedLight }}>
                               {saltato ? "Saltato" : prog ? `Accesso ${prog}${p.tot_accessi ? `/${p.tot_accessi}` : ""}` : ""}
                             </div>
@@ -1806,6 +1867,10 @@ function DomiciliInner() {
               const now = new Date();
               const totCount = dwDays.reduce((s, d) => s + (accByDay.get(localISO(d)) || []).length, 0);
               const doneCount = dwDays.reduce((s, d) => s + (accByDay.get(localISO(d)) || []).filter(a => a.stato === "fatto").length, 0);
+              const nConflitti = !showStudio ? 0 : dwDays.reduce((s, d) => {
+                const iso2 = localISO(d);
+                return s + (accByDay.get(iso2) || []).filter(a => studioConflicts(iso2, a.orario).length > 0).length;
+              }, 0);
               return (
                 <div style={{ padding: "0 16px" }}>
                   <div style={{ background: "#fff", border: `1px solid ${THEME.borderSoft}`, borderRadius: 14, overflow: "hidden", marginBottom: 10 }}>
@@ -1854,6 +1919,24 @@ function DomiciliInner() {
                               borderLeft: `1px solid ${THEME.borderSoft}`,
                               background: `repeating-linear-gradient(to bottom,${colBg} 0,${colBg} ${HOUR_PX - 1}px,${THEME.borderSoft} ${HOUR_PX - 1}px,${THEME.borderSoft} ${HOUR_PX}px)`,
                             }}>
+                            {/* Agenda studio in trasparenza, dietro le card e non cliccabile */}
+                            {showStudio && (studioByDay.get(iso) || []).map(g => {
+                              if (g.to <= H_START * 60 || g.from >= H_END * 60) return null;
+                              const gTop = Math.max(0, ((g.from - H_START * 60) / 60) * HOUR_PX);
+                              const gH = Math.max(13, ((Math.min(g.to, H_END * 60) - Math.max(g.from, H_START * 60)) / 60) * HOUR_PX - 1);
+                              return (
+                                <div key={`s-${g.id}`} style={{
+                                  position: "absolute", top: gTop, height: gH, left: 1, right: 1,
+                                  borderRadius: 6, background: "rgba(100,116,139,0.10)",
+                                  border: "1px dashed #cbd5e1", zIndex: 1, pointerEvents: "none",
+                                  overflow: "hidden", padding: "0 4px",
+                                }}>
+                                  <span style={{ fontSize: 7.5, fontWeight: 700, color: "#475569", whiteSpace: "nowrap" }}>
+                                    {minToHHMM(g.from)} {g.nome}
+                                  </span>
+                                </div>
+                              );
+                            })}
                             {list.map(a => {
                               const p = patientById.get(a.coop_patient_id);
                               if (!p) return null;
@@ -1863,14 +1946,18 @@ function DomiciliInner() {
                               const top = ((pos.get(a.id) ?? 0) / 60) * HOUR_PX;
                               const height = (DW_SLOT_MIN / 60) * HOUR_PX - 2;
                               const cognome = displayName(`${p.cognome}`);
+                              const conf = studioConflicts(iso, a.orario);
                               return (
                                 <button key={a.id}
                                   data-access-card={a.id} data-access-day={a.data}
                                   {...dwDragHandlers(a)}
+                                  title={conf.length ? `Si accavalla con: ${conf.map(x => `${minToHHMM(x.from)} ${x.nome}`).join(", ")}` : undefined}
                                   onClick={e => { e.stopPropagation(); if (suppressClickRef.current) return; setPatientModal({ open: true, patient: p, startWithPhoto: false }); }}
                                   style={{
-                                    position: "absolute", top, height, left: 1.5, right: 1.5,
-                                    border: `1.5px solid ${c}`, borderRadius: 6, background: `${c}12`,
+                                    position: "absolute", top, height, left: 1.5, right: 1.5, zIndex: 3,
+                                    border: `1.5px solid ${c}`,
+                                    borderLeft: conf.length ? "3px solid #ef4444" : `1.5px solid ${c}`,
+                                    borderRadius: 6, background: `${c}12`,
                                     padding: "2px 5px", overflow: "hidden", textAlign: "left",
                                     cursor: "pointer", display: "block", touchAction: "none",
                                     opacity: dwDragId === a.id ? 0.22 : saltato ? 0.5 : 1,
@@ -1886,16 +1973,20 @@ function DomiciliInner() {
                                 </button>
                               );
                             })}
-                            {isTarget && dwOver && (
-                              <div style={{
-                                position: "absolute", left: 2, right: 2,
-                                top: (dwOver.startMin / 60) * HOUR_PX,
-                                height: (DW_SLOT_MIN / 60) * HOUR_PX - 2,
-                                border: `1.5px dashed ${chiuso ? "#ef4444" : "#94a3b8"}`, borderRadius: 6,
-                                background: chiuso ? "rgba(239,68,68,0.10)" : "rgba(100,116,139,0.10)",
-                                zIndex: 4, pointerEvents: "none",
-                              }} />
-                            )}
+                            {isTarget && dwOver && (() => {
+                              const tgtOrario = minToHHMM(H_START * 60 + dwOver.startMin);
+                              const allarme = chiuso || studioConflicts(iso, tgtOrario).length > 0;
+                              return (
+                                <div style={{
+                                  position: "absolute", left: 2, right: 2,
+                                  top: (dwOver.startMin / 60) * HOUR_PX,
+                                  height: (DW_SLOT_MIN / 60) * HOUR_PX - 2,
+                                  border: `1.5px dashed ${allarme ? "#ef4444" : "#94a3b8"}`, borderRadius: 6,
+                                  background: allarme ? "rgba(239,68,68,0.10)" : "rgba(100,116,139,0.10)",
+                                  zIndex: 5, pointerEvents: "none",
+                                }} />
+                              );
+                            })()}
                             {t && (() => {
                               const nh = now.getHours() + now.getMinutes() / 60;
                               if (nh < H_START || nh > H_END) return null;
@@ -1922,7 +2013,18 @@ function DomiciliInner() {
                           fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 99,
                           cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap",
                         }}>{propagaOrario ? "Tutti i giorni ✓" : "Solo questo"}</button>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: THEME.text, marginLeft: "auto" }}>{totCount} · {doneCount} fatti</span>
+                      <button onClick={() => setShowStudio(v => !v)}
+                        title="Mostra in trasparenza gli appuntamenti del calendario studio"
+                        style={{
+                          border: `1px solid ${THEME.border}`,
+                          background: showStudio ? "#f1f5f9" : "#fff",
+                          color: showStudio ? THEME.text : "#475569",
+                          fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 99,
+                          cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap",
+                        }}>{showStudio ? "Studio ✓" : "Studio"}</button>
+                      <span style={{ fontSize: 10, fontWeight: 700, marginLeft: "auto", whiteSpace: "nowrap", color: nConflitti > 0 ? THEME.red : THEME.text }}>
+                        {nConflitti > 0 ? `${nConflitti} sovrapp.` : `${totCount} · ${doneCount} fatti`}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -2269,6 +2371,15 @@ function DomiciliInner() {
                       Oggi
                     </button>
                     <ViewSwitch value={calView} onChange={setCalView} />
+                    <button onClick={() => setShowStudio(v => !v)}
+                      title="Segnala gli accessi che si accavallano con il calendario studio"
+                      style={{
+                        border: `1px solid ${THEME.border}`,
+                        background: showStudio ? "#f1f5f9" : "#fff",
+                        color: showStudio ? THEME.text : "#475569",
+                        fontSize: 12, fontWeight: 700, padding: "7px 12px", borderRadius: 99,
+                        cursor: "pointer", whiteSpace: "nowrap",
+                      }}>{showStudio ? "Studio ✓" : "Studio"}</button>
                     <div style={{ flex: 1 }} />
                     <Legend />
                   </div>
@@ -2331,7 +2442,15 @@ function DomiciliInner() {
                               onClick={e => e.stopPropagation()} onChange={() => toggleFatto(a)}
                               style={{ accentColor: coop?.colore || THEME.teal, width: 17, height: 17, cursor: "pointer" }}
                             />
-                            <div style={{ fontSize: 15, fontWeight: 700, color: coop?.colore || THEME.tealDark, width: 52 }}>{a.orario || "—"}</div>
+                            <div style={{ width: 52 }}>
+                              <div style={{ fontSize: 15, fontWeight: 700, color: coop?.colore || THEME.tealDark }}>{a.orario || "—"}</div>
+                              {studioConflicts(a.data, a.orario).length > 0 && (
+                                <div style={{ fontSize: 9.5, fontWeight: 700, color: THEME.red, whiteSpace: "nowrap" }}
+                                  title={studioConflicts(a.data, a.orario).map(x => `${minToHHMM(x.from)} ${x.nome}`).join(", ")}>
+                                  ⚠ studio
+                                </div>
+                              )}
+                            </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontSize: 15, fontWeight: 700, color: THEME.text, textDecoration: saltato ? "line-through" : "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                 {displayName(`${p.cognome} ${p.nome}`)}
@@ -2437,6 +2556,10 @@ function DomiciliInner() {
                                       </div>
                                       <div style={{ fontSize: 10.5, color: THEME.mutedLight, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                         {a.orario || "—"}{p.citta ? ` · ${p.citta}` : ""}
+                                        {studioConflicts(a.data, a.orario).length > 0 && (
+                                          <span style={{ color: THEME.red, fontWeight: 700 }}
+                                            title={studioConflicts(a.data, a.orario).map(x => `${minToHHMM(x.from)} ${x.nome}`).join(", ")}> · ⚠ studio</span>
+                                        )}
                                       </div>
                                       <div style={{ fontSize: 10, color: saltato ? THEME.red : THEME.label, fontWeight: 700 }}>
                                         {saltato ? "saltato" : prog ? `${prog}${p.tot_accessi ? `/${p.tot_accessi}` : ""}` : ""}
