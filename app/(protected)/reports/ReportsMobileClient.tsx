@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import OccupancyReport from "./components/OccupancyReport";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import Link from "next/link";
@@ -284,6 +286,7 @@ function MobileBarChart({labels,values,unpaidValues,period,onBarClick,selectedDa
 /* ─── Main ────────────────────────────────────────────────────────────── */
 export default function ReportsMobile() {
   const { privacyMode, privacyStyle } = usePrivacyMode();
+  const { studio: occStudio } = useCurrentStudio();
   const params = useSearchParams();
   const [period,  setPeriod]  = useState<Period>((params.get("period") as Period)||"month");
   const [dateStr, setDateStr] = useState(params.get("date")||toISODate(new Date()));
@@ -837,6 +840,12 @@ export default function ReportsMobile() {
                     </div>
                   ))}
                 </div>
+
+                {/* Occupazione agenda: riempimento vs orari di apertura */}
+                {occStudio?.id && (() => {
+                  const { from, to } = getRange(period, baseDate);
+                  return <OccupancyReport studioId={occStudio.id} from={from} to={to} compact />;
+                })()}
 
                 {/* Scomposizione sedute svolte */}
                 {sessionBreak.done > 0 && (

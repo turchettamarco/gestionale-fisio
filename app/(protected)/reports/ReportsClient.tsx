@@ -14,6 +14,7 @@ import { usePrivacyMode, composeInitials } from "@/src/contexts/PrivacyModeConte
 import { studioPdfHeader, studioHeaderCss, studioPdfFooter, type StudioHeaderData } from "@/src/lib/pdfHeader";
 import AppNavbar from "@/src/components/AppNavbar";
 import OperatorEarningsReport from "./components/OperatorEarningsReport";
+import OccupancyReport from "./components/OccupancyReport";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const T = {
@@ -1489,6 +1490,12 @@ export default function ReportsPage(){
                 )}
               </div>
             </div>
+
+            {/* ── Occupazione agenda (riempimento vs orari di apertura) ── */}
+            {currentStudio?.id && (() => {
+              const { from, to } = getRange(period, baseDate);
+              return <OccupancyReport studioId={currentStudio.id} from={from} to={to} />;
+            })()}
 
             {/* ── Fase R3: Sedute, ore, compensi per terapista ────────── */}
             {multiOperatorEnabled && currentStudio?.id && (
