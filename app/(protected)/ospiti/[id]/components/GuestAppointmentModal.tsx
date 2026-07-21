@@ -19,6 +19,8 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useState, useCallback, useMemo } from "react";
+import TimeSelect from "@/src/components/TimeSelect";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { supabase } from "@/src/lib/supabaseClient";
 import { checkAppointmentOverlap, fmtTimeRange, type OverlapAppointment } from "@/src/lib/appointmentOverlap";
 import { X, Search, Trash2, Calendar, Clock, MapPin, FileText, User } from "lucide-react";
@@ -107,6 +109,8 @@ export default function GuestAppointmentModal({
   onClose,
   onSaved,
 }: Props) {
+  const { studio: __gs } = useCurrentStudio();
+  const guestSlotMin = ((__gs as { slot_minutes?: number } | null)?.slot_minutes) ?? 30;
   // ── Stato form ──────────────────────────────────────────────────────────
   const initStart = initial ? new Date(initial.start_at) : (defaultDate ?? new Date());
   const initEnd = initial ? new Date(initial.end_at) : new Date(initStart.getTime() + 30 * 60000);
@@ -745,12 +749,9 @@ export default function GuestAppointmentModal({
                 <div className="gam-label">
                   <Clock size={11} /> Ora *
                 </div>
-                <input
-                  type="time" step={900}
-                  value={startTime}
-                  onChange={e => setStartTime(e.target.value)}
-                  className="gam-input"
-                />
+                <TimeSelect value={startTime} onChange={setStartTime}
+                  slotMin={guestSlotMin}
+                  inputStyle={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1.5px solid #cbd5e1", fontSize: 14, color: "#0f172a", background: "#fff" }} />
               </div>
             </div>
 

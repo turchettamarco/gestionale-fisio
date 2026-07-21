@@ -27,6 +27,7 @@ import type { PaymentMethod } from "@/src/components/PaidPopover";
 import StatusSheet, { type StatusSheetAction } from "@/src/components/mobile/StatusSheet";
 import { Icon, PulseDivider } from "@/src/components/icons";
 import GroupEventModalMobile, { type GroupEvent } from "@/src/components/mobile/GroupEventModalMobile";
+import TimeSelect from "@/src/components/TimeSelect";
 import {
   groupSearchPatientsApi,
   fetchGroupParticipants,
@@ -112,6 +113,7 @@ type CalendarEvent = {
 };
 
 type CreateModalProps = {
+  slotMin: number;
   busy: boolean; error: string; onClose: () => void;
   patientQuery: string; setPatientQuery: (v: string) => void;
   patientResults: PatientLite[]; patientLoading: boolean;
@@ -3178,7 +3180,7 @@ function CalendarPageInner() {
             <FG label="Orario">
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
                 <input type="date" value={editDate} onChange={e=>setEditDate(e.target.value)} style={inputS()} />
-                <input type="time" step={900} value={editTime} onChange={e=>setEditTime(e.target.value)} style={inputS()} />
+                <TimeSelect value={editTime} onChange={setEditTime} slotMin={slotMin} inputStyle={inputS()} />
                 <input type="number" min={15} step={5} value={editDuration}
                   onChange={e=>setEditDuration(Number(e.target.value))} style={inputS()} placeholder="Min" />
               </div>
@@ -3357,6 +3359,7 @@ function CalendarPageInner() {
       {/* ━━━ MODAL CREAZIONE ━━━ */}
       {createOpen&&(
         <CreateModal
+          slotMin={slotMin}
           busy={busy} error={error} onClose={()=>{setCreateOpen(false); setCreateInitialParticipants([]);}}
           patientQuery={patientQuery} setPatientQuery={setPatientQuery}
           patientResults={patientResults} patientLoading={patientLoading}
@@ -3552,6 +3555,7 @@ function CalendarPageInner() {
       {/* ═══════ Modal gestione gruppo (mig. 014) ═══════════════════ */}
       {openGroup && (
         <GroupEventModalMobile
+          slotMinutes={slotMin}
           event={openGroup}
           searchPatients={groupSearchPatientsApi}
           createQuickPatient={async (payload) => {
@@ -3763,6 +3767,7 @@ function ModalHeader({title,subtitle,onClose}:{title:string;subtitle?:string;onC
 /* ─── CreateModal ─────────────────────────────────────────────────────── */
 function CreateModal(props:CreateModalProps) {
   const {
+    slotMin,
     busy,error,onClose,
     patientQuery,setPatientQuery,patientResults,patientLoading,selectedPatient,setSelectedPatient,
     quickFirstName,setQuickFirstName,quickLastName,setQuickLastName,quickPhone,setQuickPhone,createQuickPatient,
@@ -4252,7 +4257,7 @@ function CreateModal(props:CreateModalProps) {
         </>)}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
           <FG label="Data"><input type="date" value={createDate} onChange={e=>setCreateDate(e.target.value)} style={inputS()} /></FG>
-          <FG label="Ora"><input type="time" step={900} value={createTime} onChange={e=>setCreateTime(e.target.value)} style={inputS()} /></FG>
+          <FG label="Ora"><TimeSelect value={createTime} onChange={setCreateTime} slotMin={slotMin} inputStyle={inputS()} /></FG>
           <FG label="Min"><input type="number" min={15} step={5} value={createDuration} onChange={e=>setCreateDuration(Number(e.target.value))} style={inputS()} /></FG>
         </div>
         <FG label="Stato">

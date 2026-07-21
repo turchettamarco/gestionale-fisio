@@ -30,6 +30,7 @@ import { getStudioBranding } from "@/src/lib/studioBranding";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import TimeSelect from "@/src/components/TimeSelect";
 import { usePrivacyMode, useDisplayPatientPhone, usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
 import RemoteConsentsSection from "@/src/components/patient/RemoteConsentsSection";
 import { quickSendRemoteConsents } from "@/src/lib/consents/quickSend";
@@ -1363,8 +1364,9 @@ export default function PatientDetailMobileClient({ patientId }: { patientId: st
                         style={inputS()} />
                     </FG>
                     <FG label="Ora">
-                      <input type="time" step={900} value={newApptTime} onChange={e => setNewApptTime(e.target.value)}
-                        style={inputS()} />
+                      <TimeSelect value={newApptTime} onChange={setNewApptTime}
+                        slotMin={((currentStudio as { slot_minutes?: number } | null)?.slot_minutes) ?? 30}
+                        inputStyle={inputS()} />
                     </FG>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>

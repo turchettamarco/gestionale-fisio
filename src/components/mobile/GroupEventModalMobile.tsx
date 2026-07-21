@@ -17,6 +17,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import TimeSelect from "@/src/components/TimeSelect";
 import { showToast } from "@/src/components/mobile/ToastProvider";
 import { usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
 
@@ -70,6 +71,7 @@ export type PatientSearchResult = {
 };
 
 export type GroupEventModalMobileProps = {
+  slotMinutes?: number;
   event: GroupEvent;
   searchPatients: (query: string) => Promise<PatientSearchResult[]>;
   /** Quick patient (mig. 015) — restituisce il paziente creato o null */
@@ -149,6 +151,7 @@ export default function GroupEventModalMobile({
   onDeleteGroup,
   onUpdateGroup,
   onDuplicateGroup,
+  slotMinutes = 30,
 }: GroupEventModalMobileProps) {
   const { active: privacyActive, maskName, maskInitial } = usePrivacyDisplay();
   const participants = event.participants ?? [];
@@ -1108,19 +1111,11 @@ export default function GroupEventModalMobile({
                 <label style={{ display: "block", fontSize: 10, fontWeight: 700, color: "#64748b", marginBottom: 4, letterSpacing: 0.3 }}>
                   NUOVA ORA
                 </label>
-                <input
-                  type="time" step={900}
-                  value={dupTime}
-                  onChange={(e) => setDupTime(e.target.value)}
-                  style={{
+<TimeSelect value={dupTime} onChange={setDupTime} slotMin={slotMinutes} inputStyle={{
                     width: "100%", padding: "10px 12px", borderRadius: 8,
                     border: "1.5px solid #cbd5e1",
-                    fontSize: 14, color: "#0f172a",
-                    fontFamily: "inherit", outline: "none",
-                    boxSizing: "border-box",
-                    minHeight: 44,
-                  }}
-                />
+                    fontSize: 14, color: "#0f172a", background: "#fff",
+                  }}/>
               </div>
             </div>
 

@@ -42,6 +42,7 @@ import type { PaymentMethod } from "@/src/components/PaidPopover";
 import PackageBadge from "@/src/components/packages/PackageBadge";
 import NotificationsBell from "@/src/components/NotificationsBell";
 import GroupEventModalMobile, { type GroupEvent, type Participant } from "@/src/components/mobile/GroupEventModalMobile";
+import TimeSelect from "@/src/components/TimeSelect";
 import {
   groupSearchPatientsApi,
   fetchGroupParticipants,
@@ -3227,12 +3228,11 @@ export default function DashboardMobileClient() {
               </div>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Orario</div>
-                <input type="time" step={900} value={editTime} onChange={e => setEditTime(e.target.value)} style={{
+                <TimeSelect value={editTime} onChange={setEditTime} slotMin={qaQuarti ? 15 : dbSlotMin} inputStyle={{
                   display: "block", width: "100%", maxWidth: "100%", boxSizing: "border-box",
                   padding: "9px 10px", borderRadius: 10,
                   border: `1.5px solid ${THEME.border}`, background: THEME.panelSoft,
-                  fontSize: 14, fontWeight: 600, color: THEME.text,
-                  WebkitAppearance: "none", appearance: "none", minHeight: 38,
+                  fontSize: 14, fontWeight: 600, color: THEME.text, minHeight: 38,
                 }}/>
               </div>
             </div>
@@ -3275,6 +3275,7 @@ export default function DashboardMobileClient() {
       {/* ═══════ Modal gestione gruppo (mig. 014) ═══════════════════ */}
       {openGroup && (
         <GroupEventModalMobile
+          slotMinutes={dbSlotMin}
           event={openGroup}
           searchPatients={groupSearchPatientsApi}
           onClose={() => setOpenGroup(null)}

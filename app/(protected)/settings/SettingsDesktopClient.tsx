@@ -173,6 +173,8 @@ export default function SettingsDesktopClient() {
   const [savingWeeklyLayout, setSavingWeeklyLayout]     = useState(false);
   // Vista predefinita all'apertura calendario (mig. 023, Fase D)
   const [defaultCalendarView, setDefaultCalendarView]   = useState<"day" | "week" | "month">("week");
+  const [slotMinutesSetting, setSlotMinutesSetting]     = useState<15 | 30>(30);
+  const [savingSlotMinutes, setSavingSlotMinutes]       = useState(false);
   const [savingDefaultCalendarView, setSavingDefaultCalendarView] = useState(false);
 
   // ── Multi-stanza (mig. 019 + 020) ────────────────────────────────────
@@ -470,6 +472,7 @@ export default function SettingsDesktopClient() {
       }
       // mig. 023 — hidrata vista predefinita calendario (default 'week')
       const dv = studio.default_calendar_view;
+      setSlotMinutesSetting((studio as { slot_minutes?: number }).slot_minutes === 15 ? 15 : 30);
       if (dv === "day" || dv === "week" || dv === "month") {
         setDefaultCalendarView(dv);
       } else {
@@ -541,6 +544,28 @@ export default function SettingsDesktopClient() {
       setSavingDefaultCalendarView(false);
     }
   }, [studio?.id, defaultCalendarView, refreshStudio]);
+
+  // Salva la granularità dell'agenda (mig. 061). Studio-wide: governa gli
+  // slot proposti, lo snap del drag e i picker in tutta l'app.
+  const saveSlotMinutes = useCallback(async (v: 15 | 30) => {
+    if (!studio?.id) { alert("Studio non disponibile"); return; }
+    setSlotMinutesSetting(v);
+    setSavingSlotMinutes(true);
+    try {
+      const { error } = await supabase
+        .from("studios")
+        .update({ slot_minutes: v })
+        .eq("id", studio.id);
+      if (error) {
+        alert("Errore salvataggio granularità: " + error.message);
+        return;
+      }
+      await refreshStudio();
+      flashSuccess(`Agenda impostata a slot di ${v} minuti.`);
+    } finally {
+      setSavingSlotMinutes(false);
+    }
+  }, [studio?.id, refreshStudio]);
 
   // Genera un nuovo invito (placeholder con user_id = NULL, invite_token = uuid).
   // Restituisce il token così la UI può mostrare subito il link da copiare.
@@ -1989,6 +2014,9 @@ export default function SettingsDesktopClient() {
               setDefaultCalendarView={setDefaultCalendarView}
               savingDefaultCalendarView={savingDefaultCalendarView}
               onSaveDefaultCalendarView={() => void saveDefaultCalendarView()}
+              slotMinutesSetting={slotMinutesSetting}
+              savingSlotMinutes={savingSlotMinutes}
+              onSaveSlotMinutes={v => void saveSlotMinutes(v)}
             />
 
             <RoomsSection
