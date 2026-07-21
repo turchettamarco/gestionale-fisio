@@ -17,6 +17,7 @@ import { generateSingleCertificate } from "@/src/lib/certificateLoader";
 import { SOAPNotesEditor } from "./components/SOAPNotes";
 import { WaitlistPanel, fetchActiveWaitlistCount } from "@/src/components/waitlist/WaitlistPanel";
 import { WaitlistMatchModal } from "@/src/components/waitlist/WaitlistMatchModal";
+import { SlotFinderModal } from "@/src/components/waitlist/SlotFinderModal";
 import { entryMatchesSlot, type WaitlistEntry } from "@/src/lib/waitlist";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 import PackagePickerSection from "@/src/components/packages/PackagePickerSection";
@@ -314,13 +315,17 @@ function CalendarPageInner() {
   const [waitlistOpen, setWaitlistOpen] = useState(false);
   const [waitlistCount, setWaitlistCount] = useState(0);
   const [matchSlot, setMatchSlot] = useState<Date | null>(null);
+  const [matchDuration, setMatchDuration] = useState<number | null>(null);
+  const [finderOpen, setFinderOpen] = useState(false);
+  const [finderEntry, setFinderEntry] = useState<WaitlistEntry | null>(null);
+  const pendingBookRef = useRef<{ entryId: string; patientId: string; startISO: string } | null>(null);
   const [matchEntries, setMatchEntries] = useState<WaitlistEntry[]>([]);
   useEffect(() => {
     if (!currentStudioId) return;
     fetchActiveWaitlistCount(currentStudioId).then(setWaitlistCount).catch(() => {});
   }, [currentStudioId]);
 
-  const openWaitlistMatchesForSlot = useCallback(async (slotStart: Date) => {
+  const openWaitlistMatchesForSlot = useCallback(async (slotStart: Date, durationMin?: number | null) => {
     if (!currentStudioId) return;
     const { data: rows } = await supabase
       .from("waitlist_entries")
@@ -328,9 +333,10 @@ function CalendarPageInner() {
       .eq("studio_id", currentStudioId)
       .in("status", ["active", "notified"]);
     const entries = (rows as unknown as WaitlistEntry[]) || [];
-    const matches = entries.filter((e) => entryMatchesSlot(e, slotStart));
+    const matches = entries.filter((e) => entryMatchesSlot(e, slotStart, durationMin ?? null));
     if (matches.length > 0) {
       setMatchSlot(slotStart);
+      setMatchDuration(durationMin ?? null);
       setMatchEntries(matches);
     }
   }, [currentStudioId]);
@@ -1341,20 +1347,66 @@ function CalendarPageInner() {
     if (e){setError(`Errore: ${e.message}`);setBusy(false);return;}
     const becameCancelled = editStatus === "cancelled" && selectedEvent.status !== "cancelled";
     const freedSlot = selectedEvent.start;
+    const freedDur = Math.round((selectedEvent.end.getTime() - selectedEvent.start.getTime()) / 60_000);
     setSelectedEvent(null); setBusy(false); await reloadCurrent();
-    if (becameCancelled) await openWaitlistMatchesForSlot(freedSlot);
+    if (becameCancelled) await openWaitlistMatchesForSlot(freedSlot, freedDur);
   }, [selectedEvent,editStatus,editNote,editAmount,editPriceType,editPaymentMethod,editDate,editTime,editDuration,editTreatmentType,currentDate,loadAppointments,paymentMethodRequired,defaultPaymentMethod,openWaitlistMatchesForSlot]);
 
   const deleteEvent = useCallback(async () => {
     if (!selectedEvent||!window.confirm("Eliminare definitivamente questo appuntamento?")) return;
     const freedSlot = selectedEvent.start; // snapshot prima dell'azzeramento
+    const freedDur = Math.round((selectedEvent.end.getTime() - selectedEvent.start.getTime()) / 60_000);
     setBusy(true); setError("");
     const {error:e}=await supabase.from("appointments").delete().eq("id",selectedEvent.id);
     if (e){setError(`Errore: ${e.message}`);setBusy(false);return;}
     setSelectedEvent(null); setBusy(false); await loadAppointments(currentDate);
-    await openWaitlistMatchesForSlot(freedSlot);
+    await openWaitlistMatchesForSlot(freedSlot, freedDur);
   }, [selectedEvent,currentDate,loadAppointments,openWaitlistMatchesForSlot]);
 
+  // ── Lista d'attesa → prenotazione precompilata ─────────────────────────
+  const bookEntryInSlot = useCallback((entry: WaitlistEntry, slotStart: Date) => {
+    setMatchSlot(null); setMatchDuration(null); setMatchEntries([]);
+    setFinderOpen(false); setFinderEntry(null); setWaitlistOpen(false);
+    const hh = String(slotStart.getHours()).padStart(2, "0");
+    const mm = String(slotStart.getMinutes()).padStart(2, "0");
+    openCreateRef.current?.(`${hh}:${mm}`, toISODateLocal(slotStart));
+    setCreateDuration(entry.duration_min ?? 60);
+    const pp = entry.patients;
+    setSelectedPatient({
+      id: entry.patient_id,
+      first_name: pp?.first_name ?? null,
+      last_name: pp?.last_name ?? null,
+      phone: pp?.phone ?? null,
+    });
+    pendingBookRef.current = {
+      entryId: entry.id,
+      patientId: entry.patient_id,
+      startISO: new Date(slotStart).toISOString(),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** La voce diventa "booked" solo se l'appuntamento risulta creato su DB. */
+  const settleWaitlistBooking = useCallback(async () => {
+    const pend = pendingBookRef.current;
+    if (!pend || !currentStudioId) return;
+    pendingBookRef.current = null;
+    const { data } = await supabase
+      .from("appointments")
+      .select("id")
+      .eq("studio_id", currentStudioId)
+      .eq("patient_id", pend.patientId)
+      .eq("start_at", pend.startISO)
+      .limit(1);
+    if (data && data.length > 0) {
+      await supabase.from("waitlist_entries")
+        .update({ status: "booked", updated_at: new Date().toISOString() })
+        .eq("id", pend.entryId);
+      fetchActiveWaitlistCount(currentStudioId).then(setWaitlistCount).catch(() => {});
+    }
+  }, [currentStudioId]);
+
+  const openCreateRef = useRef<((t?: string, d?: string) => void) | null>(null);
   const openCreate = useCallback((prefillTime?:string, prefillDateISO?:string) => {
     setCreateOpen(true); setError("");
     setSelectedPatient(null); setPatientQuery(""); setPatientResults([]);
@@ -1367,6 +1419,7 @@ function CalendarPageInner() {
     setCreateTreatmentType(treatmentCatalog[0]?.key ?? "seduta");
     setSelectedPackageId(null); // mig. 014_packages
   }, [currentDate, defaultStatus, treatmentCatalog]);
+  useEffect(() => { openCreateRef.current = openCreate; }, [openCreate]);
 
   /* ── Patient search (create) ─────────────── */
   const debRef = useRef<number|null>(null);
@@ -1649,6 +1702,7 @@ function CalendarPageInner() {
 
     setBusy(false);
     setCreateOpen(false);
+    void settleWaitlistBooking();
     setCreateRecurring(false); // reset for next
     setCreateInitialParticipants([]); // step 6.1: reset participants
     await loadAppointments(currentDate);
@@ -1675,7 +1729,7 @@ function CalendarPageInner() {
       });
       setShowWhatsAppConfirm(true);
     }
-  }, [selectedPatient,createDuration,createDate,createTime,createStatus,createNote,
+  }, [settleWaitlistBooking, selectedPatient,createDuration,createDate,createTime,createStatus,createNote,
       createLocation,createClinicSite,createDomicileAddress,createAmount,
       createPriceType,createPaymentMethod,createTreatmentType,currentStudioId,currentDate,loadAppointments,
       createRecurring,createRecurringCount,createRecurringInterval,overlapMode,events,
@@ -3656,19 +3710,51 @@ function CalendarPageInner() {
         )}
       </button>
 
+      <button
+        onClick={() => { setFinderEntry(null); setFinderOpen(true); }}
+        aria-label="Trova buco"
+        style={{
+          position: "fixed", right: 16, zIndex: 3500,
+          bottom: `calc(env(safe-area-inset-bottom,0px) + ${BOTTOM_TAB_H + 16 + 118}px)`,
+          display: "inline-flex", alignItems: "center", gap: 7,
+          padding: "11px 14px", borderRadius: 999, border: "1.5px solid #cbd5e1",
+          background: "#fff", color: THEME.text, fontWeight: 800, fontSize: 13,
+          cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 22px rgba(15,23,42,0.18)",
+        }}
+      >🔍</button>
+
       <WaitlistPanel
         open={waitlistOpen}
         onClose={() => setWaitlistOpen(false)}
         studioId={currentStudioId ?? ""}
         onChanged={setWaitlistCount}
+        onFindSlot={(e) => { setWaitlistOpen(false); setFinderEntry(e); setFinderOpen(true); }}
+      />
+
+      <SlotFinderModal
+        open={finderOpen}
+        onClose={() => { setFinderOpen(false); setFinderEntry(null); }}
+        studioId={currentStudioId ?? ""}
+        slotMinutes={slotMin}
+        entry={finderEntry}
+        onPickSlot={(start, dur) => {
+          setFinderOpen(false); setFinderEntry(null);
+          const hh = String(start.getHours()).padStart(2, "0");
+          const mm = String(start.getMinutes()).padStart(2, "0");
+          openCreate(`${hh}:${mm}`, toISODateLocal(start));
+          setCreateDuration(dur);
+        }}
+        onPickForEntry={(entry, start) => bookEntryInSlot(entry, start)}
       />
 
       {matchSlot && (
         <WaitlistMatchModal
           slotStart={matchSlot}
+          slotDurationMin={matchDuration}
           matches={matchEntries}
           studioName={currentStudio?.name ?? null}
-          onClose={() => { setMatchSlot(null); setMatchEntries([]); }}
+          onClose={() => { setMatchSlot(null); setMatchDuration(null); setMatchEntries([]); }}
+          onBook={bookEntryInSlot}
           onOpenPanel={() => setWaitlistOpen(true)}
           onChanged={() => {
             if (currentStudioId) fetchActiveWaitlistCount(currentStudioId).then(setWaitlistCount).catch(() => {});

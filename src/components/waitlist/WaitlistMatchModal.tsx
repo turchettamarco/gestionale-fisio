@@ -14,8 +14,9 @@ import { useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { openWhatsApp } from "@/src/lib/whatsapp";
 import {
-  WaitlistEntry, entryPatientName, entryPreferencesLabel,
-  buildSlotWhatsAppMessage, formatSlotIT,
+  type WaitlistEntry, entryPatientName, entryPreferencesLabel,
+  formatSlotIT, buildSlotWhatsAppMessage,
+  entryWaitingDays, entryIsExpired, rankWaitlistCandidates,
 } from "@/src/lib/waitlist";
 
 const T = {
@@ -24,15 +25,20 @@ const T = {
 };
 
 export function WaitlistMatchModal({
-  slotStart, matches, studioName, onClose, onOpenPanel, onChanged,
+  slotStart, slotDurationMin, matches, studioName, onClose, onOpenPanel, onChanged, onBook,
 }: {
   slotStart: Date;
+  /** Durata del buco liberato in minuti (se nota). */
+  slotDurationMin?: number | null;
   matches: WaitlistEntry[];
   studioName?: string | null;
   onClose: () => void;
   onOpenPanel?: () => void;
   onChanged?: () => void;
+  /** Prenota questo paziente nello slot: apre la creazione precompilata. */
+  onBook?: (entry: WaitlistEntry, slotStart: Date) => void;
 }) {
+  const ranked = rankWaitlistCandidates(matches);
   const [notified, setNotified] = useState<Set<string>>(new Set());
   const [err, setErr] = useState<string | null>(null);
 
@@ -50,7 +56,13 @@ export function WaitlistMatchModal({
     }
     await supabase
       .from("waitlist_entries")
-      .update({ status: "notified", notified_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .update({
+        status: "notified",
+        notified_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        offered_count: (entry.offered_count ?? 0) + 1,
+        last_offered_slot: slotStart.toISOString(),
+      })
       .eq("id", entry.id);
     setNotified((s) => new Set(s).add(entry.id));
     onChanged?.();
@@ -76,7 +88,7 @@ export function WaitlistMatchModal({
         }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>⏰ Posto liberato!</div>
           <div style={{ fontSize: 12, color: T.muted, marginTop: 3, lineHeight: 1.5 }}>
-            Slot <strong style={{ color: T.text }}>{formatSlotIT(slotStart)}</strong>
+            Slot <strong style={{ color: T.text }}>{formatSlotIT(slotStart)}</strong>{slotDurationMin ? <strong style={{ color: T.text }}> ({slotDurationMin}′)</strong> : null}
             {" — "}{matches.length} pazient{matches.length === 1 ? "e" : "i"} in lista d&apos;attesa compatibil{matches.length === 1 ? "e" : "i"}.
           </div>
         </div>
@@ -87,7 +99,7 @@ export function WaitlistMatchModal({
               ⚠ {err}
             </div>
           )}
-          {matches.map((m) => {
+          {ranked.map((m) => {
             const done = notified.has(m.id) || m.status === "notified";
             return (
               <div key={m.id} style={{
@@ -95,25 +107,48 @@ export function WaitlistMatchModal({
                 display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
               }}>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: T.text }}>{entryPatientName(m)}</div>
-                  <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{entryPreferencesLabel(m)}</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: T.text }}>
+                    {entryPatientName(m)}
+                    {(m.priority ?? "normale") === "urgente" && (
+                      <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 800, color: T.red, background: "rgba(220,38,38,0.10)", borderRadius: 999, padding: "2px 6px", textTransform: "uppercase" }}>⚡ urgente</span>
+                    )}
+                    {entryIsExpired(m) && (
+                      <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 800, color: "#fff", background: T.red, borderRadius: 999, padding: "2px 6px", textTransform: "uppercase" }}>scaduta</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                    {entryPreferencesLabel(m)} · {m.duration_min ?? 60}′ · attende da {entryWaitingDays(m)}g
+                  </div>
                   {m.note && <div style={{ fontSize: 10.5, color: T.muted, marginTop: 2, fontStyle: "italic" }}>“{m.note}”</div>}
                 </div>
-                {done ? (
-                  <span style={{
-                    fontSize: 10, fontWeight: 800, color: T.amber, whiteSpace: "nowrap",
-                    background: "rgba(245,158,11,0.12)", borderRadius: 999, padding: "4px 9px",
-                  }}>📲 Avvisato</span>
-                ) : (
-                  <button
-                    onClick={() => propose(m)}
-                    style={{
-                      padding: "7px 12px", borderRadius: 8, border: "none",
-                      background: "#25D366", color: "#fff", fontWeight: 700,
-                      fontSize: 11.5, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
-                    }}
-                  >📲 Proponi</button>
-                )}
+                <div style={{ display: "flex", flexDirection: "column", gap: 5, alignItems: "stretch" }}>
+                  {onBook && (
+                    <button
+                      onClick={() => onBook(m, slotStart)}
+                      title="Crea subito l'appuntamento in questo slot"
+                      style={{
+                        padding: "7px 12px", borderRadius: 8, border: "none",
+                        background: `linear-gradient(135deg, ${T.teal}, ${T.blue})`, color: "#fff",
+                        fontWeight: 800, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
+                      }}
+                    >📅 Prenota qui</button>
+                  )}
+                  {done ? (
+                    <span style={{
+                      fontSize: 10, fontWeight: 800, color: T.amber, whiteSpace: "nowrap", textAlign: "center",
+                      background: "rgba(245,158,11,0.12)", borderRadius: 999, padding: "4px 9px",
+                    }}>📲 Avvisato</span>
+                  ) : (
+                    <button
+                      onClick={() => propose(m)}
+                      style={{
+                        padding: "7px 12px", borderRadius: 8, border: "none",
+                        background: "#25D366", color: "#fff", fontWeight: 700,
+                        fontSize: 11.5, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
+                      }}
+                    >📲 Proponi</button>
+                  )}
+                </div>
               </div>
             );
           })}

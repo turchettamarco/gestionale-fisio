@@ -16,8 +16,9 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { openWhatsApp } from "@/src/lib/whatsapp";
 import {
-  WaitlistEntry, WEEKDAY_LABELS,
-  entryPatientName, entryPreferencesLabel,
+  type WaitlistEntry, type WaitlistPriority,
+  entryPatientName, entryPreferencesLabel, WEEKDAY_LABELS,
+  entryWaitingDays, entryIsExpired, rankWaitlistCandidates,
 } from "@/src/lib/waitlist";
 
 const T = {
@@ -39,12 +40,14 @@ export async function fetchActiveWaitlistCount(studioId: string): Promise<number
 }
 
 export function WaitlistPanel({
-  open, onClose, studioId, onChanged,
+  open, onClose, studioId, onChanged, onFindSlot,
 }: {
   open: boolean;
   onClose: () => void;
   studioId: string;
   onChanged?: (activeCount: number) => void;
+  /** Apre "Trova buco" precompilato con le preferenze della voce. */
+  onFindSlot?: (entry: WaitlistEntry) => void;
 }) {
   const [entries, setEntries] = useState<WaitlistEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -60,6 +63,9 @@ export function WaitlistPanel({
   const [timeFrom, setTimeFrom] = useState("");
   const [timeTo, setTimeTo] = useState("");
   const [note, setNote] = useState("");
+  const [durationMin, setDurationMin] = useState(60);
+  const [priority, setPriority] = useState<WaitlistPriority>("normale");
+  const [expiresOn, setExpiresOn] = useState("");
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -73,7 +79,7 @@ export function WaitlistPanel({
       .in("status", ["active", "notified"])
       .order("created_at", { ascending: true });
     if (error) setErr(error.message);
-    const rows = (data as unknown as WaitlistEntry[]) || [];
+    const rows = rankWaitlistCandidates((data as unknown as WaitlistEntry[]) || []);
     setEntries(rows);
     onChanged?.(rows.length);
     setLoading(false);
@@ -109,6 +115,7 @@ export function WaitlistPanel({
   function resetForm() {
     setQuery(""); setResults([]); setSelected(null);
     setDays([]); setTimeFrom(""); setTimeTo(""); setNote("");
+    setDurationMin(60); setPriority("normale"); setExpiresOn("");
   }
 
   async function addEntry() {
@@ -127,6 +134,9 @@ export function WaitlistPanel({
       time_from: timeFrom || null,
       time_to: timeTo || null,
       note: note.trim() || null,
+      duration_min: durationMin,
+      priority,
+      expires_on: expiresOn || null,
     });
     setSaving(false);
     if (error) { setErr(error.message); return; }
@@ -311,6 +321,44 @@ export function WaitlistPanel({
                 </div>
               </div>
 
+              {/* Durata seduta attesa */}
+              <div>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: T.muted, marginBottom: 5 }}>Durata seduta</div>
+                <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                  {[15, 30, 45, 60, 90].map(d => (
+                    <button key={d} onClick={() => setDurationMin(d)} style={{
+                      padding: "5px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700,
+                      border: `1.5px solid ${durationMin === d ? T.teal : T.border}`,
+                      background: durationMin === d ? T.teal : "#fff",
+                      color: durationMin === d ? "#fff" : T.muted,
+                      cursor: "pointer", fontFamily: "inherit",
+                    }}>{d}′</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Priorità + scadenza */}
+              <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ flex: 1.4 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: T.muted, marginBottom: 5 }}>Priorità</div>
+                  <div style={{ display: "flex", gap: 5 }}>
+                    {([["urgente", "⚡"], ["normale", ""], ["bassa", ""]] as const).map(([k, ico]) => (
+                      <button key={k} onClick={() => setPriority(k)} style={{
+                        flex: 1, padding: "6px 4px", borderRadius: 7, fontSize: 10.5, fontWeight: 700,
+                        border: `1.5px solid ${priority === k ? (k === "urgente" ? T.red : T.teal) : T.border}`,
+                        background: priority === k ? (k === "urgente" ? "rgba(220,38,38,0.07)" : "rgba(13,148,136,0.07)") : "#fff",
+                        color: priority === k ? (k === "urgente" ? T.red : T.teal) : T.muted,
+                        cursor: "pointer", fontFamily: "inherit", textTransform: "capitalize",
+                      }}>{ico}{k}</button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: T.muted, marginBottom: 5 }}>Serve entro <span style={{ fontWeight: 500 }}>(opz.)</span></div>
+                  <input type="date" value={expiresOn} onChange={(e) => setExpiresOn(e.target.value)} style={inputStyle} />
+                </div>
+              </div>
+
               {/* Nota */}
               <input
                 value={note}
@@ -354,6 +402,26 @@ export function WaitlistPanel({
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 800, color: T.text }}>
                       {entryPatientName(e)}
+                      {(e.priority ?? "normale") === "urgente" && (
+                        <span style={{
+                          marginLeft: 7, fontSize: 9.5, fontWeight: 800, color: T.red,
+                          background: "rgba(220,38,38,0.10)", borderRadius: 999, padding: "2px 7px",
+                          textTransform: "uppercase", letterSpacing: 0.4,
+                        }}>⚡ Urgente</span>
+                      )}
+                      {entryIsExpired(e) && (
+                        <span style={{
+                          marginLeft: 7, fontSize: 9.5, fontWeight: 800, color: "#fff",
+                          background: T.red, borderRadius: 999, padding: "2px 7px",
+                          textTransform: "uppercase", letterSpacing: 0.4,
+                        }}>Scaduta</span>
+                      )}
+                      {!entryIsExpired(e) && e.expires_on && (
+                        <span style={{
+                          marginLeft: 7, fontSize: 9.5, fontWeight: 800, color: T.amber,
+                          background: "rgba(245,158,11,0.12)", borderRadius: 999, padding: "2px 7px",
+                        }}>entro {new Date(e.expires_on + "T12:00").toLocaleDateString("it-IT", { day: "2-digit", month: "short" })}</span>
+                      )}
                       {e.status === "notified" && (
                         <span style={{
                           marginLeft: 7, fontSize: 9.5, fontWeight: 800, color: T.amber,
@@ -370,11 +438,19 @@ export function WaitlistPanel({
                       </div>
                     )}
                   </div>
-                  <div style={{ fontSize: 10, color: T.muted, whiteSpace: "nowrap" }}>
-                    dal {new Date(e.created_at).toLocaleDateString("it-IT", { day: "2-digit", month: "short" })}
+                  <div style={{ fontSize: 10, color: T.muted, whiteSpace: "nowrap", textAlign: "right" }}>
+                    <div>attende da <strong>{entryWaitingDays(e)}g</strong></div>
+                    <div style={{ marginTop: 2 }}>{e.duration_min ?? 60}′{(e.offered_count ?? 0) > 0 ? ` · ${e.offered_count} propost${(e.offered_count ?? 0) === 1 ? "a" : "e"}` : ""}</div>
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 6, marginTop: 9, flexWrap: "wrap" }}>
+                  {onFindSlot && (
+                    <button
+                      onClick={() => onFindSlot(e)}
+                      title="Cerca i migliori buchi liberi compatibili con le sue preferenze"
+                      style={{ padding: "5px 11px", borderRadius: 7, border: "none", background: `linear-gradient(135deg, ${T.teal}, ${T.blue})`, color: "#fff", fontWeight: 700, fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}
+                    >🔍 Trova posto</button>
+                  )}
                   <button
                     onClick={() => whatsappContact(e)}
                     style={{ padding: "5px 11px", borderRadius: 7, border: "none", background: "#25D366", color: "#fff", fontWeight: 700, fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}

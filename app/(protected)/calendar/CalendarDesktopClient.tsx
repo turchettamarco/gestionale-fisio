@@ -107,6 +107,7 @@ import CreateAppointmentModal from "./components/modals/CreateAppointmentModal";
 import SelectedEventModal from "./components/modals/SelectedEventModal";
 import { WaitlistPanel, fetchActiveWaitlistCount } from "@/src/components/waitlist/WaitlistPanel";
 import { WaitlistMatchModal } from "@/src/components/waitlist/WaitlistMatchModal";
+import { SlotFinderModal } from "@/src/components/waitlist/SlotFinderModal";
 import { entryMatchesSlot, type WaitlistEntry } from "@/src/lib/waitlist";
 import GroupEventModal from "./components/modals/GroupEventModal";
 import { generateSingleCertificate } from "@/src/lib/certificateLoader";
@@ -1634,6 +1635,12 @@ function CalendarPageInner() {
   const [waitlistOpen, setWaitlistOpen] = useState(false);
   const [waitlistCount, setWaitlistCount] = useState(0);
   const [matchSlot, setMatchSlot] = useState<Date | null>(null);
+  const [matchDuration, setMatchDuration] = useState<number | null>(null);
+  const [finderOpen, setFinderOpen] = useState(false);
+  const [finderEntry, setFinderEntry] = useState<WaitlistEntry | null>(null);
+  // Prenotazione da lista d'attesa: la voce va chiusa SOLO se l'appuntamento
+  // viene davvero creato → dopo la create verifichiamo su DB che esista.
+  const pendingBookRef = useRef<{ entryId: string; patientId: string; startISO: string } | null>(null);
   const [matchEntries, setMatchEntries] = useState<WaitlistEntry[]>([]);
 
   const refreshWaitlistCount = useCallback(async () => {
@@ -1646,7 +1653,7 @@ function CalendarPageInner() {
 
   // Cerca in lista d'attesa i pazienti compatibili con lo slot liberato
   // e, se ce ne sono, apre il modale di proposta.
-  const openWaitlistMatchesForSlot = useCallback(async (slotStart: Date) => {
+  const openWaitlistMatchesForSlot = useCallback(async (slotStart: Date, durationMin?: number | null) => {
     if (!currentStudioId) return;
     const { data: rows } = await supabase
       .from("waitlist_entries")
@@ -1655,9 +1662,10 @@ function CalendarPageInner() {
       .in("status", ["active", "notified"]);
 
     const entries = (rows as unknown as WaitlistEntry[]) || [];
-    const matches = entries.filter((e) => entryMatchesSlot(e, slotStart));
+    const matches = entries.filter((e) => entryMatchesSlot(e, slotStart, durationMin ?? null));
     if (matches.length > 0) {
       setMatchSlot(slotStart);
+      setMatchDuration(durationMin ?? null);
       setMatchEntries(matches);
     }
   }, [currentStudioId]);
@@ -1667,7 +1675,13 @@ function CalendarPageInner() {
   const handleDeleteWithWaitlist = useCallback(async () => {
     // Snapshot PRIMA della delete (deleteAppointment azzera selectedEvent)
     const snap = selectedEvent
-      ? { id: selectedEvent.id, start: selectedEvent.start as Date }
+      ? {
+          id: selectedEvent.id,
+          start: selectedEvent.start as Date,
+          durationMin: selectedEvent.end
+            ? Math.round(((selectedEvent.end as Date).getTime() - (selectedEvent.start as Date).getTime()) / 60000)
+            : null,
+        }
       : null;
 
     await deleteAppointment();
@@ -1681,7 +1695,7 @@ function CalendarPageInner() {
       .maybeSingle();
     if (still) return; // annullata dall'utente o non eliminata
 
-    await openWaitlistMatchesForSlot(snap.start);
+    await openWaitlistMatchesForSlot(snap.start, snap.durationMin);
   }, [selectedEvent, deleteAppointment, currentStudioId, openWaitlistMatchesForSlot]);
 
   // Salva l'appuntamento e, se lo stato è appena passato ad "Annullato",
@@ -1692,6 +1706,9 @@ function CalendarPageInner() {
           id: selectedEvent.id,
           start: selectedEvent.start as Date,
           status: (selectedEvent as { status?: string }).status,
+          durationMin: selectedEvent.end
+            ? Math.round(((selectedEvent.end as Date).getTime() - (selectedEvent.start as Date).getTime()) / 60000)
+            : null,
         }
       : null;
 
@@ -1705,8 +1722,61 @@ function CalendarPageInner() {
       .maybeSingle();
     if ((row as { status?: string } | null)?.status !== "cancelled") return;
 
-    await openWaitlistMatchesForSlot(prev.start);
+    await openWaitlistMatchesForSlot(prev.start, prev.durationMin);
   }, [selectedEvent, saveAppointment, currentStudioId, openWaitlistMatchesForSlot]);
+
+  // ── Prenota da lista d'attesa: apre la creazione precompilata ──────────
+  // (paziente, data, ora, durata). La voce diventa "booked" solo dopo che
+  // l'appuntamento risulta creato su DB (verifica in settleWaitlistBooking).
+  const DUR_TO_SELECT: Record<number, "0.5" | "0.75" | "1" | "1.5" | "2"> = { 15: "0.5", 30: "0.5", 45: "0.75", 60: "1", 90: "1.5", 120: "2" };
+  const bookEntryInSlot = useCallback((entry: WaitlistEntry, slotStart: Date) => {
+    setMatchSlot(null); setMatchEntries([]);
+    setFinderOpen(false); setFinderEntry(null);
+    setWaitlistOpen(false);
+    const dur = entry.duration_min ?? 60;
+    openCreateModal(slotStart, slotStart.getHours(), slotStart.getMinutes());
+    setSelectedDuration(DUR_TO_SELECT[dur] ?? "1");
+    const p = entry.patients;
+    setSelectedPatient({
+      id: entry.patient_id,
+      first_name: p?.first_name ?? null,
+      last_name: p?.last_name ?? null,
+      phone: p?.phone ?? null,
+    } as never);
+    pendingBookRef.current = {
+      entryId: entry.id,
+      patientId: entry.patient_id,
+      startISO: new Date(slotStart).toISOString(),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openCreateModal, setSelectedDuration, setSelectedPatient]);
+
+  const settleWaitlistBooking = useCallback(async () => {
+    const pend = pendingBookRef.current;
+    if (!pend || !currentStudioId) return;
+    pendingBookRef.current = null;
+    const { data } = await supabase
+      .from("appointments")
+      .select("id")
+      .eq("studio_id", currentStudioId)
+      .eq("patient_id", pend.patientId)
+      .eq("start_at", pend.startISO)
+      .limit(1);
+    if (data && data.length > 0) {
+      await supabase.from("waitlist_entries")
+        .update({ status: "booked", updated_at: new Date().toISOString() })
+        .eq("id", pend.entryId);
+      void refreshWaitlistCount();
+    }
+  }, [currentStudioId, refreshWaitlistCount]);
+
+  // Slot scelto dal "Trova buco" generico → creazione precompilata
+  const pickFreeSlot = useCallback((start: Date, durationMin: number) => {
+    setFinderOpen(false); setFinderEntry(null);
+    openCreateModal(start, start.getHours(), start.getMinutes());
+    setSelectedDuration(DUR_TO_SELECT[durationMin] ?? "1");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openCreateModal, setSelectedDuration]);
 
   const monthEvents = useMemo(() => {
     if (viewType !== "month" || monthDays.length === 0) return new Map<string, CalendarEvent[]>();
@@ -2474,6 +2544,7 @@ return (
           onCreateAppointment={async (withWA) => {
             setShowWhatsAppConfirm(false);
             await createAppointment(withWA);
+            await settleWaitlistBooking();
           }}
         />
       )}
@@ -2630,6 +2701,19 @@ return (
 
       {/* Feature: Lista d'attesa */}
       <button
+        onClick={() => { setFinderEntry(null); setFinderOpen(true); }}
+        title="Cerca i migliori slot liberi nei prossimi giorni"
+        style={{
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "10px 16px", borderRadius: 999, border: "1.5px solid #cbd5e1",
+          background: "#fff", color: "#0f172a", fontWeight: 800, fontSize: 13,
+          cursor: "pointer", fontFamily: "inherit",
+        }}
+      >
+        🔍 Trova buco
+      </button>
+
+      <button
         onClick={() => setWaitlistOpen(true)}
         title="Lista d'attesa"
         style={{
@@ -2653,6 +2737,7 @@ return (
       <WaitlistPanel
         open={waitlistOpen}
         onClose={() => setWaitlistOpen(false)}
+        onFindSlot={(e) => { setWaitlistOpen(false); setFinderEntry(e); setFinderOpen(true); }}
         studioId={currentStudioId ?? ""}
         onChanged={setWaitlistCount}
       />
@@ -2660,13 +2745,25 @@ return (
       {matchSlot && (
         <WaitlistMatchModal
           slotStart={matchSlot}
+          slotDurationMin={matchDuration}
           matches={matchEntries}
           studioName={currentStudio?.name ?? null}
-          onClose={() => { setMatchSlot(null); setMatchEntries([]); }}
+          onClose={() => { setMatchSlot(null); setMatchDuration(null); setMatchEntries([]); }}
           onOpenPanel={() => setWaitlistOpen(true)}
           onChanged={refreshWaitlistCount}
+          onBook={bookEntryInSlot}
         />
       )}
+
+      <SlotFinderModal
+        open={finderOpen}
+        onClose={() => { setFinderOpen(false); setFinderEntry(null); }}
+        studioId={currentStudioId || ""}
+        slotMinutes={slotMin}
+        entry={finderEntry}
+        onPickSlot={pickFreeSlot}
+        onPickForEntry={(entry, start) => bookEntryInSlot(entry, start)}
+      />
     </div>
   );
 }

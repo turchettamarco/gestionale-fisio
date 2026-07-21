@@ -15,6 +15,8 @@
 
 export type WaitlistStatus = "active" | "notified" | "booked" | "cancelled";
 
+export type WaitlistPriority = "urgente" | "normale" | "bassa";
+
 export type WaitlistEntry = {
   id: string;
   studio_id: string;
@@ -26,6 +28,13 @@ export type WaitlistEntry = {
   status: WaitlistStatus;
   notified_at: string | null;
   created_at: string;
+  // ── mig. 062 ──
+  duration_min?: number;          // durata seduta attesa (default 60)
+  priority?: WaitlistPriority;    // urgente | normale | bassa
+  expires_on?: string | null;     // "serve entro il" (YYYY-MM-DD)
+  treatment_type?: string | null; // trattamento atteso
+  offered_count?: number;         // proposte già inviate
+  last_offered_slot?: string | null;
   // join
   patients?: {
     first_name: string | null;
@@ -86,7 +95,11 @@ export function entryPreferencesLabel(e: WaitlistEntry): string {
  * Regole: giorno della settimana incluso nelle preferenze (o nessuna
  * preferenza) E orario di inizio dentro la fascia (estremi inclusi).
  */
-export function entryMatchesSlot(e: WaitlistEntry, slotStart: Date): boolean {
+export function entryMatchesSlot(
+  e: WaitlistEntry,
+  slotStart: Date,
+  slotDurationMin?: number | null,
+): boolean {
   if (e.status !== "active" && e.status !== "notified") return false;
 
   if (e.preferred_days.length > 0 && !e.preferred_days.includes(isoWeekday(slotStart))) {
@@ -99,7 +112,41 @@ export function entryMatchesSlot(e: WaitlistEntry, slotStart: Date): boolean {
   if (fromMin != null && slotMin < fromMin) return false;
   if (toMin != null && slotMin > toMin) return false;
 
+  // La seduta attesa deve STARCI nel buco liberato (se la durata è nota).
+  if (slotDurationMin != null && (e.duration_min ?? 60) > slotDurationMin) return false;
+
   return true;
+}
+
+/** Giorni interi di attesa in lista. */
+export function entryWaitingDays(e: WaitlistEntry): number {
+  return Math.max(0, Math.floor((Date.now() - new Date(e.created_at).getTime()) / 86_400_000));
+}
+
+/** True se la voce ha superato la data "serve entro il". */
+export function entryIsExpired(e: WaitlistEntry, todayISO?: string): boolean {
+  if (!e.expires_on) return false;
+  const today = todayISO || new Date().toISOString().slice(0, 10);
+  return e.expires_on < today;
+}
+
+/**
+ * Ordina i candidati per uno slot: urgenza, poi scadenza imminente, poi
+ * attesa più lunga; a parità, chi ha ricevuto MENO proposte (equità).
+ */
+export function rankWaitlistCandidates(entries: WaitlistEntry[]): WaitlistEntry[] {
+  const prioRank: Record<string, number> = { urgente: 0, normale: 1, bassa: 2 };
+  return [...entries].sort((a, b) => {
+    const pa = prioRank[a.priority ?? "normale"] ?? 1;
+    const pb = prioRank[b.priority ?? "normale"] ?? 1;
+    if (pa !== pb) return pa - pb;
+    const ea = a.expires_on || "9999-12-31";
+    const eb = b.expires_on || "9999-12-31";
+    if (ea !== eb) return ea < eb ? -1 : 1;
+    const wa = entryWaitingDays(a), wb = entryWaitingDays(b);
+    if (wa !== wb) return wb - wa;
+    return (a.offered_count ?? 0) - (b.offered_count ?? 0);
+  });
 }
 
 /** Formatta lo slot in italiano leggibile: "giovedì 9 luglio alle 15:00". */
