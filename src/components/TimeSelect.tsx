@@ -1,18 +1,24 @@
 "use client";
 
 // ─── TimeSelect ──────────────────────────────────────────────────────────────
-// Sostituisce <input type="time"> nelle modali di creazione/modifica
-// appuntamenti su mobile. Motivazione: Safari iOS IGNORA l'attributo `step`
-// e mostra sempre tutti i 60 minuti nella rotella. Due <select> nativi invece
-// aprono il picker iOS con SOLO le opzioni che gli diamo: ore piene e minuti
-// alle frazioni consentite (00/15/30/45 con agenda a 15', 00/30 a 30').
+// Selettore orario UNICO per le modali di creazione/modifica appuntamenti.
+// Un solo tap: si apre la rotella nativa (su iPhone) già posizionata
+// sull'orario corrente, con le sole opzioni valide — a passi di 15 o 30
+// minuti secondo l'impostazione dell'agenda.
 //
-// Se il valore corrente ha minuti fuori griglia (appuntamenti creati prima,
-// es. 09:20), quell'opzione viene inclusa per non alterare il dato aprendolo.
+// Perché una <select> e non <input type="time">: Safari iOS ignora `step`
+// e mostrerebbe tutti i 60 minuti. Le opzioni di una select invece vengono
+// rispettate ovunque.
+//
+// Fascia proposta: 07:00 → 22:00. Se il valore corrente è fuori fascia o
+// fuori passo (appuntamenti creati prima, es. 09:20), viene incluso comunque
+// così aprendo la modale il dato non cambia da solo.
 
-import React from "react";
+import React, { useMemo } from "react";
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
+const H_FROM = 7;
+const H_TO = 22;
 
 export default function TimeSelect({
   value,
@@ -25,46 +31,40 @@ export default function TimeSelect({
   slotMin?: number;                 // 15 | 30
   inputStyle?: React.CSSProperties; // stile dell'input che sostituisce
 }) {
-  const [hRaw, mRaw] = (value || "09:00").split(":");
-  const h = Math.min(23, Math.max(0, parseInt(hRaw, 10) || 0));
-  const m = Math.min(59, Math.max(0, parseInt(mRaw, 10) || 0));
+  const current = useMemo(() => {
+    const [h, m] = (value || "09:00").split(":").map(x => parseInt(x, 10) || 0);
+    return `${pad2(Math.min(23, Math.max(0, h)))}:${pad2(Math.min(59, Math.max(0, m)))}`;
+  }, [value]);
 
-  const base = slotMin === 15 ? [0, 15, 30, 45] : [0, 30];
-  const minOpts = base.includes(m) ? base : [...base, m].sort((a, b) => a - b);
-
-  const sel: React.CSSProperties = {
-    ...inputStyle,
-    WebkitAppearance: "none",
-    appearance: "none",
-    textAlign: "center",
-    textAlignLast: "center",
-    paddingLeft: 6,
-    paddingRight: 6,
-  };
+  const options = useMemo(() => {
+    const step = slotMin === 15 ? 15 : 30;
+    const out: string[] = [];
+    for (let t = H_FROM * 60; t <= H_TO * 60; t += step) {
+      out.push(`${pad2(Math.floor(t / 60))}:${pad2(t % 60)}`);
+    }
+    if (!out.includes(current)) {
+      out.push(current);
+      out.sort();
+    }
+    return out;
+  }, [slotMin, current]);
 
   return (
-    <div style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
-      <select
-        value={pad2(h)}
-        onChange={e => onChange(`${e.target.value}:${pad2(m)}`)}
-        style={{ ...sel, flex: 1 }}
-        aria-label="Ora"
-      >
-        {Array.from({ length: 24 }, (_, i) => (
-          <option key={i} value={pad2(i)}>{pad2(i)}</option>
-        ))}
-      </select>
-      <span style={{ alignSelf: "center", fontWeight: 700, color: "#475569" }}>:</span>
-      <select
-        value={pad2(m)}
-        onChange={e => onChange(`${pad2(h)}:${e.target.value}`)}
-        style={{ ...sel, flex: 1 }}
-        aria-label="Minuti"
-      >
-        {minOpts.map(v => (
-          <option key={v} value={pad2(v)}>{pad2(v)}</option>
-        ))}
-      </select>
-    </div>
+    <select
+      value={current}
+      onChange={e => onChange(e.target.value)}
+      aria-label="Orario"
+      style={{
+        ...inputStyle,
+        WebkitAppearance: "none",
+        appearance: "none",
+        textAlign: "center",
+        textAlignLast: "center",
+      }}
+    >
+      {options.map(t => (
+        <option key={t} value={t}>{t}</option>
+      ))}
+    </select>
   );
 }
