@@ -173,7 +173,7 @@ export default function LeftColumnSection(p: LeftColumnSectionProps) {
                   </div>
                   <div>
                     <div style={{ fontSize: 9, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>ORARIO</div>
-                    <input type="time" value={p.editStart} onChange={e => p.setEditStart(e.target.value)} style={{ ...inpStyle, width: "100%" }} />
+                    <input type="time" step={900} value={p.editStart} onChange={e => p.setEditStart(e.target.value)} style={{ ...inpStyle, width: "100%" }} />
                   </div>
                   <div>
                     <div style={{ fontSize: 9, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>DURATA</div>

@@ -1363,7 +1363,7 @@ export default function PatientDetailMobileClient({ patientId }: { patientId: st
                         style={inputS()} />
                     </FG>
                     <FG label="Ora">
-                      <input type="time" value={newApptTime} onChange={e => setNewApptTime(e.target.value)}
+                      <input type="time" step={900} value={newApptTime} onChange={e => setNewApptTime(e.target.value)}
                         style={inputS()} />
                     </FG>
                   </div>

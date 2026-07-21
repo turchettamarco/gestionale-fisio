@@ -165,7 +165,7 @@ type WorkingHour = {
   is_open: boolean;
 };
 
-function buildSlotsForDay(workingHours: WorkingHour[], date: string): string[] {
+function buildSlotsForDay(workingHours: WorkingHour[], date: string, stepMin = 30): string[] {
   if (!date) return [];
   const dayOfWeek = new Date(`${date}T00:00:00`).getDay(); // 0=Dom..6=Sab
   const wh = workingHours.find(w => w.day_of_week === dayOfWeek);
@@ -182,7 +182,7 @@ function buildSlotsForDay(workingHours: WorkingHour[], date: string): string[] {
   if (endMin <= startMin) return [];
 
   const slots: string[] = [];
-  for (let m = startMin; m <= endMin; m += 30) {
+  for (let m = startMin; m <= endMin; m += stepMin) {
     const hh = Math.floor(m / 60);
     const mm = m % 60;
     slots.push(`${pad2(hh)}:${pad2(mm)}`);
@@ -197,6 +197,11 @@ export default function DashboardMobileClient() {
 
   // Studio corrente (multi-tenancy)
   const { studio: currentStudio, locations: studioLocations } = useCurrentStudio();
+  // Granularità slot: 30 di default, 15 se impostato nel calendario.
+  // Il toggle nella griglia orari resta comunque, per raffinare al volo.
+  const dbSlotMin = ((currentStudio as { slot_minutes?: number } | null)?.slot_minutes) ?? 30;
+  const [qaQuarti, setQaQuarti] = useState(false);
+  useEffect(() => { setQaQuarti(dbSlotMin === 15); }, [dbSlotMin]);
   const { privacyMode } = usePrivacyMode();
   const displayPhone = useDisplayPatientPhone();
   const { maskName, maskInitial } = usePrivacyDisplay();
@@ -1017,7 +1022,7 @@ export default function DashboardMobileClient() {
       }
       // Per ogni slot disponibile per il giorno (basato su working_hours dello studio)
       // verifica se è dentro la finestra [start, end) di un appuntamento non cancellato.
-      const slotsForDay = buildSlotsForDay(workingHours, qaDate);
+      const slotsForDay = buildSlotsForDay(workingHours, qaDate, qaQuarti ? 15 : 30);
       const busy = new Set<string>();
       for (const slot of slotsForDay) {
         const [hh, mm] = slot.split(":").map(Number);
@@ -2510,6 +2515,14 @@ export default function DashboardMobileClient() {
                   fontSize: 11, fontWeight: 700, color: THEME.muted,
                   textTransform: "uppercase", letterSpacing: 0.5,
                 }}>Orario</div>
+                <button onClick={() => setQaQuarti(v => !v)} style={{
+                  border: `1px solid ${qaQuarti ? "#93c5fd" : THEME.border}`,
+                  background: qaQuarti ? "#eff6ff" : "#fff",
+                  color: qaQuarti ? "#1d4ed8" : THEME.muted,
+                  fontSize: 10.5, fontWeight: 700, padding: "2px 9px", borderRadius: 99,
+                  cursor: "pointer", flexShrink: 0,
+                }}>15 min</button>
+                <div style={{ flex: 1 }} />
                 {qaBusyTimes.size > 0 && (
                   <div style={{
                     fontSize: 10, fontWeight: 600, color: THEME.muted,
@@ -2529,7 +2542,7 @@ export default function DashboardMobileClient() {
                 display: "flex", gap: 5, flexWrap: "wrap",
               }}>
                 {(() => {
-                  const slotsForDay = buildSlotsForDay(workingHours, qaDate);
+                  const slotsForDay = buildSlotsForDay(workingHours, qaDate, qaQuarti ? 15 : 30);
                   if (slotsForDay.length === 0) {
                     return (
                       <div style={{ fontSize: 12, color: THEME.muted, padding: "8px 4px" }}>
@@ -3214,7 +3227,7 @@ export default function DashboardMobileClient() {
               </div>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Orario</div>
-                <input type="time" value={editTime} onChange={e => setEditTime(e.target.value)} style={{
+                <input type="time" step={900} value={editTime} onChange={e => setEditTime(e.target.value)} style={{
                   display: "block", width: "100%", maxWidth: "100%", boxSizing: "border-box",
                   padding: "9px 10px", borderRadius: 10,
                   border: `1.5px solid ${THEME.border}`, background: THEME.panelSoft,

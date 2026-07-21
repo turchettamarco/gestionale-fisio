@@ -88,6 +88,7 @@ export type DayTimelineMultiProps = {
 
   /** Click su slot vuoto. operatorId è il nuovo argomento per multi-op. */
   onSlotClick: (date: Date, hour: number, minute: number, operatorId: string | null) => void;
+  slotMinutes?: number;
   /** Tasto destro / pressione lunga */
   onContextMenu: (e: React.MouseEvent, event?: CalendarEvent) => void;
 
@@ -139,7 +140,9 @@ export default function DayTimelineMulti({
   onTogglePaid,
   onUpdatePayment,
   onSendReminder,
+  slotMinutes = 30,
 }: DayTimelineMultiProps) {
+  const slotOffsets = slotMinutes === 15 ? [0, 15, 30, 45] : [0, 30];
   // ── Calcolo colonne ────────────────────────────────────────────────────
   // 1 colonna per ogni member attivo + (se ci sono eventi orfani) 1 colonna
   // "Non assegnati" alla fine. Questo evita di mostrare una colonna vuota
@@ -360,23 +363,20 @@ export default function DayTimelineMulti({
                     display: "flex", flexDirection: "column",
                     boxSizing: "border-box",
                   }}>
-                    {/* Slot 00–30 */}
-                    <div
-                      onClick={() => onSlotClick(currentDate, hour, 0, col.isUnassigned ? null : col.key)}
-                      onContextMenu={onContextMenu}
-                      title={`${pad2(hour)}:00 — ${col.label}`}
-                      style={{
-                        flex: 1, cursor: "pointer",
-                        borderBottom: `1px dashed ${THEME.border}`,
-                      }}
-                    />
-                    {/* Slot 30–60 */}
-                    <div
-                      onClick={() => onSlotClick(currentDate, hour, 30, col.isUnassigned ? null : col.key)}
-                      onContextMenu={onContextMenu}
-                      title={`${pad2(hour)}:30 — ${col.label}`}
-                      style={{ flex: 1, cursor: "pointer" }}
-                    />
+                    {slotOffsets.map((off, oi) => (
+                      <div
+                        key={off}
+                        onClick={() => onSlotClick(currentDate, hour, off, col.isUnassigned ? null : col.key)}
+                        onContextMenu={onContextMenu}
+                        title={`${pad2(hour)}:${pad2(off)} — ${col.label}`}
+                        style={{
+                          flex: 1, cursor: "pointer",
+                          // linea tratteggiata solo a metà ora, come prima
+                          borderBottom: off + 60 / slotOffsets.length === 30
+                            ? `1px dashed ${THEME.border}` : "none",
+                        }}
+                      />
+                    ))}
                   </div>
                 );
               })}

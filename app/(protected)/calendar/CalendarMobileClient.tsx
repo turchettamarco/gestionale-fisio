@@ -293,6 +293,18 @@ function CalendarPageInner() {
 
   // Studio corrente (multi-tenancy)
   const { studio: currentStudio, locations: studioLocations } = useCurrentStudio();
+  // Granularità agenda: 30 o 15 minuti. Persistita su studios.slot_minutes,
+  // quindi vale su tutti i dispositivi. Governa snap del drag e click sugli slot.
+  const [slotMin, setSlotMin] = useState(30);
+  useEffect(() => {
+    setSlotMin(((currentStudio as { slot_minutes?: number } | null)?.slot_minutes) ?? 30);
+  }, [currentStudio]);
+  const saveSlotMin = async (v: 15 | 30) => {
+    setSlotMin(v);
+    if (currentStudio?.id) {
+      await supabase.from("studios").update({ slot_minutes: v }).eq("id", currentStudio.id);
+    }
+  };
   const { privacyMode, privacyStyle } = usePrivacyMode();
   const currentStudioId = currentStudio?.id ?? null;
 
@@ -1780,9 +1792,9 @@ function CalendarPageInner() {
     const dayIdx = clamp(Math.floor((x - r.left - WK_GUTTER) / colW), 0, nDays - 1);
     const rawMin = ((topY - r.top) / WK_HOUR_PX) * 60;
     const maxMin = Math.max(0, (WK_H_END - WK_H_START) * 60 - durMin);
-    const startMin = clamp(Math.round(rawMin / WK_SNAP_MIN) * WK_SNAP_MIN, 0, maxMin);
+    const startMin = clamp(Math.round(rawMin / slotMin) * slotMin, 0, maxMin);
     return { dayIdx, startMin };
-  }, [showSaturday]);
+  }, [showSaturday, slotMin]);
 
   const wkActivate = useCallback(() => {
     const st = wkDragRef.current;
@@ -2664,9 +2676,8 @@ function CalendarPageInner() {
                             if (wkSuppressClickRef.current) return;
                             const r=(e.currentTarget as HTMLElement).getBoundingClientRect();
                             const y=e.clientY-r.top;
-                            const h=H_START+Math.floor(y/HOUR_PX);
-                            const mm=(y%HOUR_PX)>=HOUR_PX/2?"30":"00";
-                            openCreate(`${String(h).padStart(2,"0")}:${mm}`, toISODateLocal(d));
+                            const tot=H_START*60+Math.floor(y/(HOUR_PX*(slotMin/60)))*slotMin;
+                            openCreate(`${String(Math.floor(tot/60)).padStart(2,"0")}:${String(tot%60).padStart(2,"0")}`, toISODateLocal(d));
                           }}
                           style={{position:"relative",cursor:"pointer",
                           borderLeft:`1px solid ${isDropTarget?"#94a3b8":THEME.lineFaint}`,
@@ -2746,8 +2757,15 @@ function CalendarPageInner() {
                     fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:99,cursor:"pointer",flexShrink:0,
                   }}>{showSaturday?"Sab ✓":"Sab"}</button>
                   <span style={{fontSize:10,fontWeight:800,color:THEME.text}}>{totCount} sedute · €{Math.round(totRev)}</span>
+                  <button onClick={()=>saveSlotMin(slotMin===30?15:30)} style={{
+                    border:`1px solid ${THEME.line}`,background:slotMin===15?"#eff6ff":THEME.panelBg,
+                    color:slotMin===15?"#1d4ed8":THEME.warm500,
+                    fontSize:10,fontWeight:700,padding:"3px 9px",borderRadius:99,cursor:"pointer",flexShrink:0,
+                  }} title="Granularità dell'agenda: slot e spostamenti a 30 o 15 minuti (vale ovunque)">
+                    {slotMin===15?"15 min ✓":"30 min"}
+                  </button>
                   <span style={{marginLeft:"auto",fontSize:9,color:"#475569",paddingRight:2,textAlign:"right",lineHeight:1.3}}>
-                    spazio vuoto → nuova<br/>tieni premuto → sposta (30 min)
+                    spazio vuoto → nuova<br/>tieni premuto → sposta ({slotMin} min)
                   </span>
                 </div>
               </div>
@@ -3160,7 +3178,7 @@ function CalendarPageInner() {
             <FG label="Orario">
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
                 <input type="date" value={editDate} onChange={e=>setEditDate(e.target.value)} style={inputS()} />
-                <input type="time" value={editTime} onChange={e=>setEditTime(e.target.value)} style={inputS()} />
+                <input type="time" step={900} value={editTime} onChange={e=>setEditTime(e.target.value)} style={inputS()} />
                 <input type="number" min={15} step={5} value={editDuration}
                   onChange={e=>setEditDuration(Number(e.target.value))} style={inputS()} placeholder="Min" />
               </div>
@@ -4234,7 +4252,7 @@ function CreateModal(props:CreateModalProps) {
         </>)}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
           <FG label="Data"><input type="date" value={createDate} onChange={e=>setCreateDate(e.target.value)} style={inputS()} /></FG>
-          <FG label="Ora"><input type="time" value={createTime} onChange={e=>setCreateTime(e.target.value)} style={inputS()} /></FG>
+          <FG label="Ora"><input type="time" step={900} value={createTime} onChange={e=>setCreateTime(e.target.value)} style={inputS()} /></FG>
           <FG label="Min"><input type="number" min={15} step={5} value={createDuration} onChange={e=>setCreateDuration(Number(e.target.value))} style={inputS()} /></FG>
         </div>
         <FG label="Stato">

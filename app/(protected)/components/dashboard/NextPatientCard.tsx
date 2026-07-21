@@ -141,7 +141,7 @@ export default function NextPatientCard(p: NextPatientCardProps) {
             </div>
             <div>
               <div style={{ fontSize: 10, fontWeight: 700, color: "var(--fh-mut)", marginBottom: 4 }}>Ora</div>
-              <input type="time" value={p.editStart} onChange={e => p.setEditStart(e.target.value)} style={inpStyle} />
+              <input type="time" step={900} value={p.editStart} onChange={e => p.setEditStart(e.target.value)} style={inpStyle} />
             </div>
             <div>
               <div style={{ fontSize: 10, fontWeight: 700, color: "var(--fh-mut)", marginBottom: 4 }}>Durata</div>

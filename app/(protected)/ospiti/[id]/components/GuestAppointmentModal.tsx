@@ -746,7 +746,7 @@ export default function GuestAppointmentModal({
                   <Clock size={11} /> Ora *
                 </div>
                 <input
-                  type="time"
+                  type="time" step={900}
                   value={startTime}
                   onChange={e => setStartTime(e.target.value)}
                   className="gam-input"

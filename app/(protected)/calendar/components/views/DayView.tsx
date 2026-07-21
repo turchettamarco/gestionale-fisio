@@ -72,6 +72,7 @@ export type DayViewProps = {
   dayLabels: DayTimelineProps["dayLabels"];
   TIME_COL: DayTimelineProps["TIME_COL"];
   gridStartHour?: DayTimelineProps["gridStartHour"];
+  slotMinutes?: number;
   studioLocations?: DayTimelineProps["studioLocations"];
   draggingOver: DayTimelineProps["draggingOver"];
   showAvailableOnly: DayTimelineProps["showAvailableOnly"];
@@ -116,6 +117,7 @@ export default function DayView({
   guestPractitioners,
   timeSlots, dayLabels, TIME_COL,
   gridStartHour,
+  slotMinutes = 30,
   studioLocations,
   draggingOver, showAvailableOnly, bulkMode, bulkSelected, searchMatchIds,
   onSlotClick, onSlotClickMulti, onSlotClickGuest, onContextMenu,
@@ -220,6 +222,7 @@ export default function DayView({
     }}>
       {useMulti ? (
         <DayTimelineMulti
+          slotMinutes={slotMinutes}
           currentDate={currentDate}
           dayEvents={dayEvents}
           currentTime={currentTime}
@@ -300,6 +303,7 @@ export default function DayView({
           display: "flex",
         }}>
           <DayTimeline
+            slotMinutes={slotMinutes}
             currentDate={currentDate}
             dayEvents={dayEvents}
             currentTime={currentTime}

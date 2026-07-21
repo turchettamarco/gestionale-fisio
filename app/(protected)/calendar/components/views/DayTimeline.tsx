@@ -74,6 +74,7 @@ export type DayTimelineProps = {
   // ─── Callback delegate al page.tsx ───────────────────────────
   /** Click su slot vuoto */
   onSlotClick: (date: Date, hour: number, minute: number) => void;
+  slotMinutes?: number;
   /** Tasto destro / pressione lunga */
   onContextMenu: (e: React.MouseEvent, event?: CalendarEvent) => void;
   /** Drag start su una card evento */
@@ -124,12 +125,14 @@ export default function DayTimeline({
   studioLocations,
   draggingOver, showAvailableOnly, bulkMode, bulkSelected, searchMatchIds,
   onSlotClick, onContextMenu,
+  slotMinutes = 30,
   onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
   draggingEventId,
   getDayEventPosition, getFreeWindows, getEventColor,
   onSelectEvent, onToggleBulkSelect,
   onToggleDone, onTogglePaid, onUpdatePayment, onSendReminder,
 }: DayTimelineProps) {
+  const slotOffsets = slotMinutes === 15 ? [0, 15, 30, 45] : [0, 30];
 
   const today = new Date();
   const isToday =
@@ -221,57 +224,36 @@ export default function DayTimeline({
                 position: "relative",
               }}>
                 {/* Slot 00–30 minuti */}
-                <div
-                  style={{
-                    height: "60px",
-                    borderBottom: `1.5px solid ${THEME.border}`,
-                    cursor: "pointer",
-                    boxSizing: "border-box",
-                    position: "relative",
-                  }}
-                  title={`Clicca per creare appuntamento alle ${pad2(hour)}:00`}
-                  onClick={() => onSlotClick(currentDate, hour, 0)}
-                  onContextMenu={onContextMenu}
-                  onDragOver={e => onDragOver(e, 0, hour, 0)}
-                  onDragLeave={onDragLeave}
-                  onDrop={e => onDrop(e, currentDate, hour, 0)}
-                >
-                  {draggingOver && draggingOver.dayIndex === 0 &&
-                   draggingOver.hour === hour && draggingOver.minute === 0 && (
-                    <div style={{
-                      position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-                      border: `2px dashed ${THEME.blue}`,
-                      background: "rgba(91,130,168,0.1)",
-                      zIndex: 1, pointerEvents: "none",
-                    }} />
-                  )}
-                </div>
-
-                {/* Slot 30–60 minuti */}
-                <div
-                  style={{
-                    height: "60px",
-                    cursor: "pointer",
-                    boxSizing: "border-box",
-                    position: "relative",
-                  }}
-                  title={`Clicca per creare appuntamento alle ${pad2(hour)}:30`}
-                  onClick={() => onSlotClick(currentDate, hour, 30)}
-                  onContextMenu={onContextMenu}
-                  onDragOver={e => onDragOver(e, 0, hour, 30)}
-                  onDragLeave={onDragLeave}
-                  onDrop={e => onDrop(e, currentDate, hour, 30)}
-                >
-                  {draggingOver && draggingOver.dayIndex === 0 &&
-                   draggingOver.hour === hour && draggingOver.minute === 30 && (
-                    <div style={{
-                      position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-                      border: `2px dashed ${THEME.blue}`,
-                      background: "rgba(91,130,168,0.1)",
-                      zIndex: 1, pointerEvents: "none",
-                    }} />
-                  )}
-                </div>
+                {slotOffsets.map(off => (
+                  <div
+                    key={off}
+                    style={{
+                      height: `${120 / slotOffsets.length}px`,
+                      // la linea a metà ora resta come prima
+                      borderBottom: off + 60 / slotOffsets.length === 30
+                        ? `1.5px solid ${THEME.border}` : "none",
+                      cursor: "pointer",
+                      boxSizing: "border-box",
+                      position: "relative",
+                    }}
+                    title={`Clicca per creare appuntamento alle ${pad2(hour)}:${pad2(off)}`}
+                    onClick={() => onSlotClick(currentDate, hour, off)}
+                    onContextMenu={onContextMenu}
+                    onDragOver={e => onDragOver(e, 0, hour, off)}
+                    onDragLeave={onDragLeave}
+                    onDrop={e => onDrop(e, currentDate, hour, off)}
+                  >
+                    {draggingOver && draggingOver.dayIndex === 0 &&
+                     draggingOver.hour === hour && draggingOver.minute === off && (
+                      <div style={{
+                        position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+                        border: `2px dashed ${THEME.blue}`,
+                        background: "rgba(91,130,168,0.1)",
+                        zIndex: 1, pointerEvents: "none",
+                      }} />
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           );

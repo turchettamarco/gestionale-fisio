@@ -228,6 +228,7 @@ function CalendarPageInner() {
     currentStudio,
     currentStudioId,
     studioLocations,
+    // (slot_minutes viene letto sotto, con fallback 30)
     // User
     userEmail,
     userId,
@@ -878,10 +879,23 @@ function CalendarPageInner() {
   }, [events]);
 
   // Dichiarazioni delle costanti useMemo devono essere PRIMA delle funzioni che le usano
+  // Granularità agenda (30/15): impostazione di studio, persistita su DB.
+  const [slotMin, setSlotMin] = useState(30);
+  useEffect(() => {
+    setSlotMin(((currentStudio as { slot_minutes?: number } | null)?.slot_minutes) ?? 30);
+  }, [currentStudio]);
+  const saveSlotMin = useCallback(async (v: 15 | 30) => {
+    setSlotMin(v);
+    if (currentStudioId) {
+      await supabase.from("studios").update({ slot_minutes: v }).eq("id", currentStudioId);
+    }
+  }, [currentStudioId]);
+
   const timeSelectSlots = useMemo(() => {
     const slots = [];
+    const mins = slotMin === 15 ? [0, 15, 30, 45] : [0, 30];
     for (let hour = gridHourRange.start; hour < gridHourRange.end; hour++) {
-      for (let minute of [0, 30]) {
+      for (const minute of mins) {
         slots.push(`${pad2(hour)}:${pad2(minute)}`);
       }
     }
@@ -889,7 +903,7 @@ function CalendarPageInner() {
     // selezionare l'ultimo slot del giorno
     slots.push(`${pad2(gridHourRange.end)}:00`);
     return slots;
-  }, [gridHourRange]);
+  }, [gridHourRange, slotMin]);
 
   // Funzioni di navigazione, weekOptions, getAvailabilityForecast, getFreeWindows
   // sono ora in useCalendarEvents.
@@ -2064,6 +2078,8 @@ return (
 
           {/* ── TOOLBAR settimana / mese / giorno ── */}
           <CalendarToolbar
+            slotMinutes={slotMin}
+            onSlotMinutes={saveSlotMin}
             viewType={viewType}
             setViewType={setViewType}
             setCurrentDate={setCurrentDate}
@@ -2188,6 +2204,7 @@ return (
               />
             ) : (
             <WeekView
+              slotMinutes={slotMin}
               weekDays={weekDays}
               filteredEvents={filteredEvents}
               currentTime={currentTime}
@@ -2249,6 +2266,7 @@ return (
           ) : (
             /* ━━━ DAY VIEW — timeline + sidebar ━━━ */
             <DayView
+              slotMinutes={slotMin}
               currentDate={currentDate}
               dayEvents={
                 filteredEvents

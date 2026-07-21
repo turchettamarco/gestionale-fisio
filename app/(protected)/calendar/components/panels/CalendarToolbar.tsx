@@ -21,6 +21,8 @@ import { THEME, addDays } from "../../utils";
 import type { CalendarFilters } from "./FiltersPopover";
 
 export type CalendarToolbarProps = {
+  slotMinutes: number;
+  onSlotMinutes: (v: 15 | 30) => void;
   // ─── Vista corrente + navigazione ─────────────────────────────
   viewType: "day" | "week" | "month";
   setViewType: (v: "day" | "week" | "month") => void;
@@ -77,6 +79,7 @@ const navBtnStyle: React.CSSProperties = {
 };
 
 export default function CalendarToolbar({
+  slotMinutes, onSlotMinutes,
   viewType, setViewType, setCurrentDate,
   onGoToPreviousWeek, onGoToNextWeek,
   onGoToPreviousMonth, onGoToNextMonth, onGoToToday,
@@ -194,6 +197,17 @@ export default function CalendarToolbar({
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={handlePrev} style={arrowBtnStyle}>◀</button>
         <button onClick={handleToday} style={todayBtnStyle}>Oggi</button>
+        <button
+          onClick={() => onSlotMinutes(slotMinutes === 30 ? 15 : 30)}
+          title="Granularità dell'agenda: slot, click e spostamenti a 30 o 15 minuti (vale su tutti i dispositivi)"
+          style={{
+            ...todayBtnStyle,
+            background: slotMinutes === 15 ? "#eff6ff" : (todayBtnStyle as React.CSSProperties).background,
+            color: slotMinutes === 15 ? "#1d4ed8" : (todayBtnStyle as React.CSSProperties).color,
+            borderColor: slotMinutes === 15 ? "#93c5fd" : (todayBtnStyle as React.CSSProperties).borderColor,
+          }}>
+          {slotMinutes === 15 ? "15 min ✓" : "30 min"}
+        </button>
         <button onClick={handleNext} style={arrowBtnStyle}>▶</button>
       </div>
 

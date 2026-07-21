@@ -1025,7 +1025,7 @@ export default function GroupEventModal({
                   NUOVA ORA
                 </label>
                 <input
-                  type="time"
+                  type="time" step={900}
                   value={dupTime}
                   onChange={(e) => setDupTime(e.target.value)}
                   style={{
