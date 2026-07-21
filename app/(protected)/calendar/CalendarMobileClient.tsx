@@ -317,6 +317,21 @@ function CalendarPageInner() {
   const [matchSlot, setMatchSlot] = useState<Date | null>(null);
   const [matchDuration, setMatchDuration] = useState<number | null>(null);
   const [finderOpen, setFinderOpen] = useState(false);
+  // FAB meno invadenti: un solo bottone strumenti (⋯) che apre il ventaglio,
+  // e tutto il gruppo scivola fuori dallo schermo mentre si scorre.
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [fabsHidden, setFabsHidden] = useState(false);
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const onScroll = () => {
+      setFabsHidden(true);
+      setToolsOpen(false);
+      if (t) clearTimeout(t);
+      t = setTimeout(() => setFabsHidden(false), 480);
+    };
+    window.addEventListener("scroll", onScroll, { capture: true, passive: true });
+    return () => { window.removeEventListener("scroll", onScroll, true); if (t) clearTimeout(t); };
+  }, []);
   const [finderEntry, setFinderEntry] = useState<WaitlistEntry | null>(null);
   const pendingBookRef = useRef<{ entryId: string; patientId: string; startISO: string } | null>(null);
   const [matchEntries, setMatchEntries] = useState<WaitlistEntry[]>([]);
@@ -2281,7 +2296,7 @@ function CalendarPageInner() {
   /* ─── RENDER ─────────────────────────────── */
   return (
     <div
-      style={{minHeight:"100vh",background:THEME.appBg,paddingBottom:BOTTOM_TAB_H+16,
+      style={{minHeight:"100vh",background:THEME.appBg,paddingBottom:BOTTOM_TAB_H+92,
               fontFamily:"'Inter',-apple-system,system-ui,sans-serif",
               overflowX:"hidden",maxWidth:"100vw"}}
       onTouchStart={handlePullStart}
@@ -3146,6 +3161,8 @@ function CalendarPageInner() {
           border:"none",cursor:"pointer",fontSize:26,fontWeight:300,zIndex:40,
           display:"flex",alignItems:"center",justifyContent:"center",
           boxShadow:"0 4px 20px rgba(13,148,136,0.40)",
+          transform: fabsHidden ? "translateX(170%)" : "none",
+          transition: "transform .25s ease",
         }}>
         +
         {/* Badge FAB */}
@@ -3691,37 +3708,71 @@ function CalendarPageInner() {
       )}
 
       {/* Lista d'attesa */}
-      <button
-        onClick={() => setWaitlistOpen(true)}
-        aria-label="Lista d'attesa"
-        style={{
-          position: "fixed", right: 16, zIndex: 3500,
-          bottom: `calc(env(safe-area-inset-bottom,0px) + ${BOTTOM_TAB_H + 16 + 64}px)`,
-          display: "inline-flex", alignItems: "center", gap: 7,
-          padding: "11px 16px", borderRadius: 999, border: "none",
-          background: "linear-gradient(135deg, #0d9488, #2563eb)",
-          color: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer",
-          fontFamily: "inherit", boxShadow: "0 8px 22px rgba(37,99,235,0.4)",
-        }}
-      >
-        <Icon name="clock" size={16} color="#fff" strokeWidth={2.4} />
-        {waitlistCount > 0 && (
-          <span style={{ background: "#fff", color: "#0d9488", borderRadius: 999, fontSize: 11, fontWeight: 900, padding: "1px 7px", minWidth: 18, textAlign: "center" }}>{waitlistCount}</span>
+      
+      {/* ── Strumenti agenda: un solo bottone, ventaglio al tocco ── */}
+      {toolsOpen && (
+        <div onClick={() => setToolsOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 3490 }} />
+      )}
+      <div style={{
+        position: "fixed", right: 18, zIndex: 3500,
+        bottom: `calc(env(safe-area-inset-bottom,0px) + ${BOTTOM_TAB_H + 16 + 62}px)`,
+        display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8,
+        transform: fabsHidden ? "translateX(170%)" : "none",
+        transition: "transform .25s ease",
+      }}>
+        {toolsOpen && (
+          <>
+            <button
+              onClick={() => { setToolsOpen(false); setFinderEntry(null); setFinderOpen(true); }}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 8,
+                padding: "10px 15px", borderRadius: 999, border: "1.5px solid #cbd5e1",
+                background: "#fff", color: THEME.text, fontWeight: 800, fontSize: 13,
+                cursor: "pointer", fontFamily: "inherit", boxShadow: "0 6px 18px rgba(15,23,42,0.16)",
+                whiteSpace: "nowrap",
+              }}
+            >🔍 Trova buco</button>
+            <button
+              onClick={() => { setToolsOpen(false); setWaitlistOpen(true); }}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 8,
+                padding: "10px 15px", borderRadius: 999, border: "none",
+                background: "linear-gradient(135deg, #0d9488, #2563eb)",
+                color: "#fff", fontWeight: 800, fontSize: 13,
+                cursor: "pointer", fontFamily: "inherit", boxShadow: "0 6px 18px rgba(37,99,235,0.3)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <Icon name="clock" size={15} color="#fff" strokeWidth={2.4} /> Lista d&apos;attesa
+              {waitlistCount > 0 && (
+                <span style={{ background: "#fff", color: "#0d9488", borderRadius: 999, fontSize: 11, fontWeight: 900, padding: "1px 7px", minWidth: 18, textAlign: "center" }}>{waitlistCount}</span>
+              )}
+            </button>
+          </>
         )}
-      </button>
-
-      <button
-        onClick={() => { setFinderEntry(null); setFinderOpen(true); }}
-        aria-label="Trova buco"
-        style={{
-          position: "fixed", right: 16, zIndex: 3500,
-          bottom: `calc(env(safe-area-inset-bottom,0px) + ${BOTTOM_TAB_H + 16 + 118}px)`,
-          display: "inline-flex", alignItems: "center", gap: 7,
-          padding: "11px 14px", borderRadius: 999, border: "1.5px solid #cbd5e1",
-          background: "#fff", color: THEME.text, fontWeight: 800, fontSize: 13,
-          cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 22px rgba(15,23,42,0.18)",
-        }}
-      >🔍</button>
+        <button
+          onClick={() => setToolsOpen(o => !o)}
+          aria-label="Strumenti agenda"
+          style={{
+            width: 46, height: 46, borderRadius: "50%",
+            border: "1.5px solid #cbd5e1", background: "#fff", color: THEME.text,
+            fontSize: 21, fontWeight: 800, cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 6px 18px rgba(15,23,42,0.16)", position: "relative",
+            fontFamily: "inherit", lineHeight: 1,
+          }}
+        >
+          {toolsOpen ? "✕" : "⋯"}
+          {!toolsOpen && waitlistCount > 0 && (
+            <span style={{
+              position: "absolute", top: -3, right: -3, minWidth: 17, height: 17,
+              borderRadius: 99, background: THEME.red, color: "#fff",
+              fontSize: 9.5, fontWeight: 800, display: "flex", alignItems: "center",
+              justifyContent: "center", border: "2px solid #fff", padding: "0 3px",
+            }}>{waitlistCount}</span>
+          )}
+        </button>
+      </div>
 
       <WaitlistPanel
         open={waitlistOpen}
