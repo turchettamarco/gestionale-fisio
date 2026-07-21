@@ -17,6 +17,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { ReminderTomorrowCard } from "@/src/components/ReminderTomorrow";
 import { getStudioBranding } from "@/src/lib/studioBranding";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
@@ -959,6 +960,9 @@ export default function DashboardDesktopClient() {
               if (key === "actions") return (
                 <SortableShell key={key} label="Da fare" {...shell}>
                   <div id="fh-actions" style={{ borderRadius: 16 }}>
+                    <div style={{ marginBottom: 10 }}>
+                      <ReminderTomorrowCard variant="desktop" />
+                    </div>
                     <ActionCenter
                       alertAppts={alertAppts}
                       remindersToSend={remindersToSend}

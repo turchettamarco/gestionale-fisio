@@ -43,6 +43,7 @@ import PackageBadge from "@/src/components/packages/PackageBadge";
 import NotificationsBell from "@/src/components/NotificationsBell";
 import GroupEventModalMobile, { type GroupEvent, type Participant } from "@/src/components/mobile/GroupEventModalMobile";
 import TimeSelect from "@/src/components/TimeSelect";
+import { ReminderTomorrowCard } from "@/src/components/ReminderTomorrow";
 import {
   groupSearchPatientsApi,
   fetchGroupParticipants,
@@ -1742,6 +1743,11 @@ export default function DashboardMobileClient() {
             </div>
           );
         })()}
+
+        {/* Regia promemoria: visibile solo se domani c'è qualcuno da avvisare */}
+        <div style={{ margin: "0 0 12px" }}>
+          <ReminderTomorrowCard variant="mobile" />
+        </div>
 
         {/* ── Toggle Oggi / Domani (Variante 2: track caldo, attivo gradiente) ── */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0 12px" }}>

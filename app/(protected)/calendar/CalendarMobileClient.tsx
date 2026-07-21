@@ -18,6 +18,7 @@ import { SOAPNotesEditor } from "./components/SOAPNotes";
 import { WaitlistPanel, fetchActiveWaitlistCount } from "@/src/components/waitlist/WaitlistPanel";
 import { WaitlistMatchModal } from "@/src/components/waitlist/WaitlistMatchModal";
 import { SlotFinderModal } from "@/src/components/waitlist/SlotFinderModal";
+import { ReminderTomorrowPanel } from "@/src/components/ReminderTomorrow";
 import { entryMatchesSlot, type WaitlistEntry } from "@/src/lib/waitlist";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 import PackagePickerSection from "@/src/components/packages/PackagePickerSection";
@@ -321,6 +322,7 @@ function CalendarPageInner() {
   // FAB meno invadenti: un solo bottone strumenti (⋯) che apre il ventaglio,
   // e tutto il gruppo scivola fuori dallo schermo mentre si scorre.
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [reminderOpen, setReminderOpen] = useState(false);
   const [fabsHidden, setFabsHidden] = useState(false);
   useEffect(() => {
     let t: ReturnType<typeof setTimeout> | null = null;
@@ -3724,6 +3726,16 @@ function CalendarPageInner() {
         {toolsOpen && (
           <>
             <button
+              onClick={() => { setToolsOpen(false); setReminderOpen(true); }}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 8,
+                padding: "10px 15px", borderRadius: 999, border: "1.5px solid #cbd5e1",
+                background: "#fff", color: THEME.text, fontWeight: 800, fontSize: 13,
+                cursor: "pointer", fontFamily: "inherit", boxShadow: "0 6px 18px rgba(15,23,42,0.16)",
+                whiteSpace: "nowrap",
+              }}
+            >📣 Da avvisare domani</button>
+            <button
               onClick={() => { setToolsOpen(false); setFinderEntry(null); setFinderOpen(true); }}
               style={{
                 display: "inline-flex", alignItems: "center", gap: 8,
@@ -3782,6 +3794,8 @@ function CalendarPageInner() {
         onChanged={setWaitlistCount}
         onFindSlot={(e) => { setWaitlistOpen(false); setFinderEntry(e); setFinderOpen(true); }}
       />
+
+      <ReminderTomorrowPanel open={reminderOpen} onClose={() => setReminderOpen(false)} />
 
       <SlotFinderModal
         open={finderOpen}
