@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import Link from "next/link";
+import { RecallPanel } from "@/src/components/RecallPanel";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudioId } from "@/src/contexts/StudioContext";
@@ -124,6 +125,7 @@ export default function PatientsPage() {
   // Studio corrente (multi-tenancy)
   const currentStudioId = useCurrentStudioId();
   const [adhOpen, setAdhOpen] = useState(false);
+  const [recallOpen, setRecallOpen] = useState(false);
 
   // Privacy Mode (entrambe le viste)
   const displayName  = useDisplayPatientName();
@@ -618,6 +620,27 @@ export default function PatientsPage() {
           ))}
         </div>
 
+        {/* Da richiamare: pill discreta sopra il FAB */}
+        <button
+          onClick={() => setRecallOpen(true)}
+          style={{
+            position: "fixed", right: 18,
+            bottom: `calc(env(safe-area-inset-bottom,0px) + ${BOTTOM_TAB_H + 16 + 62}px)`,
+            display: "inline-flex", alignItems: "center", gap: 7,
+            padding: "10px 14px", borderRadius: 999, border: "1.5px solid #cbd5e1",
+            background: "#fff", color: THEME.text, fontWeight: 800, fontSize: 12.5,
+            cursor: "pointer", fontFamily: "inherit", zIndex: 40,
+            boxShadow: "0 6px 18px rgba(15,23,42,0.16)",
+          }}
+        >🔔 Da richiamare</button>
+
+        <RecallPanel
+          open={recallOpen}
+          onClose={() => setRecallOpen(false)}
+          studioId={currentStudioId ?? ""}
+          displayName={(full) => displayName({ first_name: full, last_name: "" }, full)}
+        />
+
         {/* ━━━ FAB nuovo paziente — unificata (Tappa 3) ━━━ */}
         <Link
           href="/patients/new"
@@ -905,6 +928,14 @@ export default function PatientsPage() {
             )}
           </div>
           <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            <button onClick={() => setRecallOpen(true)} style={{
+              padding: "10px 16px", borderRadius: 8, border: `1.5px solid ${THEME.border}`,
+              background: "#fff", color: THEME.text,
+              fontWeight: 700, fontSize: 13, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 6,
+            }}>
+              🔔 Da richiamare
+            </button>
             <button onClick={() => setAdhOpen(true)} style={{
               padding: "10px 16px", borderRadius: 8, border: `1.5px solid ${THEME.teal}`,
               background: "#fff", color: THEME.teal,
@@ -928,6 +959,13 @@ export default function PatientsPage() {
           open={adhOpen}
           onClose={() => setAdhOpen(false)}
           studioId={currentStudioId}
+        />
+
+        <RecallPanel
+          open={recallOpen}
+          onClose={() => setRecallOpen(false)}
+          studioId={currentStudioId ?? ""}
+          displayName={(full) => displayName({ first_name: full, last_name: "" }, full)}
         />
 
         {/* Error */}

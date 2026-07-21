@@ -26,6 +26,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { italianHoliday } from "@/src/lib/holidays";
 import {
   THEME, ALL_TREATMENTS, DEFAULT_CLINIC_SITE,
   fmtTime, parseDateInput, toDateInputValue, generateRecurringStarts,
@@ -749,6 +750,16 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
                   outline: "none", fontWeight: 600, fontSize: 13,
                 }}
               />
+              {(() => {
+                const dISO = duplicateMode ? duplicateDate : toDateInputValue(new Date(createStartISO));
+                return dISO && italianHoliday(dISO);
+              })() && (
+                <div style={{
+                  marginTop: 6, padding: "6px 10px", borderRadius: 8,
+                  background: "#fffbeb", border: "1px solid #fcd34d",
+                  fontSize: 12, fontWeight: 700, color: "#92400e",
+                }}>⚠ Giorno festivo: {italianHoliday(duplicateMode ? duplicateDate : toDateInputValue(new Date(createStartISO)))}</div>
+              )}
             </label>
           </div>
         </div>

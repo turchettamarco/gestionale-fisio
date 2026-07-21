@@ -29,6 +29,7 @@ import StatusSheet, { type StatusSheetAction } from "@/src/components/mobile/Sta
 import { Icon, PulseDivider } from "@/src/components/icons";
 import GroupEventModalMobile, { type GroupEvent } from "@/src/components/mobile/GroupEventModalMobile";
 import TimeSelect from "@/src/components/TimeSelect";
+import { italianHoliday } from "@/src/lib/holidays";
 import {
   groupSearchPatientsApi,
   fetchGroupParticipants,
@@ -2721,12 +2722,12 @@ function CalendarPageInner() {
                 {/* Intestazioni giorno: tap → apre il Giorno */}
                 <div style={{display:"grid",gridTemplateColumns:`${WK_GUTTER}px repeat(${showSaturday?6:5},1fr)`,borderBottom:`1px solid ${THEME.line}`}}>
                   <div />
-                  {days.map(d=>{ const t=isSameDay(d,now); return (
-                    <button key={toISODateLocal(d)} onClick={()=>{setCurrentDate(d);setViewMode("day");}} style={{
+                  {days.map(d=>{ const t=isSameDay(d,now); const fest=italianHoliday(d); return (
+                    <button key={toISODateLocal(d)} onClick={()=>{setCurrentDate(d);setViewMode("day");}} title={fest||undefined} style={{
                       border:"none",cursor:"pointer",textAlign:"center",padding:"5px 0 6px",
-                      background:t?THEME.gradient:"transparent"}}>
-                      <p style={{margin:0,fontSize:8,fontWeight:800,letterSpacing:"0.04em",color:t?"rgba(255,255,255,0.85)":THEME.warm400,textTransform:"uppercase"}}>{formatWeekdayShort(d)}</p>
-                      <p style={{margin:0,fontSize:13,fontWeight:800,color:t?"#fff":THEME.text}}>{d.getDate()}</p>
+                      background:t?THEME.gradient:fest?"rgba(239,68,68,0.06)":"transparent"}}>
+                      <p style={{margin:0,fontSize:8,fontWeight:800,letterSpacing:"0.04em",color:t?"rgba(255,255,255,0.85)":fest?THEME.red:THEME.warm400,textTransform:"uppercase"}}>{formatWeekdayShort(d)}</p>
+                      <p style={{margin:0,fontSize:13,fontWeight:800,color:t?"#fff":fest?THEME.red:THEME.text}}>{d.getDate()}</p>
                     </button>
                   );})}
                 </div>
@@ -4397,6 +4398,13 @@ function CreateModal(props:CreateModalProps) {
           <FG label="Ora"><TimeSelect value={createTime} onChange={setCreateTime} slotMin={slotMin} inputStyle={inputS()} /></FG>
           <FG label="Min"><input type="number" min={15} step={5} value={createDuration} onChange={e=>setCreateDuration(Number(e.target.value))} style={inputS()} /></FG>
         </div>
+        {italianHoliday(createDate) && (
+          <div style={{
+            marginTop: 8, padding: "7px 11px", borderRadius: 9,
+            background: "#fffbeb", border: "1px solid #fcd34d",
+            fontSize: 12, fontWeight: 700, color: "#92400e",
+          }}>⚠ {new Date(createDate + "T12:00").toLocaleDateString("it-IT", { day: "numeric", month: "long" })} è {italianHoliday(createDate)}</div>
+        )}
         <FG label="Stato">
           <select value={createStatus} onChange={e=>setCreateStatus(e.target.value as Status)} style={inputS()}>
             <option value="confirmed">Confermato</option><option value="booked">Prenotato</option>

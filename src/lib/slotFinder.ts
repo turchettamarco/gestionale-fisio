@@ -21,6 +21,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 import { supabase } from "@/src/lib/supabaseClient";
+import { italianHoliday } from "@/src/lib/holidays";
 
 export type SlotQuality = "perfetto" | "compatta" | "spezza";
 
@@ -113,6 +114,7 @@ export async function findFreeSlots(p: SlotSearchParams): Promise<FoundSlot[]> {
     day.setDate(day.getDate() + i);
 
     if (p.preferredDays?.length && !p.preferredDays.includes(isoWeekday(day))) continue;
+    if (italianHoliday(day)) continue; // festivi nazionali: mai proposti
 
     const wh = workingHours.find(w => w.day_of_week === day.getDay());
     let openMin = 8 * 60, closeMin = 20 * 60; // fallback storico

@@ -24,6 +24,7 @@
 
 "use client";
 
+import { italianHoliday } from "@/src/lib/holidays";
 import {
   THEME, fmtTime, formatDMY, pad2, statusBg, statusLabel,
   cycleDotTitle, cycleDotGlyph,
@@ -257,6 +258,14 @@ export default function WeekView({
             >
               <div style={{ marginBottom: 2, letterSpacing: 1 }}>
                 {dayLabels[index].label}
+                {italianHoliday(day) && (
+                  <span title={italianHoliday(day) || undefined} style={{
+                    marginLeft: 6, fontSize: 9, fontWeight: 800,
+                    background: "rgba(239,68,68,0.85)", color: "#fff",
+                    borderRadius: 99, padding: "1px 7px", verticalAlign: "middle",
+                    letterSpacing: 0.3,
+                  }}>FESTIVO</span>
+                )}
               </div>
               <div style={{ fontSize: 11, marginBottom: 4, color: "rgba(255,255,255,0.7)", fontWeight: 600 }}>
                 {formatDMY(day)}

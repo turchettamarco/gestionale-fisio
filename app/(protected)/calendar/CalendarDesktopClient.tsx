@@ -2704,10 +2704,12 @@ return (
         onClick={() => { setFinderEntry(null); setFinderOpen(true); }}
         title="Cerca i migliori slot liberi nei prossimi giorni"
         style={{
-          display: "flex", alignItems: "center", gap: 8,
-          padding: "10px 16px", borderRadius: 999, border: "1.5px solid #cbd5e1",
+          position: "fixed", right: 22, bottom: 74, zIndex: 180,
+          display: "inline-flex", alignItems: "center", gap: 8,
+          padding: "11px 17px", borderRadius: 999, border: "1.5px solid #cbd5e1",
           background: "#fff", color: "#0f172a", fontWeight: 800, fontSize: 13,
           cursor: "pointer", fontFamily: "inherit",
+          boxShadow: "0 8px 24px rgba(15,23,42,0.14)",
         }}
       >
         🔍 Trova buco
