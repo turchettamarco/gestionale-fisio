@@ -606,6 +606,46 @@ export default function CartellaValutazione({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form, risposte, firmaPaziente, firmaOperatore, open, patient?.id, loading]);
 
+  /** Elimina una valutazione. Se è quella aperta, si riprende la più
+      recente fra quelle rimaste, altrimenti si riparte da un foglio nuovo:
+      così non si resta a modificare una scheda che non esiste più. */
+  const eliminaValutazione = async (id: string) => {
+    const v = storico.find(x => x.id === id);
+    const quando = v?.data_valutazione ? v.data_valutazione.split("-").reverse().join("/") : "";
+    if (!window.confirm(
+      `Eliminare definitivamente la valutazione${quando ? ` del ${quando}` : ""}?\n` +
+      "Punteggi, risposte e firme andranno persi. L'operazione non è reversibile."
+    )) return;
+    pronto.current = false;
+    setSaving(true);
+    try {
+      const { error } = await supabase.from("coop_valutazioni").delete().eq("id", id);
+      if (error) throw new Error(error.message);
+      const rimaste = storico.filter(x => x.id !== id);
+      setStorico(rimaste);
+      if (id === valutazioneId) {
+        setValutazioneId(null);
+        setSalvatoAlle(null);
+        if (rimaste.length > 0) {
+          await apriStorica(rimaste[0].id);   // riprende la più recente rimasta
+          return;
+        }
+        if (patient) {
+          setForm(datiDaAnagrafica(patient, operatoreDefault || nomeOperatore));
+          setRisposte({});
+          setFirmaPaziente("");
+          setFirmaOperatore("");
+        }
+      }
+      flash("ok", "Valutazione eliminata.");
+    } catch (e) {
+      flash("err", e instanceof Error ? e.message : "Errore eliminazione");
+    } finally {
+      setSaving(false);
+      setTimeout(() => { pronto.current = true; }, 400);
+    }
+  };
+
   /** Apre una valutazione precedente al posto di quella corrente. */
   const apriStorica = async (id: string) => {
     if (id === valutazioneId) return;
@@ -821,24 +861,40 @@ export default function CartellaValutazione({
                     {storico.map(v => {
                       const corrente = v.id === valutazioneId;
                       return (
-                        <button key={v.id} type="button" onClick={() => void apriStorica(v.id)}
-                          style={{
-                            display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
-                            border: `1.5px solid ${corrente ? T.teal : T.borderSoft}`,
-                            background: corrente ? "rgba(13,148,136,0.05)" : "#fff",
-                            borderRadius: 11, padding: "10px 12px", cursor: corrente ? "default" : "pointer",
-                            fontFamily: "inherit", textAlign: "left", width: "100%",
-                          }}>
-                          <span style={{ fontSize: 13, fontWeight: 900, color: T.text, minWidth: 88 }}>
-                            {v.data_valutazione ? v.data_valutazione.split("-").reverse().join("/") : "—"}
-                          </span>
-                          <span style={{ flex: 1, fontSize: 11.5, color: T.mutedLight, fontWeight: 700 }}>
-                            ADL {v.adl_score ?? "—"}/6 · IADL {v.iadl_score ?? "—"}/8 · MMSE {v.mmse_score ?? "—"}/30 · Tinetti {v.tinetti_tot ?? "—"}/28
-                          </span>
-                          <span style={{ fontSize: 11, fontWeight: 800, color: corrente ? T.tealDark : T.teal, flexShrink: 0 }}>
-                            {corrente ? "in modifica" : "apri ›"}
-                          </span>
-                        </button>
+                        <div key={v.id} style={{
+                          display: "flex", alignItems: "center", gap: 8,
+                          border: `1.5px solid ${corrente ? T.teal : T.borderSoft}`,
+                          background: corrente ? "rgba(13,148,136,0.05)" : "#fff",
+                          borderRadius: 11, padding: "8px 10px",
+                        }}>
+                          <button type="button" onClick={() => void apriStorica(v.id)}
+                            disabled={corrente || saving}
+                            style={{
+                              display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+                              flex: 1, minWidth: 0, border: "none", background: "transparent",
+                              padding: "2px 2px", cursor: corrente ? "default" : "pointer",
+                              fontFamily: "inherit", textAlign: "left",
+                            }}>
+                            <span style={{ fontSize: 13, fontWeight: 900, color: T.text, minWidth: 88 }}>
+                              {v.data_valutazione ? v.data_valutazione.split("-").reverse().join("/") : "—"}
+                            </span>
+                            <span style={{ flex: 1, fontSize: 11.5, color: T.mutedLight, fontWeight: 700 }}>
+                              ADL {v.adl_score ?? "—"}/6 · IADL {v.iadl_score ?? "—"}/8 · MMSE {v.mmse_score ?? "—"}/30 · Tinetti {v.tinetti_tot ?? "—"}/28
+                            </span>
+                            <span style={{ fontSize: 11, fontWeight: 800, color: corrente ? T.tealDark : T.teal, flexShrink: 0 }}>
+                              {corrente ? "in modifica" : "apri ›"}
+                            </span>
+                          </button>
+                          <button type="button" title="Elimina questa valutazione"
+                            disabled={saving}
+                            onClick={() => void eliminaValutazione(v.id)}
+                            style={{
+                              border: "1px solid rgba(220,38,38,.3)", background: "rgba(220,38,38,.05)",
+                              color: T.red, borderRadius: 9, padding: "7px 10px",
+                              fontSize: 12, fontWeight: 900, cursor: "pointer", flexShrink: 0,
+                              opacity: saving ? .5 : 1, lineHeight: 1,
+                            }}>✕</button>
+                        </div>
                       );
                     })}
                   </div>
