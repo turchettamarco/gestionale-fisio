@@ -43,6 +43,8 @@ export type CoopPatient = {
   data_attivazione: string | null;
   data_scadenza: string | null;
 
+  deleted_at?: string | null;   // mig. 066 — soft-delete ("PAI cancellati")
+
   prestazione: string;
   frequenza_settimanale: number | null;
   tot_accessi: number | null;

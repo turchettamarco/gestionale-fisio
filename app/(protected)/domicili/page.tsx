@@ -288,7 +288,12 @@ function DomiciliInner() {
   const [reportOpen, setReportOpen] = useState(false);
   const [msgOpen, setMsgOpen] = useState(false);
   const [coopModal, setCoopModal] = useState<{ open: boolean; coop: Cooperative | null }>({ open: false, coop: null });
-  const [addAccess, setAddAccess] = useState<{ open: boolean; dayISO: string }>({ open: false, dayISO: "" });
+  const [addAccess, setAddAccess] = useState<{ open: boolean; dayISO: string; time?: string }>({ open: false, dayISO: "" });
+  // ── PAI cancellati (mig. 066): cestino con ripristino ──
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [trashList, setTrashList] = useState<CoopPatient[]>([]);
+  const [trashLoading, setTrashLoading] = useState(false);
+  const [trashBusy, setTrashBusy] = useState<string | null>(null);
 
   const todayISO = localISO(new Date());
   const weekStart = useMemo(() => mondayOf(anchor), [anchor]);
@@ -311,7 +316,7 @@ function DomiciliInner() {
 
     const [coopsRes, patsRes, setRes, chiusRes] = await Promise.all([
       supabase.from("cooperatives").select("*").eq("studio_id", sid).order("created_at"),
-      supabase.from("coop_patients").select("*").eq("studio_id", sid).order("cognome"),
+      supabase.from("coop_patients").select("*").eq("studio_id", sid).is("deleted_at", null).order("cognome"),
       supabase.from("domicili_settings").select("counter_mode").eq("studio_id", sid).maybeSingle(),
       supabase.from("domicili_chiusure").select("id, data_da, data_a, motivo").eq("studio_id", sid).order("data_da"),
     ]);
@@ -1855,6 +1860,48 @@ function DomiciliInner() {
     if (shifted) notify.warning(`Slot occupato: impostato alle ${orario}`);
   };
 
+  // ── Cestino PAI (mig. 066) ──────────────────────────────────────────────
+  const openTrash = async () => {
+    setTrashOpen(true);
+    setTrashLoading(true);
+    try {
+      const { data } = await supabase.from("coop_patients")
+        .select("*").eq("studio_id", studioId!)
+        .not("deleted_at", "is", null)
+        .order("deleted_at", { ascending: false });
+      setTrashList((data || []) as CoopPatient[]);
+    } finally {
+      setTrashLoading(false);
+    }
+  };
+
+  const restorePai = async (p: CoopPatient) => {
+    setTrashBusy(p.id);
+    try {
+      const { error } = await supabase.from("coop_patients")
+        .update({ deleted_at: null }).eq("id", p.id);
+      if (error) { notify.error("Errore ripristino"); return; }
+      setTrashList(prev => prev.filter(x => x.id !== p.id));
+      notify.success(`${p.cognome} ${p.nome} ripristinato con i suoi accessi.`);
+      refreshAll();
+    } finally {
+      setTrashBusy(null);
+    }
+  };
+
+  const purgePai = async (p: CoopPatient) => {
+    if (!window.confirm(`Eliminare PER SEMPRE ${p.cognome} ${p.nome} e tutti i suoi accessi?\nQuesta operazione non è reversibile.`)) return;
+    setTrashBusy(p.id);
+    try {
+      const { error } = await supabase.from("coop_patients").delete().eq("id", p.id);
+      if (error) { notify.error("Errore eliminazione definitiva"); return; }
+      setTrashList(prev => prev.filter(x => x.id !== p.id));
+      notify.success("Eliminato definitivamente.");
+    } finally {
+      setTrashBusy(null);
+    }
+  };
+
   const removeAccess = async (a: CoopAccess) => {
     if (!window.confirm("Rimuovere questo accesso dal calendario?")) return;
     setMenuFor(null);
@@ -2295,6 +2342,64 @@ function DomiciliInner() {
             onClose={() => { setMenuFor(null); setMenuPos(null); }} />
         );
       })()}
+      {/* ── Cestino "PAI cancellati" (mig. 066) ── */}
+      {trashOpen && (
+        <div onClick={() => setTrashOpen(false)} style={{
+          position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", zIndex: 1000,
+          display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center",
+          padding: isMobile ? 0 : 20,
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: "#fff", width: isMobile ? "100%" : 520, maxHeight: "80vh",
+            borderRadius: isMobile ? "18px 18px 0 0" : 16, padding: 18,
+            display: "flex", flexDirection: "column",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <span style={{ fontSize: 15, fontWeight: 800, color: THEME.text, flex: 1 }}>🗑 PAI cancellati</span>
+              <button onClick={() => setTrashOpen(false)} style={{
+                border: `1px solid ${THEME.border}`, background: "#fff", borderRadius: 8,
+                width: 30, height: 30, cursor: "pointer", fontSize: 14, fontWeight: 800, color: THEME.muted, lineHeight: 1,
+              }}>✕</button>
+            </div>
+            <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+              {trashLoading && <div style={{ color: THEME.mutedLight, fontSize: 13, padding: "14px 4px" }}>Caricamento…</div>}
+              {!trashLoading && trashList.length === 0 && (
+                <div style={{ color: THEME.mutedLight, fontSize: 13, padding: "18px 4px", textAlign: "center" }}>
+                  Nessun PAI cancellato. Quando elimini un paziente finisce qui, pronto per il ripristino.
+                </div>
+              )}
+              {trashList.map(tp => {
+                const coop = coopById.get(tp.cooperative_id);
+                const busy = trashBusy === tp.id;
+                return (
+                  <div key={tp.id} style={{
+                    display: "flex", alignItems: "center", gap: 10,
+                    border: `1px solid ${THEME.borderSoft}`, borderRadius: 12, padding: "10px 12px",
+                  }}>
+                    <span style={{ width: 9, height: 9, borderRadius: "50%", background: coop?.colore || THEME.teal, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 800, color: THEME.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {displayName(`${tp.cognome} ${tp.nome}`)}
+                      </div>
+                      <div style={{ fontSize: 11, color: THEME.mutedLight, fontWeight: 600 }}>
+                        {coop?.nome || "—"} · cancellato il {tp.deleted_at ? new Date(tp.deleted_at).toLocaleDateString("it-IT") : "—"}
+                      </div>
+                    </div>
+                    <button disabled={busy} onClick={() => restorePai(tp)} style={{
+                      border: "none", background: THEME.teal, color: "#fff", borderRadius: 9,
+                      padding: "7px 12px", fontSize: 12, fontWeight: 800, cursor: "pointer", opacity: busy ? .6 : 1, flexShrink: 0,
+                    }}>↩ Ripristina</button>
+                    <button disabled={busy} title="Elimina definitivamente" onClick={() => purgePai(tp)} style={{
+                      border: `1px solid rgba(220,38,38,.3)`, background: "rgba(220,38,38,.05)", color: THEME.red,
+                      borderRadius: 9, padding: "7px 10px", fontSize: 12, fontWeight: 800, cursor: "pointer", opacity: busy ? .6 : 1, flexShrink: 0,
+                    }}>✕</button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
       <PaiPatientModal
         open={patientModal.open}
         onClose={() => setPatientModal({ open: false, patient: null, startWithPhoto: false })}
@@ -2343,6 +2448,7 @@ function DomiciliInner() {
         displayName={displayName}
         onClose={() => setAddAccess({ open: false, dayISO: "" })}
         onAdd={insertAccess}
+        defaultTime={addAccess.time}
       />
     </>
   );
@@ -2592,7 +2698,9 @@ function DomiciliInner() {
                   })}
                 </div>
 
-                <div style={{ padding: "0 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+                <div
+                  onClick={e => { if (e.target === e.currentTarget) setAddAccess({ open: true, dayISO: anchorISO }); }}
+                  style={{ padding: "0 16px", display: "flex", flexDirection: "column", gap: 10, minHeight: 200 }}>
                   {(() => {
                     const chiuso = closedDatesSet.has(anchorISO);
                     return (
@@ -2819,6 +2927,15 @@ function DomiciliInner() {
                           : t ? "rgba(13,148,136,0.045)" : "transparent";
                         return (
                           <div key={iso} data-drop-day={iso}
+                            onClick={e => {
+                              if (suppressClickRef.current) return;
+                              if (e.target !== e.currentTarget) return;
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const rawMin = ((e.clientY - rect.top) / HOUR_PX) * 60;
+                              const snapped = Math.floor(rawMin / DW_SLOT_MIN) * DW_SLOT_MIN;
+                              const clamped = Math.max(0, Math.min((H_END - H_START) * 60 - DW_SLOT_MIN, snapped));
+                              setAddAccess({ open: true, dayISO: iso, time: minToHHMM(H_START * 60 + clamped) });
+                            }}
                             style={{
                               position: "relative",
                               borderLeft: `1px solid ${THEME.borderSoft}`,
@@ -3060,6 +3177,10 @@ function DomiciliInner() {
             }}>
               ＋ Nuovo paziente PAI
             </button>
+            <button onClick={() => void openTrash()} style={{
+              border: "none", background: "transparent", padding: "4px 0 8px",
+              fontSize: 12.5, fontWeight: 700, color: THEME.mutedLight, cursor: "pointer",
+            }}>🗑 PAI cancellati</button>
           </div>
         )}
 
@@ -3380,7 +3501,10 @@ function DomiciliInner() {
 
                   {/* ── GIORNO ── */}
                   {calView === "giorno" && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                    <div
+                      onClick={e => { if (e.target === e.currentTarget) setAddAccess({ open: true, dayISO: anchorISO }); }}
+                      title="Clic sullo spazio vuoto: aggiungi un accesso"
+                      style={{ display: "flex", flexDirection: "column", gap: 9, minHeight: 240 }}>
                       {(() => {
                         const iso = localISO(anchor);
                         const chiuso = closedDatesSet.has(iso);
@@ -3548,6 +3672,8 @@ function DomiciliInner() {
                         return (
                           <div key={iso}
                             data-drop-day={iso}
+                            onClick={e => { if (e.target === e.currentTarget && !dragAccessId) setAddAccess({ open: true, dayISO: iso }); }}
+                            title="Clic sullo spazio vuoto: aggiungi un accesso"
                             style={{
                             background: touchOverDay === iso && dragAccessId ? "#f1f5f9" : closedDatesSet.has(iso) ? "#fef2f2" : isToday ? "#f0fdfa" : THEME.panelSoft,
                             border: touchOverDay === iso && dragAccessId ? "1.5px solid #94a3b8" : `1px ${dragAccessId ? "dashed" : "solid"} ${closedDatesSet.has(iso) ? "#fecaca" : THEME.border}`,
@@ -3780,6 +3906,11 @@ function DomiciliInner() {
                   onRowClick={p => setPatientModal({ open: true, patient: p, startWithPhoto: false })}
                 />
                 {isolationNote}
+                <button onClick={() => void openTrash()} style={{
+                  alignSelf: "flex-start",
+                  border: `1px solid ${THEME.border}`, background: "#fff", color: THEME.mutedLight,
+                  fontSize: 12.5, fontWeight: 700, padding: "8px 14px", borderRadius: 10, cursor: "pointer",
+                }}>🗑 PAI cancellati</button>
               </div>
             )}
           </>
@@ -4090,18 +4221,20 @@ function AccessMenu({ a, onSaltato, onRemove, onOrario, onClose, alignRight, fix
 }
 
 /** Modal rapido "aggiungi accesso" (paziente + orario) per un giorno. */
-function AddAccessModal({ open, dayISO, isMobile, patients, displayName, onClose, onAdd }: {
+function AddAccessModal({ open, dayISO, isMobile, patients, displayName, onClose, onAdd, defaultTime }: {
   open: boolean; dayISO: string; isMobile: boolean;
   patients: CoopPatient[];
   displayName: (s: string) => string;
   onClose: () => void;
   onAdd: (patientId: string, dayISO: string, time: string) => void;
+  /** Orario precompilato quando la modale nasce da un click su uno slot. */
+  defaultTime?: string;
 }) {
   const [patientId, setPatientId] = useState("");
   const [time, setTime] = useState("");
 
   useEffect(() => {
-    if (open) { setPatientId(patients[0]?.id || ""); setTime(""); }
+    if (open) { setPatientId(patients[0]?.id || ""); setTime(defaultTime || ""); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 

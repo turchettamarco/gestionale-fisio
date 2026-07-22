@@ -553,12 +553,14 @@ export default function PaiPatientModal({
   const deletePatient = async () => {
     if (!patient) return;
     const ok = window.confirm(
-      `Eliminare ${patient.cognome} ${patient.nome} e tutti i suoi accessi?\nL'operazione non è reversibile.`
+      `Eliminare ${patient.cognome} ${patient.nome}?\nFinisce in "PAI cancellati": potrai ripristinarlo con tutti i suoi accessi.`
     );
     if (!ok) return;
     setSaving(true);
     try {
-      const { error: delErr } = await supabase.from("coop_patients").delete().eq("id", patient.id);
+      // Soft-delete (mig. 066): il DELETE fisico esiste solo in "Elimina per sempre"
+      const { error: delErr } = await supabase.from("coop_patients")
+        .update({ deleted_at: new Date().toISOString() }).eq("id", patient.id);
       if (delErr) throw delErr;
       onSaved();
       onClose();
