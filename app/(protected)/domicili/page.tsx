@@ -275,6 +275,9 @@ function DomiciliInner() {
   });
   const [showConclusi, setShowConclusi] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  // Coordinate del click per il menu "fixed" (viste settimana/mese):
+  // null = menu absolute classico dei ⋯ (vista giorno).
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [docSheet, setDocSheet] = useState(false); // mobile: foglio documenti
   const [docMenu, setDocMenu] = useState(false);   // desktop: menu "Documenti"
@@ -1855,6 +1858,7 @@ function DomiciliInner() {
   const removeAccess = async (a: CoopAccess) => {
     if (!window.confirm("Rimuovere questo accesso dal calendario?")) return;
     setMenuFor(null);
+    setMenuPos(null);
     setRangeAccesses(prev => prev.filter(x => x.id !== a.id));
     patchLite(a.coop_patient_id, a.data, null);
     const { error } = await supabase.from("coop_accesses").delete().eq("id", a.id);
@@ -2273,6 +2277,24 @@ function DomiciliInner() {
 
   const sharedModals = (
     <>
+      {/* Menu contestuale accesso (viste settimana/mese): renderizzato qui,
+          fuori dalle griglie, perché position:fixed dentro colonne con
+          transform verrebbe riancorato e tagliato. Attivo solo quando il
+          click ha registrato le coordinate (menuPos); i ⋯ delle altre
+          viste usano il popover absolute classico e azzerano menuPos. */}
+      {menuFor && menuPos && (() => {
+        const a = rangeAccesses.find(x => x.id === menuFor);
+        const p = a ? patientById.get(a.coop_patient_id) : null;
+        if (!a || !p) return null;
+        return (
+          <AccessMenu a={a} fixedAt={menuPos}
+            onOpenPatient={() => { setMenuFor(null); setMenuPos(null); setPatientModal({ open: true, patient: p, startWithPhoto: false }); }}
+            onSaltato={() => setSaltato(a)}
+            onRemove={() => removeAccess(a)}
+            onOrario={t => { updateOrario(a, t); setMenuFor(null); setMenuPos(null); }}
+            onClose={() => { setMenuFor(null); setMenuPos(null); }} />
+        );
+      })()}
       <PaiPatientModal
         open={patientModal.open}
         onClose={() => setPatientModal({ open: false, patient: null, startWithPhoto: false })}
@@ -2721,7 +2743,7 @@ function DomiciliInner() {
                             </a>
                           )}
                           <div style={{ position: "relative" }}>
-                            <button onClick={e => { e.stopPropagation(); setMenuFor(m => m === a.id ? null : a.id); }} style={{ ...mBtnIcon(), height: "100%" }}>⋯</button>
+                            <button onClick={e => { e.stopPropagation(); setMenuPos(null); setMenuFor(m => m === a.id ? null : a.id); }} style={{ ...mBtnIcon(), height: "100%" }}>⋯</button>
                             {menuFor === a.id && (
                               <AccessMenu a={a} onSaltato={() => setSaltato(a)} onRemove={() => removeAccess(a)} onOrario={t => { updateOrario(a, t); setMenuFor(null); }} onClose={() => setMenuFor(null)} alignRight />
                             )}
@@ -2835,7 +2857,7 @@ function DomiciliInner() {
                                   data-access-card={a.id} data-access-day={a.data}
                                   {...dwDragHandlers(a)}
                                   title={conf.length ? `Si accavalla con: ${conf.map(x => `${minToHHMM(x.from)} ${x.nome}`).join(", ")}` : undefined}
-                                  onClick={e => { e.stopPropagation(); if (suppressClickRef.current) return; setPatientModal({ open: true, patient: p, startWithPhoto: false }); }}
+                                  onClick={e => { e.stopPropagation(); if (suppressClickRef.current) return; setMenuPos({ x: e.clientX, y: e.clientY }); setMenuFor(a.id); }}
                                   style={{
                                     position: "absolute", top, height, left: 1.5, right: 1.5, zIndex: 3,
                                     border: `1.5px solid ${c}`,
@@ -3114,6 +3136,7 @@ function DomiciliInner() {
                     <div key={a.id}
                       onClick={() => { setMonthSheetDay(null); setPatientModal({ open: true, patient: p, startWithPhoto: false }); }}
                       style={{
+                        position: "relative",
                         display: "flex", alignItems: "center", gap: 9,
                         padding: "10px 16px", borderBottom: `1px solid ${THEME.borderSoft}`,
                         cursor: "pointer", opacity: saltato ? .55 : 1,
@@ -3147,6 +3170,21 @@ function DomiciliInner() {
                           color: fatto ? THEME.green : "#475569",
                           fontSize: 15, fontWeight: 700,
                         }}>✓</button>
+                      )}
+                      <button
+                        title="Azioni accesso"
+                        onClick={e => { e.stopPropagation(); setMenuPos(null); setMenuFor(m => m === a.id ? null : a.id); }}
+                        style={{
+                          border: `1px solid ${THEME.border}`, background: "#fff", color: THEME.text,
+                          borderRadius: 8, width: 30, height: 30, cursor: "pointer",
+                          fontSize: 15, fontWeight: 800, flexShrink: 0, lineHeight: 1,
+                        }}>⋯</button>
+                      {menuFor === a.id && !menuPos && (
+                        <AccessMenu a={a} alignRight
+                          onSaltato={() => setSaltato(a)}
+                          onRemove={() => removeAccess(a)}
+                          onOrario={t => { updateOrario(a, t); setMenuFor(null); }}
+                          onClose={() => setMenuFor(null)} />
                       )}
                     </div>
                   );
@@ -3470,7 +3508,7 @@ function DomiciliInner() {
                                 <Icon name="phone" size={15} color={THEME.tealDark} />
                               </a>
                             )}
-                            <button onClick={e => { e.stopPropagation(); setMenuFor(m => m === a.id ? null : a.id); }} style={{
+                            <button onClick={e => { e.stopPropagation(); setMenuPos(null); setMenuFor(m => m === a.id ? null : a.id); }} style={{
                               border: "none", background: "transparent", cursor: "pointer",
                               color: THEME.label, fontSize: 17, lineHeight: 1, padding: "2px 4px",
                             }}>⋯</button>
@@ -3582,7 +3620,7 @@ function DomiciliInner() {
                                         {low && !saltato && <span style={{ color: THEME.red }}> !</span>}
                                       </div>
                                     </div>
-                                    <button onClick={e => { e.stopPropagation(); setMenuFor(m => m === a.id ? null : a.id); }} style={{
+                                    <button onClick={e => { e.stopPropagation(); setMenuPos(null); setMenuFor(m => m === a.id ? null : a.id); }} style={{
                                       border: "none", background: "transparent", cursor: "pointer",
                                       color: THEME.label, fontSize: 15, lineHeight: 1, padding: "2px 3px", flexShrink: 0,
                                     }}>⋯</button>
@@ -3657,7 +3695,7 @@ function DomiciliInner() {
                                   const saltato = a.stato === "saltato";
                                   return (
                                     <button key={a.id}
-                                      onClick={() => setPatientModal({ open: true, patient: p, startWithPhoto: false })}
+                                      onClick={e => { setMenuPos({ x: e.clientX, y: e.clientY }); setMenuFor(a.id); }}
                                       title={`${p.cognome} ${p.nome}`}
                                       style={{
                                         display: "flex", alignItems: "center", gap: 4, marginBottom: 2,
@@ -3997,21 +4035,42 @@ function PatientsTable({ patients, coopById, countersByPatient, displayName, dis
 }
 
 /** Menu contestuale su un accesso: saltato / orario / rimuovi. */
-function AccessMenu({ a, onSaltato, onRemove, onOrario, onClose, alignRight }: {
+function AccessMenu({ a, onSaltato, onRemove, onOrario, onClose, alignRight, fixedAt, onOpenPatient }: {
   a: CoopAccess;
   onSaltato: () => void; onRemove: () => void;
   onOrario: (t: string) => void; onClose: () => void;
   alignRight?: boolean;
+  /** Se presente, il menu si ancora al punto del click (position fixed):
+      serve nelle viste a celle strette (settimana/mese) dove il popover
+      absolute verrebbe tagliato dalle colonne. */
+  fixedAt?: { x: number; y: number } | null;
+  /** Voce extra "Scheda paziente": nelle viste dove il click sulla card
+      apre il menu (e non più direttamente la modale). */
+  onOpenPatient?: () => void;
 }) {
   const [time, setTime] = useState(a.orario || "");
+  const MENU_W = 190;
+  const fixedStyle: React.CSSProperties = fixedAt ? {
+    position: "fixed",
+    left: Math.max(8, Math.min(fixedAt.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - MENU_W - 8)),
+    top: (typeof window !== "undefined" && fixedAt.y + 240 > window.innerHeight) ? Math.max(8, fixedAt.y - 236) : fixedAt.y + 8,
+  } : { position: "absolute", top: "100%", right: alignRight ? 0 : 4, marginTop: 4 };
   return (
     <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 890 }} />
-      <div style={{
-        position: "absolute", top: "100%", right: alignRight ? 0 : 4, marginTop: 4, zIndex: 900,
+      {/* stopPropagation ovunque: il menu vive dentro card cliccabili che
+          aprono la scheda paziente — senza freno ogni click (chiusura
+          inclusa) bollerebbe fino alla card. */}
+      <div onClick={e => { e.stopPropagation(); onClose(); }} style={{ position: "fixed", inset: 0, zIndex: 890 }} />
+      <div onClick={e => e.stopPropagation()} style={{
+        ...fixedStyle, zIndex: 900,
         background: "#fff", border: `1px solid ${THEME.border}`, borderRadius: 11,
-        boxShadow: "0 12px 30px rgba(15,23,42,.18)", padding: 8, width: 190,
+        boxShadow: "0 12px 30px rgba(15,23,42,.18)", padding: 8, width: MENU_W,
       }}>
+        {onOpenPatient && (
+          <button onClick={onOpenPatient} style={menuItem()}>
+            👤 Scheda paziente
+          </button>
+        )}
         <button onClick={onSaltato} style={menuItem()}>
           {a.stato === "saltato" ? "↩ Ripristina pianificato" : "✕ Segna saltato"}
         </button>
