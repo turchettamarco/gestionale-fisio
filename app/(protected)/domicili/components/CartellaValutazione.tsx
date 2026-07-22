@@ -385,7 +385,13 @@ export default function CartellaValutazione({
   const [firmaPaziente, setFirmaPaziente] = useState("");
   const [firmaOperatore, setFirmaOperatore] = useState("");
   const [valutazioneId, setValutazioneId] = useState<string | null>(null);
-  const [storico, setStorico] = useState<Array<{ id: string; data_valutazione: string; adl_score: number | null; tinetti_tot: number | null }>>([]);
+  const [storico, setStorico] = useState<Array<{
+    id: string; data_valutazione: string;
+    adl_score: number | null; iadl_score: number | null;
+    mmse_score: number | null; tinetti_tot: number | null;
+  }>>([]);
+  const [salvatoAlle, setSalvatoAlle] = useState<string | null>(null);
+  const pronto = useRef(false);        // evita di salvare durante il caricamento
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [busyPdf, setBusyPdf] = useState(false);
@@ -441,19 +447,21 @@ export default function CartellaValutazione({
       try {
         const { data, error } = await supabase
           .from("coop_valutazioni")
-          .select("id, data_valutazione, dati, adl_score, tinetti_tot")
+          .select("id, data_valutazione, dati, adl_score, iadl_score, mmse_score, tinetti_tot")
           .eq("coop_patient_id", patient.id)
           .order("data_valutazione", { ascending: false })
           .limit(20);
         if (error) throw new Error(error.message);
         const rows = (data || []) as Array<{
-          id: string; data_valutazione: string;
-          dati: Record<string, unknown>; adl_score: number | null; tinetti_tot: number | null;
+          id: string; data_valutazione: string; dati: Record<string, unknown>;
+          adl_score: number | null; iadl_score: number | null;
+          mmse_score: number | null; tinetti_tot: number | null;
         }>;
         if (annullato) return;
         setStorico(rows.map(r => ({
           id: r.id, data_valutazione: r.data_valutazione,
-          adl_score: r.adl_score, tinetti_tot: r.tinetti_tot,
+          adl_score: r.adl_score, iadl_score: r.iadl_score,
+          mmse_score: r.mmse_score, tinetti_tot: r.tinetti_tot,
         })));
 
         const last = rows[0];
@@ -489,26 +497,40 @@ export default function CartellaValutazione({
         setValutazioneId(null);
         flash("err", e instanceof Error ? e.message : "Impossibile leggere le valutazioni precedenti");
       } finally {
-        if (!annullato) setLoading(false);
+        if (!annullato) {
+          setLoading(false);
+          // da qui in poi ogni modifica viene salvata da sola
+          setTimeout(() => { pronto.current = true; }, 400);
+        }
       }
     })();
-    return () => { annullato = true; };
+    return () => { annullato = true; pronto.current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, patient?.id]);
 
   /** Ricomincia da zero: l'attuale resta salvata nello storico. */
-  const nuovaValutazione = () => {
+  const nuovaValutazione = async () => {
     if (valutazioneId && !window.confirm(
-      "Iniziare una nuova valutazione?\nQuella in corso resta salvata e consultabile."
+      "Iniziare una nuova valutazione?\nQuella in corso resta salvata e consultabile qui sotto."
     )) return;
     if (!patient) return;
+    pronto.current = false;
+    await save();                       // l'attuale finisce nello storico
+    const { data } = await supabase
+      .from("coop_valutazioni")
+      .select("id, data_valutazione, adl_score, iadl_score, mmse_score, tinetti_tot")
+      .eq("coop_patient_id", patient.id)
+      .order("data_valutazione", { ascending: false }).limit(20);
+    setStorico((data || []) as typeof storico);
     setForm(datiDaAnagrafica(patient, operatoreDefault || nomeOperatore));
     setRisposte({});
     setFirmaPaziente("");
     setFirmaOperatore("");
     setValutazioneId(null);
     setTab("anagrafica");
+    setSalvatoAlle(null);
     flash("ok", "Nuova valutazione iniziata.");
+    setTimeout(() => { pronto.current = true; }, 400);
   };
 
   // ── Punteggi ──
@@ -553,11 +575,14 @@ export default function CartellaValutazione({
       if (error) throw new Error(error.message);
       const id = (data as { id: string }).id;
       setValutazioneId(id);
-      flash("ok", "Valutazione salvata.");
+      setSalvatoAlle(new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }));
       onSaved?.();
       return id;
     } catch (e) {
-      flash("err", e instanceof Error ? e.message : "Errore salvataggio");
+      const m = e instanceof Error ? e.message : "Errore salvataggio";
+      flash("err", /coop_valutazioni|does not exist|schema cache/i.test(m)
+        ? "Le valutazioni non possono essere salvate: manca la migrazione 068 sul database. Esegui npm run db:migrate."
+        : m);
       return null;
     } finally {
       setSaving(false);
@@ -565,6 +590,55 @@ export default function CartellaValutazione({
   };
 
   // ── PDF: genera (e salva prima, così il documento e il DB coincidono) ──
+  // ── Salvataggio automatico ──────────────────────────────────────────────
+  // Ogni modifica viene scritta da sola dopo una breve pausa: chiudendo la
+  // cartella, aprendo il PDF o perdendo la pagina non si perde nulla.
+  const salvaRef = useRef(save);
+  useEffect(() => { salvaRef.current = save; });   // sempre l'ultima versione
+  useEffect(() => {
+    if (!open || !patient || loading || !pronto.current) return;
+    const qualcosaDaSalvare =
+      form.cognome.trim() !== "" || form.nome.trim() !== "" ||
+      Object.keys(risposte).length > 0 || firmaPaziente !== "" || firmaOperatore !== "";
+    if (!qualcosaDaSalvare) return;
+    const t = setTimeout(() => { void salvaRef.current(); }, 1200);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, risposte, firmaPaziente, firmaOperatore, open, patient?.id, loading]);
+
+  /** Apre una valutazione precedente al posto di quella corrente. */
+  const apriStorica = async (id: string) => {
+    if (id === valutazioneId) return;
+    pronto.current = false;
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("coop_valutazioni").select("id, dati").eq("id", id).single();
+      if (error) throw new Error(error.message);
+      const d = ((data as { dati?: Record<string, unknown> })?.dati || {}) as
+        Partial<FormState> & { risposte?: Risposte; firma_paziente?: string; firma_operatore?: string };
+      setForm(f => ({
+        ...f,
+        ...Object.fromEntries(
+          (Object.keys(EMPTY) as Array<keyof FormState>)
+            .filter(k => d[k] !== undefined)
+            .map(k => [k, d[k]])
+        ),
+      } as FormState));
+      setRisposte(d.risposte || {});
+      setFirmaPaziente(d.firma_paziente || "");
+      setFirmaOperatore(d.firma_operatore || "");
+      setValutazioneId(id);
+      setTab("anagrafica");
+      flash("ok", "Valutazione precedente aperta.");
+    } catch (e) {
+      flash("err", e instanceof Error ? e.message : "Impossibile aprire la valutazione");
+    } finally {
+      setLoading(false);
+      setTimeout(() => { pronto.current = true; }, 400);
+    }
+  };
+
   /** `originale` = il modulo cartaceo della cooperativa compilato;
       altrimenti il riepilogo sintetico ricomposto. */
   const makePdf = async (originale = true): Promise<File | null> => {
@@ -670,7 +744,11 @@ export default function CartellaValutazione({
               </div>
               <div style={{ fontSize: 12, color: T.label, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {patient.cognome} {patient.nome}
-                {storico.length > 0 && ` · ${storico.length} ${storico.length === 1 ? "valutazione precedente" : "valutazioni precedenti"}`}
+                {saving
+                  ? <span style={{ color: T.tealDark, fontWeight: 800 }}> · salvataggio…</span>
+                  : salvatoAlle
+                    ? <span style={{ color: T.green, fontWeight: 800 }}> · salvata alle {salvatoAlle}</span>
+                    : null}
               </div>
             </div>
             <button onClick={onClose} style={{
@@ -735,6 +813,37 @@ export default function CartellaValutazione({
                     cursor: "pointer", flexShrink: 0,
                   }}>↻ Ricarica</button>
               </div>
+
+              {storico.length > 0 && (
+                <Card title="Valutazioni di questo paziente"
+                  hint="Quella in cima è la più recente. Toccane una per rivederla o modificarla; con «Nuova» ne cominci un'altra senza toccare queste.">
+                  <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                    {storico.map(v => {
+                      const corrente = v.id === valutazioneId;
+                      return (
+                        <button key={v.id} type="button" onClick={() => void apriStorica(v.id)}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+                            border: `1.5px solid ${corrente ? T.teal : T.borderSoft}`,
+                            background: corrente ? "rgba(13,148,136,0.05)" : "#fff",
+                            borderRadius: 11, padding: "10px 12px", cursor: corrente ? "default" : "pointer",
+                            fontFamily: "inherit", textAlign: "left", width: "100%",
+                          }}>
+                          <span style={{ fontSize: 13, fontWeight: 900, color: T.text, minWidth: 88 }}>
+                            {v.data_valutazione ? v.data_valutazione.split("-").reverse().join("/") : "—"}
+                          </span>
+                          <span style={{ flex: 1, fontSize: 11.5, color: T.mutedLight, fontWeight: 700 }}>
+                            ADL {v.adl_score ?? "—"}/6 · IADL {v.iadl_score ?? "—"}/8 · MMSE {v.mmse_score ?? "—"}/30 · Tinetti {v.tinetti_tot ?? "—"}/28
+                          </span>
+                          <span style={{ fontSize: 11, fontWeight: 800, color: corrente ? T.tealDark : T.teal, flexShrink: 0 }}>
+                            {corrente ? "in modifica" : "apri ›"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Card>
+              )}
 
               <Card title="Assistito">
                 <Row>
@@ -937,7 +1046,7 @@ export default function CartellaValutazione({
           <button onClick={() => void save()} disabled={saving} style={btnStyle("ghost", saving)}>
             {saving ? "Salvo…" : "Salva"}
           </button>
-          <button onClick={nuovaValutazione} disabled={saving}
+          <button onClick={() => void nuovaValutazione()} disabled={saving}
             title="Archivia questa e comincia una valutazione nuova"
             style={btnStyle("ghost", saving)}>Nuova</button>
           <button onClick={() => void downloadPdf(true)} disabled={busyPdf} style={btnStyle("ghost", busyPdf)}>
