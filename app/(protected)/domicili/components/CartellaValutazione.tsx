@@ -29,6 +29,7 @@ import {
   type Risposte, type ScaleBlock,
 } from "@/src/lib/domicili/cartellaSchema";
 import { buildCartellaPdf, cartellaFileName, type CartellaData } from "@/src/lib/domicili/cartellaPdf";
+import { compilaModuloOriginale } from "@/src/lib/domicili/cartellaTemplate";
 import AllegatiCartella from "./AllegatiCartella";
 
 const T = {
@@ -463,13 +464,16 @@ export default function CartellaValutazione({
   };
 
   // ── PDF: genera (e salva prima, così il documento e il DB coincidono) ──
-  const makePdf = async (): Promise<File | null> => {
+  /** `originale` = il modulo cartaceo della cooperativa compilato;
+      altrimenti il riepilogo sintetico ricomposto. */
+  const makePdf = async (originale = true): Promise<File | null> => {
     setBusyPdf(true);
     try {
       await save();
       const d = cartellaData();
-      const blob = await buildCartellaPdf(d);
-      return new File([blob], cartellaFileName(d), { type: "application/pdf" });
+      const blob = originale ? await compilaModuloOriginale(d) : await buildCartellaPdf(d);
+      const nome = cartellaFileName(d);
+      return new File([blob], originale ? nome : nome.replace(".pdf", "_riepilogo.pdf"), { type: "application/pdf" });
     } catch (e) {
       flash("err", e instanceof Error ? e.message : "Errore generazione PDF");
       return null;
@@ -478,8 +482,8 @@ export default function CartellaValutazione({
     }
   };
 
-  const downloadPdf = async () => {
-    const file = await makePdf();
+  const downloadPdf = async (originale = true) => {
+    const file = await makePdf(originale);
     if (!file) return;
     const url = URL.createObjectURL(file);
     const a = document.createElement("a");
@@ -770,8 +774,10 @@ export default function CartellaValutazione({
                 </div>
               </Card>
               <div style={{ fontSize: 12, color: T.mutedLight, lineHeight: 1.6 }}>
-                Il PDF viene generato con testo vettoriale e le sole firme come immagine: pesa poche decine di KB,
-                già al minimo utile senza bisogno di comprimerlo. L&apos;invio WhatsApp è preimpostato su {WHATSAPP_LABEL}.
+                <b>Modulo</b> compila il documento originale della cooperativa — loghi, impaginazione e testi identici
+                al cartaceo — con risposte evidenziate, punteggi e firme al loro posto.
+                <b> Riepilogo</b> produce invece una sintesi con le note, utile per l&apos;archivio interno.
+                L&apos;invio WhatsApp usa il modulo originale ed è preimpostato su {WHATSAPP_LABEL}.
               </div>
             </div>
           )}
@@ -796,8 +802,13 @@ export default function CartellaValutazione({
           <button onClick={() => void save()} disabled={saving} style={btnStyle("ghost", saving)}>
             {saving ? "Salvo…" : "Salva"}
           </button>
-          <button onClick={() => void downloadPdf()} disabled={busyPdf} style={btnStyle("ghost", busyPdf)}>
-            {busyPdf ? "Genero…" : "📄 PDF"}
+          <button onClick={() => void downloadPdf(true)} disabled={busyPdf} style={btnStyle("ghost", busyPdf)}>
+            {busyPdf ? "Genero…" : "📄 Modulo"}
+          </button>
+          <button onClick={() => void downloadPdf(false)} disabled={busyPdf}
+            title="Riepilogo sintetico con punteggi e note (non è il modulo della cooperativa)"
+            style={btnStyle("ghost", busyPdf)}>
+            Riepilogo
           </button>
           <div style={{ flex: 1 }} />
           <button onClick={onClose} style={btnStyle("ghost")}>Chiudi</button>
