@@ -34,6 +34,7 @@ import { usePrivacyMode, usePrivacyDisplay, useDisplayPatientPhone } from "@/src
 import AppNavbar from "@/src/components/AppNavbar";
 import MobileTabBar from "@/src/components/MobileTabBar";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
+import CartellaValutazione from "./components/CartellaValutazione";
 import { Icon } from "@/src/components/icons";
 import { ToastProvider, showToast } from "@/src/components/mobile/ToastProvider";
 import PaiPatientModal from "./components/PaiPatientModal";
@@ -291,6 +292,8 @@ function DomiciliInner() {
   const [addAccess, setAddAccess] = useState<{ open: boolean; dayISO: string; time?: string }>({ open: false, dayISO: "" });
   // ── PAI cancellati (mig. 066): cestino con ripristino ──
   const [trashOpen, setTrashOpen] = useState(false);
+  // Cartella di valutazione (mig. 068): scale ADL/IADL, MMSE, Tinetti + consensi
+  const [cartellaFor, setCartellaFor] = useState<CoopPatient | null>(null);
   const [trashList, setTrashList] = useState<CoopPatient[]>([]);
   const [trashLoading, setTrashLoading] = useState(false);
   const [trashBusy, setTrashBusy] = useState<string | null>(null);
@@ -759,6 +762,33 @@ function DomiciliInner() {
 
   // Sposta un accesso in un altro giorno INSERENDOLO in una posizione precisa
   // della scaletta di quel giorno (data + ordine in un colpo solo).
+  // Orario adattivo (drag nelle viste a liste): la card spostata prende un
+  // orario coerente con la posizione nella scaletta — un'ora dopo la
+  // precedente orariata, o un'ora prima della successiva. Se la scaletta
+  // non usa orari (e la card nemmeno), non si inventa nulla.
+  const adaptiveOrarioFor = (orderedIds: string[], movedId: string): string | undefined => {
+    const byId = new Map(rangeAccesses.map(x => [x.id, x]));
+    const idx = orderedIds.indexOf(movedId);
+    if (idx < 0) return undefined;
+    let prevMin: number | null = null;
+    for (let i = idx - 1; i >= 0; i--) {
+      const o = byId.get(orderedIds[i])?.orario;
+      if (o) { prevMin = hhmmToMin(o); break; }
+    }
+    let nextMin: number | null = null;
+    for (let i = idx + 1; i < orderedIds.length; i++) {
+      const o = byId.get(orderedIds[i])?.orario;
+      if (o) { nextMin = hhmmToMin(o); break; }
+    }
+    const moved = byId.get(movedId);
+    if (prevMin === null && nextMin === null) return undefined; // scaletta senza orari
+    let target = prevMin !== null ? prevMin + 60 : Math.max(DW_H_START * 60, (nextMin as number) - 60);
+    target = Math.max(DW_H_START * 60, Math.min((DW_H_END - 1) * 60, target));
+    const orario = minToHHMM(target);
+    if ((moved?.orario || "").slice(0, 5) === orario) return undefined; // già coerente
+    return orario;
+  };
+
   const moveAccessToPosition = async (accessId: string, newDayISO: string, index: number) => {
     const a = rangeAccesses.find(x => x.id === accessId);
     if (!a) return;
@@ -766,10 +796,11 @@ function DomiciliInner() {
     const ids = (accByDay.get(newDayISO) || []).map(x => x.id).filter(id => id !== accessId);
     ids.splice(Math.max(0, Math.min(index, ids.length)), 0, accessId);
     const orderMap = new Map(ids.map((id, i) => [id, i]));
+    const newOrario = adaptiveOrarioFor(ids, accessId);
 
     // aggiornamento ottimistico
     setRangeAccesses(prev => prev.map(x => {
-      if (x.id === accessId) return { ...x, data: newDayISO, ordine: orderMap.get(accessId) ?? 0 };
+      if (x.id === accessId) return { ...x, data: newDayISO, ordine: orderMap.get(accessId) ?? 0, ...(newOrario !== undefined ? { orario: newOrario } : {}) };
       return orderMap.has(x.id) ? { ...x, ordine: orderMap.get(x.id)! } : x;
     }));
     if (fromISO !== newDayISO) {
@@ -778,7 +809,7 @@ function DomiciliInner() {
     }
 
     const { error } = await supabase.from("coop_accesses")
-      .update({ data: newDayISO, ordine: orderMap.get(accessId) ?? 0 })
+      .update({ data: newDayISO, ordine: orderMap.get(accessId) ?? 0, ...(newOrario !== undefined ? { orario: newOrario } : {}) })
       .eq("id", accessId);
     if (error) {
       if ((error as any).code === "23505") notify.warning("Questo paziente ha già un accesso in quel giorno");
@@ -980,7 +1011,7 @@ function DomiciliInner() {
       ids.splice(idx, 0, st.accessId);
       if (cur.join("|") === ids.join("|")) return; // nessun cambiamento reale
       try { (navigator as any).vibrate?.(24); } catch {}
-      reorderInDay(st.fromISO, ids);
+      reorderInDay(st.fromISO, ids, st.accessId);
     } else {
       try { (navigator as any).vibrate?.(24); } catch {}
       moveAccessToPosition(st.accessId, st.overDay, idx);
@@ -1830,12 +1861,19 @@ function DomiciliInner() {
   });
 
   // Riordina a scaletta dentro lo stesso giorno: assegna "ordine" progressivo
-  const reorderInDay = async (dayISO: string, orderedIds: string[]) => {
+  const reorderInDay = async (dayISO: string, orderedIds: string[], movedId?: string) => {
+    const newOrario = movedId ? adaptiveOrarioFor(orderedIds, movedId) : undefined;
     // aggiorna locale
     setRangeAccesses(prev => {
       const map = new Map(orderedIds.map((id, i) => [id, i]));
-      return prev.map(x => map.has(x.id) ? { ...x, ordine: map.get(x.id)! } : x);
+      return prev.map(x => {
+        const upd = map.has(x.id) ? { ...x, ordine: map.get(x.id)! } : x;
+        return movedId && x.id === movedId && newOrario !== undefined ? { ...upd, orario: newOrario } : upd;
+      });
     });
+    if (movedId && newOrario !== undefined) {
+      await supabase.from("coop_accesses").update({ orario: newOrario }).eq("id", movedId);
+    }
     // persisti (RPC atomica, con fallback)
     await persistOrder(orderedIds);
   };
@@ -2336,6 +2374,7 @@ function DomiciliInner() {
         return (
           <AccessMenu a={a} fixedAt={menuPos}
             onOpenPatient={() => { setMenuFor(null); setMenuPos(null); setPatientModal({ open: true, patient: p, startWithPhoto: false }); }}
+            onCartella={() => { setMenuFor(null); setMenuPos(null); setCartellaFor(p); }}
             onSaltato={() => setSaltato(a)}
             onRemove={() => removeAccess(a)}
             onOrario={t => { updateOrario(a, t); setMenuFor(null); setMenuPos(null); }}
@@ -2400,6 +2439,13 @@ function DomiciliInner() {
           </div>
         </div>
       )}
+      <CartellaValutazione
+        open={!!cartellaFor}
+        onClose={() => setCartellaFor(null)}
+        isMobile={!!isMobile}
+        studioId={studioId || ""}
+        patient={cartellaFor}
+      />
       <PaiPatientModal
         open={patientModal.open}
         onClose={() => setPatientModal({ open: false, patient: null, startWithPhoto: false })}
@@ -2851,10 +2897,8 @@ function DomiciliInner() {
                             </a>
                           )}
                           <div style={{ position: "relative" }}>
-                            <button onClick={e => { e.stopPropagation(); setMenuPos(null); setMenuFor(m => m === a.id ? null : a.id); }} style={{ ...mBtnIcon(), height: "100%" }}>⋯</button>
-                            {menuFor === a.id && (
-                              <AccessMenu a={a} onSaltato={() => setSaltato(a)} onRemove={() => removeAccess(a)} onOrario={t => { updateOrario(a, t); setMenuFor(null); }} onClose={() => setMenuFor(null)} alignRight />
-                            )}
+                            <button onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setMenuPos({ x: r.right - 190, y: r.bottom }); setMenuFor(m => m === a.id ? null : a.id); }} style={{ ...mBtnIcon(), height: "100%" }}>⋯</button>
+                            
                           </div>
                         </div>
                       </div>
@@ -3169,6 +3213,7 @@ function DomiciliInner() {
                 counters={countersByPatient.get(p.id)}
                 displayName={displayName}
                 onClick={() => setPatientModal({ open: true, patient: p, startWithPhoto: false })}
+                onCartella={() => setCartellaFor(p)}
               />
             ))}
             <button onClick={() => setPatientModal({ open: true, patient: null, startWithPhoto: false })} style={{
@@ -3294,19 +3339,13 @@ function DomiciliInner() {
                       )}
                       <button
                         title="Azioni accesso"
-                        onClick={e => { e.stopPropagation(); setMenuPos(null); setMenuFor(m => m === a.id ? null : a.id); }}
+                        onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setMenuPos({ x: r.right - 190, y: r.bottom }); setMenuFor(m => m === a.id ? null : a.id); }}
                         style={{
                           border: `1px solid ${THEME.border}`, background: "#fff", color: THEME.text,
                           borderRadius: 8, width: 30, height: 30, cursor: "pointer",
                           fontSize: 15, fontWeight: 800, flexShrink: 0, lineHeight: 1,
                         }}>⋯</button>
-                      {menuFor === a.id && !menuPos && (
-                        <AccessMenu a={a} alignRight
-                          onSaltato={() => setSaltato(a)}
-                          onRemove={() => removeAccess(a)}
-                          onOrario={t => { updateOrario(a, t); setMenuFor(null); }}
-                          onClose={() => setMenuFor(null)} />
-                      )}
+                      
                     </div>
                   );
                 })}
@@ -3632,13 +3671,11 @@ function DomiciliInner() {
                                 <Icon name="phone" size={15} color={THEME.tealDark} />
                               </a>
                             )}
-                            <button onClick={e => { e.stopPropagation(); setMenuPos(null); setMenuFor(m => m === a.id ? null : a.id); }} style={{
+                            <button onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setMenuPos({ x: r.right - 190, y: r.bottom }); setMenuFor(m => m === a.id ? null : a.id); }} style={{
                               border: "none", background: "transparent", cursor: "pointer",
                               color: THEME.label, fontSize: 17, lineHeight: 1, padding: "2px 4px",
                             }}>⋯</button>
-                            {menuFor === a.id && (
-                              <AccessMenu a={a} onSaltato={() => setSaltato(a)} onRemove={() => removeAccess(a)} onOrario={t => { updateOrario(a, t); setMenuFor(null); }} onClose={() => setMenuFor(null)} alignRight />
-                            )}
+                            
                           </div>
                         );
                       })}
@@ -3664,7 +3701,8 @@ function DomiciliInner() {
                       <span style={{ fontSize: 11.5, fontWeight: 700, color: THEME.mutedLight }}>Totale settimana:</span>
                       <span style={{ fontSize: 14, fontWeight: 800, color: THEME.tealDark }}>{accessCounts.weekTot} accessi</span>
                     </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 10 }}>
+                    <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", margin: "0 -2px", padding: "0 2px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(178px, 1fr))", gap: 10 }}>
                       {weekDays.map((d, i) => {
                         const iso = localISO(d);
                         const isToday = iso === todayISO;
@@ -3746,14 +3784,12 @@ function DomiciliInner() {
                                         {low && !saltato && <span style={{ color: THEME.red }}> !</span>}
                                       </div>
                                     </div>
-                                    <button onClick={e => { e.stopPropagation(); setMenuPos(null); setMenuFor(m => m === a.id ? null : a.id); }} style={{
+                                    <button onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setMenuPos({ x: r.right - 190, y: r.bottom }); setMenuFor(m => m === a.id ? null : a.id); }} style={{
                                       border: "none", background: "transparent", cursor: "pointer",
                                       color: THEME.label, fontSize: 15, lineHeight: 1, padding: "2px 3px", flexShrink: 0,
                                     }}>⋯</button>
                                   </div>
-                                  {menuFor === a.id && (
-                                    <AccessMenu a={a} onSaltato={() => setSaltato(a)} onRemove={() => removeAccess(a)} onOrario={t => { updateOrario(a, t); setMenuFor(null); }} onClose={() => setMenuFor(null)} />
-                                  )}
+                                  
                                 </div>
                               );
                             })}
@@ -3767,19 +3803,20 @@ function DomiciliInner() {
                         );
                       })}
                     </div>
+                    </div>
                     </>
                   )}
 
                   {/* ── MESE ── */}
                   {calView === "mese" && (
                     <div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8, marginBottom: 8 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 8, marginBottom: 8 }}>
                         {[1, 2, 3, 4, 5, 6].map(d => (
                           <div key={d} style={{ textAlign: "center", fontSize: 10.5, fontWeight: 700, letterSpacing: .6, color: THEME.label }}>{DOW_LABELS[d]}</div>
                         ))}
                       </div>
                       {monthWeeks.map((week, wi) => (
-                        <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8, marginBottom: 8, alignItems: "stretch" }}>
+                        <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 8, marginBottom: 8, alignItems: "stretch" }}>
                           {week.map(d => {
                             const iso = localISO(d);
                             const inMonth = d.getMonth() === anchor.getMonth();
@@ -3904,6 +3941,7 @@ function DomiciliInner() {
                   displayName={displayName}
                   displayPhone={displayPhone}
                   onRowClick={p => setPatientModal({ open: true, patient: p, startWithPhoto: false })}
+                  onCartella={p => setCartellaFor(p)}
                 />
                 {isolationNote}
                 <button onClick={() => void openTrash()} style={{
@@ -3990,9 +4028,10 @@ function Legend() {
   );
 }
 
-function PatientCard({ p, coop, counters, displayName, onClick }: {
+function PatientCard({ p, coop, counters, displayName, onClick, onCartella }: {
   p: CoopPatient; coop?: Cooperative; counters?: PatientCounters;
   displayName: (s: string) => string; onClick: () => void;
+  onCartella?: () => void;
 }) {
   const tot = p.tot_accessi;
   const fatti = counters?.fatti ?? 0;
@@ -4017,6 +4056,16 @@ function PatientCard({ p, coop, counters, displayName, onClick }: {
             {[p.citta, p.prestazione].filter(Boolean).join(" · ")}
           </div>
         </div>
+        {onCartella && (
+          <button
+            title="Cartella di valutazione"
+            onClick={e => { e.stopPropagation(); onCartella(); }}
+            style={{
+              border: `1px solid ${THEME.border}`, background: "#fff", color: THEME.muted,
+              borderRadius: 9, width: 34, height: 34, flexShrink: 0,
+              fontSize: 15, cursor: "pointer", lineHeight: 1,
+            }}>📋</button>
+        )}
         {tot != null ? (
           <div style={{ fontSize: 13, fontWeight: 800, color: THEME.tealDark, flexShrink: 0 }}>
             {fatti}/{tot}
@@ -4066,13 +4115,14 @@ function PatientCard({ p, coop, counters, displayName, onClick }: {
 }
 
 /** Tabella pazienti (desktop): tutti i dati chiave, paese incluso. */
-function PatientsTable({ patients, coopById, countersByPatient, displayName, displayPhone, onRowClick }: {
+function PatientsTable({ patients, coopById, countersByPatient, displayName, displayPhone, onRowClick, onCartella }: {
   patients: CoopPatient[];
   coopById: Map<string, Cooperative>;
   countersByPatient: Map<string, PatientCounters>;
   displayName: (s: string) => string;
   displayPhone: (s: string | null | undefined) => string;
   onRowClick: (p: CoopPatient) => void;
+  onCartella: (p: CoopPatient) => void;
 }) {
   const th: React.CSSProperties = {
     fontSize: 10, letterSpacing: .6, textTransform: "uppercase", color: THEME.label,
@@ -4098,11 +4148,12 @@ function PatientsTable({ patients, coopById, countersByPatient, displayName, dis
             <th style={{ ...th, textAlign: "center" }}>Accessi</th>
             <th style={th}>Scadenza PAI</th>
             <th style={th}>Stato</th>
+            <th style={{ ...th, textAlign: "center" }}>Valutazione</th>
           </tr>
         </thead>
         <tbody>
           {patients.length === 0 && (
-            <tr><td colSpan={9} style={{ ...td, textAlign: "center", color: THEME.mutedLight, padding: "26px 10px" }}>Nessun paziente in questo perimetro.</td></tr>
+            <tr><td colSpan={10} style={{ ...td, textAlign: "center", color: THEME.mutedLight, padding: "26px 10px" }}>Nessun paziente in questo perimetro.</td></tr>
           )}
           {patients.map(p => {
             const coop = coopById.get(p.cooperative_id);
@@ -4156,6 +4207,15 @@ function PatientsTable({ patients, coopById, countersByPatient, displayName, dis
                 <td style={{ ...td, fontWeight: 800, textTransform: "capitalize", color: p.stato === "attivo" ? THEME.green : THEME.muted }}>
                   {p.stato}
                 </td>
+                <td style={{ ...td, textAlign: "center" }}>
+                  <button
+                    title="Cartella di valutazione (ADL, MMSE, Tinetti)"
+                    onClick={e => { e.stopPropagation(); onCartella(p); }}
+                    style={{
+                      border: `1px solid ${THEME.border}`, background: "#fff", color: THEME.muted,
+                      borderRadius: 8, padding: "6px 10px", fontSize: 12, fontWeight: 800, cursor: "pointer",
+                    }}>📋</button>
+                </td>
               </tr>
             );
           })}
@@ -4166,11 +4226,13 @@ function PatientsTable({ patients, coopById, countersByPatient, displayName, dis
 }
 
 /** Menu contestuale su un accesso: saltato / orario / rimuovi. */
-function AccessMenu({ a, onSaltato, onRemove, onOrario, onClose, alignRight, fixedAt, onOpenPatient }: {
+function AccessMenu({ a, onSaltato, onRemove, onOrario, onClose, alignRight, fixedAt, onOpenPatient, onCartella }: {
   a: CoopAccess;
   onSaltato: () => void; onRemove: () => void;
   onOrario: (t: string) => void; onClose: () => void;
   alignRight?: boolean;
+  /** Apre la cartella di valutazione del paziente dell'accesso. */
+  onCartella?: () => void;
   /** Se presente, il menu si ancora al punto del click (position fixed):
       serve nelle viste a celle strette (settimana/mese) dove il popover
       absolute verrebbe tagliato dalle colonne. */
@@ -4200,6 +4262,11 @@ function AccessMenu({ a, onSaltato, onRemove, onOrario, onClose, alignRight, fix
         {onOpenPatient && (
           <button onClick={onOpenPatient} style={menuItem()}>
             👤 Scheda paziente
+          </button>
+        )}
+        {onCartella && (
+          <button onClick={onCartella} style={menuItem()}>
+            📋 Valutazione
           </button>
         )}
         <button onClick={onSaltato} style={menuItem()}>
