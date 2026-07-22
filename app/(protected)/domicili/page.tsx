@@ -1438,6 +1438,9 @@ function DomiciliInner() {
 
   // Sabato attivabile/disattivabile come nel calendario
   const dwDays = useMemo(() => showSabDw ? weekDays : weekDays.slice(0, 5), [weekDays, showSabDw]);
+  // Colonne della settimana: senza sabato restano 5 e diventano larghe
+  // abbastanza da mostrare nome e cognome per intero.
+  const weekCols = useMemo(() => showSabDw ? weekDays : weekDays.slice(0, 5), [weekDays, showSabDw]);
 
   // La giornata è una pila di slot da 1 ora (7…19). Ogni accesso ne occupa uno
   // solo: MAI due accessi sovrapposti. Priorità a chi ha un orario impostato;
@@ -3698,12 +3701,20 @@ function DomiciliInner() {
                           fontSize: 11.5, fontWeight: 700, padding: "5px 11px", borderRadius: 99,
                           cursor: "pointer", marginRight: "auto", opacity: copiaBusy ? .6 : 1,
                         }}>{copiaBusy ? "Copio…" : "Copia ordine → prossima settimana"}</button>
+                      <button onClick={() => setShowSabDw(v => !v)}
+                        title={showSabDw ? "Nascondi il sabato: le colonne si allargano e i nomi si leggono per intero" : "Mostra anche il sabato"}
+                        style={{
+                          border: `1px solid ${showSabDw ? THEME.tealDark : THEME.border}`,
+                          background: showSabDw ? "#f0fdfa" : "#fff",
+                          color: showSabDw ? THEME.tealDark : "#475569",
+                          fontSize: 11.5, fontWeight: 700, padding: "5px 11px", borderRadius: 99,
+                          cursor: "pointer", whiteSpace: "nowrap",
+                        }}>{showSabDw ? "Sabato ✓" : "Sabato"}</button>
                       <span style={{ fontSize: 11.5, fontWeight: 700, color: THEME.mutedLight }}>Totale settimana:</span>
                       <span style={{ fontSize: 14, fontWeight: 800, color: THEME.tealDark }}>{accessCounts.weekTot} accessi</span>
                     </div>
-                    <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", margin: "0 -2px", padding: "0 2px" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(178px, 1fr))", gap: 10 }}>
-                      {weekDays.map((d, i) => {
+                    <div style={{ display: "grid", gridTemplateColumns: `repeat(${weekCols.length}, minmax(0, 1fr))`, gap: 10 }}>
+                      {weekCols.map((d, i) => {
                         const iso = localISO(d);
                         const isToday = iso === todayISO;
                         const list = accByDay.get(iso) || [];
@@ -3774,11 +3785,13 @@ function DomiciliInner() {
                                       </div>
                                       <div style={{ fontSize: 10.5, color: THEME.mutedLight, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                         {a.orario || "—"}{p.citta ? ` · ${p.citta}` : ""}
-                                        {studioConflicts(a.data, a.orario).length > 0 && (
-                                          <span style={{ color: THEME.red, fontWeight: 700 }}
-                                            title={studioConflicts(a.data, a.orario).map(x => `${minToHHMM(x.from)} ${x.nome}`).join(", ")}> · ⚠ studio</span>
-                                        )}
                                       </div>
+                                      {studioConflicts(a.data, a.orario).length > 0 && (
+                                        <div style={{ fontSize: 10, color: THEME.red, fontWeight: 800, whiteSpace: "nowrap" }}
+                                          title={studioConflicts(a.data, a.orario).map(x => `${minToHHMM(x.from)} ${x.nome}`).join(", ")}>
+                                          ⚠ studio
+                                        </div>
+                                      )}
                                       <div style={{ fontSize: 10, color: saltato ? THEME.red : THEME.label, fontWeight: 700 }}>
                                         {saltato ? "saltato" : prog ? `${prog}${p.tot_accessi ? `/${p.tot_accessi}` : ""}` : ""}
                                         {low && !saltato && <span style={{ color: THEME.red }}> !</span>}
@@ -3802,7 +3815,6 @@ function DomiciliInner() {
                           </div>
                         );
                       })}
-                    </div>
                     </div>
                     </>
                   )}

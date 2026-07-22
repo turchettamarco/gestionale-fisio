@@ -66,6 +66,24 @@ const EMPTY: FormState = {
   mmse_aggiustato: "", note: "",
 };
 
+/** Precompilazione dall'anagrafica PAI: tutto ciò che lo studio ha già
+    non si ridigita. Ciò che il PAI non contiene (luogo di nascita, codice
+    fiscale) viene ereditato dalla valutazione precedente, se c'è. */
+function datiDaAnagrafica(p: CoopPatient, operatore?: string): FormState {
+  return {
+    ...EMPTY,
+    cognome: p.cognome || "",
+    nome: p.nome || "",
+    data_nascita: p.data_nascita || "",
+    residenza: [p.residenza, p.citta].filter(Boolean).join(", "),
+    data_valutazione: localISO(new Date()),
+    attivazione_pai: p.data_attivazione || "",
+    trattamento: p.prestazione || "",
+    tutore_tel: (p.recapiti || "").split(/[;\n]/)[0].trim(),
+    operatore_nome: operatore || (p.operatori || "").split(/[,;\n]/)[0].trim(),
+  };
+}
+
 function localISO(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -353,17 +371,7 @@ export default function CartellaValutazione({
     (async () => {
       setTab("anagrafica");
       setLoading(true);
-      const base: FormState = {
-        ...EMPTY,
-        cognome: patient.cognome || "",
-        nome: patient.nome || "",
-        data_nascita: patient.data_nascita || "",
-        residenza: [patient.residenza, patient.citta].filter(Boolean).join(", "),
-        data_valutazione: localISO(new Date()),
-        attivazione_pai: patient.data_attivazione || "",
-        trattamento: patient.prestazione || "",
-        operatore_nome: operatoreDefault || "",
-      };
+      const base = datiDaAnagrafica(patient, operatoreDefault);
       try {
         const { data } = await supabase
           .from("coop_valutazioni")
@@ -482,14 +490,23 @@ export default function CartellaValutazione({
     }
   };
 
+  /** Apre il PDF SENZA far navigare via questa pagina: su iPad il download
+      classico sostituisce la vista e, tornando indietro, la cartella aperta
+      andava persa. La scheda viene aperta prima della generazione (un
+      window.open dopo un await verrebbe bloccato da Safari). */
   const downloadPdf = async (originale = true) => {
+    const scheda = window.open("", "_blank");
     const file = await makePdf(originale);
-    if (!file) return;
+    if (!file) { scheda?.close(); return; }
     const url = URL.createObjectURL(file);
-    const a = document.createElement("a");
-    a.href = url; a.download = file.name;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    if (scheda && !scheda.closed) {
+      scheda.location.href = url;
+    } else {
+      const a = document.createElement("a");
+      a.href = url; a.download = file.name; a.target = "_blank"; a.rel = "noopener";
+      document.body.appendChild(a); a.click(); a.remove();
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
   /** Invio: prima prova la condivisione nativa (il PDF va dentro WhatsApp
@@ -509,9 +526,9 @@ export default function CartellaValutazione({
     }
     const url = URL.createObjectURL(file);
     const a = document.createElement("a");
-    a.href = url; a.download = file.name;
+    a.href = url; a.download = file.name; a.target = "_blank"; a.rel = "noopener";
     document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
     window.open(`https://wa.me/${WHATSAPP_NUMERO}?text=${encodeURIComponent(testo)}`, "_blank", "noopener");
     flash("ok", "PDF scaricato: allegalo nella chat che si è aperta.");
   };
@@ -601,6 +618,29 @@ export default function CartellaValutazione({
           {/* ═══ ANAGRAFICA E CONSENSI ═══ */}
           {!loading && tab === "anagrafica" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+                background: "#f0fdfa", border: `1px solid ${T.teal}`, borderRadius: 12, padding: "10px 13px",
+              }}>
+                <span style={{ fontSize: 12.5, color: T.muted, fontWeight: 600, flex: 1, lineHeight: 1.5 }}>
+                  Precompilata dall&apos;anagrafica PAI del paziente. Luogo di nascita e codice fiscale
+                  vengono ereditati dalla valutazione precedente, se ce n&apos;è una.
+                </span>
+                <button type="button"
+                  onClick={() => setForm(f => ({
+                    ...datiDaAnagrafica(patient, operatoreDefault),
+                    luogo_nascita: f.luogo_nascita, codice_fiscale: f.codice_fiscale,
+                    tutore_nome: f.tutore_nome, tutore_cf: f.tutore_cf,
+                    tutore_nascita: f.tutore_nascita, tutore_qualita: f.tutore_qualita,
+                    operatore_qualifica: f.operatore_qualifica,
+                  }))}
+                  style={{
+                    border: `1px solid ${T.teal}`, background: "#fff", color: T.tealDark,
+                    borderRadius: 9, padding: "8px 13px", fontSize: 12.5, fontWeight: 800,
+                    cursor: "pointer", flexShrink: 0,
+                  }}>↻ Ricarica</button>
+              </div>
+
               <Card title="Assistito">
                 <Row>
                   <Field label="Cognome" value={form.cognome} onChange={set("cognome")} />
