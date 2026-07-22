@@ -42,6 +42,13 @@ export {
 export { validateEventMove } from "./moveValidation";
 
 export {
+  useRealtimeCalendar,
+  type UseRealtimeCalendarOptions,
+  type UseRealtimeCalendarReturn,
+  type RealtimeStatus,
+} from "./useRealtimeCalendar";
+
+export {
   useReminderFlow,
   type WeeklyReminderTarget,
   type LastCreatedAppointment,

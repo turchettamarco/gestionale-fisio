@@ -75,6 +75,7 @@ import {
   useGroupOperations,
   useDragAndDrop,
   useEventResize,
+  useRealtimeCalendar,
   useAppointmentMutations,
 } from "@/src/hooks/calendar";
 
@@ -695,6 +696,8 @@ function CalendarPageInner() {
   //   - DayTimelineMulti: striature grigie sulla colonna operatore
   //   - MonthView: indicatore visivo nelle celle giorno (Fase 5)
   const [unavailabilities, setUnavailabilities] = useState<OperatorUnavailabilitySlot[]>([]);
+  // Tappa C: bump da realtime per rifetchare le assenze senza ricaricare la pagina.
+  const [unavRefreshTick, setUnavRefreshTick] = useState(0);
 
   useEffect(() => {
     if (!multiOperatorEnabled || activeMembers.length < 2) {
@@ -747,7 +750,7 @@ function CalendarPageInner() {
       })));
     })();
     return () => { cancelled = true; };
-  }, [multiOperatorEnabled, activeMembers.length, currentStudioId, currentDate, viewType]);
+  }, [multiOperatorEnabled, activeMembers.length, currentStudioId, currentDate, viewType, unavRefreshTick]);
 
   // ── Gestione parametri URL da GlobalSearch (?date=YYYY-MM-DD&view=day) ─────
   useEffect(() => {
@@ -835,6 +838,32 @@ function CalendarPageInner() {
     multiOperatorEnabled,
     multiRoomEnabled,
     unavailabilities,
+  });
+
+  // ─── Tappa C: realtime agenda ───────────────────────────────────────────
+  // Ricarica la finestra ATTUALMENTE visibile (stessa logica dell'auto-fetch
+  // per vista) in modalità silent = niente spinner.
+  const reloadVisibleWindow = useCallback(() => {
+    let rangeStart: Date, rangeEnd: Date;
+    if (viewType === "week") {
+      rangeStart = startOfISOWeekMonday(currentDate);
+      rangeEnd = addDays(rangeStart, 7);
+    } else if (viewType === "month") {
+      const firstDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+      const startOffset = firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1;
+      rangeStart = addDays(firstDay, -startOffset);
+      rangeEnd = addDays(rangeStart, 42);
+    } else {
+      rangeStart = new Date(currentDate); rangeStart.setHours(0, 0, 0, 0);
+      rangeEnd = new Date(currentDate); rangeEnd.setHours(23, 59, 59, 999);
+    }
+    setUnavRefreshTick(t => t + 1); // rifetch assenze operatore
+    return loadAppointments(rangeStart, rangeEnd, 0, true);
+  }, [viewType, currentDate, loadAppointments]);
+
+  const realtime = useRealtimeCalendar({
+    studioId: currentStudioId ?? null,
+    reload: reloadVisibleWindow,
   });
 
   // ─── Tappa B: modalità colonne della vista giorno multi (Operatori/Stanze) ─
@@ -2226,6 +2255,32 @@ return (
               boxShadow: "0 2px 8px rgba(30,64,175,0.05)",
             }}>
               Caricamento appuntamenti...
+            </div>
+          )}
+
+          {/* ── Tappa C: indicatore realtime ──────────────────────────
+              Discreto, in linea con la regola UI: nessun bordo colorato,
+              solo un dot + testo secondario. */}
+          {realtime.status !== "off" && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 6,
+              margin: "0 0 8px", fontSize: 11, fontWeight: 600,
+              color: realtime.status === "error" ? "#b45309" : "#94a3b8",
+            }}>
+              <span style={{
+                width: 7, height: 7, borderRadius: "50%",
+                background: realtime.status === "live"
+                  ? (realtime.syncing ? "#0ea5e9" : "#10b981")
+                  : realtime.status === "error" ? "#f59e0b" : "#cbd5e1",
+                transition: "background 0.2s",
+              }} />
+              {realtime.status === "live" && (realtime.syncing
+                ? "Aggiornamento in corso…"
+                : realtime.lastSyncAt
+                  ? `Agenda sincronizzata alle ${realtime.lastSyncAt.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}`
+                  : "Agenda in tempo reale")}
+              {realtime.status === "connecting" && "Connessione in corso…"}
+              {realtime.status === "error" && "Sincronizzazione non attiva — ricarica la pagina"}
             </div>
           )}
 

@@ -105,7 +105,9 @@ export interface UseCalendarEventsReturn {
   loadAppointments: (
     startDate: Date,
     endDate: Date,
-    retryCount?: number
+    retryCount?: number,
+    /** Tappa C: true = niente spinner (ricarica realtime in background). */
+    silent?: boolean
   ) => Promise<void>;
 
   // Revenue periodo
@@ -209,10 +211,15 @@ export function useCalendarEvents(
   const loadRequestId = useRef(0);
 
   const loadAppointments = useCallback(
-    async (startDate: Date, endDate: Date, retryCount = 0) => {
+    async (startDate: Date, endDate: Date, retryCount = 0, silent = false) => {
       const thisRequest = ++loadRequestId.current;
-      setLoading(true);
-      setError("");
+      // Tappa C: in modalità silent non tocchiamo loading/error, così gli
+      // aggiornamenti realtime non fanno lampeggiare lo spinner né
+      // cancellano un messaggio di errore che l'utente sta leggendo.
+      if (!silent) {
+        setLoading(true);
+        setError("");
+      }
 
       const startISO = startDate.toISOString();
       const endISO = endDate.toISOString();
@@ -260,7 +267,7 @@ export function useCalendarEvents(
             return;
           }
           setError(error.message);
-          setLoading(false);
+          if (!silent) setLoading(false);
           return;
         }
 
@@ -453,17 +460,17 @@ export function useCalendarEvents(
         );
 
         setEvents(mapped as CalendarEvent[]);
-        setLoading(false);
+        if (!silent) setLoading(false);
       } catch (err) {
         if (thisRequest !== loadRequestId.current) return;
         if (retryCount < 2) {
           setTimeout(
-            () => loadAppointments(startDate, endDate, retryCount + 1),
+            () => loadAppointments(startDate, endDate, retryCount + 1, silent),
             1000
           );
         } else {
           setError(`Errore caricamento: ${translateError(err)}`);
-          setLoading(false);
+          if (!silent) setLoading(false);
         }
       }
     },
