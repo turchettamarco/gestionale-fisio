@@ -925,13 +925,6 @@ export type TeamSectionProps = {
   onSaveWeeklyLayout: () => void;
   // Vista calendario predefinita all'apertura (mig. 023, Fase D).
   // Visibile solo se multi_operator_enabled = true.
-  defaultCalendarView: "day" | "week" | "month";
-  slotMinutesSetting: 15 | 30;
-  savingSlotMinutes: boolean;
-  onSaveSlotMinutes: (v: 15 | 30) => void;
-  setDefaultCalendarView: (v: "day" | "week" | "month") => void;
-  savingDefaultCalendarView: boolean;
-  onSaveDefaultCalendarView: () => void;
 };
 
 export default function TeamSection({
@@ -953,11 +946,6 @@ export default function TeamSection({
   setWeeklyViewLayout,
   savingWeeklyLayout,
   onSaveWeeklyLayout,
-  defaultCalendarView,
-  slotMinutesSetting, savingSlotMinutes, onSaveSlotMinutes,
-  setDefaultCalendarView,
-  savingDefaultCalendarView,
-  onSaveDefaultCalendarView,
 }: TeamSectionProps) {
   const [showNewForm, setShowNewForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null); // user_id o invite_token
@@ -1563,119 +1551,8 @@ export default function TeamSection({
             </div>
           </div>
 
-          {/* ── Granularità agenda (mig. 061) ─────────────────────────────
-              Slot da 30 o da 15 minuti. Studio-wide: governa gli orari
-              proposti, lo snap del drag e i selettori ora in tutta l'app.
-              Nel calendario resta la pillola per il cambio rapido. */}
-          <div style={{ marginTop: 24, paddingTop: 18, borderTop: `1px dashed ${THEME.border}` }}>
-            <div style={{ fontWeight: 700, fontSize: 14, color: THEME.text, marginBottom: 4 }}>
-              Granularità agenda
-            </div>
-            <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 12, lineHeight: 1.5 }}>
-              Ogni quanto sono proposti gli orari: slot, click sugli spazi vuoti, trascinamenti e selettori dell'ora seguono questo passo. Vale su tutti i dispositivi; nel calendario resta comunque la pillola per cambiare al volo.
-            </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {([
-                { k: 30 as const, label: "30 minuti", desc: "Mezz'ore classiche (09:00, 09:30)" },
-                { k: 15 as const, label: "15 minuti", desc: "Quarti d'ora (09:00, 09:15, 09:30, 09:45)" },
-              ]).map(opt => {
-                const active = slotMinutesSetting === opt.k;
-                return (
-                  <button
-                    key={opt.k}
-                    type="button"
-                    disabled={savingSlotMinutes}
-                    onClick={() => onSaveSlotMinutes(opt.k)}
-                    style={{
-                      flex: "1 1 180px",
-                      minWidth: 180,
-                      padding: "12px 14px",
-                      border: `2px solid ${active ? THEME.teal : THEME.border}`,
-                      background: active ? "rgba(13,148,136,0.04)" : "#fff",
-                      borderRadius: 10,
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      textAlign: "left",
-                      transition: "all 0.15s",
-                      opacity: savingSlotMinutes ? 0.7 : 1,
-                    }}
-                  >
-                    <div style={{
-                      fontSize: 13, fontWeight: 800,
-                      color: active ? THEME.teal : THEME.text, marginBottom: 3,
-                    }}>
-                      {opt.label}{active ? " ✓" : ""}
-                    </div>
-                    <div style={{ fontSize: 11, color: THEME.muted, fontWeight: 500 }}>
-                      {opt.desc}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
 
-          {/* ── Vista predefinita all'apertura calendario (Fase D, mig. 023) ─
-              Quale vista deve aprire l'utente quando entra nel calendario.
-              Vale per tutti gli operatori dello studio. La scelta nella sessione
-              non è persistita: vale solo come "vista iniziale". */}
-          <div style={{ marginTop: 24, paddingTop: 18, borderTop: `1px dashed ${THEME.border}` }}>
-            <div style={{ fontWeight: 700, fontSize: 14, color: THEME.text, marginBottom: 4 }}>
-              Vista predefinita calendario
-            </div>
-            <div style={{ fontSize: 12, color: THEME.muted, marginBottom: 12, lineHeight: 1.5 }}>
-              Quale vista si apre per primo all'ingresso nel calendario. Vale per tutti i membri dello studio. L'utente può cambiare vista normalmente durante l'uso.
-            </div>
 
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {([
-                { k: "day",   label: "Giorno",    desc: "Timeline operatori" },
-                { k: "week",  label: "Settimana", desc: "Layout settimanale" },
-                { k: "month", label: "Mese",      desc: "Panoramica mensile" },
-              ] as const).map(opt => {
-                const active = defaultCalendarView === opt.k;
-                return (
-                  <button
-                    key={opt.k}
-                    type="button"
-                    onClick={() => setDefaultCalendarView(opt.k)}
-                    style={{
-                      flex: "1 1 140px",
-                      minWidth: 140,
-                      padding: "12px 14px",
-                      border: `2px solid ${active ? THEME.teal : THEME.border}`,
-                      background: active ? "rgba(13,148,136,0.04)" : "#fff",
-                      borderRadius: 10,
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      textAlign: "left",
-                      transition: "all 0.15s",
-                    }}
-                  >
-                    <div style={{
-                      fontSize: 13,
-                      fontWeight: 800,
-                      color: active ? THEME.teal : THEME.text,
-                      marginBottom: 3,
-                    }}>
-                      {opt.label}
-                    </div>
-                    <div style={{ fontSize: 11, color: THEME.muted, fontWeight: 500 }}>
-                      {opt.desc}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
-              <BtnPrimary
-                label={savingDefaultCalendarView ? "Salvataggio…" : "Salva vista predefinita"}
-                onClick={onSaveDefaultCalendarView}
-                disabled={savingDefaultCalendarView}
-              />
-            </div>
-          </div>
         </div>
       )}
     </div>

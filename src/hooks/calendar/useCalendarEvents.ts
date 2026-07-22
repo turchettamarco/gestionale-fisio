@@ -229,6 +229,7 @@ export function useCalendarEvents(
           is_group, group_title, group_max_participants, group_price_per_person,
           package_id,
           operator_id, room_id, guest_practitioner_id,
+          convenzione_ente_id, convenzione_auth_code, convenzione_auth_expires,
           patients:patient_id ( first_name, last_name, treatment, diagnosis, phone ),
           appointment_participants (
             id, appointment_id, patient_id, price, payment_status, payment_method, paid_at,
@@ -276,6 +277,9 @@ export function useCalendarEvents(
             location_id?: string | null;
             domicile_address?: string | null;
             treatment_type?: string | null;
+            convenzione_ente_id?: string | null;
+            convenzione_auth_code?: string | null;
+            convenzione_auth_expires?: string | null;
             price_type?: string | null;
             payment_method?: string | null;
             amount?: number | null;
@@ -395,6 +399,9 @@ export function useCalendarEvents(
               location_id: a.location_id ?? null,
               domicile_address: a.domicile_address ?? null,
               treatment_type: a.treatment_type ?? null,
+              convenzione_ente_id: a.convenzione_ente_id ?? null,
+              convenzione_auth_code: a.convenzione_auth_code ?? null,
+              convenzione_auth_expires: a.convenzione_auth_expires ?? null,
               price_type: a.price_type ?? null,
               payment_method: (a.payment_method ?? null) as
                 | "cash"

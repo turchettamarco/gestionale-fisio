@@ -137,6 +137,11 @@ export interface CreateFormState {
   // applicano. Mutualmente esclusivo con operator_id (constraint
   // appointments_operator_xor_guest a livello DB).
   createGuestPractitionerId?: string | null;
+  // Convenzioni (mig. 065): ente + numero di autorizzazione della rete.
+  // Vuoti = prestazione privata; il modulo può essere spento del tutto.
+  createConvenzioneEnteId?: string | null;
+  createConvenzioneAuthCode?: string | null;
+  createConvenzioneAuthExpires?: string | null;
 }
 
 /** Stato del modale EDIT (form di modifica appuntamento esistente) */
@@ -157,6 +162,10 @@ export interface EditFormState {
   // Professionisti ospiti (mig. 029): se valorizzato, l'appuntamento in
   // modifica è di un ospite. La validazione metodo pagamento viene saltata.
   editGuestPractitionerId?: string | null;
+  // Convenzioni (mig. 065)
+  editConvenzioneEnteId?: string | null;
+  editConvenzioneAuthCode?: string | null;
+  editConvenzioneAuthExpires?: string | null;
 }
 
 /** Stato del modale "crea paziente rapido" */
@@ -761,6 +770,10 @@ export function useAppointmentMutations(
                 : null,
             treatment_type: treatmentType,
             price_type: priceType,
+            // Convenzioni (mig. 065)
+            convenzione_ente_id: createForm.createConvenzioneEnteId || null,
+            convenzione_auth_code: createForm.createConvenzioneEnteId ? (createForm.createConvenzioneAuthCode || null) : null,
+            convenzione_auth_expires: createForm.createConvenzioneEnteId ? (createForm.createConvenzioneAuthExpires || null) : null,
             // Se la seduta scala da un pacchetto, niente metodo pagamento
             // sulla singola (l'incasso vive sui package_payments)
             payment_method: createForm.selectedPackageId
@@ -1128,6 +1141,11 @@ A presto${firma ? `,\n${firma}` : ""}`;
       operator_id: editForm.editOperatorId ?? null,
       // Multi-stanza (mig. 019, Fase Stanze)
       room_id: editForm.editRoomId ?? null,
+      // Convenzioni (mig. 065): senza ente si azzerano anche autorizzazione
+      // e scadenza, altrimenti resterebbero appesi a una seduta privata.
+      convenzione_ente_id: editForm.editConvenzioneEnteId || null,
+      convenzione_auth_code: editForm.editConvenzioneEnteId ? (editForm.editConvenzioneAuthCode || null) : null,
+      convenzione_auth_expires: editForm.editConvenzioneEnteId ? (editForm.editConvenzioneAuthExpires || null) : null,
     };
 
     // Rimuoviamo le proprietà undefined/null

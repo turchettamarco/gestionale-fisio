@@ -24,6 +24,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import Link from "next/link";
+import ConvenzioniMenuItem from "@/src/components/ConvenzioniMenuItem";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
@@ -444,6 +445,7 @@ export default function NewPatientPage() {
                 borderRadius: 12, boxShadow: "0 12px 32px rgba(30,64,175,0.15)",
                 overflow: "hidden", zIndex: 60,
               }}>
+                <ConvenzioniMenuItem onNavigate={() => setUserMenuOpen(false)} />
                 <button onClick={handleLogout} style={{
                   width: "100%", display: "flex", alignItems: "center", gap: 8,
                   padding: "12px 16px", background: "transparent", border: "none",

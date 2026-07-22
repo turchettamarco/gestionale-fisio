@@ -40,6 +40,7 @@ export type Studio = {
   report_yearly_enabled?: boolean;
   // Feature flag (mig. 056): sezione Domicili Cooperative, attivabile per studio da fisiohub-admin
   feature_domicili?: boolean;
+  convenzioni_enabled?: boolean;
   report_email?: string | null;
   // Toggle UI feature legacy "Prenotazioni dal sito" (Fase N2.1)
   show_booking_card_home?: boolean;

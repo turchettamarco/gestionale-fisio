@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { AiBriefingModal, AiLetterModal } from "@/src/components/clinical/ClinicalAiModals";
 import { getStudioBranding } from "@/src/lib/studioBranding";
 import { BuildInfo } from "@/src/components/BuildInfo";
 import AppNavbar from "@/src/components/AppNavbar";
@@ -551,6 +552,8 @@ export default function PatientDetailDesktopClient({
   const [secTerapie,      setSecTerapie]      = useState(true);
   // Modale attestato di presenza cumulativo (Step 5)
   const [showCertDialog, setShowCertDialog] = useState(false);
+  const [aiBriefingOpen, setAiBriefingOpen] = useState(false);
+  const [aiLetterOpen, setAiLetterOpen] = useState(false);
   const [secDiarioSOAP,   setSecDiarioSOAP]   = useState(true);
 
   // ── Dati per PatientSummaryPanel (Tappa 4) ────────────────────────
@@ -2874,6 +2877,30 @@ ${rows}
           <div style={cardBody}>
             <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12, gap: 8 }}>
               <button
+                onClick={() => setAiBriefingOpen(true)}
+                title="Le consegne AI prima della seduta: quadro, ultima risposta, cosa monitorare"
+                style={{
+                  padding: "8px 14px", borderRadius: 8,
+                  border: `1px solid ${THEME.border}`,
+                  background: THEME.panelSoft, color: THEME.text,
+                  fontWeight: 600, fontSize: 13, cursor: "pointer",
+                }}
+              >
+                ✨ Briefing
+              </button>
+              <button
+                onClick={() => setAiLetterOpen(true)}
+                title="Lettera formale al medico generata dal percorso clinico"
+                style={{
+                  padding: "8px 14px", borderRadius: 8,
+                  border: `1px solid ${THEME.border}`,
+                  background: THEME.panelSoft, color: THEME.text,
+                  fontWeight: 600, fontSize: 13, cursor: "pointer",
+                }}
+              >
+                🖋 Lettera medico
+              </button>
+              <button
                 onClick={() => setShowCertDialog(true)}
                 disabled={appointments.filter(a => a.status === "done").length === 0}
                 title={appointments.filter(a => a.status === "done").length === 0
@@ -3348,7 +3375,23 @@ ${rows}
         />
 
         {/* Attestato di presenza cumulativo (mig. 034 + Step 5) */}
-        {showCertDialog && (
+        {aiBriefingOpen && (
+        <AiBriefingModal
+          open={aiBriefingOpen}
+          onClose={() => setAiBriefingOpen(false)}
+          patientId={patient.id}
+          patientName={privacyMode ? maskName(patient) : `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim()}
+        />
+      )}
+      {aiLetterOpen && (
+        <AiLetterModal
+          open={aiLetterOpen}
+          onClose={() => setAiLetterOpen(false)}
+          patientId={patient.id}
+          patientName={`${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim()}
+        />
+      )}
+      {showCertDialog && (
           <AttendanceCertificateDialog
             patientId={patientId as string}
             patientFirstName={firstName || (patient?.first_name ?? "")}

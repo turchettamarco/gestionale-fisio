@@ -48,9 +48,11 @@ const PHOTO_MODEL = "claude-sonnet-4-6";
 
 // ─── Tipi ────────────────────────────────────────────────────
 
-type AIAction = "summary" | "plan" | "soap" | "anamnesis" | "photo";
+type AIAction = "summary" | "plan" | "soap" | "anamnesis" | "photo" | "briefing" | "letter";
 
 interface PatientContext {
+  letter_to?: string | null;
+  letter_reason?: string | null;
   // Anagrafica essenziale
   age?: number | null;
   sex?: string | null;
@@ -311,6 +313,52 @@ IMPORTANTE: Il tuo compito è AIUTARE il fisioterapista offrendo ipotesi clinich
 
 Il fisioterapista è l'autorità clinica finale: i tuoi suggerimenti sono spunti, non diagnosi definitive.`;
 
+  if (action === "briefing") {
+    return `${baseInstructions}
+
+CONTESTO PAZIENTE:
+${contextText}
+
+COMPITO: Sei il collega che passa le consegne al fisioterapista 2 minuti prima che il paziente entri. Genera un BRIEFING PRE-SEDUTA operativo, in italiano, di 5-8 righe brevi, con:
+- Quadro in una riga (chi è, problema principale, da quanto)
+- Ultima seduta: cosa è stato fatto e come ha risposto
+- A che punto è il percorso rispetto agli obiettivi
+- COSA MONITORARE OGGI (1-2 punti concreti)
+- Eventuali red flags o cautele (solo se presenti nel contesto)
+
+Tono asciutto e clinico, frasi brevi, niente premesse. Lavora con quello che hai senza sottolineare le mancanze.
+
+Rispondi SOLO con un oggetto JSON in questo formato esatto:
+{"briefing": "testo qui"}
+
+Niente preamboli, niente markdown, solo JSON.`;
+  }
+
+  if (action === "letter") {
+    const dest = (ctx.letter_to || "").trim() || "Collega";
+    const reason = (ctx.letter_reason || "").trim() || "aggiornamento sul percorso riabilitativo";
+    return `${baseInstructions}
+
+CONTESTO PAZIENTE:
+${contextText}
+
+COMPITO: Scrivi una LETTERA FORMALE in italiano indirizzata a "${dest}", motivo: ${reason}.
+La lettera è scritta dal fisioterapista curante e riguarda questo paziente. Struttura:
+- Apertura formale ("Gentile ...")
+- Presentazione sintetica del caso (quadro clinico, insorgenza, valutazione iniziale)
+- Trattamento svolto (tecniche principali, numero indicativo di sedute se disponibile)
+- Evoluzione clinica e stato attuale
+- Chiusura coerente col motivo (${reason}): eventuale richiesta o disponibilità al confronto
+- Formula di congedo formale, SENZA firma né data (le aggiunge il gestionale)
+
+Registro professionale sanitario, sobrio, 150-260 parole. Non inventare esami o farmaci non presenti nel contesto; se un dato manca, ometti.
+
+Rispondi SOLO con un oggetto JSON in questo formato esatto:
+{"letter": "testo qui"}
+
+Niente preamboli, niente markdown, solo JSON.`;
+  }
+
   if (action === "summary") {
     return `${baseInstructions}
 
@@ -531,7 +579,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "ANTHROPIC_API_KEY non configurata su Vercel" }, { status: 500 });
     }
 
-    if (!action || !["summary", "plan", "soap", "anamnesis", "photo"].includes(action)) {
+    if (!action || !["summary", "plan", "soap", "anamnesis", "photo", "briefing", "letter"].includes(action)) {
       return NextResponse.json({ error: "Azione non valida" }, { status: 400 });
     }
 
@@ -592,7 +640,7 @@ export async function POST(req: NextRequest) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: action === "photo" ? PHOTO_MODEL : MODEL,
+        model: action === "photo" || action === "letter" ? PHOTO_MODEL : MODEL,
         max_tokens:
           action === "photo" ? 2500
           : action === "anamnesis" ? 1500

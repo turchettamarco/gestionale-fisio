@@ -27,6 +27,7 @@ function openWA(phone: string, message: string = ""): void {
 }
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ConvenzioniMenuItem from "@/src/components/ConvenzioniMenuItem";
 import { getStudioBranding } from "@/src/lib/studioBranding";
 import { showToast } from "@/src/components/mobile/ToastProvider";
 import Link from "next/link";
@@ -1581,6 +1582,7 @@ export default function DashboardMobileClient() {
                       )}
                     </>
                   )}
+                  <ConvenzioniMenuItem onNavigate={() => setUserMenuOpen(false)} />
                   <Link href="/settings" onClick={() => setUserMenuOpen(false)} style={{
                     display: "flex", alignItems: "center", gap: 8, padding: "11px 14px",
                     color: THEME.text, textDecoration: "none", fontSize: 13, fontWeight: 600,

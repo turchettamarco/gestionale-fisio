@@ -26,6 +26,8 @@ function openWA(phone: string, message: string = ""): void {
 }
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ConvenzioniMenuItem from "@/src/components/ConvenzioniMenuItem";
+import { AiBriefingModal, AiLetterModal } from "@/src/components/clinical/ClinicalAiModals";
 import { getStudioBranding } from "@/src/lib/studioBranding";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
@@ -395,6 +397,8 @@ export default function PatientDetailMobileClient({ patientId }: { patientId: st
   const [activeTab, setActiveTab] = useState<"overview" | "info" | "clinical" | "packages" | "therapies" | "docs" | "esercizi" | "note" | "scales" | "photos" | "portal" | "consensi">("overview");
   // Modale attestato di presenza cumulativo (Step 5)
   const [showCertDialogMobile, setShowCertDialogMobile] = useState(false);
+  const [aiBriefingOpen, setAiBriefingOpen] = useState(false);
+  const [aiLetterOpen, setAiLetterOpen] = useState(false);
   // Mappa del dolore
   const [painMapOpen, setPainMapOpen] = useState(false);
   const [ownerId, setOwnerId] = useState<string | null>(null);
@@ -863,6 +867,7 @@ export default function PatientDetailMobileClient({ patientId }: { patientId: st
             <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", width: 190,
               background: T.panelBg, border: `1.5px solid ${T.border}`,
               borderRadius: 12, boxShadow: "0 12px 32px rgba(30,64,175,0.15)", overflow: "hidden", zIndex: 60 }}>
+              <ConvenzioniMenuItem onNavigate={() => setUserMenuOpen(false)} />
               <Link href="/settings" onClick={() => setUserMenuOpen(false)} style={{
                 display: "flex", alignItems: "center", gap: 8, padding: "12px 16px",
                 color: T.text, textDecoration: "none", fontSize: 13, fontWeight: 600,
@@ -1299,6 +1304,30 @@ export default function PatientDetailMobileClient({ patientId }: { patientId: st
               ))}
             </div>
 
+            {/* AI clinica: briefing e lettera */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <button
+                onClick={() => setAiBriefingOpen(true)}
+                style={{
+                  padding: "12px 10px", borderRadius: 12,
+                  border: `1.5px solid ${T.border}`, background: T.panelBg,
+                  color: T.text, fontWeight: 700, fontSize: 13.5, cursor: "pointer",
+                  boxShadow: "0 1px 4px rgba(15,23,42,0.06)",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                }}
+              >✨ Briefing</button>
+              <button
+                onClick={() => setAiLetterOpen(true)}
+                style={{
+                  padding: "12px 10px", borderRadius: 12,
+                  border: `1.5px solid ${T.border}`, background: T.panelBg,
+                  color: T.text, fontWeight: 700, fontSize: 13.5, cursor: "pointer",
+                  boxShadow: "0 1px 4px rgba(15,23,42,0.06)",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                }}
+              >🖋 Lettera medico</button>
+            </div>
+
             {/* Bottone Attestato di presenza (Step 5) */}
             <button
               onClick={() => setShowCertDialogMobile(true)}
@@ -1733,7 +1762,23 @@ export default function PatientDetailMobileClient({ patientId }: { patientId: st
         />
       )}
 
-      {showCertDialogMobile && (
+      {aiBriefingOpen && (
+        <AiBriefingModal
+          open={aiBriefingOpen}
+          onClose={() => setAiBriefingOpen(false)}
+          patientId={patient.id}
+          patientName={privacyMode ? maskName(patient) : `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim()}
+        />
+      )}
+      {aiLetterOpen && (
+        <AiLetterModal
+          open={aiLetterOpen}
+          onClose={() => setAiLetterOpen(false)}
+          patientId={patient.id}
+          patientName={`${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim()}
+        />
+      )}
+            {showCertDialogMobile && (
         <AttendanceCertificateDialog
           patientId={patientId}
           patientFirstName={patient?.first_name ?? ""}

@@ -21,7 +21,7 @@
 import type React from "react";
 import { THEME } from "./shared/theme";
 
-export type SettingsTab = "studio" | "team" | "calendar" | "accounting" | "communications" | "account" | "subscription";
+export type SettingsTab = "studio" | "team" | "calendar" | "accounting" | "convenzioni" | "communications" | "account" | "subscription";
 
 export type SettingsTabsProps = {
   activeTab: SettingsTab;
@@ -40,6 +40,7 @@ const ICON: Record<SettingsTab, React.ReactNode> = {
   team: ic(<><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13A4 4 0 0 1 16 11" /></>),
   calendar: ic(<><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01" /></>),
   accounting: ic(<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1ZM8 7h8M8 11h8M8 15h5" />),
+  convenzioni: ic(<><rect x="3" y="6" width="18" height="14" rx="2" /><path d="M12 10v6M9 13h6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></>),
   communications: ic(<path d="M21 11.5a8.38 8.38 0 0 1-9 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.2A8.38 8.38 0 0 1 12 3a8.5 8.5 0 0 1 9 8.5Z" />),
   account: ic(<><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></>),
   subscription: ic(<><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20M6 15h4" /></>),
@@ -48,8 +49,9 @@ const ICON: Record<SettingsTab, React.ReactNode> = {
 const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: "studio",          label: "Studio" },
   { id: "team",            label: "Team" },
-  { id: "calendar",        label: "Calendario" },
+  { id: "calendar",        label: "Agenda" },
   { id: "accounting",      label: "Contabilità" },
+  { id: "convenzioni",     label: "Convenzioni" },
   { id: "communications",  label: "Comunicazioni" },
   { id: "account",         label: "Account" },
   { id: "subscription",    label: "Abbonamento" },

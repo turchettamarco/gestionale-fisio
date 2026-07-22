@@ -26,6 +26,7 @@
 "use client";
 
 import Link from "next/link";
+import ConvenzioneFields, { type ConvenzioneValue } from "@/src/components/convenzioni/ConvenzioneFields";
 import { SOAPNotesEditor } from "../SOAPNotes";
 import {
   THEME, ALL_TREATMENTS,
@@ -69,6 +70,8 @@ export type SelectedEventModalProps = {
   editAmount: string;
   setEditAmount: (s: string) => void;
   editTreatmentType: TreatmentType;
+  editConv: ConvenzioneValue;
+  setEditConv: (v: ConvenzioneValue) => void;
   setEditTreatmentType: (t: TreatmentType) => void;
   editPriceType: "invoiced" | "cash";
   setEditPriceType: (p: "invoiced" | "cash") => void;
@@ -142,6 +145,7 @@ export default function SelectedEventModal({
   editNote, setEditNote,
   editAmount, setEditAmount,
   editTreatmentType, setEditTreatmentType,
+  editConv, setEditConv,
   editPriceType, setEditPriceType,
   editPaymentMethod, setEditPaymentMethod,
   editDate, setEditDate,
@@ -655,6 +659,8 @@ export default function SelectedEventModal({
                 }}>▼</div>
               </div>
             </div>
+
+            <ConvenzioneFields value={editConv} onChange={setEditConv} />
 
             {/* Fatturazione */}
             <div>

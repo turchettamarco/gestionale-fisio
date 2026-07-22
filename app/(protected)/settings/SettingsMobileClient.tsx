@@ -1,12 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { usePrivacyMode, type PrivacyStyle } from "@/src/contexts/PrivacyModeContext";
 import { showToast } from "@/src/components/mobile/ToastProvider";
+import SettingsSearch, { type SettingsSearchItem } from "./components/SettingsSearch";
+import { toMoneyString } from "./components/shared/utils";
+import type { MessageTemplate, BookableService, BlockedDay, StudioMemberRow, StudioRoomRow, PracticeSettingsRow, StudioLocation } from "./components/shared/types";
+import AgendaViewPrefsSection from "./components/sections/AgendaViewPrefsSection";
+import CalendarPrefsSection from "./components/sections/CalendarPrefsSection";
+import BlockedDaysSection from "./components/sections/BlockedDaysSection";
+import BookableServicesSection from "./components/sections/BookableServicesSection";
+import TeamSection from "./components/sections/TeamSection";
+import RoomsSection from "./components/sections/RoomsSection";
+import OperatorAbsencesSection from "./components/sections/OperatorAbsencesSection";
+import TemplatesSection from "./components/sections/TemplatesSection";
+import IntegrationsSection from "./components/sections/IntegrationsSection";
+import PracticeSection from "./components/sections/PracticeSection";
+import AccountingSection from "./components/sections/AccountingSection";
+import ManagementSection from "./components/sections/ManagementSection";
 import {
   type TreatmentTypeRow,
   loadTreatmentTypes,
@@ -138,6 +153,8 @@ export default function SettingsMobileClient() {
   };
   const [guestEnabled, setGuestEnabled] = useState(false);
   const [savingGuestToggle, setSavingGuestToggle] = useState(false);
+  const [convEnabled, setConvEnabled] = useState(false);
+  const [savingConv, setSavingConv] = useState(false);
   const [useGuestIndex, setUseGuestIndex] = useState(false);
   const [savingGuestIndexToggle, setSavingGuestIndexToggle] = useState(false);
   const [guestsList, setGuestsList] = useState<GuestRow[]>([]);
@@ -216,32 +233,13 @@ export default function SettingsMobileClient() {
       setMultiLocationEnabled(currentStudio.multi_location_enabled ?? false);
       // Professionisti ospiti (mig. 029, 031)
       setGuestEnabled(Boolean((currentStudio as { guest_practitioners_enabled?: boolean }).guest_practitioners_enabled));
+      setConvEnabled(Boolean((currentStudio as { convenzioni_enabled?: boolean }).convenzioni_enabled));
       setUseGuestIndex(Boolean((currentStudio as { use_guest_index_page?: boolean }).use_guest_index_page));
     }
   },[currentStudio]);
 
-  // 2. Dati fiscali (P.IVA, PEC) e preferenze utente (goal, soglia, overlap)
-  //    restano in practice_settings (interni / preferenze)
-  useEffect(()=>{
-    (async()=>{
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        const { data } = await supabase.from("practice_settings").select("*").eq("owner_id",user.id).maybeSingle();
-        if (data) {
-          setOwnerName(data.owner_full_name||"");
-          setVatNumber((data as any).vat_number||"");
-          setPecEmail((data as any).pec_email||"");
-          setMonthlyGoal(String((data as any).monthly_revenue_goal||2000));
-          setInactiveThresh(String((data as any).inactive_threshold_days||45));
-          setOverlapMode(((data as any).overlap_mode ?? "warn") as "block"|"warn"|"visual");
-          // Pagamenti (mig. 015)
-          setPaymentMethodRequired((data as any).payment_method_required ?? true);
-          setDefaultPaymentMethod(((data as any).default_payment_method ?? "pos") as "cash"|"pos"|"bank_transfer");
-        }
-      } catch(e:any){ setError(e?.message||"Errore caricamento"); }
-    })();
-  },[]);
+// (load fiscale/preferenze parziale rimossa: ora copre tutto loadPracticeFull)
+
 
   // ── Load working_hours dello studio corrente (filtrati esplicitamente) ──
   useEffect(() => {
@@ -342,6 +340,24 @@ export default function SettingsMobileClient() {
       setTimeout(() => setSuccess(""), 3000);
     } finally {
       setSavingReport(false);
+    }
+  }
+
+  // Modulo convenzioni (mig. 065)
+  async function saveConvToggle() {
+    if (!currentStudioId) return;
+    setSavingConv(true); setError(""); setSuccess("");
+    try {
+      const { error: err } = await supabase
+        .from("studios")
+        .update({ convenzioni_enabled: convEnabled })
+        .eq("id", currentStudioId);
+      if (err) { setError("Errore: " + err.message); return; }
+      await refreshStudio();
+      setSuccess(convEnabled ? "Modulo convenzioni attivato." : "Modulo convenzioni disattivato.");
+      setTimeout(() => setSuccess(""), 3000);
+    } finally {
+      setSavingConv(false);
     }
   }
 
@@ -782,11 +798,757 @@ export default function SettingsMobileClient() {
     finally { setPwSaving(false); }
   }
 
+  // ── Granularità agenda (parità con desktop, mig. 061) ──
+  // Il valore mostrato deriva dallo studio (fonte di verità); lo stato locale
+  // esiste solo per il feedback ottimistico durante il salvataggio.
+  const [pendingSlot, setPendingSlot] = useState<15 | 30 | null>(null);
+  const [savingMobSlot, setSavingMobSlot] = useState(false);
+  const mobSlotMin: 15 | 30 =
+    pendingSlot ?? ((((currentStudio as { slot_minutes?: number } | null)?.slot_minutes) === 15) ? 15 : 30);
+  async function saveMobSlot(v: 15 | 30) {
+    if (!currentStudioId) return;
+    setPendingSlot(v); setSavingMobSlot(true);
+    try {
+      const { error } = await supabase.from("studios").update({ slot_minutes: v }).eq("id", currentStudioId);
+      if (error) throw error;
+      await refreshStudio();
+      setSuccess(`Agenda impostata a slot di ${v} minuti.`); setTimeout(()=>setSuccess(""), 2500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Errore salvataggio granularità");
+      setTimeout(()=>setError(""), 3500);
+    } finally { setSavingMobSlot(false); setPendingSlot(null); }
+  }
+
+  // ── Ricerca impostazioni (stessa barra del desktop) ──
+  const MOBILE_INDEX: SettingsSearchItem[] = [
+    { id: "studio",        label: "Dati studio",              place: "Impostazioni", keywords: "nome studio contatti telefono email indirizzo intestazione logo firma branding" },
+    { id: "fiscale",       label: "Contabilità e Sistema TS",   place: "Impostazioni", keywords: "partita iva p.iva pec codice fiscale sistema tessera sanitaria ts invio spese sanitarie regime forfettario fatture credenziali" },
+    { id: "sedi",          label: "Sedi di lavoro",           place: "Impostazioni", keywords: "sedi multi sede location ambulatorio indirizzi" },
+    { id: "agenda",        label: "Preferenze agenda (granularità, vista)", place: "Impostazioni", keywords: "granularità slot 15 minuti 30 minuti passo vista predefinita giorno settimana mese apertura calendario" },
+    { id: "calprefs",      label: "Preferenze appuntamenti",  place: "Impostazioni", keywords: "stato predefinito confermato prenotato sovrapposizioni overlap prezzi automatici gruppo partecipanti" },
+    { id: "chiusure",      label: "Giorni di chiusura e ferie", place: "Impostazioni", keywords: "chiusure ferie ponte giorni bloccati vacanze blocco agenda festivi" },
+    { id: "convenzioni",   label: "Convenzioni (fondi e assicurazioni)", place: "Impostazioni", keywords: "convenzioni fondi assicurazioni casse mutue previmedical unisalute metasalute enti listini autorizzazione" },
+    { id: "team",          label: "Team e collaboratori",     place: "Impostazioni", keywords: "team membri operatori multi operatore invito collaboratori layout settimana colonne" },
+    { id: "stanze",        label: "Stanze e box",             place: "Impostazioni", keywords: "stanze box sale multi stanza room lettini" },
+    { id: "assenze",       label: "Assenze operatori",        place: "Impostazioni", keywords: "assenze ferie permessi malattia operatori indisponibilità" },
+    { id: "ospiti",        label: "Professionisti ospiti",    place: "Impostazioni", keywords: "ospiti professionisti esterni ortopedico nutrizionista token agenda ospite" },
+    { id: "notifiche",     label: "Notifiche pazienti",       place: "Impostazioni", keywords: "notifiche conferme annullamenti whatsapp link promemoria" },
+    { id: "report",        label: "Report automatici",        place: "Impostazioni", keywords: "report automatici email riepilogo pdf mensile" },
+    { id: "template",      label: "Template messaggi",        place: "Impostazioni", keywords: "template messaggi whatsapp promemoria testo variabili firma benvenuto compleanno pagamento" },
+    { id: "integrazioni",  label: "Integrazioni e backup",    place: "Impostazioni", keywords: "integrazioni google calendar ics feed esterno sincronizzazione backup esporta csv" },
+    { id: "booking-legacy",label: "Prenotazioni dal sito",    place: "Impostazioni", keywords: "prenotazioni online booking sito pubblico link" },
+    { id: "servizi",       label: "Servizi prenotabili online", place: "Impostazioni", keywords: "prenotazioni online booking servizi prenotabili prezzo durata" },
+    { id: "catalogo",      label: "Catalogo trattamenti",     place: "Impostazioni", keywords: "trattamenti catalogo prestazioni tecar laser prezzi durata colore" },
+    { id: "orari",         label: "Orari di lavoro",          place: "Impostazioni", keywords: "orari apertura chiusura giorni settimana working hours" },
+    { id: "gestione",      label: "Gestione e obiettivi",     place: "Impostazioni", keywords: "gestione obiettivi soglie incassi inattivo promemoria ore" },
+    { id: "pagamenti",     label: "Pagamenti e obiettivo mensile", place: "Impostazioni", keywords: "pagamenti metodo contanti pos bonifico default obbligatorio obiettivo fatturato" },
+    { id: "privacy",       label: "Modalità privacy",         place: "Impostazioni", keywords: "privacy nascondi nomi pazienti iniziali screenshot" },
+    { id: "password",      label: "Cambio password",          place: "Impostazioni", keywords: "password credenziali accesso sicurezza" },
+  ];
+  const jumpToSection = (id: string) => {
+    // Card condivise (parità desktop): si aprono col loro stato dedicato.
+    const openMapM: Record<string, (v: boolean) => void> = {
+      fiscale: setShowFiscM, pagamenti: setShowPayM, gestione: setShowGestM,
+      calprefs: setShowCalPrefsM, chiusure: setShowBlockM, servizi: setShowSvcM,
+      team: setShowTeamM, stanze: setShowRoomsM, assenze: setShowAbsM,
+      template: setShowTemplM, integrazioni: setShowIntegrM,
+    };
+    if (openMapM[id]) openMapM[id](true);
+    else if (id !== "agenda") setActiveSection(id);
+    setTimeout(() => {
+      document.getElementById("msec-" + id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 120);
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // PARITÀ DESKTOP (portata 1:1 dal SettingsDesktopClient) — stati
+  // ═══════════════════════════════════════════════════════════════════════
+  const [showAgendaPrefsM, setShowAgendaPrefsM] = useState(false);
+  const [showCalPrefsM, setShowCalPrefsM]   = useState(false);
+  const [showBlockM, setShowBlockM]         = useState(false);
+  const [showSvcM, setShowSvcM]             = useState(false);
+  const [showTeamM, setShowTeamM]           = useState(false);
+  const [showRoomsM, setShowRoomsM]         = useState(false);
+  const [showAbsM, setShowAbsM]             = useState(false);
+  const [showTemplM, setShowTemplM]         = useState(false);
+  const [showIntegrM, setShowIntegrM]       = useState(false);
+  const [showFiscM, setShowFiscM]           = useState(false);
+  const [showPayM, setShowPayM]             = useState(false);
+  const [showGestM, setShowGestM]           = useState(false);
+
+  const [loadingPractice, setLoadingPractice] = useState(false);
+  const [savingPractice, setSavingPractice]   = useState(false);
+  const [ownerFullName, setOwnerFullName]     = useState("");
+  const [defaultApptStatus, setDefaultApptStatus] = useState<"confirmed" | "booked">("confirmed");
+  const [autoApplyPrices, setAutoApplyPrices] = useState(true);
+  const [defaultGroupPrice, setDefaultGroupPrice] = useState("15.00");
+  const [defaultGroupMaxParticipants, setDefaultGroupMaxParticipants] = useState("6");
+  const [groupStatsCountAsSeparate, setGroupStatsCountAsSeparate] = useState(false);
+  const [savingGroupStats, setSavingGroupStats] = useState(false);
+  const [reminderHours, setReminderHours]     = useState("24");
+
+  const [tsEnabled, setTsEnabled] = useState(false);
+  const [tsTipoSpesaDefault, setTsTipoSpesaDefault] = useState("SP");
+  const [tsNumberingMode, setTsNumberingMode] = useState("external");
+  const [tsCfProprietario, setTsCfProprietario] = useState("");
+  const [tsRegimeForfettario, setTsRegimeForfettario] = useState(true);
+  const [tsDispositivo, setTsDispositivo] = useState(1);
+  const [tsWsUser, setTsWsUser] = useState("");
+  const [tsWsPassword, setTsWsPassword] = useState("");
+  const [tsWsPincode, setTsWsPincode] = useState("");
+  const [tsWsAmbiente, setTsWsAmbiente] = useState<"test" | "prod">("test");
+  const [tsReminderCadences, setTsReminderCadences] = useState<string[]>(["monthly"]);
+  const [tsRecapCadences, setTsRecapCadences] = useState<string[]>([]);
+  const [tsInvioEmailEnabled, setTsInvioEmailEnabled] = useState(true);
+
+  const [welcomeMsg, setWelcomeMsg]               = useState("");
+  const [bookingConfirmMsg, setBookingConfirmMsg] = useState("");
+  const [reminderMsg, setReminderMsg]             = useState("");
+  const [weeklyReminderMsg, setWeeklyReminderMsg] = useState("");
+  const [paymentMsg, setPaymentMsg]               = useState("");
+  const [birthdayMsg, setBirthdayMsg]             = useState("");
+  const [satisfactionMsg, setSatisfactionMsg]     = useState("");
+
+  const [templates, setTemplates]       = useState<MessageTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [editingId, setEditingId]       = useState<string | null>(null);
+  const [editName, setEditName]         = useState("");
+  const [editTemplate, setEditTemplate] = useState("");
+  const [newName, setNewName]           = useState("");
+  const [newTemplate, setNewTemplate]   = useState("");
+  const [addingNew, setAddingNew]       = useState(false);
+
+  const [services, setServices]               = useState<BookableService[]>([]);
+  const [loadingServices, setLoadingServices] = useState(false);
+  const [savingSvc, setSavingSvc]             = useState(false);
+  const [newSvcName, setNewSvcName]           = useState("");
+  const [newSvcDuration, setNewSvcDuration]   = useState("60");
+  const [newSvcPrice, setNewSvcPrice]         = useState("40");
+
+  const [blockDays, setBlockDays]         = useState<BlockedDay[]>([]);
+  const [savingBlock, setSavingBlock]     = useState(false);
+  const [newBlockDate, setNewBlockDate]   = useState("");
+  const [newBlockLabel, setNewBlockLabel] = useState("");
+
+  const [members, setMembers]                   = useState<StudioMemberRow[]>([]);
+  const [loadingMembers, setLoadingMembers]     = useState(false);
+  const [savingMember, setSavingMember]         = useState(false);
+  const [mobUserId, setMobUserId]               = useState<string | null>(null);
+  const [multiOperatorEnabled, setMultiOperatorEnabled] = useState(false);
+  const [savingMultiOpToggle, setSavingMultiOpToggle]   = useState(false);
+  const [weeklyViewLayout, setWeeklyViewLayout] = useState<"classic" | "timeline" | "pile" | "grid" | "roster">("classic");
+  const [savingWeeklyLayout, setSavingWeeklyLayout] = useState(false);
+  const [defaultCalendarView, setDefaultCalendarView] = useState<"day" | "week" | "month">("week");
+  const [savingDefaultCalendarView, setSavingDefaultCalendarView] = useState(false);
+
+  const [rooms, setRooms]                 = useState<StudioRoomRow[]>([]);
+  const [loadingRooms, setLoadingRooms]   = useState(false);
+  const [savingRoom, setSavingRoom]       = useState(false);
+  const [multiRoomEnabled, setMultiRoomEnabled] = useState(false);
+  const [savingMultiRoomToggle, setSavingMultiRoomToggle] = useState(false);
+  const [allTreatments, setAllTreatments] = useState<Array<{
+    id: string; key: string; label: string; color: string;
+    price_invoice: number; price_cash: number; duration_min: number;
+    is_active: boolean; sort_order: number; is_builtin: boolean;
+    studio_id: string;
+  }>>([]);
+
+  const [calendarToken, setCalendarToken] = useState<string | null>(null);
+  const [calendarTokenLoading, setCalendarTokenLoading] = useState(false);
+  const [calendarTokenRotating, setCalendarTokenRotating] = useState(false);
+  const [exportingBackup, setExportingBackup] = useState(false);
+
+  const dynamicSignature = useMemo(
+    () => [signatureName, signatureTitle].filter(x => x.trim()).join("\n"),
+    [signatureName, signatureTitle]
+  );
+
+  const flashOk = (m: string) => { setSuccess(m); setTimeout(() => setSuccess(""), 2500); };
+
+  // ═══ Funzioni (fedeli al desktop; studio.id → currentStudioId) ═══
+  async function requireUserId(): Promise<string> {
+    const { data, error } = await supabase.auth.getUser();
+    if (error) throw new Error(error.message);
+    const uid = data?.user?.id;
+    if (!uid) throw new Error("Utente non autenticato.");
+    return uid;
+  }
+
+  const loadPracticeFull = useCallback(async () => {
+    setLoadingPractice(true);
+    try {
+      const uid = await requireUserId();
+      setMobUserId(uid);
+      const { data, error } = await supabase
+        .from("practice_settings")
+        .select("*")
+        .eq("owner_id", uid)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) return;
+      const d = data as PracticeSettingsRow;
+      setOwnerName(d.owner_full_name ?? "");
+      setOwnerFullName(d.owner_full_name ?? "");
+      setVatNumber(d.vat_number ?? "");
+      setPecEmail(d.pec_email ?? "");
+      setTsEnabled(Boolean(d.ts_enabled));
+      setTsTipoSpesaDefault(d.ts_tipo_spesa_default ?? "SP");
+      setTsNumberingMode(d.ts_numbering_mode ?? "external");
+      setTsCfProprietario((d.ts_cf_proprietario ?? "").toUpperCase());
+      setTsRegimeForfettario(d.ts_regime_forfettario !== false);
+      setTsDispositivo(Number(d.ts_dispositivo ?? 1) || 1);
+      setTsWsUser((d.ts_ws_user ?? "").trim());
+      setTsWsPassword(d.ts_ws_password ?? "");
+      setTsWsPincode((d.ts_ws_pincode ?? "").trim());
+      setTsWsAmbiente(d.ts_ws_ambiente === "prod" ? "prod" : "test");
+      {
+        const raw = (d.ts_reminder_cadence ?? "monthly").trim();
+        const valid = ["monthly", "quarterly", "semiannual", "annual"];
+        setTsReminderCadences(raw === "off" || raw === "" ? [] : raw.split(",").map(x => x.trim()).filter(x => valid.includes(x)));
+      }
+      setTsInvioEmailEnabled(d.ts_invio_email_enabled !== false);
+      {
+        const raw = (d.ts_recap_cadence ?? "").trim();
+        const valid = ["monthly", "annual"];
+        setTsRecapCadences(raw === "off" || raw === "" ? [] : raw.split(",").map(x => x.trim()).filter(x => valid.includes(x)));
+      }
+      setAutoApplyPrices(d.auto_apply_prices ?? true);
+      setDefaultGroupPrice(toMoneyString(d.default_group_price, "15.00"));
+      setDefaultGroupMaxParticipants(String(d.default_group_max_participants ?? 6));
+      setWelcomeMsg(d.welcome_message ?? "");
+      setBookingConfirmMsg(d.booking_confirm_message ?? "");
+      setReminderMsg(d.reminder_message ?? "");
+      setWeeklyReminderMsg(d.weekly_reminder_message ?? "");
+      setPaymentMsg(d.payment_message ?? "");
+      setBirthdayMsg(d.birthday_message ?? "");
+      setSatisfactionMsg(d.satisfaction_message ?? "");
+      setDefaultApptStatus((d.default_appointment_status ?? "confirmed") as "confirmed" | "booked");
+      setOverlapMode((d.overlap_mode ?? "warn") as "block" | "warn" | "visual");
+      setPaymentMethodRequired(d.payment_method_required ?? true);
+      setDefaultPaymentMethod((d.default_payment_method ?? "pos") as "cash" | "pos" | "bank_transfer");
+      setMonthlyGoal(String(d.monthly_revenue_goal ?? 2000));
+      setInactiveThresh(String(d.inactive_threshold_days ?? 45));
+      setReminderHours(String(d.reminder_hours_before ?? 24));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Errore caricamento impostazioni");
+    } finally {
+      setLoadingPractice(false);
+    }
+  }, []);
+
+  async function savePracticeFull() {
+    setSavingPractice(true);
+    try {
+      const uid = await requireUserId();
+      const payload: Record<string, unknown> = {
+        owner_id: uid,
+        studio_id: currentStudioId,
+        practice_name: practiceName.trim() || "Studio",
+        owner_full_name: ownerFullName.trim() || ownerName.trim(),
+        vat_number: vatNumber.trim() || "",
+        pec_email: pecEmail.trim() || "",
+        ts_enabled: tsEnabled,
+        ts_tipo_spesa_default: tsTipoSpesaDefault,
+        ts_numbering_mode: tsNumberingMode,
+        ts_cf_proprietario: tsCfProprietario.trim().toUpperCase(),
+        ts_regime_forfettario: tsRegimeForfettario,
+        ts_dispositivo: tsDispositivo,
+        ts_ws_user: tsWsUser.trim(),
+        ts_ws_password: tsWsPassword,
+        ts_ws_pincode: tsWsPincode.trim(),
+        ts_ws_ambiente: tsWsAmbiente,
+        ts_reminder_cadence: tsReminderCadences.length ? tsReminderCadences.join(",") : "off",
+        ts_invio_email_enabled: tsInvioEmailEnabled,
+        ts_recap_cadence: tsRecapCadences.length ? tsRecapCadences.join(",") : "",
+        auto_apply_prices: autoApplyPrices,
+        default_group_price: parseFloat(defaultGroupPrice) || 15,
+        default_group_max_participants: parseInt(defaultGroupMaxParticipants) || 6,
+        welcome_message: welcomeMsg.trim() || null,
+        booking_confirm_message: bookingConfirmMsg.trim() || null,
+        reminder_message: reminderMsg.trim() || null,
+        weekly_reminder_message: weeklyReminderMsg.trim() || null,
+        payment_message: paymentMsg.trim() || null,
+        birthday_message: birthdayMsg.trim() || null,
+        satisfaction_message: satisfactionMsg.trim() || null,
+        default_appointment_status: defaultApptStatus,
+        overlap_mode: overlapMode,
+        payment_method_required: paymentMethodRequired,
+        default_payment_method: defaultPaymentMethod,
+        monthly_revenue_goal: parseFloat(monthlyGoal) || 2000,
+        inactive_threshold_days: parseInt(inactiveThresh) || 45,
+        reminder_hours_before: parseInt(reminderHours) || 24,
+      };
+      const { error } = await supabase.from("practice_settings").upsert(payload, { onConflict: "owner_id" });
+      if (error) throw new Error(error.message);
+      flashOk("Impostazioni salvate.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Errore salvataggio");
+      setTimeout(() => setError(""), 3500);
+    } finally {
+      setSavingPractice(false);
+    }
+  }
+
+  const saveGroupStats = useCallback(async () => {
+    if (!currentStudioId) return;
+    setSavingGroupStats(true);
+    try {
+      const { error } = await supabase
+        .from("studios")
+        .update({ group_stats_count_as_separate: groupStatsCountAsSeparate })
+        .eq("id", currentStudioId);
+      if (error) { setError("Errore: " + error.message); return; }
+      await refreshStudio();
+      flashOk("Preferenza statistiche di gruppo salvata.");
+    } finally {
+      setSavingGroupStats(false);
+    }
+  }, [currentStudioId, groupStatsCountAsSeparate, refreshStudio]);
+
+  // ── Templates messaggi ──
+  async function loadTemplates() {
+    setLoadingTemplates(true);
+    try {
+      const { data, error } = await supabase
+        .from("message_templates").select("*")
+        .order("is_default", { ascending: false })
+        .order("created_at", { ascending: false });
+      if (error) throw new Error(error.message);
+      setTemplates((data as MessageTemplate[]) || []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Errore caricamento template");
+      setTemplates([]);
+    } finally {
+      setLoadingTemplates(false);
+    }
+  }
+  async function saveTemplate(id: string) {
+    if (!editName.trim() || !editTemplate.trim()) { setError("Nome e template sono obbligatori"); return; }
+    try {
+      const { error } = await supabase.from("message_templates")
+        .update({ name: editName.trim(), template: editTemplate.trim(), updated_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) throw new Error(error.message);
+      flashOk("Template salvato."); setEditingId(null); await loadTemplates();
+    } catch (e) { setError(e instanceof Error ? e.message : "Errore salvataggio template"); }
+  }
+  async function deleteTemplate(id: string) {
+    if (templates.length <= 1) { setError("Non puoi eliminare l'unico template disponibile"); return; }
+    const t = templates.find(x => x.id === id);
+    if (!t) return;
+    if (!confirm("Eliminare questo template? L'operazione non può essere annullata.")) return;
+    try {
+      if (t.is_default) {
+        const other = templates.find(x => x.id !== id);
+        if (other) {
+          const { error: e1 } = await supabase.from("message_templates").update({ is_default: true }).eq("id", other.id);
+          if (e1) throw new Error(e1.message);
+        }
+      }
+      const { error } = await supabase.from("message_templates").delete().eq("id", id);
+      if (error) throw new Error(error.message);
+      flashOk("Template eliminato."); await loadTemplates();
+    } catch (e) { setError(e instanceof Error ? e.message : "Errore eliminazione"); }
+  }
+  async function setAsDefault(id: string) {
+    try {
+      const { error: e1 } = await supabase.from("message_templates").update({ is_default: false }).neq("id", id);
+      if (e1) throw new Error(e1.message);
+      const { error: e2 } = await supabase.from("message_templates").update({ is_default: true }).eq("id", id);
+      if (e2) throw new Error(e2.message);
+      flashOk("Template impostato come predefinito."); await loadTemplates();
+    } catch (e) { setError(e instanceof Error ? e.message : "Errore"); }
+  }
+  async function createNewTemplate() {
+    if (!newName.trim() || !newTemplate.trim()) { setError("Nome e template sono obbligatori"); return; }
+    if (!currentStudioId) { setError("Studio non identificato. Ricarica la pagina."); return; }
+    try {
+      const { error } = await supabase.from("message_templates").insert({
+        name: newName.trim(), template: newTemplate.trim(),
+        is_default: templates.length === 0, studio_id: currentStudioId,
+      });
+      if (error) throw new Error(error.message);
+      flashOk("Nuovo template creato."); setNewName(""); setNewTemplate(""); setAddingNew(false);
+      await loadTemplates();
+    } catch (e) { setError(e instanceof Error ? e.message : "Errore creazione"); }
+  }
+  async function saveAutoMessages() { await savePracticeFull(); }
+
+  // ── Servizi prenotabili ──
+  async function loadServices() {
+    setLoadingServices(true);
+    try {
+      const { data } = await supabase.from("booking_services").select("*").order("name");
+      setServices((data as BookableService[]) || []);
+    } finally { setLoadingServices(false); }
+  }
+  async function addService() {
+    if (!newSvcName.trim()) return;
+    if (!currentStudioId) { setError("Studio non identificato. Ricarica la pagina."); return; }
+    setSavingSvc(true);
+    try {
+      const { error } = await supabase.from("booking_services").insert({
+        name: newSvcName.trim(), duration: parseInt(newSvcDuration) || 60,
+        price: parseFloat(newSvcPrice) || 40, studio_id: currentStudioId,
+      });
+      if (error) throw new Error(error.message);
+      setNewSvcName(""); setNewSvcDuration("60"); setNewSvcPrice("40");
+      await loadServices();
+    } catch (e) { setError(e instanceof Error ? e.message : "Errore"); }
+    finally { setSavingSvc(false); }
+  }
+  async function deleteService(id: string) {
+    if (!confirm("Eliminare questo servizio?")) return;
+    await supabase.from("booking_services").delete().eq("id", id);
+    await loadServices();
+  }
+
+  // ── Giorni di blocco ──
+  async function loadBlockDays() {
+    const { data } = await supabase.from("blocked_days").select("*").order("date");
+    setBlockDays((data as BlockedDay[]) || []);
+  }
+  async function addBlockDay() {
+    if (!newBlockDate) return;
+    if (!currentStudioId) { setError("Studio non identificato. Ricarica la pagina."); return; }
+    setSavingBlock(true);
+    try {
+      const { error } = await supabase.from("blocked_days").insert({
+        date: newBlockDate, label: newBlockLabel.trim() || "Chiuso", studio_id: currentStudioId,
+      });
+      if (error) throw new Error(error.message);
+      setNewBlockDate(""); setNewBlockLabel("");
+      await loadBlockDays();
+    } catch (e) { setError(e instanceof Error ? e.message : "Errore"); }
+    finally { setSavingBlock(false); }
+  }
+  async function deleteBlockDay(id: string) {
+    await supabase.from("blocked_days").delete().eq("id", id);
+    await loadBlockDays();
+  }
+
+  // ── Team ──
+  const loadMembers = useCallback(async () => {
+    if (!currentStudioId) return;
+    setLoadingMembers(true);
+    try {
+      const { data, error } = await supabase
+        .from("studio_members")
+        .select("id, studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invite_token, invited_at")
+        .eq("studio_id", currentStudioId)
+        .eq("is_active", true)
+        .order("role", { ascending: true })
+        .order("sort_order", { ascending: true });
+      if (error) { setMembers([]); return; }
+      setMembers((data || []) as StudioMemberRow[]);
+    } finally { setLoadingMembers(false); }
+  }, [currentStudioId]);
+
+  const saveMultiOperatorToggle = useCallback(async () => {
+    if (!currentStudioId) { setError("Studio non disponibile"); return; }
+    setSavingMultiOpToggle(true);
+    try {
+      const { error } = await supabase.from("studios")
+        .update({ multi_operator_enabled: multiOperatorEnabled }).eq("id", currentStudioId);
+      if (error) { setError("Errore salvataggio multi-operatore: " + error.message); return; }
+      await refreshStudio();
+      flashOk(multiOperatorEnabled ? "Multi-operatore attivato." : "Multi-operatore disattivato.");
+    } finally { setSavingMultiOpToggle(false); }
+  }, [currentStudioId, multiOperatorEnabled, refreshStudio]);
+
+  const saveWeeklyLayout = useCallback(async () => {
+    if (!currentStudioId) { setError("Studio non disponibile"); return; }
+    setSavingWeeklyLayout(true);
+    try {
+      const { error } = await supabase.from("studios")
+        .update({ weekly_view_layout: weeklyViewLayout }).eq("id", currentStudioId);
+      if (error) { setError("Errore salvataggio layout: " + error.message); return; }
+      await refreshStudio();
+      flashOk("Layout settimana aggiornato.");
+    } finally { setSavingWeeklyLayout(false); }
+  }, [currentStudioId, weeklyViewLayout, refreshStudio]);
+
+  const saveDefaultCalendarViewM = useCallback(async () => {
+    if (!currentStudioId) { setError("Studio non disponibile"); return; }
+    setSavingDefaultCalendarView(true);
+    try {
+      const { error } = await supabase.from("studios")
+        .update({ default_calendar_view: defaultCalendarView }).eq("id", currentStudioId);
+      if (error) { setError("Errore salvataggio vista predefinita: " + error.message); return; }
+      await refreshStudio();
+      const labelMap = { day: "Giorno", week: "Settimana", month: "Mese" } as const;
+      flashOk(`Vista predefinita aggiornata: ${labelMap[defaultCalendarView]}.`);
+    } finally { setSavingDefaultCalendarView(false); }
+  }, [currentStudioId, defaultCalendarView, refreshStudio]);
+
+  const createInvite = useCallback(async (payload: {
+    display_name: string; email: string; role: StudioMemberRow["role"];
+    display_color: string; signature_short: string;
+  }): Promise<{ inviteToken: string } | null> => {
+    if (!currentStudioId) { setError("Studio non disponibile"); return null; }
+    setSavingMember(true);
+    try {
+      const existing = members.find(m => m.email && m.email.toLowerCase() === payload.email.toLowerCase());
+      if (existing) {
+        setError(`Email ${payload.email} già usata${existing.user_id == null ? " da un invito pendente" : " da un membro"}.`);
+        return null;
+      }
+      const inviteToken = (typeof crypto !== "undefined" && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+            const r = Math.random() * 16 | 0;
+            const v = c === "x" ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+          });
+      const maxSort = members.reduce((m, x) => Math.max(m, x.sort_order ?? 0), 0);
+      const { error } = await supabase.from("studio_members").insert({
+        studio_id: currentStudioId, user_id: null, role: payload.role,
+        display_name: payload.display_name, display_color: payload.display_color,
+        signature_short: payload.signature_short, is_active: true,
+        sort_order: maxSort + 1, email: payload.email,
+        invite_token: inviteToken, invited_at: new Date().toISOString(),
+      });
+      if (error) { setError("Errore creazione invito: " + error.message); return null; }
+      await loadMembers();
+      flashOk(`Invito creato per ${payload.email}. Copia il link e condividilo.`);
+      return { inviteToken };
+    } finally { setSavingMember(false); }
+  }, [currentStudioId, members, loadMembers]);
+
+  const updateMember = useCallback(async (
+    userIdOrToken: string, isToken: boolean,
+    payload: Partial<{ display_name: string; role: StudioMemberRow["role"]; display_color: string; signature_short: string }>
+  ) => {
+    if (!currentStudioId) return;
+    setSavingMember(true);
+    try {
+      const upd: Record<string, unknown> = {};
+      if (payload.display_name !== undefined) upd.display_name = payload.display_name;
+      if (payload.role !== undefined) upd.role = payload.role;
+      if (payload.display_color !== undefined) upd.display_color = payload.display_color;
+      if (payload.signature_short !== undefined) upd.signature_short = payload.signature_short;
+      const query = supabase.from("studio_members").update(upd).eq("studio_id", currentStudioId);
+      const { error } = await (isToken ? query.eq("invite_token", userIdOrToken) : query.eq("user_id", userIdOrToken));
+      if (error) { setError("Errore aggiornamento membro: " + error.message); return; }
+      await loadMembers();
+      flashOk("Membro aggiornato.");
+    } finally { setSavingMember(false); }
+  }, [currentStudioId, loadMembers]);
+
+  const deleteMember = useCallback(async (userIdOrToken: string, isToken: boolean) => {
+    if (!currentStudioId) return;
+    setSavingMember(true);
+    try {
+      if (isToken) {
+        const { error } = await supabase.from("studio_members").delete()
+          .eq("studio_id", currentStudioId).eq("invite_token", userIdOrToken);
+        if (error) { setError("Errore annullamento invito: " + error.message); return; }
+        flashOk("Invito annullato.");
+      } else {
+        const { error } = await supabase.from("studio_members").update({ is_active: false })
+          .eq("studio_id", currentStudioId).eq("user_id", userIdOrToken);
+        if (error) { setError("Errore rimozione membro: " + error.message); return; }
+        flashOk("Membro rimosso dal team.");
+      }
+      await loadMembers();
+    } finally { setSavingMember(false); }
+  }, [currentStudioId, loadMembers]);
+
+  // ── Stanze ──
+  const loadRooms = useCallback(async () => {
+    if (!currentStudioId) return;
+    setLoadingRooms(true);
+    try {
+      const { data, error } = await supabase
+        .from("studio_rooms")
+        .select("id, studio_id, location_id, name, color, is_active, sort_order, treatment_types, created_at, updated_at")
+        .eq("studio_id", currentStudioId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true });
+      if (error) { setRooms([]); return; }
+      setRooms((data || []) as StudioRoomRow[]);
+    } finally { setLoadingRooms(false); }
+  }, [currentStudioId]);
+
+  const loadAllTreatments = useCallback(async () => {
+    if (!currentStudioId) return;
+    try {
+      const { data, error } = await supabase
+        .from("treatment_types")
+        .select("id, studio_id, key, label, color, price_invoice, price_cash, duration_min, is_active, sort_order, is_builtin")
+        .eq("studio_id", currentStudioId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true });
+      if (error) { setAllTreatments([]); return; }
+      setAllTreatments((data || []) as typeof allTreatments);
+    } catch { setAllTreatments([]); }
+  }, [currentStudioId]);
+
+  const saveMultiRoomToggle = useCallback(async () => {
+    if (!currentStudioId) { setError("Studio non disponibile"); return; }
+    setSavingMultiRoomToggle(true);
+    try {
+      const { error } = await supabase.from("studios")
+        .update({ multi_room_enabled: multiRoomEnabled }).eq("id", currentStudioId);
+      if (error) { setError("Errore salvataggio multi-stanza: " + error.message); return; }
+      await refreshStudio();
+      flashOk(multiRoomEnabled ? "Multi-stanza attivato." : "Multi-stanza disattivato.");
+    } finally { setSavingMultiRoomToggle(false); }
+  }, [currentStudioId, multiRoomEnabled, refreshStudio]);
+
+  const createRoom = useCallback(async (payload: {
+    name: string; color: string | null; location_id: string | null; treatment_types: string[] | null;
+  }) => {
+    if (!currentStudioId) return;
+    setSavingRoom(true);
+    try {
+      const maxSort = rooms.reduce((m, r) => Math.max(m, r.sort_order ?? 0), 0);
+      const { error } = await supabase.from("studio_rooms").insert({
+        studio_id: currentStudioId, location_id: payload.location_id, name: payload.name,
+        color: payload.color, is_active: true, sort_order: maxSort + 1,
+        treatment_types: payload.treatment_types,
+      });
+      if (error) { setError("Errore creazione stanza: " + error.message); return; }
+      await loadRooms();
+      flashOk("Stanza aggiunta.");
+    } finally { setSavingRoom(false); }
+  }, [currentStudioId, rooms, loadRooms]);
+
+  const updateRoom = useCallback(async (id: string, payload: Partial<{
+    name: string; color: string | null; location_id: string | null; treatment_types: string[] | null;
+  }>) => {
+    if (!currentStudioId) return;
+    setSavingRoom(true);
+    try {
+      const upd: Record<string, unknown> = {};
+      if (payload.name !== undefined) upd.name = payload.name;
+      if (payload.color !== undefined) upd.color = payload.color;
+      if (payload.location_id !== undefined) upd.location_id = payload.location_id;
+      if (payload.treatment_types !== undefined) upd.treatment_types = payload.treatment_types;
+      const { error } = await supabase.from("studio_rooms").update(upd).eq("id", id);
+      if (error) { setError("Errore aggiornamento stanza: " + error.message); return; }
+      await loadRooms();
+      flashOk("Stanza aggiornata.");
+    } finally { setSavingRoom(false); }
+  }, [currentStudioId, loadRooms]);
+
+  const deleteRoom = useCallback(async (id: string) => {
+    if (!currentStudioId) return;
+    setSavingRoom(true);
+    try {
+      const { error } = await supabase.from("studio_rooms").update({ is_active: false }).eq("id", id);
+      if (error) { setError("Errore eliminazione stanza: " + error.message); return; }
+      await loadRooms();
+      flashOk("Stanza eliminata.");
+    } finally { setSavingRoom(false); }
+  }, [currentStudioId, loadRooms]);
+
+  // ── Token calendario ICS + backup ──
+  const rotateCalendarToken = async () => {
+    if (!confirm("Sei sicuro di voler rigenerare il token?\n\nIl vecchio URL non funzionerà più. Dovrai aggiornare l'URL anche in Google Calendar.")) return;
+    setCalendarTokenRotating(true);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const accessToken = sess.session?.access_token;
+      if (!accessToken) { setError("Sessione scaduta. Ricarica la pagina."); return; }
+      const r = await fetch("/api/calendar-token", { method: "POST", headers: { Authorization: `Bearer ${accessToken}` } });
+      const j = await r.json();
+      if (r.ok && j.token) { setCalendarToken(j.token); flashOk("Nuovo token generato."); }
+      else setError(j.error || "Errore generazione nuovo token");
+    } catch { setError("Errore di rete. Riprova."); }
+    finally { setCalendarTokenRotating(false); }
+  };
+  const copyCalendarLink = (url: string) => {
+    navigator.clipboard.writeText(url).then(() => flashOk("Link copiato!"));
+  };
+  async function exportBackup() {
+    setExportingBackup(true);
+    try {
+      const [{ data: pts }, { data: appts }, { data: nols }] = await Promise.all([
+        supabase.from("patients").select("*").order("last_name"),
+        supabase.from("appointments").select("*,patients:patient_id(first_name,last_name)").order("start_at", { ascending: false }),
+        supabase.from("noleggios").select("*").order("created_at", { ascending: false }),
+      ]);
+      const esc = (v: unknown): string => {
+        const x = String(v ?? "");
+        if (x.indexOf(";") >= 0 || x.indexOf("\"") >= 0 || x.indexOf("\n") >= 0 || x.indexOf("\r") >= 0) return `"${x.replace(/"/g, "\"\"")}"`;
+        return x;
+      };
+      const bom = "\uFEFF";
+      type Row = Record<string, unknown> & { patients?: { first_name?: string; last_name?: string } | Array<{ first_name?: string; last_name?: string }> };
+      const ptRows = ((pts || []) as Row[]).map(pz =>
+        [pz.id, pz.last_name, pz.first_name, pz.phone, pz.birth_date, pz.tax_code, pz.res_city, pz.preferred_plan, String(pz.created_at ?? "").slice(0, 10)].map(esc).join(";"));
+      const ptCsv = bom + [["ID","Cognome","Nome","Telefono","Data nascita","Codice fiscale","Indirizzo","Piano fatturazione","Creato il"].map(esc).join(";"), ...ptRows].join("\r\n");
+      const apRows = ((appts || []) as Row[]).map(a => {
+        const pz = Array.isArray(a.patients) ? a.patients[0] : a.patients;
+        return [String(a.start_at ?? "").slice(0, 10), String(a.start_at ?? "").slice(11, 16), pz?.last_name, pz?.first_name, a.status, a.treatment_type, a.amount, a.is_paid ? "Si" : "No", a.clinic_site || a.location, a.price_type].map(esc).join(";");
+      });
+      const apCsv = bom + [["Data","Ora","Cognome","Nome","Stato","Tipo","Importo","Pagato","Sede","Fatturazione"].map(esc).join(";"), ...apRows].join("\r\n");
+      const nlRows = ((nols || []) as Row[]).map(n =>
+        [n.patient_name, n.device_name, n.start_date, n.end_date, n.price_per_day, n.total_amount, n.is_paid ? "Si" : "No", n.is_returned ? "Si" : "No"].map(esc).join(";"));
+      const nlCsv = bom + [["Paziente","Dispositivo","Data inizio","Data fine","Prezzo/gg","Totale","Pagato","Reso"].map(esc).join(";"), ...nlRows].join("\r\n");
+      const stamp = new Date().toISOString().slice(0, 10);
+      for (const [name, csv] of [["pazienti", ptCsv], ["appuntamenti", apCsv], ["noleggi", nlCsv]] as const) {
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const aEl = document.createElement("a");
+        aEl.href = url; aEl.download = `fisiohub-${name}-${stamp}.csv`;
+        document.body.appendChild(aEl); aEl.click(); aEl.remove();
+        URL.revokeObjectURL(url);
+      }
+      flashOk("Backup esportato (3 file CSV).");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Errore export backup");
+    } finally { setExportingBackup(false); }
+  }
+
+  // ── Bootstrap parità: load unificata ──
+  useEffect(() => {
+    void loadPracticeFull();
+    void loadTemplates();
+    void loadServices();
+    void loadBlockDays();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (!currentStudioId) return;
+    void loadMembers();
+    void loadRooms();
+    void loadAllTreatments();
+  }, [currentStudioId, loadMembers, loadRooms, loadAllTreatments]);
+  useEffect(() => {
+    if (currentStudio) {
+      setMultiOperatorEnabled(Boolean((currentStudio as { multi_operator_enabled?: boolean }).multi_operator_enabled));
+      setMultiRoomEnabled(Boolean((currentStudio as { multi_room_enabled?: boolean }).multi_room_enabled));
+      setGroupStatsCountAsSeparate(Boolean((currentStudio as { group_stats_count_as_separate?: boolean }).group_stats_count_as_separate));
+      const layout = (currentStudio as { weekly_view_layout?: string }).weekly_view_layout;
+      setWeeklyViewLayout(layout === "classic" || layout === "timeline" || layout === "pile" || layout === "grid" || layout === "roster" ? layout : "classic");
+      const dv = (currentStudio as { default_calendar_view?: string }).default_calendar_view;
+      setDefaultCalendarView(dv === "day" || dv === "week" || dv === "month" ? dv : "week");
+    }
+  }, [currentStudio]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setCalendarTokenLoading(true);
+      try {
+        const { data: sess } = await supabase.auth.getSession();
+        const accessToken = sess.session?.access_token;
+        if (!accessToken) { if (!cancelled) setCalendarToken(null); return; }
+        const r = await fetch("/api/calendar-token", { method: "GET", headers: { Authorization: `Bearer ${accessToken}` } });
+        const j = await r.json();
+        if (!cancelled) setCalendarToken(r.ok ? (j.token ?? null) : null);
+      } catch { if (!cancelled) setCalendarToken(null); }
+      finally { if (!cancelled) setCalendarTokenLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const inp: React.CSSProperties = { width:"100%", padding:"11px 14px", borderRadius:10, border:`1.5px solid ${THEME.border}`, fontSize:15, fontWeight:500, background:"#fff", color:THEME.text, outline:"none", boxSizing:"border-box" };
   const lbl: React.CSSProperties = { display:"block", fontSize:11, fontWeight:700, color:THEME.muted, marginBottom:5, textTransform:"uppercase", letterSpacing:0.4 };
 
   const Section = ({id,title,sub,children}:{id:string,title:string,sub:string,children:React.ReactNode}) => (
-    <div style={{ background:THEME.panelBg, borderRadius:14, border:`1px solid ${THEME.border}`, overflow:"hidden", marginBottom:12 }}>
+    <div id={"msec-"+id} style={{ background:THEME.panelBg, borderRadius:14, border:`1px solid ${THEME.border}`, overflow:"hidden", marginBottom:12 }}>
       <div onClick={()=>setActiveSection(activeSection===id?null:id)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 18px", cursor:"pointer" }}>
         <div><div style={{ fontWeight:700, fontSize:15, color:THEME.text }}>{title}</div><div style={{ fontSize:12, color:THEME.muted, marginTop:2 }}>{sub}</div></div>
         <span style={{ color:THEME.muted, fontSize:14, transform:activeSection===id?"rotate(180deg)":"none", transition:"transform 0.2s" }}>▾</span>
@@ -807,6 +1569,7 @@ export default function SettingsMobileClient() {
       </header>
 
       <div style={{ padding:"16px" }}>
+        <SettingsSearch items={MOBILE_INDEX} onJump={jumpToSection} placeholder="Cerca nelle impostazioni…" />
         {error && <div style={{ marginBottom:12, padding:"10px 14px", borderRadius:10, background:"rgba(220,38,38,0.06)", border:"1px solid rgba(220,38,38,0.2)", color:THEME.red, fontWeight:600, fontSize:13 }}>{error}</div>}
         {success && <div style={{ marginBottom:12, padding:"10px 14px", borderRadius:10, background:"rgba(22,163,74,0.06)", border:"1px solid rgba(22,163,74,0.2)", color:THEME.green, fontWeight:600, fontSize:13 }}>{success}</div>}
 
@@ -886,15 +1649,30 @@ export default function SettingsMobileClient() {
           </div>
         </Section>
 
-        <Section id="fiscale" title="Dati fiscali" sub="Partita IVA, PEC (per fatturazione)">
-          <div style={{ display:"flex", flexDirection:"column", gap:12, paddingTop:14 }}>
-            <div style={{ padding:"10px 12px", borderRadius:8, background:"rgba(148,163,184,0.06)", fontSize:11, color:THEME.muted, lineHeight:1.5 }}>
-              ℹ️ Questi dati sono <strong>interni</strong> e usati per la fatturazione elettronica. Non vengono mostrati ai pazienti.
-            </div>
-            <div><label style={lbl}>Partita IVA</label><input value={vatNumber} onChange={e=>setVatNumber(e.target.value)} placeholder="Es. 12345678901" style={inp}/></div>
-            <div><label style={lbl}>PEC</label><input type="email" value={pecEmail} onChange={e=>setPecEmail(e.target.value)} placeholder="Es. mariorossi@pec.it" style={inp}/></div>
-          </div>
-        </Section>
+        <div id="msec-fiscale">
+          <PracticeSection
+            show={showFiscM} onToggle={() => setShowFiscM(!showFiscM)}
+            loadingPractice={loadingPractice} savingPractice={savingPractice}
+            ownerFullName={ownerFullName} setOwnerFullName={setOwnerFullName}
+            vatNumber={vatNumber} setVatNumber={setVatNumber}
+            pecEmail={pecEmail} setPecEmail={setPecEmail}
+            tsEnabled={tsEnabled} setTsEnabled={setTsEnabled}
+            tsTipoSpesaDefault={tsTipoSpesaDefault} setTsTipoSpesaDefault={setTsTipoSpesaDefault}
+            tsNumberingMode={tsNumberingMode} setTsNumberingMode={setTsNumberingMode}
+            tsCfProprietario={tsCfProprietario} setTsCfProprietario={setTsCfProprietario}
+            tsRegimeForfettario={tsRegimeForfettario} setTsRegimeForfettario={setTsRegimeForfettario}
+            tsDispositivo={tsDispositivo} setTsDispositivo={setTsDispositivo}
+            tsWsUser={tsWsUser} setTsWsUser={setTsWsUser}
+            tsWsPassword={tsWsPassword} setTsWsPassword={setTsWsPassword}
+            tsWsPincode={tsWsPincode} setTsWsPincode={setTsWsPincode}
+            tsWsAmbiente={tsWsAmbiente} setTsWsAmbiente={setTsWsAmbiente}
+            tsReminderCadences={tsReminderCadences} setTsReminderCadences={setTsReminderCadences}
+            tsInvioEmailEnabled={tsInvioEmailEnabled} setTsInvioEmailEnabled={setTsInvioEmailEnabled}
+            tsRecapCadences={tsRecapCadences} setTsRecapCadences={setTsRecapCadences}
+            onReload={() => void loadPracticeFull()}
+            onSave={() => void savePracticeFull()}
+          />
+        </div>
 
         <Section id="sedi" title="📍 Sedi di lavoro" sub={multiLocationEnabled ? `${studioLocations.length} ${studioLocations.length===1?"sede attiva":"sedi attive"}` : "Studio singolo · attiva per gestire più sedi"}>
           <div style={{ display:"flex", flexDirection:"column", gap:14, paddingTop:14 }}>
@@ -1067,6 +1845,46 @@ export default function SettingsMobileClient() {
               )}
             </div>
 
+          </div>
+        </Section>
+
+        {/* ── Convenzioni (mig. 065) ───────────────────────────────── */}
+        <Section
+          id="convenzioni"
+          title="🏥 Convenzioni"
+          sub={convEnabled ? "Modulo attivo · menu in alto a destra" : "Spento · attiva se lavori con fondi o assicurazioni"}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 14 }}>
+            <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(148,163,184,0.06)", fontSize: 11, color: THEME.muted, lineHeight: 1.5 }}>
+              Fondi sanitari, casse e assicurazioni: anagrafica enti con registro precaricato, listini
+              (anche da foto o PDF del nomenclatore) e sedute da fatturare a fine mese.
+              Da spento non compare nessun campo in più da nessuna parte.
+            </div>
+
+            <MobileToggle
+              label="Attiva convenzioni"
+              description={convEnabled ? "Modulo attivo" : "Modulo spento"}
+              checked={convEnabled}
+              onChange={setConvEnabled}
+            />
+            <button
+              onClick={() => void saveConvToggle()}
+              disabled={savingConv}
+              style={{
+                padding: "10px 16px", borderRadius: 10, border: "none",
+                background: savingConv ? THEME.gray : THEME.gradient,
+                color: "#fff", fontWeight: 700, fontSize: 13,
+                cursor: savingConv ? "default" : "pointer", fontFamily: "inherit",
+              }}
+            >{savingConv ? "Salvo…" : "Salva"}</button>
+
+            {convEnabled && (
+              <a href="/convenzioni" style={{
+                padding: "10px 16px", borderRadius: 10, textAlign: "center",
+                border: `1.5px solid ${THEME.border}`, background: "#fff",
+                color: THEME.text, fontWeight: 700, fontSize: 13, textDecoration: "none",
+              }}>Apri Convenzioni →</a>
+            )}
           </div>
         </Section>
 
@@ -1340,6 +2158,40 @@ export default function SettingsMobileClient() {
           </div>
         </Section>
 
+        <div id="msec-team">
+          <TeamSection
+            show={showTeamM} onToggle={() => setShowTeamM(!showTeamM)}
+            studioId={currentStudioId ?? ""}
+            multiOperatorEnabled={multiOperatorEnabled} setMultiOperatorEnabled={setMultiOperatorEnabled}
+            savingMultiToggle={savingMultiOpToggle} onSaveMultiToggle={() => void saveMultiOperatorToggle()}
+            members={members} currentUserId={mobUserId}
+            loadingMembers={loadingMembers} savingMember={savingMember}
+            onCreateInvite={createInvite} onUpdateMember={updateMember} onDeleteMember={deleteMember}
+            weeklyViewLayout={weeklyViewLayout} setWeeklyViewLayout={setWeeklyViewLayout}
+            savingWeeklyLayout={savingWeeklyLayout} onSaveWeeklyLayout={() => void saveWeeklyLayout()}
+          />
+        </div>
+
+        <div id="msec-stanze">
+          <RoomsSection
+            show={showRoomsM} onToggle={() => setShowRoomsM(!showRoomsM)}
+            multiRoomEnabled={multiRoomEnabled} setMultiRoomEnabled={setMultiRoomEnabled}
+            savingMultiToggle={savingMultiRoomToggle} onSaveMultiToggle={() => void saveMultiRoomToggle()}
+            rooms={rooms} locations={studioLocations as StudioLocation[]}
+            treatments={allTreatments}
+            loadingRooms={loadingRooms} savingRoom={savingRoom}
+            onCreate={createRoom} onUpdate={updateRoom} onDelete={deleteRoom}
+          />
+        </div>
+
+        <div id="msec-assenze">
+          <OperatorAbsencesSection
+            show={showAbsM} onToggle={() => setShowAbsM(!showAbsM)}
+            studioId={currentStudioId ?? ""}
+            members={members}
+          />
+        </div>
+
         <Section id="notifiche" title="🔔 Notifiche pazienti" sub="Conferme e annullamenti dal link WhatsApp">
           <div style={{ display:"flex", flexDirection:"column", gap:10, paddingTop:14 }}>
             <div style={{ padding:"10px 12px", borderRadius:8, background:"rgba(148,163,184,0.06)", fontSize:11, color:THEME.muted, lineHeight:1.5 }}>
@@ -1414,6 +2266,43 @@ export default function SettingsMobileClient() {
           </div>
         </Section>
 
+        <div id="msec-template">
+          <TemplatesSection
+            show={showTemplM} onToggle={() => setShowTemplM(!showTemplM)}
+            loadingTemplates={loadingTemplates} savingPractice={savingPractice}
+            templates={templates} dynamicSignature={dynamicSignature}
+            editingId={editingId} setEditingId={setEditingId}
+            editName={editName} setEditName={setEditName}
+            editTemplate={editTemplate} setEditTemplate={setEditTemplate}
+            newName={newName} setNewName={setNewName}
+            newTemplate={newTemplate} setNewTemplate={setNewTemplate}
+            addingNew={addingNew} setAddingNew={setAddingNew}
+            onSaveTemplate={id => void saveTemplate(id)}
+            onDeleteTemplate={id => void deleteTemplate(id)}
+            onSetAsDefault={id => void setAsDefault(id)}
+            onCreateNewTemplate={() => void createNewTemplate()}
+            welcomeMsg={welcomeMsg} setWelcomeMsg={setWelcomeMsg}
+            bookingConfirmMsg={bookingConfirmMsg} setBookingConfirmMsg={setBookingConfirmMsg}
+            reminderMsg={reminderMsg} setReminderMsg={setReminderMsg}
+            weeklyReminderMsg={weeklyReminderMsg} setWeeklyReminderMsg={setWeeklyReminderMsg}
+            paymentMsg={paymentMsg} setPaymentMsg={setPaymentMsg}
+            birthdayMsg={birthdayMsg} setBirthdayMsg={setBirthdayMsg}
+            satisfactionMsg={satisfactionMsg} setSatisfactionMsg={setSatisfactionMsg}
+            onSaveAutoMessages={() => void saveAutoMessages()}
+          />
+        </div>
+
+        <div id="msec-integrazioni">
+          <IntegrationsSection
+            show={showIntegrM} onToggle={() => setShowIntegrM(!showIntegrM)}
+            exportingBackup={exportingBackup} onExportBackup={() => void exportBackup()}
+            calendarToken={calendarToken} calendarTokenLoading={calendarTokenLoading}
+            calendarTokenRotating={calendarTokenRotating}
+            onRotateToken={() => void rotateCalendarToken()}
+            onCopyLink={copyCalendarLink}
+          />
+        </div>
+
         <Section id="booking-legacy" title="🌐 Prenotazioni dal sito" sub="Funzionalità per studi con sito pubblico">
           <div style={{ display:"flex", flexDirection:"column", gap:10, paddingTop:14 }}>
             <div style={{ padding:"10px 12px", borderRadius:8, background:"rgba(148,163,184,0.06)", fontSize:11, color:THEME.muted, lineHeight:1.5 }}>
@@ -1433,6 +2322,19 @@ export default function SettingsMobileClient() {
             />
           </div>
         </Section>
+
+        <div id="msec-servizi">
+          <BookableServicesSection
+            show={showSvcM} onToggle={() => setShowSvcM(!showSvcM)}
+            loadingServices={loadingServices} savingSvc={savingSvc}
+            services={services}
+            newSvcName={newSvcName} setNewSvcName={setNewSvcName}
+            newSvcDuration={newSvcDuration} setNewSvcDuration={setNewSvcDuration}
+            newSvcPrice={newSvcPrice} setNewSvcPrice={setNewSvcPrice}
+            onAdd={() => void addService()}
+            onDelete={id => void deleteService(id)}
+          />
+        </div>
 
         <Section
           id="catalogo"
@@ -1568,99 +2470,64 @@ export default function SettingsMobileClient() {
           </div>
         </Section>
 
-        <Section id="gestione" title="Gestione" sub="Obiettivi e soglie">
-          <div style={{ display:"flex", flexDirection:"column", gap:12, paddingTop:14 }}>
-            <div><label style={lbl}>Obiettivo fatturato mensile (€)</label><input type="number" value={monthlyGoal} onChange={e=>setMonthlyGoal(e.target.value)} style={{ ...inp, textAlign:"right", fontWeight:700 }}/></div>
-            <div><label style={lbl}>Soglia paziente inattivo (giorni)</label><input type="number" value={inactiveThresh} onChange={e=>setInactiveThresh(e.target.value)} style={{ ...inp, textAlign:"right", fontWeight:700 }}/></div>
-            <div>
-              <label style={lbl}>Gestione sovrapposizione appuntamenti</label>
-              <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:8 }}>
-                {([
-                  { k:"block",  icon:"⛔", label:"Blocco duro",       desc:"Impedisce la creazione se c'è sovrapposizione" },
-                  { k:"warn",   icon:"⚠️", label:"Avviso + conferma", desc:"Avvisa ma lascia procedere" },
-                  { k:"visual", icon:"👁️", label:"Solo visuale",      desc:"Nessun blocco" },
-                ] as const).map(opt => (
-                  <button key={opt.k} onClick={() => setOverlapMode(opt.k)}
-                    style={{
-                      width:"100%", padding:"11px 14px", borderRadius:10, cursor:"pointer", fontFamily:"inherit",
-                      border: overlapMode===opt.k ? `2px solid ${opt.k==="block"?"#dc2626":opt.k==="warn"?"#f59e0b":THEME.teal}` : `1.5px solid ${THEME.border}`,
-                      background: overlapMode===opt.k ? (opt.k==="block"?"rgba(220,38,38,0.06)":opt.k==="warn"?"rgba(245,158,11,0.06)":"rgba(13,148,136,0.06)") : "#fff",
-                      textAlign:"left", display:"flex", alignItems:"center", gap:10,
-                    }}>
-                    <span style={{ fontSize:18 }}>{opt.icon}</span>
-                    <div>
-                      <div style={{ fontWeight:700, fontSize:13, color:THEME.text }}>{opt.label}</div>
-                      <div style={{ fontSize:11, color:THEME.muted }}>{opt.desc}</div>
-                    </div>
-                    {overlapMode===opt.k && <span style={{ marginLeft:"auto", fontSize:14 }}>✓</span>}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </Section>
+        <div id="msec-agenda">
+          <AgendaViewPrefsSection
+            slotValue={mobSlotMin}
+            slotSaving={savingMobSlot}
+            onSaveSlot={v => void saveMobSlot(v)}
+            viewValue={defaultCalendarView}
+            setViewValue={setDefaultCalendarView}
+            viewSaving={savingDefaultCalendarView}
+            onSaveView={() => void saveDefaultCalendarViewM()}
+          />
+        </div>
 
-        <Section id="pagamenti" title="💳 Metodo Pagamento" sub={paymentMethodRequired ? "Selezione obbligatoria" : `Default: ${defaultPaymentMethod === "cash" ? "Contanti" : defaultPaymentMethod === "pos" ? "POS" : "Bonifico"}`}>
-          <div style={{ display:"flex", flexDirection:"column", gap:14, paddingTop:14 }}>
+        <div id="msec-calprefs">
+          <CalendarPrefsSection
+            show={showCalPrefsM} onToggle={() => setShowCalPrefsM(!showCalPrefsM)}
+            loadingPractice={loadingPractice} savingPractice={savingPractice}
+            defaultApptStatus={defaultApptStatus} setDefaultApptStatus={setDefaultApptStatus}
+            overlapMode={overlapMode} setOverlapMode={setOverlapMode}
+            autoApplyPrices={autoApplyPrices} setAutoApplyPrices={setAutoApplyPrices}
+            defaultGroupPrice={defaultGroupPrice} setDefaultGroupPrice={setDefaultGroupPrice}
+            defaultGroupMaxParticipants={defaultGroupMaxParticipants} setDefaultGroupMaxParticipants={setDefaultGroupMaxParticipants}
+            groupStatsCountAsSeparate={groupStatsCountAsSeparate} setGroupStatsCountAsSeparate={setGroupStatsCountAsSeparate}
+            onSaveGroupStats={() => void saveGroupStats()} savingGroupStats={savingGroupStats}
+            onSave={() => void savePracticeFull()}
+          />
+        </div>
 
-            {/* Toggle bloccante */}
-            <div style={{
-              display:"flex", alignItems:"center", justifyContent:"space-between",
-              padding:"12px 14px", borderRadius:10,
-              background: paymentMethodRequired ? "rgba(220,38,38,0.05)" : "rgba(13,148,136,0.05)",
-              border: `1px solid ${paymentMethodRequired ? "rgba(220,38,38,0.2)" : "rgba(13,148,136,0.2)"}`,
-            }}>
-              <div style={{ flex:1, paddingRight:12 }}>
-                <div style={{ fontSize:13, fontWeight:700, color:THEME.text }}>Selezione obbligatoria</div>
-                <div style={{ fontSize:11, color:THEME.muted, marginTop:3, lineHeight:1.4 }}>
-                  Se attivo, sui fatturati devi sempre scegliere Contanti/POS/Bonifico. Se disattivato, viene usato il default qui sotto.
-                </div>
-              </div>
-              <label style={{ display:"flex", alignItems:"center", cursor:"pointer", flexShrink:0 }}>
-                <input type="checkbox" checked={paymentMethodRequired} onChange={e=>setPaymentMethodRequired(e.target.checked)} style={{ display:"none" }} />
-                <span style={{
-                  position:"relative", width:44, height:24,
-                  background: paymentMethodRequired ? "#dc2626" : THEME.teal,
-                  borderRadius:99, transition:"background 0.2s",
-                }}>
-                  <span style={{
-                    position:"absolute", top:2,
-                    left: paymentMethodRequired ? 22 : 2,
-                    width:20, height:20, background:"#fff",
-                    borderRadius:99, transition:"left 0.2s",
-                    boxShadow:"0 1px 3px rgba(0,0,0,0.2)",
-                  }} />
-                </span>
-              </label>
-            </div>
+        <div id="msec-chiusure">
+          <BlockedDaysSection
+            show={showBlockM} onToggle={() => setShowBlockM(!showBlockM)}
+            savingBlock={savingBlock} blockDays={blockDays}
+            newBlockDate={newBlockDate} setNewBlockDate={setNewBlockDate}
+            newBlockLabel={newBlockLabel} setNewBlockLabel={setNewBlockLabel}
+            onAdd={() => void addBlockDay()}
+            onDelete={id => void deleteBlockDay(id)}
+          />
+        </div>
 
-            {/* Default */}
-            {!paymentMethodRequired && (
-              <div>
-                <label style={lbl}>Metodo di default per i fatturati</label>
-                <div style={{ display:"flex", gap:6, marginTop:6 }}>
-                  {([
-                    { v:"cash" as const, label:"Contanti" },
-                    { v:"pos" as const, label:"POS" },
-                    { v:"bank_transfer" as const, label:"Bonifico" },
-                  ]).map(opt => {
-                    const active = defaultPaymentMethod === opt.v;
-                    return (
-                      <button key={opt.v} onClick={() => setDefaultPaymentMethod(opt.v)}
-                        style={{
-                          flex:1, padding:"10px 6px", borderRadius:8,
-                          border: `1px solid ${active ? THEME.blue : THEME.border}`,
-                          background: active ? "rgba(37,99,235,0.08)" : "#fff",
-                          color: active ? THEME.blue : THEME.text,
-                          fontWeight:700, fontSize:12, cursor:"pointer",
-                        }}>{opt.label}</button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        </Section>
+        <div id="msec-gestione">
+          <ManagementSection
+            show={showGestM} onToggle={() => setShowGestM(!showGestM)}
+            savingPractice={savingPractice}
+            inactiveThresh={inactiveThresh} setInactiveThresh={setInactiveThresh}
+            reminderHours={reminderHours} setReminderHours={setReminderHours}
+            onSave={() => void savePracticeFull()}
+          />
+        </div>
+
+        <div id="msec-pagamenti">
+          <AccountingSection
+            show={showPayM} onToggle={() => setShowPayM(!showPayM)}
+            savingPractice={savingPractice}
+            paymentMethodRequired={paymentMethodRequired} setPaymentMethodRequired={setPaymentMethodRequired}
+            defaultPaymentMethod={defaultPaymentMethod} setDefaultPaymentMethod={setDefaultPaymentMethod}
+            monthlyGoal={monthlyGoal} setMonthlyGoal={setMonthlyGoal}
+            onSave={() => void savePracticeFull()}
+          />
+        </div>
 
         <Section id="privacy" title="Modalità Privacy" sub="Nasconde i nomi dei pazienti negli screenshot">
           <div style={{ display:"flex", flexDirection:"column", gap:12, paddingTop:14 }}>

@@ -60,6 +60,9 @@ import TeamSection from "./components/sections/TeamSection";
 import OperatorAbsencesSection from "./components/sections/OperatorAbsencesSection";
 import RoomsSection from "./components/sections/RoomsSection";
 import GuestPractitionersSection from "./components/sections/GuestPractitionersSection";
+import ConvenzioniSection from "./components/sections/ConvenzioniSection";
+import AgendaViewPrefsSection from "./components/sections/AgendaViewPrefsSection";
+import SettingsSearch, { type SettingsSearchItem } from "./components/SettingsSearch";
 import SettingsTabs, { type SettingsTab } from "./components/SettingsTabs";
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -106,7 +109,7 @@ export default function SettingsDesktopClient() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const saved = localStorage.getItem("settings_active_tab");
-    if (saved === "studio" || saved === "team" || saved === "calendar" || saved === "accounting" || saved === "communications" || saved === "account" || saved === "subscription") {
+    if (saved === "studio" || saved === "team" || saved === "calendar" || saved === "accounting" || saved === "convenzioni" || saved === "communications" || saved === "account" || saved === "subscription") {
       setActiveTab(saved);
     }
   }, []);
@@ -174,6 +177,9 @@ export default function SettingsDesktopClient() {
   // Vista predefinita all'apertura calendario (mig. 023, Fase D)
   const [defaultCalendarView, setDefaultCalendarView]   = useState<"day" | "week" | "month">("week");
   const [slotMinutesSetting, setSlotMinutesSetting]     = useState<15 | 30>(30);
+  const [convOpen, setConvOpen]                        = useState(false);
+  const [convEnabled, setConvEnabled]                  = useState(false);
+  const [savingConv, setSavingConv]                    = useState(false);
   const [savingSlotMinutes, setSavingSlotMinutes]       = useState(false);
   const [savingDefaultCalendarView, setSavingDefaultCalendarView] = useState(false);
 
@@ -473,6 +479,7 @@ export default function SettingsDesktopClient() {
       // mig. 023 — hidrata vista predefinita calendario (default 'week')
       const dv = studio.default_calendar_view;
       setSlotMinutesSetting((studio as { slot_minutes?: number }).slot_minutes === 15 ? 15 : 30);
+      setConvEnabled(Boolean((studio as { convenzioni_enabled?: boolean }).convenzioni_enabled));
       if (dv === "day" || dv === "week" || dv === "month") {
         setDefaultCalendarView(dv);
       } else {
@@ -567,7 +574,24 @@ export default function SettingsDesktopClient() {
     }
   }, [studio?.id, refreshStudio]);
 
-  // Genera un nuovo invito (placeholder con user_id = NULL, invite_token = uuid).
+  // Modulo convenzioni (mig. 065): spento di default, si accende qui.
+  const saveConvToggle = useCallback(async () => {
+    if (!studio?.id) return;
+    setSavingConv(true);
+    try {
+      const { error } = await supabase
+        .from("studios")
+        .update({ convenzioni_enabled: convEnabled })
+        .eq("id", studio.id);
+      if (error) { alert("Errore salvataggio: " + error.message); return; }
+      await refreshStudio();
+      flashSuccess(convEnabled ? "Modulo convenzioni attivato." : "Modulo convenzioni disattivato.");
+    } finally {
+      setSavingConv(false);
+    }
+  }, [studio?.id, convEnabled, refreshStudio]);
+
+    // Genera un nuovo invito (placeholder con user_id = NULL, invite_token = uuid).
   // Restituisce il token così la UI può mostrare subito il link da copiare.
   const createInvite = useCallback(async (payload: {
     display_name: string;
@@ -1885,6 +1909,70 @@ export default function SettingsDesktopClient() {
   // ═══════════════════════════════════════════════════════════════════════
   // Render
   // ═══════════════════════════════════════════════════════════════════════
+  // ═══ Ricerca impostazioni ═══
+  // Ogni voce: dove vive (tab), come si chiama, con che parole la cerchi.
+  // Il salto cambia tab, apre la sezione e scrolla alla card.
+  const SEARCH_INDEX: SettingsSearchItem[] = [
+    { id: "branding",     label: "Dati studio e intestazione", place: "Studio",        keywords: "nome studio logo branding intestazione firma titolo qualifica carta intestata indirizzo telefono email contatti" },
+    { id: "sedi",         label: "Sedi di lavoro",             place: "Studio",        keywords: "sedi multi sede location sede secondaria ambulatorio indirizzi" },
+    { id: "orari",        label: "Orari di apertura",          place: "Studio",        keywords: "orari lavoro apertura chiusura giorni settimana mattina pomeriggio working hours" },
+    { id: "granularita",  label: "Preferenze agenda (granularità, vista)", place: "Agenda", keywords: "granularità slot 15 minuti 30 minuti passo vista predefinita giorno settimana mese apertura calendario" },
+    { id: "calprefs",     label: "Preferenze calendario",      place: "Agenda",        keywords: "preferenze calendario stato predefinito promemoria sovrapposizioni overlap conferma whatsapp default" },
+    { id: "catalogo",     label: "Catalogo trattamenti",       place: "Agenda",        keywords: "trattamenti catalogo prestazioni tecar laser prezzi durata colore tipi seduta" },
+    { id: "servizi",      label: "Servizi prenotabili online", place: "Agenda",        keywords: "prenotazioni online booking sito servizi prenotabili link pubblico" },
+    { id: "chiusure",     label: "Giorni di chiusura e ferie", place: "Agenda",        keywords: "chiusure ferie ponte giorni bloccati vacanze blocco agenda festivi" },
+    { id: "team",         label: "Team e collaboratori",       place: "Team",          keywords: "team membri operatori multi operatore invito collaboratori layout settimana colonne" },
+    { id: "stanze",       label: "Stanze e box",               place: "Team",          keywords: "stanze box sale multi stanza room lettini" },
+    { id: "assenze",      label: "Assenze operatori",          place: "Team",          keywords: "assenze ferie permessi malattia operatori indisponibilità" },
+    { id: "ospiti",       label: "Professionisti ospiti",      place: "Team",          keywords: "ospiti professionisti esterni ortopedico nutrizionista agenda ospite token" },
+    { id: "fiscale",      label: "Contabilità e Sistema TS",   place: "Contabilità",   keywords: "partita iva p.iva pec codice fiscale sistema tessera sanitaria ts invio spese sanitarie regime forfettario fatture" },
+    { id: "pratica",      label: "Pagamenti e obiettivi",      place: "Contabilità",   keywords: "pagamenti metodo pagamento contanti pos bonifico obiettivi soglie incassi prezzi" },
+    { id: "reportauto",   label: "Report automatici",          place: "Contabilità",   keywords: "report automatici email riepilogo mensile trimestrale pdf" },
+    { id: "convenzioni",  label: "Convenzioni (fondi e assicurazioni)", place: "Convenzioni", keywords: "convenzioni fondi assicurazioni casse mutue previmedical unisalute metasalute enti listini tariffe autorizzazione" },
+    { id: "notifiche",    label: "Notifiche pazienti",         place: "Comunicazioni", keywords: "notifiche conferme annullamenti link whatsapp promemoria" },
+    { id: "template",     label: "Template messaggi",          place: "Comunicazioni", keywords: "template messaggi whatsapp promemoria testo variabili firma" },
+    { id: "integrazioni", label: "Integrazioni e calendario esterno", place: "Comunicazioni", keywords: "integrazioni google calendar ics feed esterno sincronizzazione" },
+    { id: "gestione",     label: "Gestione e backup",          place: "Account",       keywords: "gestione backup esporta dati eliminazione preferenze gestionali" },
+    { id: "password",     label: "Cambio password",            place: "Account",       keywords: "password credenziali accesso sicurezza cambia" },
+    { id: "privacy",      label: "Modalità privacy",           place: "Account",       keywords: "privacy nascondi nomi pazienti iniziali screenshot" },
+  ];
+
+  // id sezione → { tab in cui vive, apertura dell'accordion }
+  const JUMP_MAP: Record<string, { tab: SettingsTab; open?: () => void }> = {
+    branding:    { tab: "studio",         open: () => setShowStudio(true) },
+    sedi:        { tab: "studio",         open: () => setShowLocations(true) },
+    orari:       { tab: "studio",         open: () => setShowHours(true) },
+    granularita: { tab: "calendar" },
+    calprefs:    { tab: "calendar",       open: () => setShowCalPrefs(true) },
+    catalogo:    { tab: "calendar",       open: () => setShowTreatments(true) },
+    servizi:     { tab: "calendar",       open: () => setShowServices(true) },
+    chiusure:    { tab: "calendar",       open: () => setShowBlockDays(true) },
+    team:        { tab: "team",           open: () => setShowTeam(true) },
+    stanze:      { tab: "team",           open: () => setShowRooms(true) },
+    assenze:     { tab: "team",           open: () => setShowAbsences(true) },
+    ospiti:      { tab: "team",           open: () => setShowGuests(true) },
+    fiscale:     { tab: "accounting",     open: () => setShowAccounting(true) },
+    pratica:     { tab: "accounting",     open: () => setShowPractice(true) },
+    reportauto:  { tab: "accounting",     open: () => setShowReports(true) },
+    convenzioni: { tab: "convenzioni",    open: () => setConvOpen(true) },
+    notifiche:   { tab: "communications", open: () => setShowNotifications(true) },
+    template:    { tab: "communications", open: () => setShowTemplates(true) },
+    integrazioni:{ tab: "communications", open: () => setShowBackup(true) },
+    gestione:    { tab: "account",        open: () => setShowGestione(true) },
+    password:    { tab: "account",        open: () => setShowPassword(true) },
+    privacy:     { tab: "account",        open: () => setShowPrivacy(true) },
+  };
+
+  const jumpToSetting = (id: string) => {
+    const dest = JUMP_MAP[id];
+    if (!dest) return;
+    setActiveTab(dest.tab);
+    dest.open?.();
+    setTimeout(() => {
+      document.getElementById("set-sec-" + id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 140);
+  };
+
   return (
     <div style={{ minHeight: "100vh", background: THEME.appBg, fontFamily: "'Hanken Grotesk','Segoe UI',system-ui,sans-serif" }}>
       <style jsx global>{`
@@ -1938,139 +2026,145 @@ export default function SettingsDesktopClient() {
         <div className="set-shell">
           <SettingsTabs activeTab={activeTab} onTabChange={setActiveTab} />
           <div className="set-content">
-            <h2 className="set-panel-title">{({ studio: "Studio", team: "Team", calendar: "Catalogo & Calendario", accounting: "Contabilità & Fiscale", communications: "Comunicazioni", account: "Account", subscription: "Abbonamento" } as Record<string, string>)[activeTab]}</h2>
+            <SettingsSearch items={SEARCH_INDEX} onJump={jumpToSetting} />
+            <h2 className="set-panel-title">{({ studio: "Studio", team: "Team", calendar: "Agenda & Catalogo", accounting: "Contabilità & Fiscale", convenzioni: "Convenzioni", communications: "Comunicazioni", account: "Account", subscription: "Abbonamento" } as Record<string, string>)[activeTab]}</h2>
             <div className="set-panel-rule" />
             <div className="set-cards">
 
         {/* ─── Tab "Studio": StudioBranding + Practice + Prezzi + Orari ─── */}
         {activeTab === "studio" && (
           <>
-            <StudioBrandingSection
-              show={showStudio} onToggle={() => setShowStudio(!showStudio)}
-              studioName={studioName} setStudioName={setStudioName}
-              studioAddress={studioAddress} setStudioAddress={setStudioAddress}
-              studioPhone={studioPhone} setStudioPhone={setStudioPhone}
-              studioEmail={studioEmail} setStudioEmail={setStudioEmail}
-              studioWebsite={studioWebsite} setStudioWebsite={setStudioWebsite}
-              studioGoogleReview={studioGoogleReview} setStudioGoogleReview={setStudioGoogleReview}
-              studioSignatureName={studioSignatureName} setStudioSignatureName={setStudioSignatureName}
-              studioSignatureTitle={studioSignatureTitle} setStudioSignatureTitle={setStudioSignatureTitle}
-              professionalRegisterNumber={professionalRegisterNumber} setProfessionalRegisterNumber={setProfessionalRegisterNumber}
-              professionalRegisterName={professionalRegisterName} setProfessionalRegisterName={setProfessionalRegisterName}
-              logoBase64={logoBase64} setLogoBase64={setLogoBase64}
-              savingStudio={savingStudio}
-              onSave={() => void saveStudio()}
-            />
+            <div id="set-sec-branding">
+              <StudioBrandingSection
+                show={showStudio} onToggle={() => setShowStudio(!showStudio)}
+                studioName={studioName} setStudioName={setStudioName}
+                studioAddress={studioAddress} setStudioAddress={setStudioAddress}
+                studioPhone={studioPhone} setStudioPhone={setStudioPhone}
+                studioEmail={studioEmail} setStudioEmail={setStudioEmail}
+                studioWebsite={studioWebsite} setStudioWebsite={setStudioWebsite}
+                studioGoogleReview={studioGoogleReview} setStudioGoogleReview={setStudioGoogleReview}
+                studioSignatureName={studioSignatureName} setStudioSignatureName={setStudioSignatureName}
+                studioSignatureTitle={studioSignatureTitle} setStudioSignatureTitle={setStudioSignatureTitle}
+                professionalRegisterNumber={professionalRegisterNumber} setProfessionalRegisterNumber={setProfessionalRegisterNumber}
+                professionalRegisterName={professionalRegisterName} setProfessionalRegisterName={setProfessionalRegisterName}
+                logoBase64={logoBase64} setLogoBase64={setLogoBase64}
+                savingStudio={savingStudio}
+                onSave={() => void saveStudio()}
+              />
+            </div>
 
-            <LocationsSection
-              show={showLocations} onToggle={() => setShowLocations(!showLocations)}
-              multiLocationEnabled={multiLocationEnabled}
-              setMultiLocationEnabled={setMultiLocationEnabled}
-              savingMultiToggle={savingMultiToggle}
-              onSaveMultiToggle={() => void saveMultiLocationToggle()}
-              locations={studioLocations as StudioLocation[]}
-              loadingLocations={loadingLocations}
-              savingLocation={savingLocation}
-              onCreate={createLocation}
-              onUpdate={updateLocation}
-              onDelete={deleteLocation}
-              onSetPrimary={setPrimaryLocation}
-            />
+            <div id="set-sec-sedi">
+              <LocationsSection
+                show={showLocations} onToggle={() => setShowLocations(!showLocations)}
+                multiLocationEnabled={multiLocationEnabled}
+                setMultiLocationEnabled={setMultiLocationEnabled}
+                savingMultiToggle={savingMultiToggle}
+                onSaveMultiToggle={() => void saveMultiLocationToggle()}
+                locations={studioLocations as StudioLocation[]}
+                loadingLocations={loadingLocations}
+                savingLocation={savingLocation}
+                onCreate={createLocation}
+                onUpdate={updateLocation}
+                onDelete={deleteLocation}
+                onSetPrimary={setPrimaryLocation}
+              />
+            </div>
 
-            <WorkingHoursSection
-              show={showHours} onToggle={() => setShowHours(!showHours)}
-              loadingHours={loadingHours} savingHours={savingHours}
-              workingHours={workingHours}
-              onUpdateHour={updateHour}
-              onReload={() => void loadWorkingHours()}
-              onSave={() => void saveWorkingHours()}
-            />
+            <div id="set-sec-orari">
+              <WorkingHoursSection
+                show={showHours} onToggle={() => setShowHours(!showHours)}
+                loadingHours={loadingHours} savingHours={savingHours}
+                workingHours={workingHours}
+                onUpdateHour={updateHour}
+                onReload={() => void loadWorkingHours()}
+                onSave={() => void saveWorkingHours()}
+              />
+            </div>
           </>
         )}
 
         {/* ─── Tab "Team": operatori + stanze ─── */}
         {activeTab === "team" && (
           <>
-            <TeamSection
-              show={showTeam}
-              onToggle={() => setShowTeam(!showTeam)}
-              studioId={studio?.id ?? ""}
-              multiOperatorEnabled={multiOperatorEnabled}
-              setMultiOperatorEnabled={setMultiOperatorEnabled}
-              savingMultiToggle={savingMultiOpToggle}
-              onSaveMultiToggle={() => void saveMultiOperatorToggle()}
-              members={members}
-              currentUserId={currentUserId}
-              loadingMembers={loadingMembers}
-              savingMember={savingMember}
-              onCreateInvite={createInvite}
-              onUpdateMember={updateMember}
-              onDeleteMember={deleteMember}
-              weeklyViewLayout={weeklyViewLayout}
-              setWeeklyViewLayout={setWeeklyViewLayout}
-              savingWeeklyLayout={savingWeeklyLayout}
-              onSaveWeeklyLayout={() => void saveWeeklyLayout()}
-              defaultCalendarView={defaultCalendarView}
-              setDefaultCalendarView={setDefaultCalendarView}
-              savingDefaultCalendarView={savingDefaultCalendarView}
-              onSaveDefaultCalendarView={() => void saveDefaultCalendarView()}
-              slotMinutesSetting={slotMinutesSetting}
-              savingSlotMinutes={savingSlotMinutes}
-              onSaveSlotMinutes={v => void saveSlotMinutes(v)}
-            />
+            <div id="set-sec-team">
+              <TeamSection
+                show={showTeam}
+                onToggle={() => setShowTeam(!showTeam)}
+                studioId={studio?.id ?? ""}
+                multiOperatorEnabled={multiOperatorEnabled}
+                setMultiOperatorEnabled={setMultiOperatorEnabled}
+                savingMultiToggle={savingMultiOpToggle}
+                onSaveMultiToggle={() => void saveMultiOperatorToggle()}
+                members={members}
+                currentUserId={currentUserId}
+                loadingMembers={loadingMembers}
+                savingMember={savingMember}
+                onCreateInvite={createInvite}
+                onUpdateMember={updateMember}
+                onDeleteMember={deleteMember}
+                weeklyViewLayout={weeklyViewLayout}
+                setWeeklyViewLayout={setWeeklyViewLayout}
+                savingWeeklyLayout={savingWeeklyLayout}
+                onSaveWeeklyLayout={() => void saveWeeklyLayout()}
+              />
+            </div>
 
-            <RoomsSection
-              show={showRooms}
-              onToggle={() => setShowRooms(!showRooms)}
-              multiRoomEnabled={multiRoomEnabled}
-              setMultiRoomEnabled={setMultiRoomEnabled}
-              savingMultiToggle={savingMultiRoomToggle}
-              onSaveMultiToggle={() => void saveMultiRoomToggle()}
-              rooms={rooms}
-              locations={studioLocations as StudioLocation[]}
-              treatments={allTreatments}
-              loadingRooms={loadingRooms}
-              savingRoom={savingRoom}
-              onCreate={createRoom}
-              onUpdate={updateRoom}
-              onDelete={deleteRoom}
-            />
+            <div id="set-sec-stanze">
+              <RoomsSection
+                show={showRooms}
+                onToggle={() => setShowRooms(!showRooms)}
+                multiRoomEnabled={multiRoomEnabled}
+                setMultiRoomEnabled={setMultiRoomEnabled}
+                savingMultiToggle={savingMultiRoomToggle}
+                onSaveMultiToggle={() => void saveMultiRoomToggle()}
+                rooms={rooms}
+                locations={studioLocations as StudioLocation[]}
+                treatments={allTreatments}
+                loadingRooms={loadingRooms}
+                savingRoom={savingRoom}
+                onCreate={createRoom}
+                onUpdate={updateRoom}
+                onDelete={deleteRoom}
+              />
+            </div>
 
-            {/* Sezione Professionisti ospiti (mig. 029). Sempre visibile nella
-                tab Team. Il toggle interno alla sezione governa la feature. */}
-            <GuestPractitionersSection
-              show={showGuests}
-              onToggle={() => setShowGuests(!showGuests)}
-              guestEnabled={guestEnabled}
-              setGuestEnabled={setGuestEnabled}
-              savingGuestToggle={savingGuestToggle}
-              onSaveGuestToggle={() => void saveGuestToggle()}
-              guests={guests}
-              rooms={rooms}
-              loadingGuests={loadingGuests}
-              savingGuest={savingGuest}
-              onCreate={createGuest}
-              onUpdate={updateGuest}
-              onDelete={deleteGuest}
-              onCountGuestAppointments={countGuestAppointments}
-              useGuestIndex={useGuestIndex}
-              setUseGuestIndex={setUseGuestIndex}
-              savingGuestIndexToggle={savingGuestIndexToggle}
-              onSaveGuestIndexToggle={saveGuestIndexToggle}
-              onGenerateGuestToken={generateGuestToken}
-              onRevokeGuestToken={revokeGuestToken}
-              savingGuestToken={savingGuestToken}
-            />
+            <div id="set-sec-ospiti">
+              <GuestPractitionersSection
+                show={showGuests}
+                onToggle={() => setShowGuests(!showGuests)}
+                guestEnabled={guestEnabled}
+                setGuestEnabled={setGuestEnabled}
+                savingGuestToggle={savingGuestToggle}
+                onSaveGuestToggle={() => void saveGuestToggle()}
+                guests={guests}
+                rooms={rooms}
+                loadingGuests={loadingGuests}
+                savingGuest={savingGuest}
+                onCreate={createGuest}
+                onUpdate={updateGuest}
+                onDelete={deleteGuest}
+                onCountGuestAppointments={countGuestAppointments}
+                useGuestIndex={useGuestIndex}
+                setUseGuestIndex={setUseGuestIndex}
+                savingGuestIndexToggle={savingGuestIndexToggle}
+                onSaveGuestIndexToggle={saveGuestIndexToggle}
+                onGenerateGuestToken={generateGuestToken}
+                onRevokeGuestToken={revokeGuestToken}
+                savingGuestToken={savingGuestToken}
+              />
+            </div>
 
             {/* Sezione assenze operatori (Fase 5). Visibile solo se multi-op
                 attivo e ≥2 membri. Le assenze appariranno nel calendario. */}
             {multiOperatorEnabled && members.filter(m => m.is_active !== false).length >= 2 && studio?.id && (
-              <OperatorAbsencesSection
-                show={showAbsences}
-                onToggle={() => setShowAbsences(!showAbsences)}
-                studioId={studio.id}
-                members={members.filter(m => m.is_active !== false)}
-              />
+              <div id="set-sec-assenze">
+                <OperatorAbsencesSection
+                  show={showAbsences}
+                  onToggle={() => setShowAbsences(!showAbsences)}
+                  studioId={studio.id}
+                  members={members.filter(m => m.is_active !== false)}
+                />
+              </div>
             )}
           </>
         )}
@@ -2078,169 +2172,223 @@ export default function SettingsDesktopClient() {
         {/* ─── Tab "Calendario": Catalogo + Preferenze + Servizi + Giorni bloccati ─── */}
         {activeTab === "calendar" && (
           <>
-            <TreatmentsSection
-              show={showTreatments}
-              onToggle={() => setShowTreatments(!showTreatments)}
-              studioId={studio?.id ?? null}
-            />
+            <div id="set-sec-granularita">
+              <AgendaViewPrefsSection
+                slotValue={slotMinutesSetting}
+                slotSaving={savingSlotMinutes}
+                onSaveSlot={v => void saveSlotMinutes(v)}
+                viewValue={defaultCalendarView}
+                setViewValue={setDefaultCalendarView}
+                viewSaving={savingDefaultCalendarView}
+                onSaveView={() => void saveDefaultCalendarView()}
+              />
+            </div>
 
-            <CalendarPrefsSection
-              show={showCalPrefs} onToggle={() => setShowCalPrefs(!showCalPrefs)}
-              loadingPractice={loadingPractice} savingPractice={savingPractice}
-              defaultApptStatus={defaultApptStatus} setDefaultApptStatus={setDefaultApptStatus}
-              overlapMode={overlapMode} setOverlapMode={setOverlapMode}
-              autoApplyPrices={autoApplyPrices} setAutoApplyPrices={setAutoApplyPrices}
-              defaultGroupPrice={defaultGroupPrice} setDefaultGroupPrice={setDefaultGroupPrice}
-              defaultGroupMaxParticipants={defaultGroupMaxParticipants} setDefaultGroupMaxParticipants={setDefaultGroupMaxParticipants}
-              groupStatsCountAsSeparate={groupStatsCountAsSeparate} setGroupStatsCountAsSeparate={setGroupStatsCountAsSeparate}
-              onSaveGroupStats={() => void saveGroupStats()}
-              savingGroupStats={savingGroupStats}
-              onSave={() => void savePracticeSettings()}
-            />
+            <div id="set-sec-catalogo">
+              <TreatmentsSection
+                show={showTreatments}
+                onToggle={() => setShowTreatments(!showTreatments)}
+                studioId={studio?.id ?? null}
+              />
+            </div>
 
-            <BookableServicesSection
-              show={showServices} onToggle={() => setShowServices(!showServices)}
-              loadingServices={loadingServices} savingSvc={savingSvc}
-              services={services}
-              newSvcName={newSvcName} setNewSvcName={setNewSvcName}
-              newSvcDuration={newSvcDuration} setNewSvcDuration={setNewSvcDuration}
-              newSvcPrice={newSvcPrice} setNewSvcPrice={setNewSvcPrice}
-              onAdd={() => void addService()}
-              onDelete={(id) => void deleteService(id)}
-            />
+            <div id="set-sec-calprefs">
+              <CalendarPrefsSection
+                show={showCalPrefs} onToggle={() => setShowCalPrefs(!showCalPrefs)}
+                loadingPractice={loadingPractice} savingPractice={savingPractice}
+                defaultApptStatus={defaultApptStatus} setDefaultApptStatus={setDefaultApptStatus}
+                overlapMode={overlapMode} setOverlapMode={setOverlapMode}
+                autoApplyPrices={autoApplyPrices} setAutoApplyPrices={setAutoApplyPrices}
+                defaultGroupPrice={defaultGroupPrice} setDefaultGroupPrice={setDefaultGroupPrice}
+                defaultGroupMaxParticipants={defaultGroupMaxParticipants} setDefaultGroupMaxParticipants={setDefaultGroupMaxParticipants}
+                groupStatsCountAsSeparate={groupStatsCountAsSeparate} setGroupStatsCountAsSeparate={setGroupStatsCountAsSeparate}
+                onSaveGroupStats={() => void saveGroupStats()}
+                savingGroupStats={savingGroupStats}
+                onSave={() => void savePracticeSettings()}
+              />
+            </div>
 
-            <BlockedDaysSection
-              show={showBlockDays} onToggle={() => setShowBlockDays(!showBlockDays)}
-              savingBlock={savingBlock} blockDays={blockDays}
-              newBlockDate={newBlockDate} setNewBlockDate={setNewBlockDate}
-              newBlockLabel={newBlockLabel} setNewBlockLabel={setNewBlockLabel}
-              onAdd={() => void addBlockDay()}
-              onDelete={(id) => void deleteBlockDay(id)}
-            />
+            <div id="set-sec-servizi">
+              <BookableServicesSection
+                show={showServices} onToggle={() => setShowServices(!showServices)}
+                loadingServices={loadingServices} savingSvc={savingSvc}
+                services={services}
+                newSvcName={newSvcName} setNewSvcName={setNewSvcName}
+                newSvcDuration={newSvcDuration} setNewSvcDuration={setNewSvcDuration}
+                newSvcPrice={newSvcPrice} setNewSvcPrice={setNewSvcPrice}
+                onAdd={() => void addService()}
+                onDelete={(id) => void deleteService(id)}
+              />
+            </div>
+
+            <div id="set-sec-chiusure">
+              <BlockedDaysSection
+                show={showBlockDays} onToggle={() => setShowBlockDays(!showBlockDays)}
+                savingBlock={savingBlock} blockDays={blockDays}
+                newBlockDate={newBlockDate} setNewBlockDate={setNewBlockDate}
+                newBlockLabel={newBlockLabel} setNewBlockLabel={setNewBlockLabel}
+                onAdd={() => void addBlockDay()}
+                onDelete={(id) => void deleteBlockDay(id)}
+              />
+            </div>
           </>
         )}
 
         {/* ─── Tab "Contabilità & Fiscale": dati fiscali + Sistema TS ─── */}
         {activeTab === "accounting" && (
           <>
-            <PracticeSection
-              show={showPractice} onToggle={() => setShowPractice(!showPractice)}
-              loadingPractice={loadingPractice} savingPractice={savingPractice}
-              ownerFullName={ownerFullName} setOwnerFullName={setOwnerFullName}
-              vatNumber={vatNumber} setVatNumber={setVatNumber}
-              pecEmail={pecEmail} setPecEmail={setPecEmail}
-              tsEnabled={tsEnabled} setTsEnabled={setTsEnabled}
-              tsTipoSpesaDefault={tsTipoSpesaDefault} setTsTipoSpesaDefault={setTsTipoSpesaDefault}
-              tsNumberingMode={tsNumberingMode} setTsNumberingMode={setTsNumberingMode}
-              tsCfProprietario={tsCfProprietario} setTsCfProprietario={setTsCfProprietario}
-              tsRegimeForfettario={tsRegimeForfettario} setTsRegimeForfettario={setTsRegimeForfettario}
-              tsDispositivo={tsDispositivo} setTsDispositivo={setTsDispositivo}
-              tsWsUser={tsWsUser} setTsWsUser={setTsWsUser}
-              tsWsPassword={tsWsPassword} setTsWsPassword={setTsWsPassword}
-              tsWsPincode={tsWsPincode} setTsWsPincode={setTsWsPincode}
-              tsWsAmbiente={tsWsAmbiente} setTsWsAmbiente={setTsWsAmbiente}
-              tsReminderCadences={tsReminderCadences} setTsReminderCadences={setTsReminderCadences}
-              tsInvioEmailEnabled={tsInvioEmailEnabled} setTsInvioEmailEnabled={setTsInvioEmailEnabled}
-              tsRecapCadences={tsRecapCadences} setTsRecapCadences={setTsRecapCadences}
-              onReload={() => void loadPracticeSettings()}
-              onSave={() => void savePracticeSettings()}
-            />
+            <div id="set-sec-pratica">
+              <PracticeSection
+                show={showPractice} onToggle={() => setShowPractice(!showPractice)}
+                loadingPractice={loadingPractice} savingPractice={savingPractice}
+                ownerFullName={ownerFullName} setOwnerFullName={setOwnerFullName}
+                vatNumber={vatNumber} setVatNumber={setVatNumber}
+                pecEmail={pecEmail} setPecEmail={setPecEmail}
+                tsEnabled={tsEnabled} setTsEnabled={setTsEnabled}
+                tsTipoSpesaDefault={tsTipoSpesaDefault} setTsTipoSpesaDefault={setTsTipoSpesaDefault}
+                tsNumberingMode={tsNumberingMode} setTsNumberingMode={setTsNumberingMode}
+                tsCfProprietario={tsCfProprietario} setTsCfProprietario={setTsCfProprietario}
+                tsRegimeForfettario={tsRegimeForfettario} setTsRegimeForfettario={setTsRegimeForfettario}
+                tsDispositivo={tsDispositivo} setTsDispositivo={setTsDispositivo}
+                tsWsUser={tsWsUser} setTsWsUser={setTsWsUser}
+                tsWsPassword={tsWsPassword} setTsWsPassword={setTsWsPassword}
+                tsWsPincode={tsWsPincode} setTsWsPincode={setTsWsPincode}
+                tsWsAmbiente={tsWsAmbiente} setTsWsAmbiente={setTsWsAmbiente}
+                tsReminderCadences={tsReminderCadences} setTsReminderCadences={setTsReminderCadences}
+                tsInvioEmailEnabled={tsInvioEmailEnabled} setTsInvioEmailEnabled={setTsInvioEmailEnabled}
+                tsRecapCadences={tsRecapCadences} setTsRecapCadences={setTsRecapCadences}
+                onReload={() => void loadPracticeSettings()}
+                onSave={() => void savePracticeSettings()}
+              />
+            </div>
 
-            <AccountingSection
-              show={showAccounting} onToggle={() => setShowAccounting(!showAccounting)}
-              savingPractice={savingPractice}
-              paymentMethodRequired={paymentMethodRequired}
-              setPaymentMethodRequired={setPaymentMethodRequired}
-              defaultPaymentMethod={defaultPaymentMethod}
-              setDefaultPaymentMethod={setDefaultPaymentMethod}
-              monthlyGoal={monthlyGoal} setMonthlyGoal={setMonthlyGoal}
-              onSave={() => void savePracticeSettings()}
-            />
+            <div id="set-sec-fiscale">
+              <AccountingSection
+                show={showAccounting} onToggle={() => setShowAccounting(!showAccounting)}
+                savingPractice={savingPractice}
+                paymentMethodRequired={paymentMethodRequired}
+                setPaymentMethodRequired={setPaymentMethodRequired}
+                defaultPaymentMethod={defaultPaymentMethod}
+                setDefaultPaymentMethod={setDefaultPaymentMethod}
+                monthlyGoal={monthlyGoal} setMonthlyGoal={setMonthlyGoal}
+                onSave={() => void savePracticeSettings()}
+              />
+            </div>
 
-            <AutoReportsSection
-              show={showReports} onToggle={() => setShowReports(!showReports)}
-              savingStudio={savingStudio}
-              reportMonthlyEnabled={reportMonthlyEnabled} setReportMonthlyEnabled={setReportMonthlyEnabled}
-              reportQuarterlyEnabled={reportQuarterlyEnabled} setReportQuarterlyEnabled={setReportQuarterlyEnabled}
-              reportYearlyEnabled={reportYearlyEnabled} setReportYearlyEnabled={setReportYearlyEnabled}
-              reportEmail={reportEmail} setReportEmail={setReportEmail}
-              onSave={() => void saveStudio()}
-            />
+            <div id="set-sec-reportauto">
+              <AutoReportsSection
+                show={showReports} onToggle={() => setShowReports(!showReports)}
+                savingStudio={savingStudio}
+                reportMonthlyEnabled={reportMonthlyEnabled} setReportMonthlyEnabled={setReportMonthlyEnabled}
+                reportQuarterlyEnabled={reportQuarterlyEnabled} setReportQuarterlyEnabled={setReportQuarterlyEnabled}
+                reportYearlyEnabled={reportYearlyEnabled} setReportYearlyEnabled={setReportYearlyEnabled}
+                reportEmail={reportEmail} setReportEmail={setReportEmail}
+                onSave={() => void saveStudio()}
+              />
+            </div>
           </>
         )}
 
         {/* ─── Tab "Comunicazioni": Templates messaggi + Integrazioni ─── */}
+        {/* ─── Tab "Convenzioni": modulo fondi/assicurazioni, a parte come deve ─── */}
+        {activeTab === "convenzioni" && (
+          <>
+            <div id="set-sec-convenzioni">
+              <ConvenzioniSection
+                show={convOpen}
+                onToggle={() => setConvOpen(!convOpen)}
+                enabled={convEnabled}
+                setEnabled={setConvEnabled}
+                saving={savingConv}
+                onSave={() => void saveConvToggle()}
+              />
+            </div>
+          </>
+        )}
+
         {activeTab === "communications" && (
           <>
-            <NotificationsSection
-              show={showNotifications} onToggle={() => setShowNotifications(!showNotifications)}
-              savingStudio={savingStudio}
-              notifyBellEnabled={notifyBellEnabled} setNotifyBellEnabled={setNotifyBellEnabled}
-              notifyEmailEnabled={notifyEmailEnabled} setNotifyEmailEnabled={setNotifyEmailEnabled}
-              notifyWaRedirectEnabled={notifyWaRedirectEnabled} setNotifyWaRedirectEnabled={setNotifyWaRedirectEnabled}
-              showBookingCardHome={showBookingCardHome} setShowBookingCardHome={setShowBookingCardHome}
-              showBookingBellCalendar={showBookingBellCalendar} setShowBookingBellCalendar={setShowBookingBellCalendar}
-              onSave={() => void saveStudio()}
-            />
+            <div id="set-sec-notifiche">
+              <NotificationsSection
+                show={showNotifications} onToggle={() => setShowNotifications(!showNotifications)}
+                savingStudio={savingStudio}
+                notifyBellEnabled={notifyBellEnabled} setNotifyBellEnabled={setNotifyBellEnabled}
+                notifyEmailEnabled={notifyEmailEnabled} setNotifyEmailEnabled={setNotifyEmailEnabled}
+                notifyWaRedirectEnabled={notifyWaRedirectEnabled} setNotifyWaRedirectEnabled={setNotifyWaRedirectEnabled}
+                showBookingCardHome={showBookingCardHome} setShowBookingCardHome={setShowBookingCardHome}
+                showBookingBellCalendar={showBookingBellCalendar} setShowBookingBellCalendar={setShowBookingBellCalendar}
+                onSave={() => void saveStudio()}
+              />
+            </div>
 
-            <TemplatesSection
-              show={showTemplates} onToggle={() => setShowTemplates(!showTemplates)}
-              loadingTemplates={loadingTemplates} savingPractice={savingPractice}
-              templates={templates} dynamicSignature={dynamicSignature}
-              editingId={editingId} setEditingId={setEditingId}
-              editName={editName} setEditName={setEditName}
-              editTemplate={editTemplate} setEditTemplate={setEditTemplate}
-              newName={newName} setNewName={setNewName}
-              newTemplate={newTemplate} setNewTemplate={setNewTemplate}
-              addingNew={addingNew} setAddingNew={setAddingNew}
-              onSaveTemplate={(id) => void saveTemplate(id)}
-              onDeleteTemplate={(id) => void deleteTemplate(id)}
-              onSetAsDefault={(id) => void setAsDefault(id)}
-              onCreateNewTemplate={() => void createNewTemplate()}
-              welcomeMsg={welcomeMsg} setWelcomeMsg={setWelcomeMsg}
-              bookingConfirmMsg={bookingConfirmMsg} setBookingConfirmMsg={setBookingConfirmMsg}
-              reminderMsg={reminderMsg} setReminderMsg={setReminderMsg}
-              weeklyReminderMsg={weeklyReminderMsg} setWeeklyReminderMsg={setWeeklyReminderMsg}
-              paymentMsg={paymentMsg} setPaymentMsg={setPaymentMsg}
-              birthdayMsg={birthdayMsg} setBirthdayMsg={setBirthdayMsg}
-              satisfactionMsg={satisfactionMsg} setSatisfactionMsg={setSatisfactionMsg}
-              onSaveAutoMessages={() => void savePracticeSettings()}
-            />
+            <div id="set-sec-template">
+              <TemplatesSection
+                show={showTemplates} onToggle={() => setShowTemplates(!showTemplates)}
+                loadingTemplates={loadingTemplates} savingPractice={savingPractice}
+                templates={templates} dynamicSignature={dynamicSignature}
+                editingId={editingId} setEditingId={setEditingId}
+                editName={editName} setEditName={setEditName}
+                editTemplate={editTemplate} setEditTemplate={setEditTemplate}
+                newName={newName} setNewName={setNewName}
+                newTemplate={newTemplate} setNewTemplate={setNewTemplate}
+                addingNew={addingNew} setAddingNew={setAddingNew}
+                onSaveTemplate={(id) => void saveTemplate(id)}
+                onDeleteTemplate={(id) => void deleteTemplate(id)}
+                onSetAsDefault={(id) => void setAsDefault(id)}
+                onCreateNewTemplate={() => void createNewTemplate()}
+                welcomeMsg={welcomeMsg} setWelcomeMsg={setWelcomeMsg}
+                bookingConfirmMsg={bookingConfirmMsg} setBookingConfirmMsg={setBookingConfirmMsg}
+                reminderMsg={reminderMsg} setReminderMsg={setReminderMsg}
+                weeklyReminderMsg={weeklyReminderMsg} setWeeklyReminderMsg={setWeeklyReminderMsg}
+                paymentMsg={paymentMsg} setPaymentMsg={setPaymentMsg}
+                birthdayMsg={birthdayMsg} setBirthdayMsg={setBirthdayMsg}
+                satisfactionMsg={satisfactionMsg} setSatisfactionMsg={setSatisfactionMsg}
+                onSaveAutoMessages={() => void savePracticeSettings()}
+              />
+            </div>
 
-            <IntegrationsSection
-              show={showBackup} onToggle={() => setShowBackup(!showBackup)}
-              exportingBackup={exportingBackup} onExportBackup={() => void exportBackup()}
-              calendarToken={calendarToken}
-              calendarTokenLoading={calendarTokenLoading}
-              calendarTokenRotating={calendarTokenRotating}
-              onRotateToken={rotateCalendarToken}
-              onCopyLink={copyCalendarLink}
-            />
+            <div id="set-sec-integrazioni">
+              <IntegrationsSection
+                show={showBackup} onToggle={() => setShowBackup(!showBackup)}
+                exportingBackup={exportingBackup} onExportBackup={() => void exportBackup()}
+                calendarToken={calendarToken}
+                calendarTokenLoading={calendarTokenLoading}
+                calendarTokenRotating={calendarTokenRotating}
+                onRotateToken={rotateCalendarToken}
+                onCopyLink={copyCalendarLink}
+              />
+            </div>
           </>
         )}
 
         {/* ─── Tab "Account": Password + Gestione ─── */}
         {activeTab === "account" && (
           <>
-            <PasswordSection
-              show={showPassword} onToggle={() => setShowPassword(!showPassword)}
-              pwSaving={pwSaving} pwError={pwError} pwSuccess={pwSuccess}
-              pwNew={pwNew} setPwNew={setPwNew}
-              pwConfirm={pwConfirm} setPwConfirm={setPwConfirm}
-              onChange={() => void changePassword()}
-            />
+            <div id="set-sec-password">
+              <PasswordSection
+                show={showPassword} onToggle={() => setShowPassword(!showPassword)}
+                pwSaving={pwSaving} pwError={pwError} pwSuccess={pwSuccess}
+                pwNew={pwNew} setPwNew={setPwNew}
+                pwConfirm={pwConfirm} setPwConfirm={setPwConfirm}
+                onChange={() => void changePassword()}
+              />
+            </div>
 
-            <PrivacySection
-              show={showPrivacy} onToggle={() => setShowPrivacy(!showPrivacy)}
-            />
+            <div id="set-sec-privacy">
+              <PrivacySection
+                show={showPrivacy} onToggle={() => setShowPrivacy(!showPrivacy)}
+              />
+            </div>
 
-            <ManagementSection
-              show={showGestione} onToggle={() => setShowGestione(!showGestione)}
-              savingPractice={savingPractice}
-              inactiveThresh={inactiveThresh} setInactiveThresh={setInactiveThresh}
-              reminderHours={reminderHours} setReminderHours={setReminderHours}
-              onSave={() => void savePracticeSettings()}
-            />
+            <div id="set-sec-gestione">
+              <ManagementSection
+                show={showGestione} onToggle={() => setShowGestione(!showGestione)}
+                savingPractice={savingPractice}
+                inactiveThresh={inactiveThresh} setInactiveThresh={setInactiveThresh}
+                reminderHours={reminderHours} setReminderHours={setReminderHours}
+                onSave={() => void savePracticeSettings()}
+              />
+            </div>
           </>
         )}
 

@@ -26,6 +26,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import ConvenzioneFields, { type ConvenzioneValue } from "@/src/components/convenzioni/ConvenzioneFields";
 import { italianHoliday } from "@/src/lib/holidays";
 import {
   THEME, ALL_TREATMENTS, DEFAULT_CLINIC_SITE,
@@ -87,6 +88,8 @@ export type CreateAppointmentModalProps = {
 
   // ─── Trattamento e prezzo ─────────────────────────────────
   treatmentType: TreatmentType;
+  createConv: ConvenzioneValue;
+  setCreateConv: (v: ConvenzioneValue) => void;
   setTreatmentType: (t: TreatmentType) => void;
   priceType: "invoiced" | "cash";
   setPriceType: (p: "invoiced" | "cash") => void;
@@ -245,6 +248,7 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
     createDomicileAddress, setCreateDomicileAddress,
     studioLocations, createLocationId, setCreateLocationId, multiLocationEnabled,
     treatmentType, setTreatmentType,
+    createConv, setCreateConv,
     priceType, setPriceType,
     paymentMethod, setPaymentMethod,
     useCustomPrice, setUseCustomPrice,
@@ -1534,6 +1538,8 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
                 }}>▼</div>
               </div>
             </div>
+
+            <ConvenzioneFields value={createConv} onChange={setCreateConv} />
 
             {/* Prezzo standard */}
             <div>

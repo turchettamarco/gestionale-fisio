@@ -108,6 +108,10 @@ export type CalendarEvent = {
   location_id: string | null;
   domicile_address: string | null;
   treatment_type: string | null;
+  // Convenzioni (mig. 065)
+  convenzione_ente_id?: string | null;
+  convenzione_auth_code?: string | null;
+  convenzione_auth_expires?: string | null;
   price_type: string | null;
   /** Metodo pagamento per le sedute fatturate. Solo se price_type === "invoiced". */
   payment_method: "cash" | "pos" | "bank_transfer" | null;

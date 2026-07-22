@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { EMPTY_CONVENZIONE, type ConvenzioneValue } from "@/src/components/convenzioni/ConvenzioneFields";
 import { getStudioBranding } from "@/src/lib/studioBranding";
 import { BuildInfo } from "@/src/components/BuildInfo";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
@@ -472,6 +473,9 @@ function CalendarPageInner() {
   // Multi-operatore (mig. 019/022, Fase 4d.1): operator_id per il modale di
   // modifica. Null = non assegnato. Idratato da liveEvent quando il modale apre.
   const [editOperatorId, setEditOperatorId] = useState<string | null>(null);
+  // Convenzioni (mig. 065): ente + autorizzazione, vuoti se il modulo è spento.
+  const [editConv, setEditConv] = useState<ConvenzioneValue>(EMPTY_CONVENZIONE);
+  const [createConv, setCreateConv] = useState<ConvenzioneValue>(EMPTY_CONVENZIONE);
 
   // Multi-stanza (mig. 019, Fase Stanze): room_id per il modale di modifica.
   // Null = nessuna stanza. Idratato da liveEvent quando il modale apre.
@@ -910,6 +914,7 @@ function CalendarPageInner() {
   // sono ora in useCalendarEvents.
 
   const openCreateModal = useCallback((date: Date, hour: number = 9, minute: number = 0, duplicateEvent?: CalendarEvent) => {
+    setCreateConv(EMPTY_CONVENZIONE); // ogni creazione riparte da privato
     const timeStr = `${pad2(hour)}:${pad2(minute)}`;
     
     const defaultTime = duplicateEvent ? 
@@ -1405,6 +1410,11 @@ function CalendarPageInner() {
     setEditNote(event.calendar_note || "");
     setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
     setEditTreatmentType((event.treatment_type as "seduta" | "macchinario") || "seduta");
+        setEditConv({
+          enteId: event.convenzione_ente_id ?? "",
+          authCode: event.convenzione_auth_code ?? "",
+          authExpires: event.convenzione_auth_expires ?? "",
+        });
     setEditPriceType((event.price_type as "invoiced" | "cash") || "invoiced");
     setEditPaymentMethod((event.payment_method as "cash" | "pos" | "bank_transfer" | null) || null);
     // Multi-op (Fase 4d.1): idrata operator_id dall'evento
@@ -1569,6 +1579,9 @@ function CalendarPageInner() {
       createOperatorId,
       createRoomId,
       createGuestPractitionerId,
+      createConvenzioneEnteId: createConv.enteId || null,
+      createConvenzioneAuthCode: createConv.authCode || null,
+      createConvenzioneAuthExpires: createConv.authExpires || null,
     },
     editForm: {
       editStatus,
@@ -1583,6 +1596,9 @@ function CalendarPageInner() {
       editOperatorId,
       editRoomId,
       editGuestPractitionerId,
+      editConvenzioneEnteId: editConv.enteId || null,
+      editConvenzioneAuthCode: editConv.authCode || null,
+      editConvenzioneAuthExpires: editConv.authExpires || null,
     },
     quickPatientForm: {
       quickPatientFirstName,
@@ -1880,6 +1896,11 @@ function CalendarPageInner() {
       if (event) {
         setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
         setEditTreatmentType((event.treatment_type as "seduta" | "macchinario") || "seduta");
+        setEditConv({
+          enteId: event.convenzione_ente_id ?? "",
+          authCode: event.convenzione_auth_code ?? "",
+          authExpires: event.convenzione_auth_expires ?? "",
+        });
         setEditPriceType((event.price_type as "invoiced" | "cash") || "invoiced");
         setEditPaymentMethod((event.payment_method as "cash" | "pos" | "bank_transfer" | null) || null);
         
@@ -2076,6 +2097,11 @@ return (
           setEditNote(appointment.calendar_note || "");
           setEditAmount(appointment.amount !== undefined && appointment.amount !== null ? appointment.amount.toString() : "");
           setEditTreatmentType((appointment.treatment_type as "seduta" | "macchinario") || "seduta");
+          setEditConv({
+            enteId: (appointment as { convenzione_ente_id?: string | null }).convenzione_ente_id ?? "",
+            authCode: (appointment as { convenzione_auth_code?: string | null }).convenzione_auth_code ?? "",
+            authExpires: (appointment as { convenzione_auth_expires?: string | null }).convenzione_auth_expires ?? "",
+          });
           setEditPriceType((appointment.price_type as "invoiced" | "cash") || "invoiced");
           setEditPaymentMethod((appointment.payment_method as "cash" | "pos" | "bank_transfer" | null) || null);
         }}
@@ -2410,6 +2436,11 @@ return (
                 setEditNote(event.calendar_note || "");
                 setEditAmount(event.amount !== undefined && event.amount !== null ? event.amount.toString() : "");
                 setEditTreatmentType((event.treatment_type as "seduta" | "macchinario") || "seduta");
+        setEditConv({
+          enteId: event.convenzione_ente_id ?? "",
+          authCode: event.convenzione_auth_code ?? "",
+          authExpires: event.convenzione_auth_expires ?? "",
+        });
                 setEditPriceType((event.price_type as "invoiced" | "cash") || "invoiced");
         setEditPaymentMethod((event.payment_method as "cash" | "pos" | "bank_transfer" | null) || null);
                 if (event.patient_id) loadPatientFromEvent(event.patient_id);
@@ -2463,6 +2494,8 @@ return (
           multiLocationEnabled={!!currentStudio?.multi_location_enabled}
           treatmentType={treatmentType}
           setTreatmentType={setTreatmentType}
+          createConv={createConv}
+          setCreateConv={setCreateConv}
           priceType={priceType}
           setPriceType={setPriceType}
           paymentMethod={paymentMethod}
@@ -2584,6 +2617,8 @@ return (
           setEditAmount={setEditAmount}
           editTreatmentType={editTreatmentType}
           setEditTreatmentType={setEditTreatmentType}
+          editConv={editConv}
+          setEditConv={setEditConv}
           editPriceType={editPriceType}
           setEditPriceType={setEditPriceType}
           editPaymentMethod={editPaymentMethod}

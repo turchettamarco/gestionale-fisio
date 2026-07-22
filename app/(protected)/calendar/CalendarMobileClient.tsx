@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import ConvenzioniMenuItem from "@/src/components/ConvenzioniMenuItem";
+import ConvenzioneFields, { EMPTY_CONVENZIONE, convenzioneToColumns, type ConvenzioneValue } from "@/src/components/convenzioni/ConvenzioneFields";
 import { getStudioBranding } from "@/src/lib/studioBranding";
 import { showToast } from "@/src/components/mobile/ToastProvider";
 import MobileTabBar from "@/src/components/MobileTabBar";
@@ -102,6 +104,7 @@ type CalendarEvent = {
   studio_id?: string | null;
   amount: number | null; is_paid: boolean; paid_at: Date | null;
   treatment_type: string | null; price_type: string | null; payment_method: string | null;
+  convenzione_ente_id?: string | null; convenzione_auth_code?: string | null; convenzione_auth_expires?: string | null;
   whatsapp_sent_at: string | null;
   // ─── Gruppo (mig. 014) ───────────────────────────────────────────────
   is_group?: boolean | null;
@@ -142,6 +145,7 @@ type CreateModalProps = {
   createPriceType: "invoiced" | "cash"; setCreatePriceType: (v: "invoiced" | "cash") => void;
   createPaymentMethod: "cash" | "pos" | "bank_transfer" | null; setCreatePaymentMethod: (v: "cash" | "pos" | "bank_transfer" | null) => void;
   createTreatmentType: string; setCreateTreatmentType: (v: string) => void;
+  createConv: ConvenzioneValue; setCreateConv: (v: ConvenzioneValue) => void;
   treatmentCatalog: { key: string; label: string; color: string; price_invoice: number; price_cash: number; duration_min: number }[];
   createAppointment: () => Promise<void>;
   createRecurring: boolean; setCreateRecurring: (v: boolean) => void;
@@ -530,6 +534,7 @@ function CalendarPageInner() {
   }, [openGroup]);
 
   const [editStatus,    setEditStatus]    = useState<Status>("booked");
+  const [editConv, setEditConv] = useState<ConvenzioneValue>(EMPTY_CONVENZIONE);
   const [editNote,      setEditNote]      = useState("");
   const [editAmount,    setEditAmount]    = useState("");
   // Fatturazione e metodo pagamento (allineati al desktop)
@@ -620,6 +625,7 @@ function CalendarPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paymentMethodRequired, defaultPaymentMethod]);
   const [createTreatmentType,   setCreateTreatmentType]   = useState<string>("seduta");
+  const [createConv, setCreateConv] = useState<ConvenzioneValue>(EMPTY_CONVENZIONE);
 
   /* patient search (create) */
   const [patientQuery,    setPatientQuery]    = useState("");
@@ -689,7 +695,7 @@ function CalendarPageInner() {
       location,clinic_site,location_id,domicile_address,studio_id,
       amount,treatment_type,price_type,payment_method,whatsapp_sent_at,
       is_group,group_title,group_max_participants,group_price_per_person,
-      package_id,
+      package_id,convenzione_ente_id,convenzione_auth_code,convenzione_auth_expires,
       patients:patient_id(first_name,last_name,phone),
       appointment_participants(id,price,payment_status)
     `).gte("start_at",s0.toISOString()).lt("start_at",e0.toISOString())
@@ -718,6 +724,7 @@ function CalendarPageInner() {
         studio_id: a.studio_id ?? null,
         amount:a.amount??null,
         treatment_type:a.treatment_type??null, price_type:a.price_type??null, payment_method:a.payment_method??null,
+        convenzione_ente_id:a.convenzione_ente_id??null, convenzione_auth_code:a.convenzione_auth_code??null, convenzione_auth_expires:a.convenzione_auth_expires??null,
         whatsapp_sent_at:a.whatsapp_sent_at??null,
         // Gruppo (mig. 014)
         is_group: isGroup,
@@ -834,7 +841,7 @@ function CalendarPageInner() {
       location,clinic_site,location_id,domicile_address,studio_id,
       amount,treatment_type,price_type,payment_method,whatsapp_sent_at,
       is_group,group_title,group_max_participants,group_price_per_person,
-      package_id,
+      package_id,convenzione_ente_id,convenzione_auth_code,convenzione_auth_expires,
       patients:patient_id(first_name,last_name,phone),
       appointment_participants(id,price,payment_status)
     `).gte("start_at", firstDay.toISOString()).lte("start_at", lastDay.toISOString())
@@ -863,6 +870,7 @@ function CalendarPageInner() {
           studio_id: a.studio_id ?? null,
           amount:a.amount??null,
           treatment_type:a.treatment_type??null, price_type:a.price_type??null, payment_method:a.payment_method??null,
+        convenzione_ente_id:a.convenzione_ente_id??null, convenzione_auth_code:a.convenzione_auth_code??null, convenzione_auth_expires:a.convenzione_auth_expires??null,
           whatsapp_sent_at:a.whatsapp_sent_at??null,
           // Gruppo (mig. 014)
           is_group: isGroup,
@@ -1298,6 +1306,11 @@ function CalendarPageInner() {
     setEditTime(`${pad2(ev.start.getHours())}:${pad2(ev.start.getMinutes())}`);
     setEditDuration(Math.max(15,Math.round((ev.end.getTime()-ev.start.getTime())/60_000)));
     setEditTreatmentType(ev.treatment_type ?? "seduta");
+    setEditConv({
+      enteId: (ev as { convenzione_ente_id?: string | null }).convenzione_ente_id ?? "",
+      authCode: (ev as { convenzione_auth_code?: string | null }).convenzione_auth_code ?? "",
+      authExpires: (ev as { convenzione_auth_expires?: string | null }).convenzione_auth_expires ?? "",
+    });
 
     // Pre-fetch link conferma AL MOMENTO dell'apertura del modal.
     // Marco apre il modal, guarda i dettagli (1-2 secondi), poi clicca WA → il link è pronto.
@@ -1351,6 +1364,7 @@ function CalendarPageInner() {
       price_type: editPriceType,
       payment_method: editPriceType === "invoiced" ? effectiveEditPM : null,
       treatment_type: editTreatmentType || null,
+      ...convenzioneToColumns(editConv),
     };
     if (isValidISODate(editDate)&&isValidHHMM(editTime)) {
       const ns=buildDateTime(editDate,editTime);
@@ -1368,7 +1382,7 @@ function CalendarPageInner() {
     const freedDur = Math.round((selectedEvent.end.getTime() - selectedEvent.start.getTime()) / 60_000);
     setSelectedEvent(null); setBusy(false); await reloadCurrent();
     if (becameCancelled) await openWaitlistMatchesForSlot(freedSlot, freedDur);
-  }, [selectedEvent,editStatus,editNote,editAmount,editPriceType,editPaymentMethod,editDate,editTime,editDuration,editTreatmentType,currentDate,loadAppointments,paymentMethodRequired,defaultPaymentMethod,openWaitlistMatchesForSlot]);
+  }, [selectedEvent,editStatus,editNote,editAmount,editPriceType,editPaymentMethod,editDate,editTime,editDuration,editTreatmentType,editConv,currentDate,loadAppointments,paymentMethodRequired,defaultPaymentMethod,openWaitlistMatchesForSlot]);
 
   const deleteEvent = useCallback(async () => {
     if (!selectedEvent||!window.confirm("Eliminare definitivamente questo appuntamento?")) return;
@@ -1427,6 +1441,7 @@ function CalendarPageInner() {
   const openCreateRef = useRef<((t?: string, d?: string) => void) | null>(null);
   const openCreate = useCallback((prefillTime?:string, prefillDateISO?:string) => {
     setCreateOpen(true); setError("");
+    setCreateConv(EMPTY_CONVENZIONE); // ogni creazione riparte da privato
     setSelectedPatient(null); setPatientQuery(""); setPatientResults([]);
     setQuickFirstName(""); setQuickLastName(""); setQuickPhone("");
     const dateISO=prefillDateISO&&isValidISODate(prefillDateISO)?prefillDateISO:toISODateLocal(currentDate);
@@ -1655,6 +1670,7 @@ function CalendarPageInner() {
           price_type: createPriceType,
           payment_method: selectedPackageId ? null : (createPriceType === "invoiced" ? effectiveCreatePM : null),
           treatment_type: createTreatmentType || null,
+          ...convenzioneToColumns(createConv),     // mig. 065
           package_id: selectedPackageId,           // mig. 014_packages
           owner_id: userId,                // multi-tenancy
           studio_id: currentStudioId,      // multi-tenancy
@@ -1749,7 +1765,7 @@ function CalendarPageInner() {
     }
   }, [settleWaitlistBooking, selectedPatient,createDuration,createDate,createTime,createStatus,createNote,
       createLocation,createClinicSite,createDomicileAddress,createAmount,
-      createPriceType,createPaymentMethod,createTreatmentType,currentStudioId,currentDate,loadAppointments,
+      createPriceType,createPaymentMethod,createTreatmentType,createConv,currentStudioId,currentDate,loadAppointments,
       createRecurring,createRecurringCount,createRecurringInterval,overlapMode,events,
       paymentMethodRequired,defaultPaymentMethod,
       createLocationId,
@@ -2448,6 +2464,7 @@ function CalendarPageInner() {
                     )}
                   </>
                 )}
+                <ConvenzioniMenuItem onNavigate={() => setUserMenuOpen(false)} />
                 <Link href="/settings" onClick={()=>setUserMenuOpen(false)} style={{
                   display:"flex",alignItems:"center",gap:8,padding:"12px 16px",
                   color:THEME.text,textDecoration:"none",fontSize:13,fontWeight:600,
@@ -3267,6 +3284,7 @@ function CalendarPageInner() {
                 <option value="not_paid">Non pagata</option>
                 <option value="cancelled">Annullato</option>
               </select>
+              <ConvenzioneFields value={editConv} onChange={setEditConv} inputStyle={inputS()} />
             </FG>
             <FG label="Trattamento">
               <div style={{ position: "relative" }}>
@@ -3458,6 +3476,7 @@ function CalendarPageInner() {
           createPriceType={createPriceType}     setCreatePriceType={setCreatePriceType}
           createPaymentMethod={createPaymentMethod} setCreatePaymentMethod={setCreatePaymentMethod}
           createTreatmentType={createTreatmentType} setCreateTreatmentType={setCreateTreatmentType}
+          createConv={createConv} setCreateConv={setCreateConv}
           treatmentCatalog={treatmentCatalog}
           createAppointment={createAppointment}
           createRecurring={createRecurring} setCreateRecurring={setCreateRecurring}
@@ -3920,6 +3939,7 @@ function ModalHeader({title,subtitle,onClose}:{title:string;subtitle?:string;onC
 function CreateModal(props:CreateModalProps) {
   const {
     slotMin,
+    createConv, setCreateConv,
     busy,error,onClose,
     patientQuery,setPatientQuery,patientResults,patientLoading,selectedPatient,setSelectedPatient,
     quickFirstName,setQuickFirstName,quickLastName,setQuickLastName,quickPhone,setQuickPhone,createQuickPatient,
@@ -4412,6 +4432,7 @@ function CreateModal(props:CreateModalProps) {
           <FG label="Ora"><TimeSelect value={createTime} onChange={setCreateTime} slotMin={slotMin} inputStyle={inputS()} /></FG>
           <FG label="Min"><input type="number" min={15} step={5} value={createDuration} onChange={e=>setCreateDuration(Number(e.target.value))} style={inputS()} /></FG>
         </div>
+        <ConvenzioneFields value={createConv} onChange={setCreateConv} inputStyle={inputS()} />
         {italianHoliday(createDate) && (
           <div style={{
             marginTop: 8, padding: "7px 11px", borderRadius: 9,

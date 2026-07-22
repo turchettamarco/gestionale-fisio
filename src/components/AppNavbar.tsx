@@ -14,6 +14,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import ConvenzioniMenuItem from "@/src/components/ConvenzioniMenuItem";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
 import { BuildInfo } from "@/src/components/BuildInfo";
@@ -303,8 +304,9 @@ export default function AppNavbar({ active, onRefresh, onNotificationAppointment
                     )}
                   </>
                 )}
+                <ConvenzioniMenuItem onNavigate={() => setUserMenuOpen(false)} />
                 <Link href="/settings" onClick={() => setUserMenuOpen(false)} style={{ display: "block", padding: "10px 15px", color: COL.text, fontSize: 13, fontWeight: 600, borderBottom: `1px solid ${COL.border}` }}>Impostazioni</Link>
-                <Link href="/piano" onClick={() => setUserMenuOpen(false)} style={{ display: "block", padding: "10px 15px", color: COL.text, fontSize: 13, fontWeight: 600, borderBottom: `1px solid ${COL.border}`, textDecoration: "none" }}>💎 Piano</Link>
+                <Link href="/piano" onClick={() => setUserMenuOpen(false)} style={{ display: "block", padding: "10px 15px", color: COL.text, fontSize: 13, fontWeight: 600, borderBottom: `1px solid ${COL.border}`, textDecoration: "none" }}>Piano</Link>
                 <button onClick={handleLogout} style={{ width: "100%", padding: "10px 15px", background: "transparent", border: "none", cursor: "pointer", color: COL.red, fontWeight: 600, fontSize: 13, textAlign: "left" }}>Logout</button>
                 <BuildInfo />
               </div>

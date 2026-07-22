@@ -20,6 +20,7 @@
 "use client";
 
 import { useState, type RefObject } from "react";
+import ConvenzioniMenuItem from "@/src/components/ConvenzioniMenuItem";
 import Link from "next/link";
 import { BuildInfo } from "@/src/components/BuildInfo";
 import NotificationsBell from "@/src/components/NotificationsBell";
@@ -268,6 +269,7 @@ export default function CalendarTopBar({
                   )}
                 </>
               )}
+              <ConvenzioniMenuItem onNavigate={() => setUserMenuOpen(false)} />
               <Link
                 href="/settings"
                 onClick={() => setUserMenuOpen(false)}
@@ -288,7 +290,7 @@ export default function CalendarTopBar({
                   borderBottom: `1.5px solid ${THEME.border}`,
                 }}
               >
-                💎 Piano
+                Piano
               </Link>
               <button
                 type="button"
