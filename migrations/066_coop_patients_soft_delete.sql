@@ -15,7 +15,3 @@ ALTER TABLE coop_patients
 CREATE INDEX IF NOT EXISTS idx_coop_patients_active
   ON coop_patients (studio_id, cognome)
   WHERE deleted_at IS NULL;
-
-INSERT INTO schema_migrations (version)
-  VALUES ('066_coop_patients_soft_delete')
-  ON CONFLICT (version) DO NOTHING;
