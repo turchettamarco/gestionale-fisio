@@ -20,6 +20,7 @@ import { supabase } from "@/src/lib/supabaseClient";
 import { BuildInfo } from "@/src/components/BuildInfo";
 import NotificationsBell from "@/src/components/NotificationsBell";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { usePermissions } from "@/src/hooks/usePermissions";
 
 export type AppNavbarSection =
   | "home" | "calendar" | "reports" | "noleggio" | "patients"
@@ -45,6 +46,7 @@ export default function AppNavbar({ active, onRefresh, onNotificationAppointment
   const userMenuRef = useRef<HTMLDivElement | null>(null);
 
   const { studio: currentStudio } = useCurrentStudio();
+  const { can, isOwner } = usePermissions();
   const bellEnabled = (currentStudio as any)?.notify_bell_enabled !== false;
 
   // ── Agenda Ospiti (mig. 029, Step 5g) ────────────────────────────────
@@ -129,7 +131,18 @@ export default function AppNavbar({ active, onRefresh, onNotificationAppointment
     { href: "/contabilita", label: "Contabilità", key: "contabilita" },
   ];
   // Domicili: visibile solo se il feature flag dello studio è attivo (mig. 056)
-  const navItems = allNavItems.filter(it => it.key !== "domicili" || currentStudio?.feature_domicili === true);
+  // Permessi (mig. 071): ogni voce richiede il permesso corrispondente, così
+  // un terapista con livello Base vede solo Home, Calendario e Pazienti.
+  const navItems = allNavItems.filter(it => {
+    if (it.key === "domicili" && currentStudio?.feature_domicili !== true) return false;
+    switch (it.key) {
+      case "reports":     return can("money.reports");
+      case "contabilita": return can("money.accounting");
+      case "domicili":    return can("manage.domicili");
+      case "noleggio":    return can("money.accounting");
+      default:            return true;
+    }
+  });
 
   // Color tokens hardcoded per indipendenza dal contesto theme di una pagina
   const COL = {
@@ -305,7 +318,7 @@ export default function AppNavbar({ active, onRefresh, onNotificationAppointment
                   </>
                 )}
                 <ConvenzioniMenuItem onNavigate={() => setUserMenuOpen(false)} />
-                <Link href="/settings" onClick={() => setUserMenuOpen(false)} style={{ display: "block", padding: "10px 15px", color: COL.text, fontSize: 13, fontWeight: 600, borderBottom: `1px solid ${COL.border}` }}>Impostazioni</Link>
+                {(isOwner || can("manage.settings")) && <Link href="/settings" onClick={() => setUserMenuOpen(false)} style={{ display: "block", padding: "10px 15px", color: COL.text, fontSize: 13, fontWeight: 600, borderBottom: `1px solid ${COL.border}` }}>Impostazioni</Link>}
                 <Link href="/piano" onClick={() => setUserMenuOpen(false)} style={{ display: "block", padding: "10px 15px", color: COL.text, fontSize: 13, fontWeight: 600, borderBottom: `1px solid ${COL.border}`, textDecoration: "none" }}>Piano</Link>
                 <button onClick={handleLogout} style={{ width: "100%", padding: "10px 15px", background: "transparent", border: "none", cursor: "pointer", color: COL.red, fontWeight: 600, fontSize: 13, textAlign: "left" }}>Logout</button>
                 <BuildInfo />

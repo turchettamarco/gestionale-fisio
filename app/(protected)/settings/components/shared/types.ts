@@ -131,7 +131,7 @@ export type StudioMemberRow = {
   id: string;
   studio_id: string;
   user_id: string | null;       // NULL = invito pendente
-  role: "owner" | "therapist" | "assistant";
+  role: "owner" | "co_owner" | "therapist" | "assistant";
   display_name: string | null;
   display_color: string | null; // hex
   signature_short: string | null; // 1-3 caratteri
@@ -140,6 +140,9 @@ export type StudioMemberRow = {
   email: string | null;
   invite_token: string | null;  // UUID, NULL dopo claim
   invited_at: string | null;    // ISO
+  /** Permessi granulari (mig. 071): preset o "custom" con elenco esplicito. */
+  permission_preset?: string | null;
+  permissions?: unknown;
 };
 
 // ── Stanze (mig. 019 + 020) ───────────────────────────────────────────────

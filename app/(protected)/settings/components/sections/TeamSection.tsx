@@ -19,6 +19,7 @@
 
 import React, { useState, useMemo, useEffect } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
+import MemberPermissionsForm from "./MemberPermissionsForm";
 import { THEME, cardStyle, sectionHead, inputStyle, labelStyle } from "../shared/theme";
 import { BtnPrimary, BtnOutline } from "../shared/Buttons";
 import type { StudioMemberRow } from "../shared/types";
@@ -37,14 +38,16 @@ export const OPERATOR_COLOR_PRESETS: Array<{ value: string; label: string }> = [
 
 const ROLE_LABELS: Record<StudioMemberRow["role"], string> = {
   owner: "Titolare",
+  co_owner: "Co-titolare",
   therapist: "Terapista",
   assistant: "Assistente",
 };
 
 const ROLE_DESCRIPTIONS: Record<StudioMemberRow["role"], string> = {
   owner: "Pieno controllo (gestisce team, sedi, fatture). Non cancellabile.",
-  therapist: "Vede e modifica i suoi appuntamenti e quelli del team.",
-  assistant: "Supporto operativo (gestisce agenda, non vede i ricavi).",
+  co_owner: "Secondo titolare: stesso accesso completo del titolare. Per studi con più soci.",
+  therapist: "Accesso limitato: i permessi si configurano col pulsante 🔐.",
+  assistant: "Segreteria: accesso completo a agenda, pazienti e incassi.",
 };
 
 // Calcola iniziali da display_name (es. "Marco Turchetta" → "MT")
@@ -190,6 +193,7 @@ function MemberForm({
           >
             {!isOwnerEdit && <option value="therapist">Terapista</option>}
             {!isOwnerEdit && <option value="assistant">Assistente</option>}
+            {!isOwnerEdit && <option value="co_owner">Co-titolare</option>}
             {isOwnerEdit && <option value="owner">Titolare</option>}
           </select>
           <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>
@@ -253,6 +257,7 @@ function MemberCard({
   onDelete,
   onRates,
   onSchedule,
+  onPermissions,
   onCopyInvite,
   onResendInvite,
   inviteUrl,
@@ -264,6 +269,7 @@ function MemberCard({
   onDelete: () => void;
   onRates: () => void;
   onSchedule: () => void;
+  onPermissions: () => void;
   onCopyInvite?: () => void;
   onResendInvite?: () => void;
   inviteUrl?: string;
@@ -369,6 +375,18 @@ function MemberCard({
 
       {/* Azioni */}
       <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+        <button
+          onClick={onPermissions}
+          title="Permessi e visibilità dati"
+          style={{
+            padding: "6px 10px", fontSize: 13, fontWeight: 700,
+            background: "#fff", color: THEME.text,
+            border: `1px solid ${THEME.border}`, borderRadius: 6,
+            cursor: "pointer",
+          }}
+        >
+          🔐
+        </button>
         <button
           onClick={onSchedule}
           title="Turni di lavoro"
@@ -917,6 +935,8 @@ export type TeamSectionProps = {
     }>
   ) => Promise<void>;
   onDeleteMember: (userIdOrToken: string, isToken: boolean) => Promise<void>;
+  /** Tappa G: ricarica la lista membri dopo il salvataggio dei permessi. */
+  onReloadMembers?: () => void | Promise<void>;
   // Layout vista settimana multi-operatore (mig. 022)
   // Visibile solo se multi_operator_enabled = true
   weeklyViewLayout: "classic" | "timeline" | "pile" | "grid" | "roster";
@@ -942,6 +962,7 @@ export default function TeamSection({
   onCreateInvite,
   onUpdateMember,
   onDeleteMember,
+  onReloadMembers,
   weeklyViewLayout,
   setWeeklyViewLayout,
   savingWeeklyLayout,
@@ -957,6 +978,8 @@ export default function TeamSection({
 
   // Stato form turni (Fase R2)
   const [scheduleMemberId, setScheduleMemberId] = useState<string | null>(null);
+  // Tappa G: pannello permessi granulari del membro (mig. 071)
+  const [permsMemberId, setPermsMemberId] = useState<string | null>(null);
 
   // Catalogo trattamenti dello studio (per la matrice tariffe).
   // Carico una volta al mount, refresh quando si apre la sezione tariffe.
@@ -1226,7 +1249,13 @@ export default function TeamSection({
                     }}
                     onSchedule={() => {
                       setRatesMemberId(null);
+                      setPermsMemberId(null);
                       setScheduleMemberId(scheduleMemberId === member.id ? null : member.id);
+                    }}
+                    onPermissions={() => {
+                      setRatesMemberId(null);
+                      setScheduleMemberId(null);
+                      setPermsMemberId(permsMemberId === member.id ? null : member.id);
                     }}
                     onCopyInvite={() => member.invite_token && handleCopyInvite(member.invite_token)}
                   />
@@ -1251,6 +1280,17 @@ export default function TeamSection({
                     }}>
                       Nessun trattamento configurato. Vai prima nella sezione "Trattamenti" per crearne almeno uno.
                     </div>
+                  )}
+                  {permsMemberId === member.id && (
+                    <MemberPermissionsForm
+                      memberId={member.id}
+                      memberName={member.display_name || "—"}
+                      memberRole={member.role}
+                      currentPreset={member.permission_preset ?? null}
+                      currentPermissions={member.permissions}
+                      onSaved={() => { void onReloadMembers?.(); }}
+                      onClose={() => setPermsMemberId(null)}
+                    />
                   )}
                   {scheduleMemberId === member.id && (
                     <MemberSchedulesForm

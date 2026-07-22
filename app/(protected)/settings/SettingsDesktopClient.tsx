@@ -439,7 +439,7 @@ export default function SettingsDesktopClient() {
     try {
       const { data, error } = await supabase
         .from("studio_members")
-        .select("id, studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invite_token, invited_at")
+        .select("id, studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invite_token, invited_at, permission_preset, permissions")
         .eq("studio_id", studio.id)
         .eq("is_active", true)
         .order("role", { ascending: true })  // owner first
@@ -2104,6 +2104,7 @@ export default function SettingsDesktopClient() {
             <div id="set-sec-team">
               <TeamSection
                 show={showTeam}
+                onReloadMembers={loadMembers}
                 onToggle={() => setShowTeam(!showTeam)}
                 studioId={studio?.id ?? ""}
                 multiOperatorEnabled={multiOperatorEnabled}

@@ -9,6 +9,7 @@ import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
+import { usePermissions } from "@/src/hooks/usePermissions";
 import PatientSidebar, {
   type PatientSectionId,
   PATIENT_SECTION_IDS,
@@ -418,6 +419,8 @@ export default function PatientDetailDesktopClient({
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState("");
   const [patient, setPatient] = useState<Patient | null>(null);
+  // Permessi (mig. 071): un terapista con livello Base non vede i contatti.
+  const { can: canPerm } = usePermissions();
   const [consentStatus, setConsentStatus] = useState<{ ok: boolean; pending: number } | null>(null);
   const [quickConsentMsg, setQuickConsentMsg] = useState<string | null>(null);
 
@@ -2182,7 +2185,7 @@ ${rows}
                   return <strong style={{ color: THEME.textSoft }}> · {age} anni</strong>;
                 })()}
               </span>
-              {patient.phone && (
+              {patient.phone && canPerm("patient.phone") && (
                 <a href={`tel:${patient.phone}`} style={{ fontSize: 14, fontWeight: 700, color: THEME.blue, textDecoration: "none" }}>
                   📞 {displayPhone(patient.phone)}
                 </a>
@@ -2497,14 +2500,18 @@ ${rows}
               <label style={labelStyle}>Cognome</label>
               <input value={lastName} onChange={e => setLastName(e.target.value)} style={inputStyle} disabled={!demoEditMode} />
             </div>
-            <div>
-              <label style={labelStyle}>Telefono</label>
-              <input value={phone} onChange={e => setPhone(e.target.value)} style={inputStyle} disabled={!demoEditMode} />
-            </div>
-            <div>
-              <label style={labelStyle}>Città</label>
-              <input value={resCity} onChange={e => setResCity(e.target.value)} style={inputStyle} disabled={!demoEditMode} />
-            </div>
+            {canPerm("patient.phone") && (
+              <div>
+                <label style={labelStyle}>Telefono</label>
+                <input value={phone} onChange={e => setPhone(e.target.value)} style={inputStyle} disabled={!demoEditMode} />
+              </div>
+            )}
+            {canPerm("patient.address") && (
+              <div>
+                <label style={labelStyle}>Città</label>
+                <input value={resCity} onChange={e => setResCity(e.target.value)} style={inputStyle} disabled={!demoEditMode} />
+              </div>
+            )}
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }} className="tab-grid-2">
