@@ -643,9 +643,8 @@ export default function DayTimelineMulti({
                       color: "#fff",
                       borderRadius: 6,
                       borderLeft: `4px solid ${opColor}`,
-                      borderTop: locStyle.borderColor ? `2px solid ${locStyle.borderColor}` : "none",
-                      borderRight: locStyle.borderColor ? `2px solid ${locStyle.borderColor}` : "none",
-                      borderBottom: locStyle.borderColor ? `2px solid ${locStyle.borderColor}` : "none",
+                      // Tappa F: barra verticale destra al posto del bordo pieno
+                      borderRight: locStyle.accentBar ? `3px solid ${locStyle.accentBar}` : "none",
                       boxSizing: "border-box",
                       padding: "4px 6px",
                       cursor: onEventDragStart ? "move" : "pointer",
@@ -708,7 +707,7 @@ export default function DayTimelineMulti({
                                 <span style={{
                                   fontSize: "clamp(8px, 2.6cqi, 9px)",
                                   fontWeight: 800,
-                                  background: locStyle.borderColor ?? undefined,
+                                  background: locStyle.badgeColor ?? undefined,
                                   padding: "1px 4px", borderRadius: 3,
                                   letterSpacing: 0.3, lineHeight: 1.1,
                                   flexShrink: 0,

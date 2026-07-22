@@ -28,6 +28,7 @@
 import { useState, useEffect, useMemo } from "react";
 import ConvenzioneFields, { type ConvenzioneValue } from "@/src/components/convenzioni/ConvenzioneFields";
 import { italianHoliday } from "@/src/lib/holidays";
+import { checkOperatorSchedule, type OperatorScheduleSlot } from "@/src/hooks/calendar/moveValidation";
 import {
   THEME, ALL_TREATMENTS, DEFAULT_CLINIC_SITE,
   fmtTime, parseDateInput, toDateInputValue, generateRecurringStarts,
@@ -203,6 +204,8 @@ export type CreateAppointmentModalProps = {
     reason: string | null;
     all_day: boolean;
   }>;
+  /** Tappa E: turni settimanali (operator_schedules). Avviso, mai blocco. */
+  operatorSchedules?: OperatorScheduleSlot[];
 
   // ─── Multi-stanza (mig. 019, Fase Stanze) ─────────────────
   /** Toggle multi_room_enabled — se false, il selettore non si vede */
@@ -287,6 +290,7 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
     members,
     createOperatorId,
     unavailabilities,
+    operatorSchedules,
     setCreateOperatorId,
     existingEvents,
     multiRoomEnabled,
@@ -394,6 +398,18 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
     }
     return null;
   }, [multiOperatorEnabled, createOperatorId, unavailabilities, createStartISO, createEndISO, duplicateMode, duplicateDate, duplicateTime]);
+
+  // ─── Tappa E: fuori turno operatore (operator_schedules) ─────
+  const operatorOffShift = useMemo(() => {
+    if (!multiOperatorEnabled || !createOperatorId) return null;
+    const startISO = duplicateMode && duplicateDate && duplicateTime
+      ? new Date(`${duplicateDate}T${duplicateTime}:00`).toISOString()
+      : createStartISO;
+    if (!startISO || !createEndISO) return null;
+    const st = new Date(startISO), en = new Date(createEndISO);
+    if (Number.isNaN(st.getTime()) || Number.isNaN(en.getTime())) return null;
+    return checkOperatorSchedule(operatorSchedules, createOperatorId, st, en);
+  }, [multiOperatorEnabled, createOperatorId, operatorSchedules, createStartISO, createEndISO, duplicateMode, duplicateDate, duplicateTime]);
 
   // ─── Conflict detection stanza (Fase Stanze) ─────────────────
   // Se multi-stanza attivo e c'è una stanza selezionata, verifica se quella
@@ -1422,6 +1438,19 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
                 <span>
                   Conflitto: questo operatore ha già <strong>{operatorConflict.patient}</strong> alle <strong>{operatorConflict.time}</strong>. Puoi comunque salvare ma verifica.
                 </span>
+              </div>
+            )}
+            {/* ─── Warning fuori turno (Tappa E) ─────────────────────── */}
+            {operatorOffShift && !operatorAbsence && (
+              <div style={{
+                marginTop: 12, padding: "10px 12px",
+                background: "rgba(245,158,11,0.07)",
+                border: "1px solid rgba(245,158,11,0.3)",
+                borderRadius: 8, fontSize: 12, color: "#92400e",
+                fontWeight: 600, display: "flex", alignItems: "center", gap: 8,
+              }}>
+                <span style={{ fontSize: 16 }}>🕘</span>
+                <span>Attenzione: {operatorOffShift}. Puoi comunque salvare.</span>
               </div>
             )}
             {/* ─── Warning assenza operatore (Tappa A) ───────────────── */}

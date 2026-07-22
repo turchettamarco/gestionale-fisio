@@ -699,7 +699,9 @@ export default function WeekView({
                   // In MULTI-OPERATORE (Fase 4b) il borderLeft è il colore dell'operatore,
                   // sovrascrive sia il giallo WEB che il colore sede (la sede in multi
                   // resta visibile come badge testuale negli eventi più alti).
-                  border: locStyle.borderColor ? `2px solid ${locStyle.borderColor}` : "none",
+                  // Tappa F: niente bordo colorato pieno; la sede è resa
+                  // dal badge iniziali + barra verticale destra.
+                  borderRight: locStyle.accentBar ? `3px solid ${locStyle.accentBar}` : undefined,
                   borderLeft: (() => {
                     // Priorità in multi-op: colore operatore
                     if (multiOperatorMode && event.operator_id && operatorColorMap?.has(event.operator_id)) {
@@ -710,7 +712,7 @@ export default function WeekView({
                     }
                     // Fallback comportamento storico
                     if (event.calendar_note?.startsWith("[WEB|")) return "4px solid #facc15";
-                    if (locStyle.borderColor) return `2px solid ${locStyle.borderColor}`;
+                    if (locStyle.accentBar) return undefined;
                     return "none";
                   })(),
                   cursor: "move",
@@ -762,7 +764,7 @@ export default function WeekView({
                     {locStyle.initials && (
                       <span title={locStyle.locationName ?? undefined} style={{
                         fontSize: 8, fontWeight: 800, color: "#fff",
-                        background: locStyle.borderColor ?? undefined,
+                        background: locStyle.badgeColor ?? undefined,
                         padding: "1px 4px", borderRadius: 3,
                         letterSpacing: 0.3, lineHeight: 1.1,
                         flexShrink: 0,
@@ -799,7 +801,7 @@ export default function WeekView({
                         {locStyle.initials && (
                           <span title={locStyle.locationName ?? undefined} style={{
                             fontSize: 8, fontWeight: 800, color: "#fff",
-                            background: locStyle.borderColor ?? undefined,
+                            background: locStyle.badgeColor ?? undefined,
                             padding: "1px 4px", borderRadius: 3,
                             letterSpacing: 0.3, lineHeight: 1.1,
                             flexShrink: 0,
@@ -899,7 +901,7 @@ export default function WeekView({
                         {locStyle.initials && (
                           <span title={locStyle.locationName ?? undefined} style={{
                             fontSize: 8, fontWeight: 800, color: "#fff",
-                            background: locStyle.borderColor ?? undefined,
+                            background: locStyle.badgeColor ?? undefined,
                             padding: "1px 4px", borderRadius: 3,
                             letterSpacing: 0.3, lineHeight: 1.1,
                             flexShrink: 0,

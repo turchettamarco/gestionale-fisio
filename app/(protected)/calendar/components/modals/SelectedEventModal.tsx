@@ -28,6 +28,7 @@
 import Link from "next/link";
 import ConvenzioneFields, { type ConvenzioneValue } from "@/src/components/convenzioni/ConvenzioneFields";
 import { SOAPNotesEditor } from "../SOAPNotes";
+import { checkOperatorSchedule, type OperatorScheduleSlot } from "@/src/hooks/calendar/moveValidation";
 import {
   THEME, ALL_TREATMENTS,
   type Status, type TreatmentType, type LocationType,
@@ -148,6 +149,8 @@ export type SelectedEventModalProps = {
     reason: string | null;
     all_day: boolean;
   }>;
+  /** Tappa E: turni settimanali (operator_schedules). Avviso, mai blocco. */
+  operatorSchedules?: OperatorScheduleSlot[];
 };
 
 export default function SelectedEventModal({
@@ -176,6 +179,7 @@ export default function SelectedEventModal({
   editRoomId,
   setEditRoomId,
   unavailabilities,
+  operatorSchedules,
 }: SelectedEventModalProps) {
 
   // Lookup evento corrente nei dati aggiornati
@@ -259,6 +263,15 @@ export default function SelectedEventModal({
       }
     }
     return null;
+  })();
+
+  // ─── Tappa E: fuori turno operatore (operator_schedules) ──
+  const operatorOffShift = (() => {
+    if (!multiOperatorEnabled || !editOperatorId || !editDate || !editStartTime) return null;
+    const st = new Date(`${editDate}T${editStartTime}:00`);
+    if (Number.isNaN(st.getTime())) return null;
+    const en = new Date(st.getTime() + parseFloat(editDuration) * 60 * 60000);
+    return checkOperatorSchedule(operatorSchedules, editOperatorId, st, en);
   })();
 
   // Color picker iniziale: custom (per paziente) → fallback colore stato/trattamento
@@ -547,6 +560,19 @@ export default function SelectedEventModal({
                 <span>
                   Conflitto: questo operatore ha già <strong>{operatorConflict.patient}</strong> alle <strong>{operatorConflict.time}</strong>.
                 </span>
+              </div>
+            )}
+            {/* ─── Warning fuori turno (Tappa E) ───────────────────── */}
+            {operatorOffShift && !operatorAbsence && (
+              <div style={{
+                marginTop: 12, padding: "10px 12px",
+                background: "rgba(245,158,11,0.07)",
+                border: "1px solid rgba(245,158,11,0.3)",
+                borderRadius: 8, fontSize: 12, color: "#92400e",
+                fontWeight: 600, display: "flex", alignItems: "center", gap: 8,
+              }}>
+                <span style={{ fontSize: 16 }}>🕘</span>
+                <span>Attenzione: {operatorOffShift}.</span>
               </div>
             )}
             {/* ─── Warning assenza operatore (Tappa A) ─────────────── */}

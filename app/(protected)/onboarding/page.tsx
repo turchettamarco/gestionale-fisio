@@ -203,7 +203,8 @@ export default function OnboardingPage() {
               open_time: h.open_time,
               close_time: h.close_time,
               is_open: h.is_open,
-            })),
+              studio_id: studio.id,
+                  })),
             { onConflict: "day_of_week" }
           );
         if (whErr) {

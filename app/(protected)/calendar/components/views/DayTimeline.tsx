@@ -376,7 +376,7 @@ export default function DayTimeline({
                   {locStyle.initials && (
                     <span title={locStyle.locationName ?? undefined} style={{
                       fontSize: 8, fontWeight: 800, color: "#fff",
-                      background: locStyle.borderColor ?? undefined,
+                      background: locStyle.badgeColor ?? undefined,
                       padding: "1px 4px", borderRadius: 3,
                       letterSpacing: 0.3, lineHeight: 1.1,
                       flexShrink: 0,
@@ -446,7 +446,7 @@ export default function DayTimeline({
                   {locStyle.initials && (
                     <span title={locStyle.locationName ?? undefined} style={{
                       fontSize: 8, fontWeight: 800, color: "#fff",
-                      background: locStyle.borderColor ?? undefined,
+                      background: locStyle.badgeColor ?? undefined,
                       padding: "1px 4px", borderRadius: 3,
                       letterSpacing: 0.3, lineHeight: 1.1,
                       flexShrink: 0,
@@ -571,7 +571,7 @@ export default function DayTimeline({
                       {locStyle.initials && (
                         <span title={locStyle.locationName ?? undefined} style={{
                           fontSize: 8, fontWeight: 800, color: "#fff",
-                          background: locStyle.borderColor ?? undefined,
+                          background: locStyle.badgeColor ?? undefined,
                           padding: "1px 4px", borderRadius: 3,
                           letterSpacing: 0.3, lineHeight: 1.1,
                           flexShrink: 0,

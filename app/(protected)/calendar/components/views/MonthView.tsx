@@ -429,7 +429,7 @@ export default function MonthView({
                       {ev.location === "domicile" && "🏠 "}
                       {locStyle.initials && (
                         <span style={{
-                          background: locStyle.borderColor ?? undefined,
+                          background: locStyle.badgeColor ?? undefined,
                           color: "#fff",
                           fontSize: 7, fontWeight: 800,
                           padding: "0 3px",

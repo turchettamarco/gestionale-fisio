@@ -30,6 +30,58 @@ export type MoveValidationUnavailability = {
   reason: string | null;
 };
 
+/**
+ * Turno settimanale di un operatore (tabella operator_schedules, mig. 022).
+ * member_id → studio_members.id, quindi va risolto in user_id prima dell'uso.
+ */
+export type OperatorScheduleSlot = {
+  /** user_id dell'operatore (già risolto da member_id) */
+  operator_id: string;
+  /** 0 = domenica (convenzione JS Date.getDay()) */
+  day_of_week: number;
+  /** "HH:MM[:SS]" */
+  start_time: string;
+  end_time: string;
+};
+
+const DOW_IT = ["domenica", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato"];
+
+/**
+ * Verifica se l'intervallo cade FUORI dal turno settimanale dell'operatore.
+ * Un operatore senza turni configurati non è vincolato (nessun avviso):
+ * i turni restano opzionali, chi lavora full time non deve configurare nulla.
+ * Restituisce null se tutto ok, altrimenti il motivo da mostrare.
+ */
+export function checkOperatorSchedule(
+  schedules: OperatorScheduleSlot[] | undefined,
+  operatorId: string | null | undefined,
+  start: Date,
+  end: Date
+): string | null {
+  if (!operatorId || !schedules || schedules.length === 0) return null;
+  const mine = schedules.filter(s => s.operator_id === operatorId);
+  if (mine.length === 0) return null; // nessun turno configurato → libero
+
+  const dow = start.getDay();
+  const ofDay = mine.filter(s => s.day_of_week === dow);
+  if (ofDay.length === 0) return `l'operatore non lavora di ${DOW_IT[dow]}`;
+
+  const toMin = (t: string) => {
+    const [h, m] = t.split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+  const s0 = start.getHours() * 60 + start.getMinutes();
+  const e0 = end.getHours() * 60 + end.getMinutes();
+  // Basta che UNA fascia contenga l'intero appuntamento.
+  const fits = ofDay.some(sl => s0 >= toMin(sl.start_time) && e0 <= toMin(sl.end_time));
+  if (fits) return null;
+
+  const fasce = ofDay
+    .map(sl => `${sl.start_time.slice(0, 5)}–${sl.end_time.slice(0, 5)}`)
+    .join(", ");
+  return `fuori dal turno dell'operatore (${DOW_IT[dow]}: ${fasce})`;
+}
+
 export function validateEventMove(args: {
   /** id dell'evento che si sta spostando/ridimensionando (escluso dal check) */
   movingId: string;
@@ -44,10 +96,12 @@ export function validateEventMove(args: {
   multiOperatorEnabled: boolean;
   multiRoomEnabled: boolean;
   unavailabilities?: MoveValidationUnavailability[];
+  /** Turni settimanali (opzionali): se configurati, spostare fuori turno avvisa. */
+  schedules?: OperatorScheduleSlot[];
 }): string[] {
   const {
     movingId, targetOperatorId, targetRoomId, ns, ne,
-    events, multiOperatorEnabled, multiRoomEnabled, unavailabilities,
+    events, multiOperatorEnabled, multiRoomEnabled, unavailabilities, schedules,
   } = args;
 
   const problems: string[] = [];
@@ -92,6 +146,12 @@ export function validateEventMove(args: {
         `l'operatore risulta assente in quell'orario${abs.reason ? ` (${abs.reason})` : ""}`
       );
     }
+  }
+
+  // Turno settimanale (mig. 022): ultimo controllo, meno grave dei conflitti.
+  if (problems.length === 0 && multiOperatorEnabled) {
+    const sched = checkOperatorSchedule(schedules, targetOperatorId, new Date(ns), new Date(ne));
+    if (sched) problems.push(sched);
   }
 
   return problems;

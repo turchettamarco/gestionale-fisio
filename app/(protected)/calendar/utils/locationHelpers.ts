@@ -55,18 +55,40 @@ export function resolveAppointmentLocation(
   return locations.find(l => l.id === event.location_id) ?? null;
 }
 
-// Restituisce stile da applicare a una card per evidenziare la sede secondaria.
-// Per la principale (o assenza di sede): { borderColor: null, initials: null }
-// → nessun bordo, nessun badge.
+// Restituisce lo stile da applicare a una card per evidenziare la sede
+// secondaria. Per la principale (o assenza di sede): tutto null → nessuna
+// decorazione.
+//
+// TAPPA F — pulizia UI:
+// Prima la sede secondaria disegnava un bordo colorato PIENO da 2px attorno
+// alla card, che (a) violava la regola UI "colore solo come dot/badge/barra
+// sottile, bordi sempre grigio neutro" e (b) in multi-operatore si sommava al
+// bordo sinistro 4px del colore operatore, rendendo la card illeggibile.
+// Ora il colore vive solo nel badge con le iniziali (già presente) e in una
+// sottile barra verticale: `borderColor` resta esposto per retrocompatibilità
+// ma è pensato per la barra, non per il contorno completo.
+// Le viste usano `accentBar` per la barra e `badgeColor` per il badge.
 export function getLocationCardStyle(
   event: Pick<CalendarEvent, "location_id" | "location">,
   locations: StudioLocationLite[] | undefined
-): { borderColor: string | null; initials: string | null; locationName: string | null } {
+): {
+  /** @deprecated Tappa F: non usare come contorno completo. Usa accentBar. */
+  borderColor: string | null;
+  /** Colore della barra verticale destra (3px), sostituisce il bordo pieno. */
+  accentBar: string | null;
+  /** Colore di sfondo del badge iniziali. */
+  badgeColor: string | null;
+  initials: string | null;
+  locationName: string | null;
+} {
   const loc = resolveAppointmentLocation(event, locations);
-  if (!loc) return { borderColor: null, initials: null, locationName: null };
-  if (loc.is_primary) return { borderColor: null, initials: null, locationName: loc.name };
+  if (!loc) return { borderColor: null, accentBar: null, badgeColor: null, initials: null, locationName: null };
+  if (loc.is_primary) return { borderColor: null, accentBar: null, badgeColor: null, initials: null, locationName: loc.name };
+  const c = loc.border_color || "#2563eb";
   return {
-    borderColor: loc.border_color || "#2563eb",
+    borderColor: null, // Tappa F: nessun bordo colorato pieno
+    accentBar: c,
+    badgeColor: c,
     initials: locationInitials(loc.name),
     locationName: loc.name,
   };

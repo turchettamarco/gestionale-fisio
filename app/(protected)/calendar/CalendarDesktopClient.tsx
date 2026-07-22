@@ -98,6 +98,7 @@ import RoomLegend from "./components/RoomLegend";
 import MonthView from "./components/views/MonthView";
 import DayView from "./components/views/DayView";
 import type { OperatorUnavailabilitySlot } from "./components/views/DayTimelineMulti";
+import type { OperatorScheduleSlot } from "@/src/hooks/calendar/moveValidation";
 import WeekView from "./components/views/WeekView";
 import WeekViewTimeline from "./components/views/WeekViewTimeline";
 import WeekViewPile from "./components/views/WeekViewPile";
@@ -698,6 +699,45 @@ function CalendarPageInner() {
   const [unavailabilities, setUnavailabilities] = useState<OperatorUnavailabilitySlot[]>([]);
   // Tappa C: bump da realtime per rifetchare le assenze senza ricaricare la pagina.
   const [unavRefreshTick, setUnavRefreshTick] = useState(0);
+  // ─── Tappa E: turni settimanali operatori (operator_schedules, mig. 022) ──
+  // Erano configurabili in Impostazioni → Team ma NESSUNO li leggeva: il
+  // calendario lasciava prenotare un collega part-time in un giorno in cui
+  // non lavora. Qui li carichiamo e li usiamo come avviso (mai blocco).
+  const [operatorSchedules, setOperatorSchedules] = useState<OperatorScheduleSlot[]>([]);
+  useEffect(() => {
+    if (!multiOperatorEnabled || !currentStudioId || activeMembers.length < 2) {
+      setOperatorSchedules([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      // operator_schedules.member_id = studio_members.id, mentre
+      // appointments.operator_id = user_id: serve la mappa di conversione.
+      const [{ data }, { data: mem }] = await Promise.all([
+        supabase
+          .from("operator_schedules")
+          .select("member_id, day_of_week, start_time, end_time")
+          .eq("studio_id", currentStudioId),
+        supabase
+          .from("studio_members")
+          .select("id, user_id")
+          .eq("studio_id", currentStudioId),
+      ]);
+      if (cancelled || !data) return;
+      const byMember = new Map<string, string>();
+      for (const m of (mem ?? []) as Array<{ id: string; user_id: string | null }>) {
+        if (m.user_id) byMember.set(m.id, m.user_id);
+      }
+      setOperatorSchedules(
+        (data as Array<{ member_id: string; day_of_week: number; start_time: string; end_time: string }>)
+          .flatMap(r => {
+            const uid = byMember.get(r.member_id);
+            return uid ? [{ operator_id: uid, day_of_week: r.day_of_week, start_time: r.start_time, end_time: r.end_time }] : [];
+          })
+      );
+    })();
+    return () => { cancelled = true; };
+  }, [multiOperatorEnabled, currentStudioId, activeMembers]);
 
   useEffect(() => {
     if (!multiOperatorEnabled || activeMembers.length < 2) {
@@ -823,6 +863,7 @@ function CalendarPageInner() {
     multiOperatorEnabled,
     multiRoomEnabled,
     unavailabilities,
+    schedules: operatorSchedules,
   });
 
   // ─── Tappa B: resize durata (handle sul bordo inferiore delle card) ─────
@@ -838,6 +879,7 @@ function CalendarPageInner() {
     multiOperatorEnabled,
     multiRoomEnabled,
     unavailabilities,
+    schedules: operatorSchedules,
   });
 
   // ─── Tappa C: realtime agenda ───────────────────────────────────────────
@@ -2347,6 +2389,7 @@ return (
               showUnassigned={events.some(ev => !ev.operator_id)}
               selectedKey={operatorFilter}
               onSelectKey={setOperatorFilter}
+              currentUserId={userId}
             />
           )}
 
@@ -2694,6 +2737,7 @@ return (
           setCreateOperatorId={setCreateOperatorId}
           existingEvents={events}
           unavailabilities={unavailabilities}
+          operatorSchedules={operatorSchedules}
           multiRoomEnabled={multiRoomEnabled && studioRooms.length > 0}
           rooms={studioRooms}
           createRoomId={createRoomId}
@@ -2812,6 +2856,7 @@ return (
           editRoomId={editRoomId}
           setEditRoomId={setEditRoomId}
           unavailabilities={unavailabilities}
+          operatorSchedules={operatorSchedules}
         />
         );
       })()}

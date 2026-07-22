@@ -2232,7 +2232,7 @@ function CalendarPageInner() {
               style={{
                 position:"absolute",
                 top:3, right:3,
-                background: locStyle.borderColor ?? undefined,
+                background: locStyle.badgeColor ?? undefined,
                 color:"#fff",
                 fontSize:9, fontWeight:800,
                 padding:"1px 5px",

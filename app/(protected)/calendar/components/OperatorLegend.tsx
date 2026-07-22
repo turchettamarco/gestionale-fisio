@@ -37,6 +37,9 @@ export type OperatorLegendProps = {
    * il filtro (toggle) confrontando con `selectedKey` corrente.
    */
   onSelectKey: (key: string | null) => void;
+  /** Tappa E: user_id dell'utente loggato. Se presente e corrisponde a un
+   *  membro attivo, mostra il chip "Io" come scorciatoia di filtro. */
+  currentUserId?: string | null;
 };
 
 function memberKey(m: StudioMember): string | null {
@@ -51,6 +54,7 @@ export default function OperatorLegend({
   showUnassigned = false,
   selectedKey,
   onSelectKey,
+  currentUserId,
 }: OperatorLegendProps) {
   const rows = members
     .map(m => ({ key: memberKey(m), member: m }))
@@ -97,6 +101,26 @@ export default function OperatorLegend({
         Operatori
       </span>
 
+      {/* ─── Tappa E: scorciatoia "Io" ────────────────────────────────
+          Un click filtra sulle proprie sedute: è l'azione più frequente per
+          un collaboratore che apre l'agenda condivisa. */}
+      {currentUserId && rows.some(r => r.key === currentUserId) && (
+        <button
+          onClick={() => onSelectKey(selectedKey === currentUserId ? null : currentUserId)}
+          title={selectedKey === currentUserId ? "Mostra tutti gli operatori" : "Mostra solo le mie sedute"}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            padding: "4px 11px", borderRadius: 99,
+            border: `1.5px solid ${selectedKey === currentUserId ? "#334155" : "#cbd5e1"}`,
+            background: selectedKey === currentUserId ? "#334155" : "#fff",
+            color: selectedKey === currentUserId ? "#fff" : "#475569",
+            fontSize: 11, fontWeight: 800, letterSpacing: 0.3,
+            cursor: "pointer", fontFamily: "inherit",
+          }}
+        >
+          Io
+        </button>
+      )}
       {rows.map(({ key, member }) => {
         const color = operatorColorMap.get(key) || "#94a3b8";
         const isPending = !member.user_id;

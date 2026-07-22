@@ -30,7 +30,7 @@ import {
 } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { translateError } from "@/src/lib/translateError";
-import { validateEventMove } from "./moveValidation";
+import { validateEventMove, type OperatorScheduleSlot } from "./moveValidation";
 import {
   addDays,
   startOfISOWeekMonday,
@@ -63,6 +63,8 @@ export interface UseEventResizeOptions {
     reason: string | null;
     all_day: boolean;
   }>;
+  /** Tappa E: turni settimanali operatori (avviso se si sposta fuori turno). */
+  schedules?: OperatorScheduleSlot[];
 }
 
 export interface UseEventResizeReturn {
@@ -85,6 +87,7 @@ export function useEventResize(options: UseEventResizeOptions): UseEventResizeRe
     multiOperatorEnabled = false,
     multiRoomEnabled = false,
     unavailabilities,
+    schedules,
   } = options;
 
   const [resizing, setResizing] = useState<ResizingState | null>(null);
@@ -143,6 +146,7 @@ export function useEventResize(options: UseEventResizeOptions): UseEventResizeRe
           multiOperatorEnabled,
           multiRoomEnabled,
           unavailabilities,
+          schedules,
         });
         if (problems.length > 0) {
           if (overlapMode === "block") {

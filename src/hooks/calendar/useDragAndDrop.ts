@@ -50,7 +50,7 @@ import {
 } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { translateError } from "@/src/lib/translateError";
-import { validateEventMove } from "./moveValidation";
+import { validateEventMove, type OperatorScheduleSlot } from "./moveValidation";
 import {
   addDays,
   startOfISOWeekMonday,
@@ -106,6 +106,8 @@ export interface UseDragAndDropOptions {
     reason: string | null;
     all_day: boolean;
   }>;
+  /** Tappa E: turni settimanali operatori (avviso se si sposta fuori turno). */
+  schedules?: OperatorScheduleSlot[];
 }
 
 export interface UseDragAndDropReturn {
@@ -170,6 +172,7 @@ export function useDragAndDrop(
     multiOperatorEnabled = false,
     multiRoomEnabled = false,
     unavailabilities,
+    schedules,
   } = options;
 
   /* ─── Stato ─── */
@@ -284,7 +287,7 @@ export function useDragAndDrop(
               targetOperatorId: moved.operator_id ?? null,
               targetRoomId: moved.room_id ?? null,
               ns, ne, events,
-              multiOperatorEnabled, multiRoomEnabled, unavailabilities,
+              multiOperatorEnabled, multiRoomEnabled, unavailabilities, schedules,
             })
           : [];
 
@@ -325,7 +328,7 @@ export function useDragAndDrop(
 
       setDraggingEvent(null);
     },
-    [draggingEvent, currentDate, loadAppointments, setError, events, overlapMode, multiOperatorEnabled, multiRoomEnabled, unavailabilities]
+    [draggingEvent, currentDate, loadAppointments, setError, events, overlapMode, multiOperatorEnabled, multiRoomEnabled, unavailabilities, schedules]
   );
 
   const handleDragEnd = useCallback((event: React.DragEvent) => {
@@ -404,6 +407,7 @@ export function useDragAndDrop(
           multiOperatorEnabled,
           multiRoomEnabled,
           unavailabilities,
+          schedules,
         });
         if (problems.length > 0) {
           if (overlapMode === "block") {
@@ -447,7 +451,7 @@ export function useDragAndDrop(
       }
       setDraggingEvent(null);
     },
-    [draggingEvent, currentDate, loadAppointments, setError, events, overlapMode, multiOperatorEnabled, multiRoomEnabled, unavailabilities]
+    [draggingEvent, currentDate, loadAppointments, setError, events, overlapMode, multiOperatorEnabled, multiRoomEnabled, unavailabilities, schedules]
   );
 
   return {
