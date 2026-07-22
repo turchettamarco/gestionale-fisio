@@ -59,6 +59,9 @@ import type {
 
 export type CalendarFilters = {
   location: "all" | "studio" | "domicile";
+  /** Filtro sede specifica (multi-sede, mig. 014). "all" = tutte le sedi,
+   *  altrimenti l'id della studio_location. Tappa A multi-op/stanza. */
+  locationId: "all" | string;
   treatmentType: "all" | TreatmentType;
   priceType: "all" | "invoiced" | "cash";
   minAmount: string;
@@ -246,6 +249,7 @@ export function useSearchAndFilters(
   /* ─── Filtri valori ─── */
   const [filters, setFilters] = useState<CalendarFilters>({
     location: "all",
+    locationId: "all",
     treatmentType: "all",
     priceType: "all",
     minAmount: "",

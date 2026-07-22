@@ -25,6 +25,7 @@
 "use client";
 
 import { italianHoliday } from "@/src/lib/holidays";
+import type { ReactNode } from "react";
 import {
   THEME, fmtTime, formatDMY, pad2, statusBg, statusLabel,
   cycleDotTitle, cycleDotGlyph,
@@ -165,6 +166,25 @@ export type WeekViewProps = {
    * con sub-colonne strette).
    */
   operatorColorMap?: Map<string, string>;
+
+  // ─── Assenze operatore (Tappa A, mig. 019 operator_unavailability) ─────
+  /**
+   * Ferie/malattia degli operatori nella settimana visibile. Renderizzate
+   * come fasce tratteggiate nella sub-colonna dell'operatore assente
+   * (solo in modalità multi-op). pointer-events: none → non bloccano
+   * click/drop; la prevenzione vera è nel modale e nel conflict check
+   * del drag&drop.
+   */
+  unavailabilities?: Array<{
+    id: string;
+    operator_id: string;
+    start_at: Date;
+    end_at: Date;
+    reason: string | null;
+    all_day: boolean;
+  }>;
+  /** Mappa operator_id → sigla (signature_short) per la label delle fasce. */
+  operatorLabelMap?: Map<string, string>;
 };
 
 export default function WeekView({
@@ -182,6 +202,7 @@ export default function WeekView({
   onSelectEvent, onToggleBulkSelect,
   onToggleDone, onTogglePaid, onUpdatePayment, onSendReminder,
   multiOperatorMode, operatorOrder, operatorColorMap,
+  unavailabilities, operatorLabelMap,
 }: WeekViewProps) {
   const slotOffsets = slotMinutes === 15 ? [0, 15, 30, 45] : [0, 30];
   // ─── Note: la variabile non è usata direttamente ma mantenuta nelle props
@@ -464,6 +485,86 @@ export default function WeekView({
                 {`${pad2(draggingOver.hour)}:${pad2(draggingOver.minute)}`}
               </div>
             );
+          })()}
+
+          {/* ─── Assenze operatore (Tappa A) ──────────────────
+              Fasce tratteggiate nella sub-colonna dell'operatore assente.
+              Solo in modalità multi-op (le assenze sono per-operatore).
+              zIndex 1: sotto le card evento (zIndex ≥ 2). */}
+          {(() => {
+            const useMultiOp = !!multiOperatorMode && !!operatorOrder && operatorOrder.length >= 2;
+            if (!useMultiOp || !unavailabilities || unavailabilities.length === 0) return null;
+
+            const hasUnassigned = filteredEvents.some(e => !e.operator_id);
+            const totalLanes = operatorOrder!.length + (hasUnassigned ? 1 : 0);
+
+            // Fine griglia: ultimo slot + 1h (timeSlots es. ["07:00",...,"20:00"])
+            const lastSlot = timeSlots[timeSlots.length - 1] ?? "20:00";
+            const gridEndHour = (parseInt(lastSlot.split(":")[0], 10) || 20) + 1;
+
+            const blocks: ReactNode[] = [];
+            for (const u of unavailabilities) {
+              const lane = operatorOrder!.indexOf(u.operator_id);
+              if (lane === -1) continue; // operatore non tra le colonne visibili
+
+              for (let dayIndex = 0; dayIndex < weekDays.length; dayIndex++) {
+                const day = weekDays[dayIndex];
+                const dayStart = new Date(day); dayStart.setHours(0, 0, 0, 0);
+                const dayEnd = new Date(day); dayEnd.setHours(23, 59, 59, 999);
+                if (u.end_at <= dayStart || u.start_at >= dayEnd) continue;
+
+                // Clamp dell'assenza al giorno e alla griglia oraria visibile
+                const s = new Date(day);
+                const e = new Date(day);
+                if (u.all_day) {
+                  s.setHours(gridStartHour, 0, 0, 0);
+                  e.setHours(gridEndHour, 0, 0, 0);
+                } else {
+                  const rawS = u.start_at > dayStart ? u.start_at : dayStart;
+                  const rawE = u.end_at < dayEnd ? u.end_at : dayEnd;
+                  s.setHours(Math.max(rawS.getHours(), gridStartHour), rawS.getHours() >= gridStartHour ? rawS.getMinutes() : 0, 0, 0);
+                  const clampedEndHour = Math.min(rawE.getHours() + (rawE.getMinutes() > 0 ? 1 : 0), gridEndHour);
+                  e.setHours(clampedEndHour, clampedEndHour === rawE.getHours() ? rawE.getMinutes() : 0, 0, 0);
+                }
+                if (e <= s) continue;
+
+                const { top, height } = getEventPosition(s, e);
+                const color = operatorColorMap?.get(u.operator_id) || "#94a3b8";
+                const sigla = operatorLabelMap?.get(u.operator_id) || "";
+
+                blocks.push(
+                  <div
+                    key={`unav-${u.id}-${dayIndex}`}
+                    title={`Assenza${sigla ? ` ${sigla}` : ""}${u.reason ? ` — ${u.reason}` : ""}`}
+                    style={{
+                      position: "absolute",
+                      left: `calc(${TIME_COL}px + ${dayIndex} * calc((100% - ${TIME_COL}px) / 6) + 2px + ${lane} * ((calc((100% - ${TIME_COL}px) / 6) - 8px) / ${totalLanes}))`,
+                      top: `${top + 1}px`,
+                      width: `calc(((100% - ${TIME_COL}px) / 6 - 8px) / ${totalLanes} - ${totalLanes > 1 ? 2 : 0}px)`,
+                      height: `${Math.max(height - 2, 14)}px`,
+                      background: "repeating-linear-gradient(135deg, rgba(148,163,184,0.16) 0px, rgba(148,163,184,0.16) 6px, rgba(148,163,184,0.05) 6px, rgba(148,163,184,0.05) 12px)",
+                      border: "1px dashed #cbd5e1",
+                      borderLeft: `3px solid ${color}`,
+                      borderRadius: 6,
+                      boxSizing: "border-box",
+                      pointerEvents: "none",
+                      zIndex: 1,
+                      overflow: "hidden",
+                      display: "flex",
+                      alignItems: "flex-start",
+                      padding: "2px 4px",
+                    }}
+                  >
+                    {height >= 26 && (
+                      <span style={{ fontSize: 9, fontWeight: 700, color: "#64748b", letterSpacing: 0.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        ⛔ {sigla || "Assente"}
+                      </span>
+                    )}
+                  </div>
+                );
+              }
+            }
+            return blocks;
           })()}
 
           {/* ─── Eventi posizionati ─────────────────────────── */}

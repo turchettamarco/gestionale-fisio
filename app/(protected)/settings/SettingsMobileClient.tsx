@@ -1252,7 +1252,20 @@ export default function SettingsMobileClient() {
         .update({ multi_operator_enabled: multiOperatorEnabled }).eq("id", currentStudioId);
       if (error) { setError("Errore salvataggio multi-operatore: " + error.message); return; }
       await refreshStudio();
-      flashOk(multiOperatorEnabled ? "Multi-operatore attivato." : "Multi-operatore disattivato.");
+      // Tappa A (mig. 067): all'attivazione, backfill storico → owner.
+      if (multiOperatorEnabled) {
+        const { data: assigned, error: bfErr } = await supabase.rpc(
+          "backfill_operator_assignments",
+          { p_studio_id: currentStudioId }
+        );
+        if (!bfErr && typeof assigned === "number" && assigned > 0) {
+          flashOk(`Multi-operatore attivato. ${assigned} appuntamenti assegnati a te.`);
+        } else {
+          flashOk("Multi-operatore attivato.");
+        }
+      } else {
+        flashOk("Multi-operatore disattivato.");
+      }
     } finally { setSavingMultiOpToggle(false); }
   }, [currentStudioId, multiOperatorEnabled, refreshStudio]);
 

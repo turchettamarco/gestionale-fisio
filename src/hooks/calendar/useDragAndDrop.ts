@@ -31,11 +31,12 @@
 //     all'inizio del drag
 //
 // Note:
-//   - Zero modifiche di comportamento rispetto al codice originale.
-//   - Il drag-and-drop NON valida l'overlap con altri appuntamenti
-//     (comportamento storico): l'utente può sovrapporre via DnD.
-//     Lo strumento di prevenzione overlap è solo la creazione/modifica
-//     da modale.
+//   - Tappa A multi-op: il drop ora VALIDA i conflitti (stesso operatore,
+//     stessa stanza, assenze operatore, overlap generico in single-op)
+//     rispettando practice_settings.overlap_mode:
+//       "visual" → nessun controllo (comportamento storico)
+//       "warn"   → window.confirm prima di spostare
+//       "block"  → spostamento negato con messaggio di errore
 // ═══════════════════════════════════════════════════════════════════════
 
 "use client";
@@ -85,6 +86,25 @@ export interface UseDragAndDropOptions {
   setError: Dispatch<SetStateAction<string>>;
   setHoverTooltip: Dispatch<SetStateAction<HoverTooltipState>>;
   hoverTimer: MutableRefObject<any>;
+
+  // ─── Conflict check al drop (Tappa A multi-op/stanza) ──────────────────
+  /** Eventi correnti della finestra: servono per verificare i conflitti
+   *  di operatore/stanza nel nuovo orario di destinazione. */
+  events?: CalendarEvent[];
+  /** Comportamento overlap (da practice_settings.overlap_mode):
+   *  "block" = impedisce il drop in conflitto; "warn" = chiede conferma;
+   *  "visual" = nessun controllo (comportamento storico). Default "warn". */
+  overlapMode?: "warn" | "block" | "visual";
+  multiOperatorEnabled?: boolean;
+  multiRoomEnabled?: boolean;
+  /** Assenze operatore (ferie/malattia) della finestra corrente. */
+  unavailabilities?: Array<{
+    operator_id: string;
+    start_at: Date;
+    end_at: Date;
+    reason: string | null;
+    all_day: boolean;
+  }>;
 }
 
 export interface UseDragAndDropReturn {
@@ -130,6 +150,11 @@ export function useDragAndDrop(
     setError,
     setHoverTooltip,
     hoverTimer,
+    events,
+    overlapMode = "warn",
+    multiOperatorEnabled = false,
+    multiRoomEnabled = false,
+    unavailabilities,
   } = options;
 
   /* ─── Stato ─── */
@@ -224,6 +249,83 @@ export function useDragAndDrop(
         draggingEvent.originalStart.getTime();
       const newEnd = new Date(newStart.getTime() + duration);
 
+      // ─── Conflict check (Tappa A) ────────────────────────────────────
+      // Il drag&drop storicamente non validava nulla: ora, coerentemente
+      // con il modale crea/modifica, verifichiamo prima dell'UPDATE:
+      //   • sovrapposizione stesso OPERATORE (se multi-op)
+      //   • sovrapposizione stessa STANZA (se multi-stanza)
+      //   • sovrapposizione generica (se single-op, come l'overlapWarning
+      //     del modale)
+      //   • ASSENZA dell'operatore (ferie/malattia) nel nuovo orario
+      // Comportamento secondo overlap_mode: "visual" = nessun controllo
+      // (comportamento storico), "warn" = confirm, "block" = drop negato.
+      if (overlapMode !== "visual") {
+        const moved = events?.find(e => e.id === apptId) ?? null;
+        const ns = newStart.getTime();
+        const ne = newEnd.getTime();
+        const problems: string[] = [];
+
+        if (moved && events && events.length > 0) {
+          for (const ev of events) {
+            if (ev.id === apptId) continue;
+            if (ev.status === "cancelled") continue;
+            const evS = ev.start.getTime();
+            const evE = ev.end.getTime();
+            const overlaps = !(evE <= ns || evS >= ne);
+            if (!overlaps) continue;
+
+            const hhmm = `${ev.start.getHours().toString().padStart(2, "0")}:${ev.start.getMinutes().toString().padStart(2, "0")}`;
+            if (multiOperatorEnabled) {
+              if (moved.operator_id && ev.operator_id === moved.operator_id) {
+                problems.push(`stesso operatore già occupato con ${ev.patient_name} alle ${hhmm}`);
+              }
+              if (multiRoomEnabled && moved.room_id && ev.room_id === moved.room_id) {
+                problems.push(`stanza già occupata da ${ev.patient_name} alle ${hhmm}`);
+              }
+            } else {
+              // Single-op: qualsiasi sovrapposizione è rilevante.
+              problems.push(`sovrapposizione con ${ev.patient_name} alle ${hhmm}`);
+            }
+            if (problems.length > 0) break; // basta il primo conflitto
+          }
+        }
+
+        // Assenza operatore nel nuovo orario
+        if (
+          problems.length === 0 &&
+          multiOperatorEnabled &&
+          moved?.operator_id &&
+          unavailabilities &&
+          unavailabilities.length > 0
+        ) {
+          const abs = unavailabilities.find(u =>
+            u.operator_id === moved.operator_id &&
+            !(u.end_at.getTime() <= ns || u.start_at.getTime() >= ne)
+          );
+          if (abs) {
+            problems.push(
+              `l'operatore risulta assente in quell'orario${abs.reason ? ` (${abs.reason})` : ""}`
+            );
+          }
+        }
+
+        if (problems.length > 0) {
+          if (overlapMode === "block") {
+            setError(`Spostamento annullato: ${problems[0]}.`);
+            setDraggingEvent(null);
+            return;
+          }
+          // warn → chiedi conferma
+          const ok = window.confirm(
+            `⚠ Attenzione: ${problems[0]}.\n\nSpostare comunque l'appuntamento?`
+          );
+          if (!ok) {
+            setDraggingEvent(null);
+            return;
+          }
+        }
+      }
+
       setError("");
 
       const { error } = await supabase
@@ -244,7 +346,7 @@ export function useDragAndDrop(
 
       setDraggingEvent(null);
     },
-    [draggingEvent, currentDate, loadAppointments, setError]
+    [draggingEvent, currentDate, loadAppointments, setError, events, overlapMode, multiOperatorEnabled, multiRoomEnabled, unavailabilities]
   );
 
   const handleDragEnd = useCallback((event: React.DragEvent) => {

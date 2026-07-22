@@ -502,7 +502,22 @@ export default function SettingsDesktopClient() {
         return;
       }
       await refreshStudio();
-      flashSuccess(multiOperatorEnabled ? "Multi-operatore attivato." : "Multi-operatore disattivato.");
+      // Tappa A (mig. 067): all'ATTIVAZIONE assegniamo lo storico all'owner.
+      // Chi ha sempre lavorato da solo si ritrova tutti gli appuntamenti
+      // (passati e futuri) già assegnati a sé, niente "Non assegnati".
+      if (multiOperatorEnabled) {
+        const { data: assigned, error: bfErr } = await supabase.rpc(
+          "backfill_operator_assignments",
+          { p_studio_id: studio.id }
+        );
+        if (!bfErr && typeof assigned === "number" && assigned > 0) {
+          flashSuccess(`Multi-operatore attivato. ${assigned} appuntamenti esistenti assegnati a te.`);
+        } else {
+          flashSuccess("Multi-operatore attivato.");
+        }
+      } else {
+        flashSuccess("Multi-operatore disattivato.");
+      }
     } finally {
       setSavingMultiOpToggle(false);
     }

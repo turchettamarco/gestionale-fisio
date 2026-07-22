@@ -137,6 +137,17 @@ export type SelectedEventModalProps = {
   }>;
   editRoomId?: string | null;
   setEditRoomId?: (id: string | null) => void;
+
+  // ─── Assenze operatore (Tappa A) ────────────────────────
+  /** Ferie/malattia degli operatori: warning se l'operatore selezionato
+   *  risulta assente nell'orario di modifica. */
+  unavailabilities?: Array<{
+    operator_id: string;
+    start_at: Date;
+    end_at: Date;
+    reason: string | null;
+    all_day: boolean;
+  }>;
 };
 
 export default function SelectedEventModal({
@@ -164,6 +175,7 @@ export default function SelectedEventModal({
   rooms,
   editRoomId,
   setEditRoomId,
+  unavailabilities,
 }: SelectedEventModalProps) {
 
   // Lookup evento corrente nei dati aggiornati
@@ -221,6 +233,29 @@ export default function SelectedEventModal({
           patient: ev.patient_name,
           time: `${ev.start.getHours().toString().padStart(2, "0")}:${ev.start.getMinutes().toString().padStart(2, "0")}`,
         };
+      }
+    }
+    return null;
+  })();
+
+  // ─── Assenza operatore (Tappa A, operator_unavailability) ──
+  // Warning se l'operatore selezionato risulta in ferie/malattia
+  // nell'orario di modifica. Non blocca il salvataggio.
+  const operatorAbsence = (() => {
+    if (!multiOperatorEnabled) return null;
+    if (!editOperatorId) return null;
+    if (!unavailabilities || unavailabilities.length === 0) return null;
+    if (!editDate || !editStartTime) return null;
+    const startStr = `${editDate}T${editStartTime}:00`;
+    const start = new Date(startStr).getTime();
+    if (Number.isNaN(start)) return null;
+    const durHours = parseFloat(editDuration);
+    const end = start + durHours * 60 * 60000;
+
+    for (const u of unavailabilities) {
+      if (u.operator_id !== editOperatorId) continue;
+      if (!(u.end_at.getTime() <= start || u.start_at.getTime() >= end)) {
+        return { reason: u.reason, allDay: u.all_day };
       }
     }
     return null;
@@ -511,6 +546,29 @@ export default function SelectedEventModal({
                 <span style={{ fontSize: 16 }}>⚠️</span>
                 <span>
                   Conflitto: questo operatore ha già <strong>{operatorConflict.patient}</strong> alle <strong>{operatorConflict.time}</strong>.
+                </span>
+              </div>
+            )}
+            {/* ─── Warning assenza operatore (Tappa A) ─────────────── */}
+            {operatorAbsence && (
+              <div style={{
+                marginTop: 12,
+                padding: "10px 12px",
+                background: "rgba(220,38,38,0.06)",
+                border: "1px solid rgba(220,38,38,0.25)",
+                borderRadius: 8,
+                fontSize: 12,
+                color: "#991b1b",
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}>
+                <span style={{ fontSize: 16 }}>⛔</span>
+                <span>
+                  Attenzione: questo operatore risulta <strong>assente</strong>
+                  {operatorAbsence.allDay ? " per l'intera giornata" : " in questo orario"}
+                  {operatorAbsence.reason ? <> ({operatorAbsence.reason})</> : null}.
                 </span>
               </div>
             )}

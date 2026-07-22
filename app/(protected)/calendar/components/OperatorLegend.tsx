@@ -108,8 +108,17 @@ export default function OperatorLegend({
         return (
           <button
             key={key}
-            onClick={() => handleClick(key)}
-            title={isSelected ? "Click per mostrare tutti" : `Click per filtrare solo ${member.display_name || "—"}`}
+            // Tappa A: i membri PENDING (invitati non ancora registrati) non
+            // possono avere appuntamenti assegnati (il modale richiede
+            // user_id), quindi il loro chip come filtro mostrerebbe sempre
+            // un calendario vuoto. Li lasciamo visibili (per la legenda
+            // colori) ma non cliccabili.
+            onClick={() => { if (isPending) return; handleClick(key); }}
+            title={
+              isPending
+                ? "In attesa di registrazione: il filtro si attiva quando il collega completa l'iscrizione"
+                : isSelected ? "Click per mostrare tutti" : `Click per filtrare solo ${member.display_name || "—"}`
+            }
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -118,9 +127,9 @@ export default function OperatorLegend({
               borderRadius: 99,
               background: isSelected ? color : `${color}14`,
               border: isSelected ? `2px solid ${color}` : `1px solid ${color}40`,
-              cursor: "pointer",
+              cursor: isPending ? "default" : "pointer",
               fontFamily: "inherit",
-              opacity: isDimmed ? 0.4 : 1,
+              opacity: isDimmed ? 0.4 : isPending ? 0.65 : 1,
               transition: "opacity 0.15s, background 0.15s, border-color 0.15s",
             }}
           >

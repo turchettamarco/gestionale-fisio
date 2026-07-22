@@ -194,6 +194,15 @@ export type CreateAppointmentModalProps = {
     status: string;
     patient_name: string;
   }>;
+  /** Assenze operatore (Tappa A): usate per avvisare se l'operatore
+   *  selezionato risulta in ferie/malattia nell'orario scelto. */
+  unavailabilities?: Array<{
+    operator_id: string;
+    start_at: Date;
+    end_at: Date;
+    reason: string | null;
+    all_day: boolean;
+  }>;
 
   // ─── Multi-stanza (mig. 019, Fase Stanze) ─────────────────
   /** Toggle multi_room_enabled — se false, il selettore non si vede */
@@ -277,6 +286,7 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
     multiOperatorEnabled,
     members,
     createOperatorId,
+    unavailabilities,
     setCreateOperatorId,
     existingEvents,
     multiRoomEnabled,
@@ -357,6 +367,33 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
     }
     return null;
   }, [multiOperatorEnabled, createOperatorId, existingEvents, createStartISO, createEndISO, duplicateMode, duplicateDate, duplicateTime]);
+
+  // ─── Assenza operatore (Tappa A, operator_unavailability) ─────
+  // Se l'operatore selezionato risulta in ferie/malattia nell'orario scelto,
+  // mostriamo un warning dedicato (non blocca il salvataggio).
+  const operatorAbsence = useMemo(() => {
+    if (!multiOperatorEnabled) return null;
+    if (!createOperatorId) return null;
+    if (!unavailabilities || unavailabilities.length === 0) return null;
+
+    const startISO = duplicateMode && duplicateDate && duplicateTime
+      ? new Date(`${duplicateDate}T${duplicateTime}:00`).toISOString()
+      : createStartISO;
+    const endISO = createEndISO;
+    if (!startISO || !endISO) return null;
+
+    const start = new Date(startISO).getTime();
+    const end = new Date(endISO).getTime();
+    if (Number.isNaN(start) || Number.isNaN(end)) return null;
+
+    for (const u of unavailabilities) {
+      if (u.operator_id !== createOperatorId) continue;
+      if (!(u.end_at.getTime() <= start || u.start_at.getTime() >= end)) {
+        return { reason: u.reason, allDay: u.all_day };
+      }
+    }
+    return null;
+  }, [multiOperatorEnabled, createOperatorId, unavailabilities, createStartISO, createEndISO, duplicateMode, duplicateDate, duplicateTime]);
 
   // ─── Conflict detection stanza (Fase Stanze) ─────────────────
   // Se multi-stanza attivo e c'è una stanza selezionata, verifica se quella
@@ -1384,6 +1421,29 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
                 <span style={{ fontSize: 16 }}>⚠️</span>
                 <span>
                   Conflitto: questo operatore ha già <strong>{operatorConflict.patient}</strong> alle <strong>{operatorConflict.time}</strong>. Puoi comunque salvare ma verifica.
+                </span>
+              </div>
+            )}
+            {/* ─── Warning assenza operatore (Tappa A) ───────────────── */}
+            {operatorAbsence && (
+              <div style={{
+                marginTop: 12,
+                padding: "10px 12px",
+                background: "rgba(220,38,38,0.06)",
+                border: "1px solid rgba(220,38,38,0.25)",
+                borderRadius: 8,
+                fontSize: 12,
+                color: "#991b1b",
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}>
+                <span style={{ fontSize: 16 }}>⛔</span>
+                <span>
+                  Attenzione: questo operatore risulta <strong>assente</strong>
+                  {operatorAbsence.allDay ? " per l'intera giornata" : " in questo orario"}
+                  {operatorAbsence.reason ? <> ({operatorAbsence.reason})</> : null}. Puoi comunque salvare ma verifica.
                 </span>
               </div>
             )}

@@ -20,6 +20,9 @@ import {
 
 export type CalendarFilters = {
   location: "all" | "studio" | "domicile";
+  /** Filtro sede specifica (multi-sede, mig. 014). "all" = tutte le sedi,
+   *  altrimenti l'id della studio_location. Tappa A multi-op/stanza. */
+  locationId: "all" | string;
   treatmentType: "all" | TreatmentType;
   priceType: "all" | "invoiced" | "cash";
   minAmount: string;
@@ -44,6 +47,12 @@ export type FiltersPopoverProps = {
 
   /** Chiude il popover (overlay click o ✕) */
   onClose: () => void;
+
+  // ─── Multi-sede (Tappa A): dropdown sede specifica ────────────────────
+  /** Sedi dello studio. Il dropdown appare solo se multiLocationEnabled
+   *  e ci sono almeno 2 sedi. */
+  studioLocations?: Array<{ id: string; name: string; is_primary: boolean }>;
+  multiLocationEnabled?: boolean;
 };
 
 const STATUS_OPTIONS = ["all", "booked", "confirmed", "done", "not_paid", "cancelled"] as const;
@@ -54,21 +63,28 @@ export default function FiltersPopover({
   showAvailableOnly, setShowAvailableOnly,
   filteredEventsCount,
   onClose,
+  studioLocations,
+  multiLocationEnabled,
 }: FiltersPopoverProps) {
 
   // Indica se almeno un filtro avanzato è attivo (per il reset)
   const hasActiveAdvanced =
     filters.location !== "all" ||
+    filters.locationId !== "all" ||
     filters.treatmentType !== "all" ||
     filters.priceType !== "all" ||
     !!filters.minAmount ||
     !!filters.maxAmount;
 
   const handleReset = () => {
-    setFilters({ location: "all", treatmentType: "all", priceType: "all", minAmount: "", maxAmount: "" });
+    setFilters({ location: "all", locationId: "all", treatmentType: "all", priceType: "all", minAmount: "", maxAmount: "" });
     setStatusFilter("all");
     setShowAvailableOnly(false);
   };
+
+  // Dropdown sede: solo se multi-sede attivo e almeno 2 sedi configurate.
+  const showLocationIdFilter =
+    !!multiLocationEnabled && !!studioLocations && studioLocations.length >= 2;
 
   return (
     <>
@@ -136,6 +152,19 @@ export default function FiltersPopover({
               <option value="studio">Studio</option>
               <option value="domicile">Domicilio</option>
             </select>
+            {/* ─── Sede specifica (Tappa A, multi-sede) ─────────────── */}
+            {showLocationIdFilter && (
+              <select
+                value={filters.locationId}
+                onChange={e => setFilters(p => ({ ...p, locationId: e.target.value }))}
+                style={{ width: "100%", marginTop: 6, padding: "8px 10px", borderRadius: 7, border: `1px solid ${THEME.borderSoft}`, background: THEME.panelBg, fontSize: 12, fontWeight: 600, color: THEME.text }}
+              >
+                <option value="all">Tutte le sedi</option>
+                {studioLocations!.map(l => (
+                  <option key={l.id} value={l.id}>{l.name}{l.is_primary ? " (principale)" : ""}</option>
+                ))}
+              </select>
+            )}
           </div>
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>

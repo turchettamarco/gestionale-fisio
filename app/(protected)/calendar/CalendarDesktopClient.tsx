@@ -201,6 +201,21 @@ function CalendarPageInner() {
     return m;
   }, [activeMembers]);
 
+  // Tappa A: mappa operator_id → sigla (signature_short) per la label
+  // delle fasce di assenza nella WeekView. Solo membri registrati:
+  // le assenze appartengono a user_id reali, mai ai pending.
+  const operatorLabelMap = useMemo<Map<string, string>>(() => {
+    const m = new Map<string, string>();
+    for (const member of activeMembers) {
+      if (!member.user_id) continue;
+      m.set(
+        member.user_id,
+        (member.signature_short || member.display_name || "?").substring(0, 3).toUpperCase()
+      );
+    }
+    return m;
+  }, [activeMembers]);
+
   // Mappa room_id → color per la vista Roster (e future viste).
   // Le stanze sono caricate dallo studio corrente via useEffect più sotto.
   const roomColorMap = useMemo<Map<string, string>>(() => {
@@ -797,6 +812,13 @@ function CalendarPageInner() {
     setError,
     setHoverTooltip,
     hoverTimer,
+    // Tappa A: conflict check al drop (operatore/stanza/assenze),
+    // rispettando practice_settings.overlap_mode.
+    events,
+    overlapMode: ((practiceSettings?.overlap_mode as "warn" | "block" | "visual" | undefined) ?? "warn"),
+    multiOperatorEnabled,
+    multiRoomEnabled,
+    unavailabilities,
   });
 
   const {
@@ -1176,6 +1198,13 @@ function CalendarPageInner() {
     // Step 3: filtro luogo
     if (filters.location !== "all") {
       result = result.filter(e => e.location === filters.location);
+    }
+
+    // Step 3bis: filtro sede specifica (Tappa A, multi-sede).
+    // Gli appuntamenti a domicilio o legacy hanno location_id NULL e
+    // vengono esclusi quando si filtra per una sede precisa.
+    if (filters.locationId !== "all") {
+      result = result.filter(e => e.location_id === filters.locationId);
     }
 
     // Step 4: filtro trattamento
@@ -2169,6 +2198,8 @@ return (
               setShowAvailableOnly={setShowAvailableOnly}
               filteredEventsCount={filteredEvents.length}
               onClose={() => setFiltersPopoverOpen(false)}
+              studioLocations={studioLocations}
+              multiLocationEnabled={!!currentStudio?.multi_location_enabled}
             />
           )}
 
@@ -2338,6 +2369,8 @@ return (
               multiOperatorMode={multiOperatorEnabled && activeMembers.length >= 2}
               operatorOrder={operatorOrder}
               operatorColorMap={operatorColorMap}
+              unavailabilities={unavailabilities}
+              operatorLabelMap={operatorLabelMap}
             />
             )
           ) : viewType === "month" ? (
@@ -2554,6 +2587,7 @@ return (
           createOperatorId={createOperatorId}
           setCreateOperatorId={setCreateOperatorId}
           existingEvents={events}
+          unavailabilities={unavailabilities}
           multiRoomEnabled={multiRoomEnabled && studioRooms.length > 0}
           rooms={studioRooms}
           createRoomId={createRoomId}
@@ -2671,6 +2705,7 @@ return (
           rooms={studioRooms}
           editRoomId={editRoomId}
           setEditRoomId={setEditRoomId}
+          unavailabilities={unavailabilities}
         />
         );
       })()}
