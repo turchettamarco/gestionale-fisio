@@ -50,6 +50,7 @@ import {
 } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import { translateError } from "@/src/lib/translateError";
+import { validateEventMove } from "./moveValidation";
 import {
   addDays,
   startOfISOWeekMonday,
@@ -135,6 +136,20 @@ export interface UseDragAndDropReturn {
     targetDate: Date,
     targetHour: number,
     targetMinute?: number
+  ) => Promise<void>;
+  /**
+   * Tappa B: drop con RIASSEGNAZIONE. Come handleDrop, ma la colonna di
+   * destinazione determina anche il nuovo operatore (DayTimelineMulti in
+   * modalità operatori) o la nuova stanza (modalità stanze).
+   *   assign.operatorKey: user_id | null ("Non assegnati") | undefined (non toccare)
+   *   assign.roomId:      room_id | null ("Senza stanza")  | undefined (non toccare)
+   */
+  handleDropAssign: (
+    event: React.DragEvent,
+    targetDate: Date,
+    targetHour: number,
+    targetMinute: number,
+    assign: { operatorKey?: string | null; roomId?: string | null }
   ) => Promise<void>;
   handleDragEnd: (event: React.DragEvent) => void;
 }
@@ -263,51 +278,15 @@ export function useDragAndDrop(
         const moved = events?.find(e => e.id === apptId) ?? null;
         const ns = newStart.getTime();
         const ne = newEnd.getTime();
-        const problems: string[] = [];
-
-        if (moved && events && events.length > 0) {
-          for (const ev of events) {
-            if (ev.id === apptId) continue;
-            if (ev.status === "cancelled") continue;
-            const evS = ev.start.getTime();
-            const evE = ev.end.getTime();
-            const overlaps = !(evE <= ns || evS >= ne);
-            if (!overlaps) continue;
-
-            const hhmm = `${ev.start.getHours().toString().padStart(2, "0")}:${ev.start.getMinutes().toString().padStart(2, "0")}`;
-            if (multiOperatorEnabled) {
-              if (moved.operator_id && ev.operator_id === moved.operator_id) {
-                problems.push(`stesso operatore già occupato con ${ev.patient_name} alle ${hhmm}`);
-              }
-              if (multiRoomEnabled && moved.room_id && ev.room_id === moved.room_id) {
-                problems.push(`stanza già occupata da ${ev.patient_name} alle ${hhmm}`);
-              }
-            } else {
-              // Single-op: qualsiasi sovrapposizione è rilevante.
-              problems.push(`sovrapposizione con ${ev.patient_name} alle ${hhmm}`);
-            }
-            if (problems.length > 0) break; // basta il primo conflitto
-          }
-        }
-
-        // Assenza operatore nel nuovo orario
-        if (
-          problems.length === 0 &&
-          multiOperatorEnabled &&
-          moved?.operator_id &&
-          unavailabilities &&
-          unavailabilities.length > 0
-        ) {
-          const abs = unavailabilities.find(u =>
-            u.operator_id === moved.operator_id &&
-            !(u.end_at.getTime() <= ns || u.start_at.getTime() >= ne)
-          );
-          if (abs) {
-            problems.push(
-              `l'operatore risulta assente in quell'orario${abs.reason ? ` (${abs.reason})` : ""}`
-            );
-          }
-        }
+        const problems: string[] = moved && events && events.length > 0
+          ? validateEventMove({
+              movingId: apptId,
+              targetOperatorId: moved.operator_id ?? null,
+              targetRoomId: moved.room_id ?? null,
+              ns, ne, events,
+              multiOperatorEnabled, multiRoomEnabled, unavailabilities,
+            })
+          : [];
 
         if (problems.length > 0) {
           if (overlapMode === "block") {
@@ -359,6 +338,118 @@ export function useDragAndDrop(
     setDraggingOver(null);
   }, []);
 
+  // ─── Tappa B: drop con riassegnazione (DayTimelineMulti) ───────────────
+  // Drop su una colonna operatore = cambia orario E operator_id.
+  // Drop su una colonna stanza    = cambia orario E room_id.
+  // Guardrail:
+  //   • colonne pending → drop rifiutato (non si assegna a non registrati)
+  //   • eventi ospite   → mai operator_id (constraint operator_xor_guest);
+  //     consentito solo il drop su "Non assegnati" (solo cambio orario)
+  const handleDropAssign = useCallback(
+    async (
+      event: React.DragEvent,
+      targetDate: Date,
+      targetHour: number,
+      targetMinute: number,
+      assign: { operatorKey?: string | null; roomId?: string | null }
+    ) => {
+      event.preventDefault();
+      setDraggingOver(null);
+      if (event.currentTarget instanceof HTMLElement) {
+        event.currentTarget.style.backgroundColor = "transparent";
+      }
+      if (!draggingEvent) return;
+      const apptId = event.dataTransfer.getData("text/plain");
+      if (apptId !== draggingEvent.id) return;
+
+      const moved = events?.find(e => e.id === apptId) ?? null;
+      const movedGuestId = (moved as { guest_practitioner_id?: string | null } | null)?.guest_practitioner_id ?? null;
+
+      if (assign.operatorKey && assign.operatorKey.startsWith("pending:")) {
+        setError("Non puoi assegnare appuntamenti a un collega non ancora registrato.");
+        setDraggingEvent(null);
+        return;
+      }
+      if (movedGuestId && assign.operatorKey !== undefined && assign.operatorKey !== null) {
+        setError("Gli appuntamenti degli ospiti non possono essere assegnati a un operatore del team.");
+        setDraggingEvent(null);
+        return;
+      }
+
+      const newStart = new Date(targetDate);
+      newStart.setHours(targetHour, targetMinute, 0, 0);
+      const duration =
+        draggingEvent.originalEnd.getTime() -
+        draggingEvent.originalStart.getTime();
+      const newEnd = new Date(newStart.getTime() + duration);
+
+      // Operatore/stanza EFFETTIVI di destinazione per la validazione
+      const effOperatorId = movedGuestId
+        ? null
+        : assign.operatorKey !== undefined
+          ? assign.operatorKey
+          : (moved?.operator_id ?? null);
+      const effRoomId = assign.roomId !== undefined
+        ? assign.roomId
+        : (moved?.room_id ?? null);
+
+      if (overlapMode !== "visual" && moved && events && events.length > 0) {
+        const problems = validateEventMove({
+          movingId: apptId,
+          targetOperatorId: effOperatorId,
+          targetRoomId: effRoomId,
+          ns: newStart.getTime(),
+          ne: newEnd.getTime(),
+          events,
+          multiOperatorEnabled,
+          multiRoomEnabled,
+          unavailabilities,
+        });
+        if (problems.length > 0) {
+          if (overlapMode === "block") {
+            setError(`Spostamento annullato: ${problems[0]}.`);
+            setDraggingEvent(null);
+            return;
+          }
+          const ok = window.confirm(
+            `⚠ Attenzione: ${problems[0]}.\n\nSpostare comunque l'appuntamento?`
+          );
+          if (!ok) {
+            setDraggingEvent(null);
+            return;
+          }
+        }
+      }
+
+      setError("");
+      const payload: Record<string, unknown> = {
+        start_at: newStart.toISOString(),
+        end_at: newEnd.toISOString(),
+      };
+      if (assign.operatorKey !== undefined && !movedGuestId) {
+        payload.operator_id = assign.operatorKey; // null = "Non assegnati"
+      }
+      if (assign.roomId !== undefined) {
+        payload.room_id = assign.roomId; // null = "Senza stanza"
+      }
+
+      const { error } = await supabase
+        .from("appointments")
+        .update(payload)
+        .eq("id", apptId);
+
+      if (error) {
+        setError(`Errore spostamento: ${translateError(error)}`);
+      } else {
+        const startOfWeek = startOfISOWeekMonday(currentDate);
+        const endOfWeek = addDays(startOfWeek, 7);
+        await loadAppointments(startOfWeek, endOfWeek);
+      }
+      setDraggingEvent(null);
+    },
+    [draggingEvent, currentDate, loadAppointments, setError, events, overlapMode, multiOperatorEnabled, multiRoomEnabled, unavailabilities]
+  );
+
   return {
     // Stato
     draggingEvent,
@@ -373,6 +464,7 @@ export function useDragAndDrop(
     handleDragOver,
     handleDragLeave,
     handleDrop,
+    handleDropAssign,
     handleDragEnd,
   };
 }

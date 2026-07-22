@@ -86,8 +86,10 @@ export type DayTimelineMultiProps = {
   /** Set id che matchano la search (highlight) */
   searchMatchIds: Set<string>;
 
-  /** Click su slot vuoto. operatorId è il nuovo argomento per multi-op. */
-  onSlotClick: (date: Date, hour: number, minute: number, operatorId: string | null) => void;
+  /** Click su slot vuoto. operatorId è il nuovo argomento per multi-op.
+   *  Tappa B: roomId aggiunto per la modalità colonne=Stanze (preselezione
+   *  stanza nel modale di creazione). */
+  onSlotClick: (date: Date, hour: number, minute: number, operatorId: string | null, roomId?: string | null) => void;
   slotMinutes?: number;
   /** Tasto destro / pressione lunga */
   onContextMenu: (e: React.MouseEvent, event?: CalendarEvent) => void;
@@ -107,6 +109,31 @@ export type DayTimelineMultiProps = {
     }
   ) => void | Promise<void>;
   onSendReminder: (eventId: string, phone?: string, firstName?: string) => void;
+
+  // ─── Tappa B: colonne Operatori/Stanze + drag&drop + resize ─────────────
+  /** Modalità colonne: "operators" (default) o "rooms". In modalità rooms
+   *  ogni colonna è una stanza (+ "Senza stanza" se servono), il drop
+   *  cross-corsia cambia room_id invece di operator_id. */
+  columnMode?: "operators" | "rooms";
+  onColumnModeChange?: (mode: "operators" | "rooms") => void;
+  /** Stanze attive (richieste per columnMode="rooms"). */
+  rooms?: Array<{ id: string; name: string; color: string | null }>;
+  /** Drag&drop: handler del dnd hook. Se assenti, le card non sono draggabili. */
+  onEventDragStart?: (e: React.DragEvent, eventId: string, originalStart: Date, originalEnd: Date) => void;
+  onEventDragEnd?: (e: React.DragEvent) => void;
+  /** Drop su una cella: la colonna determina operatore o stanza di destinazione. */
+  onDropAssign?: (
+    e: React.DragEvent,
+    targetDate: Date,
+    targetHour: number,
+    targetMinute: number,
+    assign: { operatorKey?: string | null; roomId?: string | null }
+  ) => void;
+  /** id dell'evento in drag (per lasciar passare i drop sotto le ALTRE card). */
+  draggingEventId?: string | null;
+  /** Resize durata (come WeekView). */
+  onResizeStart?: (event: CalendarEvent, clientY: number, pxPerMin: number) => void;
+  resizePreview?: { id: string; deltaMin: number } | null;
 };
 
 // ── Costanti visuali ─────────────────────────────────────────────────────
@@ -141,40 +168,73 @@ export default function DayTimelineMulti({
   onUpdatePayment,
   onSendReminder,
   slotMinutes = 30,
+  columnMode = "operators",
+  onColumnModeChange,
+  rooms,
+  onEventDragStart,
+  onEventDragEnd,
+  onDropAssign,
+  draggingEventId = null,
+  onResizeStart,
+  resizePreview,
 }: DayTimelineMultiProps) {
   const slotOffsets = slotMinutes === 15 ? [0, 15, 30, 45] : [0, 30];
+  const roomsMode = columnMode === "rooms" && !!rooms && rooms.length > 0;
+
+  // Colore operatore per user_id: in modalità Stanze il bordo sx della card
+  // resta il colore dell'OPERATORE dell'evento (chi fa la seduta), mentre
+  // la colonna rappresenta la stanza.
+  const opColorById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const mem of members) {
+      if (mem.user_id) m.set(mem.user_id, mem.display_color || FALLBACK_OP_COLOR);
+    }
+    return m;
+  }, [members]);
+
   // ── Calcolo colonne ────────────────────────────────────────────────────
   // 1 colonna per ogni member attivo + (se ci sono eventi orfani) 1 colonna
   // "Non assegnati" alla fine. Questo evita di mostrare una colonna vuota
   // quando tutti gli eventi hanno operator_id valorizzato.
   const hasUnassignedEvents = useMemo(
-    () => dayEvents.some(ev => !ev.operator_id),
-    [dayEvents]
+    () => roomsMode
+      ? dayEvents.some(ev => !ev.room_id)
+      : dayEvents.some(ev => !ev.operator_id),
+    [dayEvents, roomsMode]
   );
 
   const columns = useMemo(() => {
     const cols: Array<{
-      key: string;          // user_id (registrato) o invite_token (pending) o "__unassigned__"
-      label: string;        // nome operatore
+      key: string;          // user_id / invite_token / room_id / "__unassigned__"
+      label: string;
       initials: string;
       color: string;
       isUnassigned: boolean;
       isPending: boolean;   // true = invito non ancora accettato
-    }> = members.map(m => ({
-      // user_id se registrato, altrimenti invite_token (sempre univoco). Senza
-      // questo fallback, 2 inviti pendenti collidono entrambi su user_id=null
-      // e React si lamenta delle key duplicate.
-      key: m.user_id ?? `pending:${m.invite_token ?? "?"}`,
-      label: m.display_name ?? "Senza nome",
-      initials: m.signature_short || "?",
-      color: m.display_color || FALLBACK_OP_COLOR,
-      isUnassigned: false,
-      isPending: m.user_id == null,
-    }));
+    }> = roomsMode
+      ? rooms!.map(r => ({
+          key: r.id,
+          label: r.name,
+          initials: r.name.trim().slice(0, 2).toUpperCase() || "?",
+          color: r.color || FALLBACK_OP_COLOR,
+          isUnassigned: false,
+          isPending: false,
+        }))
+      : members.map(m => ({
+          // user_id se registrato, altrimenti invite_token (sempre univoco). Senza
+          // questo fallback, 2 inviti pendenti collidono entrambi su user_id=null
+          // e React si lamenta delle key duplicate.
+          key: m.user_id ?? `pending:${m.invite_token ?? "?"}`,
+          label: m.display_name ?? "Senza nome",
+          initials: m.signature_short || "?",
+          color: m.display_color || FALLBACK_OP_COLOR,
+          isUnassigned: false,
+          isPending: m.user_id == null,
+        }));
     if (hasUnassignedEvents) {
       cols.push({
         key: "__unassigned__",
-        label: "Non assegnati",
+        label: roomsMode ? "Senza stanza" : "Non assegnati",
         initials: "?",
         color: UNASSIGNED_COLOR,
         isUnassigned: true,
@@ -182,7 +242,7 @@ export default function DayTimelineMulti({
       });
     }
     return cols;
-  }, [members, hasUnassignedEvents]);
+  }, [members, hasUnassignedEvents, roomsMode, rooms]);
 
   // Mappa user_id → indice colonna per posizionare eventi velocemente
   const colIndexById = useMemo(() => {
@@ -241,6 +301,34 @@ export default function DayTimelineMulti({
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+      {/* ── Toggle colonne Operatori/Stanze (Tappa B) ──────────────────── */}
+      {onColumnModeChange && !!rooms && rooms.length > 0 && (
+        <div style={{
+          display: "flex", justifyContent: "flex-end", alignItems: "center",
+          gap: 6, padding: "6px 10px", background: THEME.panelSoft,
+          borderBottom: `1px solid ${THEME.border}`,
+        }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            Colonne
+          </span>
+          {(["operators", "rooms"] as const).map(m => (
+            <button
+              key={m}
+              onClick={() => onColumnModeChange(m)}
+              style={{
+                padding: "3px 10px", borderRadius: 6,
+                border: `1.5px solid ${columnMode === m ? THEME.text : THEME.border}`,
+                background: columnMode === m ? THEME.text : "#fff",
+                color: columnMode === m ? "#fff" : "#475569",
+                fontSize: 11, fontWeight: 700, cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              {m === "operators" ? "Operatori" : "Stanze"}
+            </button>
+          ))}
+        </div>
+      )}
       {/* ── Wrapper griglia, con scroll se serve ────────────────────────── */}
       <div style={{
         position: "relative",
@@ -303,7 +391,7 @@ export default function DayTimelineMulti({
                   fontSize: 10, fontWeight: 700, color: col.color,
                   whiteSpace: "nowrap",
                 }}>
-                  {dayEvents.filter(ev => ev.operator_id === col.key).length} sedute
+                  {dayEvents.filter(ev => roomsMode ? ev.room_id === col.key : ev.operator_id === col.key).length} sedute
                 </div>
               ) : null}
             </div>
@@ -338,9 +426,18 @@ export default function DayTimelineMulti({
         {/* ── Per ogni colonna operatore, render della colonna ───────────── */}
         {columns.map((col, ci) => {
           const colEvents = dayEvents.filter(ev =>
-            col.isUnassigned ? !ev.operator_id : ev.operator_id === col.key
+            roomsMode
+              ? (col.isUnassigned ? !ev.room_id : ev.room_id === col.key)
+              : (col.isUnassigned ? !ev.operator_id : ev.operator_id === col.key)
           );
-          const colUnav = col.isUnassigned ? [] : (unavByOperator.get(col.key) ?? []);
+          // Le assenze sono per-operatore: in modalità Stanze non si mostrano.
+          const colUnav = roomsMode || col.isUnassigned ? [] : (unavByOperator.get(col.key) ?? []);
+          // Assegnazione al drop: colonna operatore → operatorKey, colonna
+          // stanza → roomId. Colonne pending non accettano drop.
+          const dropAssign = roomsMode
+            ? { roomId: col.isUnassigned ? null : col.key }
+            : { operatorKey: col.isUnassigned ? null : col.key };
+          const dropAllowed = !!onDropAssign && !col.isPending;
 
           return (
             <div
@@ -366,8 +463,14 @@ export default function DayTimelineMulti({
                     {slotOffsets.map((off, oi) => (
                       <div
                         key={off}
-                        onClick={() => onSlotClick(currentDate, hour, off, col.isUnassigned ? null : col.key)}
+                        onClick={() => onSlotClick(
+                          currentDate, hour, off,
+                          roomsMode ? null : (col.isUnassigned || col.isPending ? null : col.key),
+                          roomsMode ? (col.isUnassigned ? null : col.key) : undefined
+                        )}
                         onContextMenu={onContextMenu}
+                        onDragOver={dropAllowed ? (e => { e.preventDefault(); }) : undefined}
+                        onDrop={dropAllowed ? (e => onDropAssign!(e, currentDate, hour, off, dropAssign)) : undefined}
                         title={`${pad2(hour)}:${pad2(off)} — ${col.label}`}
                         style={{
                           flex: 1, cursor: "pointer",
@@ -471,7 +574,10 @@ export default function DayTimelineMulti({
                 }
 
                 return colEvents.map(event => {
-                const { top, height } = getEventPosition(event);
+                const previewEvent = resizePreview && resizePreview.id === event.id
+                  ? { ...event, end: new Date(event.end.getTime() + resizePreview.deltaMin * 60000) }
+                  : event;
+                const { top, height } = getEventPosition(previewEvent);
                 if (top + height < 0 || top > gridContentHeight) return null;
 
                 const isHighlighted = searchMatchIds.has(event.id);
@@ -480,8 +586,12 @@ export default function DayTimelineMulti({
                 const isDomicile = event.location === "domicile";
                 const waSent = !!event.whatsapp_sent_at;
 
-                // Bordo sx = colore operatore (caratteristica multi-op)
-                const opColor = col.isUnassigned ? UNASSIGNED_COLOR : col.color;
+                // Bordo sx = colore operatore (caratteristica multi-op).
+                // In modalità Stanze la colonna è la stanza, ma il bordo sx
+                // resta il colore dell'OPERATORE che svolge la seduta.
+                const opColor = roomsMode
+                  ? ((event.operator_id && opColorById.get(event.operator_id)) || UNASSIGNED_COLOR)
+                  : (col.isUnassigned ? UNASSIGNED_COLOR : col.color);
                 // Fase Stanze: se l'evento ha room_id e abbiamo la mappa,
                 // usiamo il colore stanza per il BACKGROUND della card.
                 // L'operatore resta visibile dal bordo sx 4px.
@@ -501,6 +611,9 @@ export default function DayTimelineMulti({
                 return (
                   <div
                     key={event.id}
+                    draggable={!!onEventDragStart}
+                    onDragStart={onEventDragStart ? (e => onEventDragStart(e, event.id, event.start, event.end)) : undefined}
+                    onDragEnd={onEventDragEnd}
                     onClick={() => onSelectEvent(event)}
                     onContextMenu={e => onContextMenu(e, event)}
                     onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 3px 12px rgba(15,23,42,0.18)"; }}
@@ -513,6 +626,9 @@ export default function DayTimelineMulti({
                       width: `calc(${widthPct}% * (100% - 8px) / 100% - ${colCount > 1 ? 1 : 0}px)`,
                       top: `${top + 1}px`,
                       height: `${height - 2}px`,
+                      // Tappa B: durante un drag, le ALTRE card lasciano passare
+                      // gli eventi mouse alle celle sotto (drop su slot occupati).
+                      pointerEvents: draggingEventId && draggingEventId !== event.id ? "none" : "auto",
                       // Container query: permette al font dentro di scalare con
                       // la larghezza effettiva di QUESTA card (non della colonna).
                       containerType: "inline-size",
@@ -532,7 +648,7 @@ export default function DayTimelineMulti({
                       borderBottom: locStyle.borderColor ? `2px solid ${locStyle.borderColor}` : "none",
                       boxSizing: "border-box",
                       padding: "4px 6px",
-                      cursor: "pointer",
+                      cursor: onEventDragStart ? "move" : "pointer",
                       overflow: "hidden",
                       display: "flex", flexDirection: "column", gap: 2,
                       boxShadow: isHighlighted
@@ -542,6 +658,27 @@ export default function DayTimelineMulti({
                       zIndex: 2,
                     }}
                   >
+                    {/* ─── Handle resize durata (Tappa B) ─────────────────
+                        pxPerMin = DAY_PX_PER_MIN (scala fissa della vista),
+                        preciso anche su card con altezza clampata. */}
+                    {onResizeStart && event.status !== "cancelled" && (
+                      <div
+                        onPointerDown={e => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onResizeStart(event, e.clientY, DAY_PX_PER_MIN);
+                        }}
+                        onClick={e => e.stopPropagation()}
+                        title="Trascina per modificare la durata"
+                        style={{
+                          position: "absolute", left: 0, right: 0, bottom: 0,
+                          height: 7, cursor: "ns-resize",
+                          borderRadius: "0 0 6px 6px",
+                          background: "linear-gradient(rgba(255,255,255,0), rgba(255,255,255,0.35))",
+                          zIndex: 3,
+                        }}
+                      />
+                    )}
                     {event.is_group ? (
                       <GroupEventCard event={event} cardH={Math.max(height - 2, 28)} />
                     ) : (

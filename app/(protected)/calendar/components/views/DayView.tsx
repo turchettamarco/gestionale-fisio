@@ -81,8 +81,19 @@ export type DayViewProps = {
   searchMatchIds: DayTimelineProps["searchMatchIds"];
   onSlotClick: DayTimelineProps["onSlotClick"];
   /** Click su slot in vista multi-op (con operatorId). Se non passato,
-   *  cade in onSlotClick con operatorId = null (= mantiene comportamento legacy). */
-  onSlotClickMulti?: (date: Date, hour: number, minute: number, operatorId: string | null) => void;
+   *  cade in onSlotClick con operatorId = null (= mantiene comportamento legacy).
+   *  Tappa B: roomId per la modalità colonne=Stanze. */
+  onSlotClickMulti?: (date: Date, hour: number, minute: number, operatorId: string | null, roomId?: string | null) => void;
+  // ─── Tappa B: DayTimelineMulti — colonne Stanze, d&d, resize ────────────
+  columnMode?: "operators" | "rooms";
+  onColumnModeChange?: (mode: "operators" | "rooms") => void;
+  rooms?: Array<{ id: string; name: string; color: string | null }>;
+  onDropAssign?: (
+    e: React.DragEvent, targetDate: Date, targetHour: number, targetMinute: number,
+    assign: { operatorKey?: string | null; roomId?: string | null }
+  ) => void;
+  onResizeStart?: (event: CalendarEvent, clientY: number, pxPerMin: number) => void;
+  resizePreview?: { id: string; deltaMin: number } | null;
   /** Click su slot della colonna ospite in vista split (mig. 029).
    *  Se non passato, cade in onSlotClick (= mantiene comportamento legacy).
    *  Quando passato, il parent può pre-selezionare createGuestPractitionerId
@@ -123,6 +134,7 @@ export default function DayView({
   onSlotClick, onSlotClickMulti, onSlotClickGuest, onContextMenu,
   onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
   draggingEventId,
+  columnMode, onColumnModeChange, rooms, onDropAssign, onResizeStart, resizePreview,
   getDayEventPosition, getFreeWindows, getEventColor,
   onSelectEvent, onToggleBulkSelect,
   onToggleDone, onTogglePaid, onUpdatePayment, onSendReminder,
@@ -241,6 +253,15 @@ export default function DayView({
           onTogglePaid={onTogglePaid}
           onUpdatePayment={onUpdatePayment}
           onSendReminder={onSendReminder}
+          columnMode={columnMode}
+          onColumnModeChange={onColumnModeChange}
+          rooms={rooms}
+          onEventDragStart={onDragStart}
+          onEventDragEnd={onDragEnd}
+          onDropAssign={onDropAssign}
+          draggingEventId={draggingEventId}
+          onResizeStart={onResizeStart}
+          resizePreview={resizePreview}
         />
       ) : useSplit ? (
         // ─── Vista SPLIT (titolare + ospite) — mig. 029 ──────────────

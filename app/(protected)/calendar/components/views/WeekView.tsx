@@ -185,6 +185,14 @@ export type WeekViewProps = {
   }>;
   /** Mappa operator_id → sigla (signature_short) per la label delle fasce. */
   operatorLabelMap?: Map<string, string>;
+
+  // ─── Resize durata (Tappa B) ────────────────────────────────────────────
+  /** Pointerdown sull'handle inferiore della card → avvia il resize.
+   *  pxPerMin viene calcolato dalla vista (height / durata in minuti). */
+  onResizeStart?: (event: CalendarEvent, clientY: number, pxPerMin: number) => void;
+  /** Preview live: la card con id corrispondente viene disegnata con
+   *  end = end + deltaMin, così l'altezza segue il cursore. */
+  resizePreview?: { id: string; deltaMin: number } | null;
 };
 
 export default function WeekView({
@@ -203,6 +211,7 @@ export default function WeekView({
   onToggleDone, onTogglePaid, onUpdatePayment, onSendReminder,
   multiOperatorMode, operatorOrder, operatorColorMap,
   unavailabilities, operatorLabelMap,
+  onResizeStart, resizePreview,
 }: WeekViewProps) {
   const slotOffsets = slotMinutes === 15 ? [0, 15, 30, 45] : [0, 30];
   // ─── Note: la variabile non è usata direttamente ma mantenuta nelle props
@@ -623,7 +632,10 @@ export default function WeekView({
               const hidden = lanePos?.hidden ?? 0;
               const hiddenIds = lanePos?.hiddenIds ?? [];
 
-            const { top, height } = getEventPosition(event.start, event.end);
+            const previewEnd = resizePreview && resizePreview.id === event.id
+              ? new Date(event.end.getTime() + resizePreview.deltaMin * 60000)
+              : event.end;
+            const { top, height } = getEventPosition(event.start, previewEnd);
             const isDone     = event.status === "done";
             const isDomicile = event.location === "domicile";
             const isPaid     = !!event.is_paid;
@@ -717,6 +729,29 @@ export default function WeekView({
                   transform: isMatch ? "scale(1.02)" : "scale(1)",
                 }}
               >
+                {/* ─── Handle resize durata (Tappa B) ───────────────────
+                    Bordo inferiore trascinabile: pxPerMin = height/durata.
+                    preventDefault sul pointerdown blocca l'avvio del drag
+                    HTML5 della card (che richiede il default mousedown). */}
+                {onResizeStart && !bulkMode && event.status !== "cancelled" && (
+                  <div
+                    onPointerDown={e => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const durMin = Math.max((event.end.getTime() - event.start.getTime()) / 60000, 1);
+                      onResizeStart(event, e.clientY, height / durMin);
+                    }}
+                    onClick={e => e.stopPropagation()}
+                    title="Trascina per modificare la durata"
+                    style={{
+                      position: "absolute", left: 0, right: 0, bottom: 0,
+                      height: 7, cursor: "ns-resize",
+                      borderRadius: "0 0 6px 6px",
+                      background: "linear-gradient(rgba(255,255,255,0), rgba(255,255,255,0.35))",
+                      zIndex: 3,
+                    }}
+                  />
+                )}
                 {event.is_group ? (
                   <GroupEventCard event={event} cardH={cardH} />
                 ) : isShort ? (

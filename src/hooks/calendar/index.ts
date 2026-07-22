@@ -34,6 +34,14 @@ export {
 } from "./useCalendarEvents";
 
 export {
+  useEventResize,
+  type UseEventResizeOptions,
+  type UseEventResizeReturn,
+} from "./useEventResize";
+
+export { validateEventMove } from "./moveValidation";
+
+export {
   useReminderFlow,
   type WeeklyReminderTarget,
   type LastCreatedAppointment,

@@ -74,6 +74,7 @@ import {
   useReminderFlow,
   useGroupOperations,
   useDragAndDrop,
+  useEventResize,
   useAppointmentMutations,
 } from "@/src/hooks/calendar";
 
@@ -821,6 +822,31 @@ function CalendarPageInner() {
     unavailabilities,
   });
 
+  // ─── Tappa B: resize durata (handle sul bordo inferiore delle card) ─────
+  const eventResize = useEventResize({
+    currentDate,
+    loadAppointments,
+    setError,
+    events,
+    // slotMin (state) è dichiarato più sotto: qui leggiamo direttamente
+    // la preferenza dello studio per evitare TDZ.
+    slotMinutes: ((currentStudio as { slot_minutes?: number } | null)?.slot_minutes === 15 ? 15 : 30),
+    overlapMode: ((practiceSettings?.overlap_mode as "warn" | "block" | "visual" | undefined) ?? "warn"),
+    multiOperatorEnabled,
+    multiRoomEnabled,
+    unavailabilities,
+  });
+
+  // ─── Tappa B: modalità colonne della vista giorno multi (Operatori/Stanze) ─
+  const [dayColumnsMode, setDayColumnsMode] = useState<"operators" | "rooms">(() => {
+    if (typeof window === "undefined") return "operators";
+    return window.localStorage.getItem("fisiohub_day_columns_mode") === "rooms" ? "rooms" : "operators";
+  });
+  const handleDayColumnsModeChange = useCallback((m: "operators" | "rooms") => {
+    setDayColumnsMode(m);
+    try { window.localStorage.setItem("fisiohub_day_columns_mode", m); } catch { /* noop */ }
+  }, []);
+
   const {
     draggingEvent,
     setDraggingEvent,
@@ -832,6 +858,7 @@ function CalendarPageInner() {
     handleDragOver,
     handleDragLeave,
     handleDrop,
+    handleDropAssign,
     handleDragEnd,
   } = dnd;
 
@@ -1396,6 +1423,21 @@ function CalendarPageInner() {
   const handleSlotClick = useCallback((date: Date, hour: number, minute: number = 0) => {
     openCreateModal(date, hour, minute);
   }, [openCreateModal]);
+
+  // ─── Tappa B: click su slot della vista multi con preselezione ─────────
+  // Cliccando uno slot nella colonna di un collega (o di una stanza in
+  // modalità colonne=Stanze), il modale di creazione parte già con
+  // operatore/stanza preselezionati.
+  // NB: prima questa callback non veniva passata a DayView → il fallback
+  // ignorava l'operatorId (gap sistemato in Tappa B).
+  const handleSlotClickMulti = useCallback(
+    (date: Date, hour: number, minute: number, operatorId: string | null, roomId?: string | null) => {
+      openCreateModal(date, hour, minute);
+      setCreateOperatorId(operatorId && !operatorId.startsWith("pending:") ? operatorId : null);
+      if (roomId !== undefined) setCreateRoomId(roomId);
+    },
+    [openCreateModal]
+  );
 
   const loadPatientFromEvent = useCallback(async (patientId: string) => {
     const { data, error } = await supabase
@@ -2371,6 +2413,8 @@ return (
               operatorColorMap={operatorColorMap}
               unavailabilities={unavailabilities}
               operatorLabelMap={operatorLabelMap}
+              onResizeStart={eventResize.startResize}
+              resizePreview={eventResize.resizePreview}
             />
             )
           ) : viewType === "month" ? (
@@ -2429,6 +2473,13 @@ return (
               bulkSelected={bulkSelected}
               searchMatchIds={searchMatchIds}
               onSlotClick={handleSlotClick}
+              onSlotClickMulti={handleSlotClickMulti}
+              columnMode={multiRoomEnabled && studioRooms.length > 0 ? dayColumnsMode : "operators"}
+              onColumnModeChange={multiRoomEnabled && studioRooms.length > 0 ? handleDayColumnsModeChange : undefined}
+              rooms={studioRooms}
+              onDropAssign={handleDropAssign}
+              onResizeStart={eventResize.startResize}
+              resizePreview={eventResize.resizePreview}
               onSlotClickGuest={(date, hour, minute, guestId) => {
                 // Click sulla colonna ospite (mig. 029): apro prima il modale
                 // (che resetta gli state al loro default), poi sovrascrivo
