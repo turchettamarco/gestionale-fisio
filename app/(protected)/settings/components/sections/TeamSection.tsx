@@ -276,6 +276,8 @@ function MemberCard({
   copyFlash: boolean;
 }) {
   const isPending = member.user_id == null;
+  // Titolare = proprietario dell'abbonamento (non eliminabile).
+  // Il co-titolare ha gli stessi poteri operativi ma resta rimuovibile.
   const isOwner = member.role === "owner";
   const initials = member.signature_short || computeInitials(member.display_name);
 

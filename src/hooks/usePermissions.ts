@@ -40,6 +40,8 @@ export function usePermissions() {
     role,
     /** Nome del paziente mascherato in iniziali se non consentito. */
     maskName: (fullName: string) => maskPatientName(fullName, perms),
+    /** Può gestire team e permessi: titolare, co-titolare o permesso esplicito. */
+    canManageTeam: isOwner || perms.has("manage.team"),
     /** True finché il contesto non ha caricato il membro. */
     ready: member != null,
   }), [perms, isOwner, role, member]);
