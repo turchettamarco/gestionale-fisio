@@ -29,6 +29,7 @@ import {
   type Risposte, type ScaleBlock,
 } from "@/src/lib/domicili/cartellaSchema";
 import { buildCartellaPdf, cartellaFileName, type CartellaData } from "@/src/lib/domicili/cartellaPdf";
+import AllegatiCartella from "./AllegatiCartella";
 
 const T = {
   panelBg: "#ffffff", panelSoft: "#FFFDF9",
@@ -42,7 +43,7 @@ const T = {
 const WHATSAPP_NUMERO = "393403830483";
 const WHATSAPP_LABEL = "+39 340 383 0483";
 
-type Tab = "anagrafica" | "adl" | "mmse" | "tinetti" | "firme";
+type Tab = "anagrafica" | "adl" | "mmse" | "tinetti" | "firme" | "cartacea";
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "anagrafica", label: "Anagrafica e consensi" },
@@ -50,6 +51,7 @@ const TABS: Array<{ id: Tab; label: string }> = [
   { id: "mmse", label: "MMSE" },
   { id: "tinetti", label: "Tinetti" },
   { id: "firme", label: "Firme e invio" },
+  { id: "cartacea", label: "Cartacea" },
 ];
 
 type FormState = Omit<CartellaData, "risposte" | "firma_paziente" | "firma_operatore">;
@@ -489,12 +491,10 @@ export default function CartellaValutazione({
   /** Invio: prima prova la condivisione nativa (il PDF va dentro WhatsApp
       come allegato); se il dispositivo non la supporta, scarica il file e
       apre la chat col numero fisso, dove basta allegarlo. */
-  const sendWhatsApp = async () => {
-    const file = await makePdf();
-    if (!file) return;
+  /** Invio di un qualsiasi PDF: condivisione nativa se c'è (l'allegato
+      entra dentro WhatsApp), altrimenti download + chat sul numero fisso. */
+  const inviaFile = async (file: File, testo: string) => {
     const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
-    const testo = `Valutazione ${form.cognome} ${form.nome} — ${form.data_valutazione}\n` +
-      `ADL ${adl}/6 · IADL ${iadl}/8 · MMSE ${mmse}/30 · Tinetti ${tTot}/28 (rischio ${risk.label.toLowerCase()})`;
     try {
       if (nav.canShare?.({ files: [file] })) {
         await nav.share({ files: [file], title: file.name, text: testo });
@@ -512,6 +512,16 @@ export default function CartellaValutazione({
     flash("ok", "PDF scaricato: allegalo nella chat che si è aperta.");
   };
 
+  const testoInvio = () =>
+    `Valutazione ${form.cognome} ${form.nome} — ${form.data_valutazione}\n` +
+    `ADL ${adl}/6 · IADL ${iadl}/8 · MMSE ${mmse}/30 · Tinetti ${tTot}/28 (rischio ${risk.label.toLowerCase()})`;
+
+  const sendWhatsApp = async () => {
+    const file = await makePdf();
+    if (!file) return;
+    await inviaFile(file, testoInvio());
+  };
+
   if (!open || !patient) return null;
 
   const tabDone: Record<Tab, boolean> = {
@@ -520,6 +530,7 @@ export default function CartellaValutazione({
     mmse: mmseMissing(risposte) === 0,
     tinetti: missingCount(TINETTI_EQ, risposte) === 0 && missingCount(TINETTI_AND, risposte) === 0,
     firme: Boolean(firmaPaziente),
+    cartacea: false,   // sempre facoltativa: nessuna spunta di completamento
   };
 
   return (
@@ -763,6 +774,17 @@ export default function CartellaValutazione({
                 già al minimo utile senza bisogno di comprimerlo. L&apos;invio WhatsApp è preimpostato su {WHATSAPP_LABEL}.
               </div>
             </div>
+          )}
+
+          {/* ═══ CARTELLA CARTACEA ═══ */}
+          {!loading && tab === "cartacea" && (
+            <AllegatiCartella
+              studioId={studioId}
+              patientId={patient.id}
+              valutazioneId={valutazioneId}
+              nomePaziente={`${patient.cognome} ${patient.nome}`}
+              onWhatsApp={f => void inviaFile(f, `Cartella ${form.cognome} ${form.nome}`)}
+            />
           )}
         </div>
 
