@@ -116,6 +116,9 @@ type CalendarEvent = {
   group_total?: number;
   // ─── Pacchetto sedute (mig. 014_packages) ──────────────────────────
   package_id?: string | null;
+  // ─── Multi-operatore / multi-stanza (mig. 019) — Tappa D ───────────
+  operator_id?: string | null;
+  room_id?: string | null;
 };
 
 type CreateModalProps = {
@@ -138,6 +141,15 @@ type CreateModalProps = {
   // Multi-sede (mig. 014, fase 2)
   studioLocations?: Array<{ id: string; name: string; address: string | null; is_primary: boolean; border_color: string | null }>;
   createLocationId?: string | null;
+  // ─── Tappa D: assegnazione operatore/stanza da mobile ───────────────
+  multiOperatorEnabled?: boolean;
+  operators?: Array<{ user_id: string; display_name: string | null; display_color: string | null }>;
+  createOperatorId?: string | null;
+  setCreateOperatorId?: (v: string | null) => void;
+  multiRoomEnabled?: boolean;
+  rooms?: Array<{ id: string; name: string; color: string | null }>;
+  createRoomId?: string | null;
+  setCreateRoomId?: (v: string | null) => void;
   setCreateLocationId?: (id: string | null) => void;
   multiLocationEnabled?: boolean;
   createAmount: string; setCreateAmount: (v: string) => void;
@@ -301,7 +313,35 @@ function CalendarPageInner() {
   const searchParams = useSearchParams();
 
   // Studio corrente (multi-tenancy)
-  const { studio: currentStudio, locations: studioLocations } = useCurrentStudio();
+  const { studio: currentStudio, locations: studioLocations, members: studioMembers, rooms: studioRooms } = useCurrentStudio();
+
+  // ─── Tappa D: multi-operatore / multi-stanza su mobile ──────────────────
+  // Il mobile era completamente cieco: nessun colore, nessun filtro, nessuna
+  // assegnazione. Qui allineiamo il comportamento al desktop.
+  const multiOperatorEnabled = Boolean((currentStudio as { multi_operator_enabled?: boolean } | null)?.multi_operator_enabled);
+  const multiRoomEnabled = Boolean((currentStudio as { multi_room_enabled?: boolean } | null)?.multi_room_enabled);
+  const activeMembers = useMemo(
+    () => (studioMembers ?? []).filter(m => m.is_active !== false),
+    [studioMembers]
+  );
+  const multiOpActive = multiOperatorEnabled && activeMembers.length >= 2;
+  /** operator_id → colore (solo membri registrati: i pending non hanno appuntamenti). */
+  const operatorColorById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const mem of activeMembers) if (mem.user_id) m.set(mem.user_id, mem.display_color || "#64748b");
+    return m;
+  }, [activeMembers]);
+  /** operator_id → sigla, per il badge sulle card e i chip di filtro. */
+  const operatorLabelById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const mem of activeMembers) {
+      if (!mem.user_id) continue;
+      m.set(mem.user_id, (mem.signature_short || mem.display_name || "?").substring(0, 3).toUpperCase());
+    }
+    return m;
+  }, [activeMembers]);
+  /** Filtro operatore attivo (null = tutti, "__unassigned__" = non assegnati). */
+  const [operatorFilter, setOperatorFilter] = useState<string | null>(null);
   // Granularità agenda: 30 o 15 minuti. Persistita su studios.slot_minutes,
   // quindi vale su tutti i dispositivi. Governa snap del drag e click sugli slot.
   const [slotMin, setSlotMin] = useState(30);
@@ -588,6 +628,10 @@ function CalendarPageInner() {
   const [createDomicileAddress, setCreateDomicileAddress] = useState("");
   // Multi-sede (mig. 014, fase 2)
   const [createLocationId,      setCreateLocationId]      = useState<string | null>(null);
+  // Tappa D: assegnazione operatore/stanza dal mobile. null = lascia decidere
+  // al trigger mig. 067 (assegna a chi crea), coerente col desktop.
+  const [createOperatorId,      setCreateOperatorId]      = useState<string | null>(null);
+  const [createRoomId,          setCreateRoomId]          = useState<string | null>(null);
   const [createAmount,          setCreateAmount]          = useState("");
   const [createNote,            setCreateNote]            = useState("");
 
@@ -696,6 +740,7 @@ function CalendarPageInner() {
       amount,treatment_type,price_type,payment_method,whatsapp_sent_at,
       is_group,group_title,group_max_participants,group_price_per_person,
       package_id,convenzione_ente_id,convenzione_auth_code,convenzione_auth_expires,
+      operator_id,room_id,
       patients:patient_id(first_name,last_name,phone),
       appointment_participants(id,price,payment_status)
     `).gte("start_at",s0.toISOString()).lt("start_at",e0.toISOString())
@@ -726,6 +771,7 @@ function CalendarPageInner() {
         treatment_type:a.treatment_type??null, price_type:a.price_type??null, payment_method:a.payment_method??null,
         convenzione_ente_id:a.convenzione_ente_id??null, convenzione_auth_code:a.convenzione_auth_code??null, convenzione_auth_expires:a.convenzione_auth_expires??null,
         whatsapp_sent_at:a.whatsapp_sent_at??null,
+        operator_id:a.operator_id??null, room_id:a.room_id??null,
         // Gruppo (mig. 014)
         is_group: isGroup,
         group_title: a.group_title??null,
@@ -842,6 +888,7 @@ function CalendarPageInner() {
       amount,treatment_type,price_type,payment_method,whatsapp_sent_at,
       is_group,group_title,group_max_participants,group_price_per_person,
       package_id,convenzione_ente_id,convenzione_auth_code,convenzione_auth_expires,
+      operator_id,room_id,
       patients:patient_id(first_name,last_name,phone),
       appointment_participants(id,price,payment_status)
     `).gte("start_at", firstDay.toISOString()).lte("start_at", lastDay.toISOString())
@@ -872,6 +919,7 @@ function CalendarPageInner() {
           treatment_type:a.treatment_type??null, price_type:a.price_type??null, payment_method:a.payment_method??null,
         convenzione_ente_id:a.convenzione_ente_id??null, convenzione_auth_code:a.convenzione_auth_code??null, convenzione_auth_expires:a.convenzione_auth_expires??null,
           whatsapp_sent_at:a.whatsapp_sent_at??null,
+        operator_id:a.operator_id??null, room_id:a.room_id??null,
           // Gruppo (mig. 014)
           is_group: isGroup,
           group_title: a.group_title??null,
@@ -922,8 +970,19 @@ function CalendarPageInner() {
   }, [searchParams,router]);
 
   /* ── Derived ─────────────────────────────── */
-  const dayEvents = useMemo(() =>
+  const dayEventsAll = useMemo(() =>
     events.filter(e=>isSameDay(e.start,currentDate)), [events,currentDate]);
+
+  const dayEvents = useMemo(() => {
+    let list = events.filter(e=>isSameDay(e.start,currentDate));
+    // Tappa D: filtro operatore (chip in alto). "__unassigned__" = orfani.
+    if (multiOpActive && operatorFilter) {
+      list = operatorFilter === "__unassigned__"
+        ? list.filter(e => !e.operator_id)
+        : list.filter(e => e.operator_id === operatorFilter);
+    }
+    return list;
+  }, [events,currentDate,multiOpActive,operatorFilter]);
 
   const dayStats = useMemo(() => ({
     total:   dayEvents.filter(e=>e.status!=="cancelled").length,
@@ -1449,6 +1508,9 @@ function CalendarPageInner() {
     setCreateTime(prefillTime&&isValidHHMM(prefillTime)?prefillTime:"09:00");
     setCreateDuration(60); setCreateStatus(defaultStatus); setCreateLocation("studio");
     setCreateClinicSite(currentStudio?.name || ""); setCreateDomicileAddress(""); setCreateAmount(""); setCreateNote("");
+    // Tappa D: reset assegnazione, così non si trascina da una creazione
+    // alla successiva ("Assegna a me" = default).
+    setCreateOperatorId(null); setCreateRoomId(null);
     setCreateTreatmentType(treatmentCatalog[0]?.key ?? "seduta");
     setSelectedPackageId(null); // mig. 014_packages
   }, [currentDate, defaultStatus, treatmentCatalog]);
@@ -1641,6 +1703,10 @@ function CalendarPageInner() {
           location: createLocation,
           clinic_site: createLocation==="studio"?(createClinicSite.trim()||currentStudio?.name||"Studio"):null,
           location_id: (createLocation==="studio" && currentStudio?.multi_location_enabled && createLocationId) ? createLocationId : null,
+          // Tappa D: se non specificato resta NULL → il trigger 067 assegna
+          // automaticamente a chi sta creando.
+          ...(createOperatorId ? { operator_id: createOperatorId } : {}),
+          ...(createRoomId ? { room_id: createRoomId } : {}),
           domicile_address: createLocation==="domicile"?(createDomicileAddress.trim()||null):null,
           amount: null,
           price_type: null,
@@ -1664,6 +1730,10 @@ function CalendarPageInner() {
           location:createLocation,
           clinic_site:createLocation==="studio"?(createClinicSite.trim()||currentStudio?.name||"Studio"):null,
           location_id: (createLocation==="studio" && currentStudio?.multi_location_enabled && createLocationId) ? createLocationId : null,
+          // Tappa D: se non specificato resta NULL → il trigger 067 assegna
+          // automaticamente a chi sta creando.
+          ...(createOperatorId ? { operator_id: createOperatorId } : {}),
+          ...(createRoomId ? { room_id: createRoomId } : {}),
           domicile_address:createLocation==="domicile"?(createDomicileAddress.trim()||null):null,
           // Se la seduta scala da un pacchetto, niente importo o metodo (vive sui package_payments)
           amount: selectedPackageId ? null : amount,
@@ -2178,6 +2248,28 @@ function CalendarPageInner() {
           )}
           {/* Nome + 🏠 badge / GRUPPO badge */}
           <div style={{display:"flex",alignItems:"center",gap:5,flex:1,minWidth:0,overflow:"hidden"}}>
+            {/* Tappa D: pallino colore operatore (+ sigla se c'è spazio).
+                Regola UI: colore solo come dot/badge, mai bordo colorato. */}
+            {multiOpActive && (
+              <span
+                title={ev.operator_id ? (operatorLabelById.get(ev.operator_id) ?? "Operatore") : "Non assegnato"}
+                style={{display:"inline-flex",alignItems:"center",gap:3,flexShrink:0}}
+              >
+                <span style={{
+                  width:7,height:7,borderRadius:"50%",
+                  background: ev.operator_id
+                    ? (operatorColorById.get(ev.operator_id) ?? "#94a3b8")
+                    : "transparent",
+                  border: ev.operator_id ? "none" : "1.5px dashed #94a3b8",
+                  boxSizing:"border-box",
+                }} />
+                {!short && ev.operator_id && (
+                  <span style={{fontSize:8,fontWeight:800,letterSpacing:0.3,opacity:0.75}}>
+                    {operatorLabelById.get(ev.operator_id)}
+                  </span>
+                )}
+              </span>
+            )}
             {ev.is_group && (
               <span style={{
                 fontSize: 9, fontWeight: 800, color: "#fff",
@@ -2307,6 +2399,7 @@ function CalendarPageInner() {
     );
   }, [getEventPosition,touchDraggingId,touchDragY,draggingId,currentTime,swipeState,
       events, studioLocations,
+      multiOpActive, operatorColorById, operatorLabelById,
       handleEventTouchStart,handleCardSwipeStart,handleCardSwipeMove,handleCardSwipeEnd,
       handleTimelineTouchEnd,openEvent,togglePaid,sendReminder]);
 
@@ -2938,6 +3031,54 @@ function CalendarPageInner() {
         )}
 
         {viewMode==="day"&&(<>
+        {/* ─── Tappa D: chip filtro operatore ───────────────────────────
+            Scorrevoli orizzontalmente. I membri PENDING non compaiono:
+            non possono avere appuntamenti assegnati (come nel desktop). */}
+        {multiOpActive && (
+          <div style={{
+            display:"flex", gap:6, marginBottom:8, overflowX:"auto",
+            WebkitOverflowScrolling:"touch", paddingBottom:2,
+          }}>
+            {[
+              { key:null as string|null, label:"Tutti", color:"#64748b" },
+              ...activeMembers.filter(m=>m.user_id).map(m=>({
+                key: m.user_id as string,
+                label: m.display_name || m.signature_short || "—",
+                color: m.display_color || "#64748b",
+              })),
+              ...(dayEventsAll.some(e=>!e.operator_id)
+                ? [{ key:"__unassigned__" as string|null, label:"Non assegnati", color:"#94a3b8" }]
+                : []),
+            ].map(chip => {
+              const active = operatorFilter === chip.key;
+              return (
+                <button
+                  key={chip.key ?? "all"}
+                  onClick={()=>setOperatorFilter(chip.key)}
+                  style={{
+                    display:"inline-flex", alignItems:"center", gap:5,
+                    padding:"5px 11px", borderRadius:99, flexShrink:0,
+                    border:`1.5px solid ${active ? chip.color : THEME.border}`,
+                    background: active ? `${chip.color}14` : "#fff",
+                    color: active ? "#334155" : "#475569",
+                    fontSize:12, fontWeight:700, fontFamily:"inherit",
+                    cursor:"pointer", whiteSpace:"nowrap",
+                  }}
+                >
+                  {chip.key !== null && (
+                    <span style={{
+                      width:7,height:7,borderRadius:"50%",
+                      background: chip.key==="__unassigned__" ? "transparent" : chip.color,
+                      border: chip.key==="__unassigned__" ? "1.5px dashed #94a3b8" : "none",
+                      boxSizing:"border-box", flexShrink:0,
+                    }} />
+                  )}
+                  {chip.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
         {/* ─── Legenda swipe ─── */}
         <div style={{display:"flex",gap:10,marginBottom:8,fontSize:10,color:THEME.muted,fontWeight:600}}>
           <span>← scorri card per aprire</span>
@@ -3469,6 +3610,14 @@ function CalendarPageInner() {
           createDomicileAddress={createDomicileAddress} setCreateDomicileAddress={setCreateDomicileAddress}
           studioLocations={studioLocations as any}
           createLocationId={createLocationId}
+          multiOperatorEnabled={multiOpActive}
+          operators={activeMembers.filter(m=>m.user_id).map(m=>({ user_id: m.user_id as string, display_name: m.display_name ?? null, display_color: m.display_color ?? null }))}
+          createOperatorId={createOperatorId}
+          setCreateOperatorId={setCreateOperatorId}
+          multiRoomEnabled={multiRoomEnabled}
+          rooms={(studioRooms ?? []).map(r=>({ id:r.id, name:r.name, color:r.color }))}
+          createRoomId={createRoomId}
+          setCreateRoomId={setCreateRoomId}
           setCreateLocationId={setCreateLocationId}
           multiLocationEnabled={!!currentStudio?.multi_location_enabled}
           createAmount={createAmount}     setCreateAmount={setCreateAmount}
@@ -4477,6 +4626,37 @@ function CreateModal(props:CreateModalProps) {
             <option value="studio">Studio</option><option value="domicile">Domicilio</option>
           </select>
         </FG>
+        {/* ─── Tappa D: operatore ─────────────────────────────────────
+            "Assegna a me" = lascia NULL: ci pensa il trigger 067. */}
+        {props.multiOperatorEnabled && props.operators && props.operators.length >= 2 && (
+          <FG label="Operatore">
+            <select
+              value={props.createOperatorId ?? ""}
+              onChange={e => props.setCreateOperatorId?.(e.target.value || null)}
+              style={inputS()}
+            >
+              <option value="">Assegna a me</option>
+              {props.operators.map(o => (
+                <option key={o.user_id} value={o.user_id}>{o.display_name || "—"}</option>
+              ))}
+            </select>
+          </FG>
+        )}
+        {/* ─── Tappa D: stanza ────────────────────────────────────── */}
+        {props.multiRoomEnabled && props.rooms && props.rooms.length > 0 && createLocation==="studio" && (
+          <FG label="Stanza">
+            <select
+              value={props.createRoomId ?? ""}
+              onChange={e => props.setCreateRoomId?.(e.target.value || null)}
+              style={inputS()}
+            >
+              <option value="">Nessuna stanza</option>
+              {props.rooms.map(r => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
+          </FG>
+        )}
         {createLocation==="studio"
           ?(props.multiLocationEnabled && props.studioLocations && props.studioLocations.length > 0
               ? (() => {
