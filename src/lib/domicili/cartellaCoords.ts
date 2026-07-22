@@ -50,12 +50,12 @@ export const FIRME_CONSENSO = {
   data:      [70.0, 780.0],
 } as const;
 
-/** Riquadri di consenso su p5: [x nome, x firma, top, bottom]. */
+/** Riquadri di consenso su p5: [x nome, x firma, top, bottom, bordo destro]. */
 export const CONSENSI_GDPR = {
-  n1:            [51.2, 293.1, 268.3, 313.2],
-  n2Tutore:      [51.2, 293.1, 485.9, 530.7],
-  n2SecondoGen:  [51.2, 293.1, 530.7, 575.6],
-  n3:            [51.2, 293.1, 695.6, 740.5],
+  n1:            [51.2, 293.1, 268.3, 313.2, 532.8],
+  n2Tutore:      [51.2, 293.1, 485.9, 530.7, 537.1],
+  n2SecondoGen:  [51.2, 293.1, 530.7, 575.6, 537.1],
+  n3:            [51.2, 293.1, 695.6, 740.5, 532.8],
 } as const;
 
 /** Campi della dichiarazione di responsabilità (p7). */

@@ -72,13 +72,13 @@ export async function compilaModuloOriginale(d: CartellaData): Promise<Blob> {
   /** Testo su un campo: y calcolato dal `top` del modulo. */
   const scrivi = (
     pageIdx: number, x: number, top: number, testo: string,
-    opt: { size?: number; max?: number; bold?: boolean } = {}
+    opt: { size?: number; max?: number; bold?: boolean } = {}   // grassetto di default
   ) => {
     if (!testo) return;
     const pg = pagine[pageIdx];
     if (!pg) return;
     let size = opt.size ?? 12;
-    const f = opt.bold ? fontB : font;
+    const f = opt.bold === false ? font : fontB;
     // testo pulito: Helvetica standard non ha i caratteri fuori WinAnsi
     const s = testo.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/[^\x20-\xFF]/g, "");
     if (opt.max) {
@@ -111,18 +111,27 @@ export async function compilaModuloOriginale(d: CartellaData): Promise<Blob> {
     });
   };
 
-  /** Firma PNG sopra una riga, adattata allo spazio disponibile. */
-  const firma = async (pageIdx: number, dataUrl: string, x0: number, x1: number, topRiga: number) => {
+  /** Firma PNG appoggiata SOPRA la riga, centrata nello spazio disponibile.
+      `altezza` è lo spazio libero fra l'etichetta e la riga: sul modulo è
+      poco, e sforarlo faceva finire la firma sotto il rigo, addosso alla
+      data. Il basso dell'immagine coincide con la riga di firma. */
+  const firma = async (
+    pageIdx: number, dataUrl: string, x0: number, x1: number, topRiga: number, altezza = 24
+  ) => {
     if (!dataUrl?.startsWith("data:image/png")) return;
     const pg = pagine[pageIdx];
     if (!pg) return;
     try {
       const png = await pdf.embedPng(dataUrl);
-      const maxW = Math.min(x1 - x0, 170);
-      const maxH = 26;
-      const s = Math.min(maxW / png.width, maxH / png.height);
-      const w = png.width * s, h = png.height * s;
-      pg.drawImage(png, { x: x0 + 4, y: ALTEZZA - topRiga - h + 2, width: w, height: h });
+      const spazio = x1 - x0;
+      const maxW = Math.max(40, spazio - 10);
+      const k = Math.min(maxW / png.width, altezza / png.height);
+      const w = png.width * k, h = png.height * k;
+      pg.drawImage(png, {
+        x: x0 + (spazio - w) / 2,          // centrata sulla riga
+        y: ALTEZZA - topRiga + 1.5,        // il basso appoggia sulla riga
+        width: w, height: h,
+      });
     } catch {
       // firma illeggibile: resta la riga vuota da firmare a mano
     }
@@ -144,8 +153,8 @@ export async function compilaModuloOriginale(d: CartellaData): Promise<Blob> {
     scrivi(P, C.operatoreNome[0], C.operatoreNome[1], d.operatore_nome, { max: C.operatoreNome[2] });
     scrivi(P, C.operatoreQualifica[0], C.operatoreQualifica[1], d.operatore_qualifica, { max: C.operatoreQualifica[2] });
     scrivi(P, C.trattamentoFinale[0], C.trattamentoFinale[1], d.trattamento, { max: C.trattamentoFinale[2] });
-    await firma(P, d.firma_operatore, FIRME_CONSENSO.operatore[0], FIRME_CONSENSO.operatore[1], FIRME_CONSENSO.operatore[2]);
-    await firma(P, d.firma_paziente, FIRME_CONSENSO.paziente[0], FIRME_CONSENSO.paziente[1], FIRME_CONSENSO.paziente[2]);
+    await firma(P, d.firma_operatore, FIRME_CONSENSO.operatore[0], FIRME_CONSENSO.operatore[1], FIRME_CONSENSO.operatore[2], 26);
+    await firma(P, d.firma_paziente, FIRME_CONSENSO.paziente[0], FIRME_CONSENSO.paziente[1], FIRME_CONSENSO.paziente[2], 26);
     scrivi(P, FIRME_CONSENSO.data[0], FIRME_CONSENSO.data[1], itDate(d.data_valutazione), { bold: true, size: 12.5 });
   }
 
@@ -154,12 +163,13 @@ export async function compilaModuloOriginale(d: CartellaData): Promise<Blob> {
     const P = PAGINA.consensiGdpr;
     const nomeUtente = `${d.nome} ${d.cognome}`.trim();
     const riga = async (
-      box: readonly [number, number, number, number], nome: string, firmaUrl: string
+      box: readonly [number, number, number, number, number], nome: string, firmaUrl: string
     ) => {
-      const [xn, xf, top, bot] = box;
+      const [xn, xf, top, bot, destra] = box;
       const mid = top + (bot - top) / 2 - 4;
       scrivi(P, xn + 12, mid, nome, { max: xf - xn - 20 });
-      await firma(P, firmaUrl, xf, xf + 200, bot - 6);
+      // la cella è alta ~45 pt: la firma ci sta tutta, appoggiata al fondo
+      await firma(P, firmaUrl, xf, destra, bot - 5, Math.min(30, bot - top - 12));
     };
     if (d.consenso1) await riga(CONSENSI_GDPR.n1, nomeUtente, d.firma_paziente);
     if (d.consenso2) await riga(CONSENSI_GDPR.n2Tutore, d.tutore_nome || nomeUtente, d.firma_paziente);
@@ -176,7 +186,7 @@ export async function compilaModuloOriginale(d: CartellaData): Promise<Blob> {
     scrivi(P, C.luogoNascita[0], C.luogoNascita[1], d.luogo_nascita, { max: C.luogoNascita[2] });
     scrivi(P, C.dataNascita[0], C.dataNascita[1], itDate(d.tutore_nascita || d.data_nascita), { size: 10.5, max: 48 });
     scrivi(P, C.data[0], C.data[1], itDate(d.data_valutazione), { size: 10.5, max: 48 });
-    await firma(P, d.firma_paziente, C.firma[0], C.firma[0] + C.firma[2], C.firma[1] + 10);
+    await firma(P, d.firma_paziente, C.firma[0], C.firma[0] + C.firma[2], C.firma[1] + 11, 40);
   }
 
   // ═══════════ p9 — ADL e IADL ═══════════

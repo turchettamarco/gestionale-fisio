@@ -21,6 +21,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
+import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import type { CoopPatient } from "@/src/lib/domicili/types";
 import {
   ADL, IADL, TINETTI_EQ, TINETTI_AND, MMSE_ITEMS, MMSE_MAX,
@@ -80,7 +81,9 @@ function datiDaAnagrafica(p: CoopPatient, operatore?: string): FormState {
     attivazione_pai: p.data_attivazione || "",
     trattamento: p.prestazione || "",
     tutore_tel: (p.recapiti || "").split(/[;\n]/)[0].trim(),
-    operatore_nome: operatore || (p.operatori || "").split(/[,;\n]/)[0].trim(),
+    // L'operatore è CHI COMPILA (utente loggato), non il campo "operatori"
+    // del PAI: quello elenca il personale assegnato dalla cooperativa.
+    operatore_nome: operatore || "",
   };
 }
 
@@ -113,13 +116,19 @@ function SignaturePad({ value, onChange, label }: {
     const ctx = cv.getContext("2d");
     if (!ctx) return;
     ctx.scale(dpr, dpr);
-    ctx.lineWidth = 2.2;
+    ctx.lineWidth = 2.8;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.strokeStyle = "#0f172a";
     if (value) {
       const img = new Image();
-      img.onload = () => ctx.drawImage(img, 0, 0, rect.width, rect.height);
+      img.onload = () => {
+        // l'immagine salvata è già ritagliata sul tratto: si ridisegna
+        // rispettando le proporzioni, centrata, senza stirarla
+        const k = Math.min((rect.width - 12) / img.width, (rect.height - 12) / img.height, 1);
+        const w = img.width * k, h = img.height * k;
+        ctx.drawImage(img, (rect.width - w) / 2, (rect.height - h) / 2, w, h);
+      };
       img.src = value;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -158,12 +167,44 @@ function SignaturePad({ value, onChange, label }: {
     last.current = p;
   };
 
+  /** Ritaglia il canvas al solo tratto: esportarlo intero significherebbe
+      salvare soprattutto spazio vuoto, e nel PDF la firma finirebbe
+      rimpicciolita a francobollo dentro il suo stesso margine. */
+  const ritaglia = (cv: HTMLCanvasElement): string => {
+    const ctx = cv.getContext("2d");
+    if (!ctx) return cv.toDataURL("image/png");
+    const { width: W, height: H } = cv;
+    const px = ctx.getImageData(0, 0, W, H).data;
+    let minX = W, minY = H, maxX = -1, maxY = -1;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if (px[(y * W + x) * 4 + 3] > 12) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX < 0) return "";                       // canvas vuoto
+    const pad = 6;
+    minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
+    maxX = Math.min(W - 1, maxX + pad); maxY = Math.min(H - 1, maxY + pad);
+    const out = document.createElement("canvas");
+    out.width = maxX - minX + 1;
+    out.height = maxY - minY + 1;
+    const octx = out.getContext("2d");
+    if (!octx) return cv.toDataURL("image/png");
+    octx.drawImage(cv, minX, minY, out.width, out.height, 0, 0, out.width, out.height);
+    return out.toDataURL("image/png");
+  };
+
   const end = () => {
     if (!drawing.current) return;
     drawing.current = false;
     last.current = null;
     const cv = canvasRef.current;
-    if (cv && dirty.current) onChange(cv.toDataURL("image/png"));
+    if (cv && dirty.current) onChange(ritaglia(cv));
   };
 
   const clear = () => {
@@ -336,6 +377,8 @@ export default function CartellaValutazione({
   operatoreDefault?: string;
   onSaved?: () => void;
 }) {
+  const { member } = useCurrentStudio();
+  const [nomeOperatore, setNomeOperatore] = useState("");
   const [tab, setTab] = useState<Tab>("anagrafica");
   const [form, setForm] = useState<FormState>(EMPTY);
   const [risposte, setRisposte] = useState<Risposte>({});
@@ -347,6 +390,26 @@ export default function CartellaValutazione({
   const [saving, setSaving] = useState(false);
   const [busyPdf, setBusyPdf] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  // Nome dell'operatore che compila: prima il nome del membro dello studio,
+  // altrimenti il titolare configurato in Contabilità.
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const daMembro = (member?.display_name || "").trim();
+      if (daMembro) { if (vivo) setNomeOperatore(daMembro); return; }
+      try {
+        const { data: u } = await supabase.auth.getUser();
+        const uid = u?.user?.id;
+        if (!uid) return;
+        const { data } = await supabase.from("practice_settings")
+          .select("owner_full_name").eq("owner_id", uid).maybeSingle();
+        const n = ((data as { owner_full_name?: string } | null)?.owner_full_name || "").trim();
+        if (vivo && n) setNomeOperatore(n);
+      } catch { /* resta vuoto: si scrive a mano */ }
+    })();
+    return () => { vivo = false; };
+  }, [member?.display_name]);
 
   const flash = (kind: "ok" | "err", text: string) => {
     setMsg({ kind, text });
@@ -364,59 +427,89 @@ export default function CartellaValutazione({
     setRisposte(r => ({ ...r, [key]: r[key] === value ? undefined : value }));
   }, []);
 
-  // ── Apertura: precompila dall'anagrafica PAI e carica l'ultima cartella ──
+  // ── Apertura: riprende l'ultima valutazione così com'era ────────────────
+  // Riaprendo il paziente si continua a lavorare su quella in corso: niente
+  // va perso se il PDF, un aggiornamento o la chiusura dell'app portano via
+  // la pagina. Per ricominciare da capo c'è "Nuova valutazione".
   useEffect(() => {
     if (!open || !patient) return;
     let annullato = false;
     (async () => {
       setTab("anagrafica");
       setLoading(true);
-      const base = datiDaAnagrafica(patient, operatoreDefault);
+      const base = datiDaAnagrafica(patient, operatoreDefault || nomeOperatore);
       try {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from("coop_valutazioni")
           .select("id, data_valutazione, dati, adl_score, tinetti_tot")
           .eq("coop_patient_id", patient.id)
           .order("data_valutazione", { ascending: false })
           .limit(20);
-        const rows = (data || []) as Array<{ id: string; data_valutazione: string; dati: Record<string, unknown>; adl_score: number | null; tinetti_tot: number | null }>;
-        setStorico(rows.map(r => ({ id: r.id, data_valutazione: r.data_valutazione, adl_score: r.adl_score, tinetti_tot: r.tinetti_tot })));
-        // Nuova cartella ogni volta: le scale servono a confrontare le date.
-        // Dall'ultima si eredita solo l'anagrafica, che non cambia.
+        if (error) throw new Error(error.message);
+        const rows = (data || []) as Array<{
+          id: string; data_valutazione: string;
+          dati: Record<string, unknown>; adl_score: number | null; tinetti_tot: number | null;
+        }>;
+        if (annullato) return;
+        setStorico(rows.map(r => ({
+          id: r.id, data_valutazione: r.data_valutazione,
+          adl_score: r.adl_score, tinetti_tot: r.tinetti_tot,
+        })));
+
         const last = rows[0];
         if (last?.dati) {
-          const d = last.dati as Partial<FormState> & { firma_paziente?: string };
+          const d = last.dati as Partial<FormState> & {
+            risposte?: Risposte; firma_paziente?: string; firma_operatore?: string;
+          };
           setForm({
             ...base,
-            luogo_nascita: d.luogo_nascita || "",
-            codice_fiscale: d.codice_fiscale || "",
-            residenza: d.residenza || base.residenza,
-            tutore_nome: d.tutore_nome || "",
-            tutore_nascita: d.tutore_nascita || "",
-            tutore_cf: d.tutore_cf || "",
-            tutore_tel: d.tutore_tel || "",
-            tutore_qualita: d.tutore_qualita || "",
-            operatore_qualifica: d.operatore_qualifica || "",
+            ...Object.fromEntries(
+              (Object.keys(EMPTY) as Array<keyof FormState>)
+                .filter(k => d[k] !== undefined && d[k] !== "")
+                .map(k => [k, d[k]])
+            ),
+            // l'operatore resta comunque chi sta compilando ora
             operatore_nome: base.operatore_nome || d.operatore_nome || "",
-          });
+          } as FormState);
+          setRisposte(d.risposte || {});
+          setFirmaPaziente(d.firma_paziente || "");
+          setFirmaOperatore(d.firma_operatore || "");
+          setValutazioneId(last.id);
         } else {
           setForm(base);
-        }
-      } catch {
-        setForm(base);
-      } finally {
-        if (!annullato) {
           setRisposte({});
           setFirmaPaziente("");
           setFirmaOperatore("");
           setValutazioneId(null);
-          setLoading(false);
         }
+      } catch (e) {
+        if (annullato) return;
+        setForm(base);
+        setRisposte({});
+        setValutazioneId(null);
+        flash("err", e instanceof Error ? e.message : "Impossibile leggere le valutazioni precedenti");
+      } finally {
+        if (!annullato) setLoading(false);
       }
     })();
     return () => { annullato = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, patient?.id]);
+
+  /** Ricomincia da zero: l'attuale resta salvata nello storico. */
+  const nuovaValutazione = () => {
+    if (valutazioneId && !window.confirm(
+      "Iniziare una nuova valutazione?\nQuella in corso resta salvata e consultabile."
+    )) return;
+    if (!patient) return;
+    setForm(datiDaAnagrafica(patient, operatoreDefault || nomeOperatore));
+    setRisposte({});
+    setFirmaPaziente("");
+    setFirmaOperatore("");
+    setValutazioneId(null);
+    setTab("anagrafica");
+    flash("ok", "Nuova valutazione iniziata.");
+  };
 
   // ── Punteggi ──
   const adl = useMemo(() => scoreBlock(ADL, risposte), [risposte]);
@@ -490,28 +583,30 @@ export default function CartellaValutazione({
     }
   };
 
-  /** Apre il PDF SENZA far navigare via questa pagina: su iPad il download
-      classico sostituisce la vista e, tornando indietro, la cartella aperta
-      andava persa. La scheda viene aperta prima della generazione (un
-      window.open dopo un await verrebbe bloccato da Safari). */
+  /** Apre il PDF senza far perdere la pagina. Su iPad passa dal foglio di
+      condivisione di sistema (si stampa, si salva in File, si apre in
+      Anteprima) perché aprire una scheda dopo una generazione asincrona
+      veniva bloccato da Safari e restava un about:blank vuoto. */
   const downloadPdf = async (originale = true) => {
-    const scheda = window.open("", "_blank");
     const file = await makePdf(originale);
-    if (!file) { scheda?.close(); return; }
-    const url = URL.createObjectURL(file);
-    if (scheda && !scheda.closed) {
-      scheda.location.href = url;
-    } else {
-      const a = document.createElement("a");
-      a.href = url; a.download = file.name; a.target = "_blank"; a.rel = "noopener";
-      document.body.appendChild(a); a.click(); a.remove();
+    if (!file) return;
+    const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+    try {
+      if (nav.canShare?.({ files: [file] })) {
+        await nav.share({ files: [file], title: file.name });
+        return;
+      }
+    } catch {
+      // condivisione annullata: si scarica normalmente
+      return;
     }
+    const url = URL.createObjectURL(file);
+    const a = document.createElement("a");
+    a.href = url; a.download = file.name;
+    document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
-  /** Invio: prima prova la condivisione nativa (il PDF va dentro WhatsApp
-      come allegato); se il dispositivo non la supporta, scarica il file e
-      apre la chat col numero fisso, dove basta allegarlo. */
   /** Invio di un qualsiasi PDF: condivisione nativa se c'è (l'allegato
       entra dentro WhatsApp), altrimenti download + chat sul numero fisso. */
   const inviaFile = async (file: File, testo: string) => {
@@ -628,7 +723,7 @@ export default function CartellaValutazione({
                 </span>
                 <button type="button"
                   onClick={() => setForm(f => ({
-                    ...datiDaAnagrafica(patient, operatoreDefault),
+                    ...datiDaAnagrafica(patient, operatoreDefault || nomeOperatore),
                     luogo_nascita: f.luogo_nascita, codice_fiscale: f.codice_fiscale,
                     tutore_nome: f.tutore_nome, tutore_cf: f.tutore_cf,
                     tutore_nascita: f.tutore_nascita, tutore_qualita: f.tutore_qualita,
@@ -842,6 +937,9 @@ export default function CartellaValutazione({
           <button onClick={() => void save()} disabled={saving} style={btnStyle("ghost", saving)}>
             {saving ? "Salvo…" : "Salva"}
           </button>
+          <button onClick={nuovaValutazione} disabled={saving}
+            title="Archivia questa e comincia una valutazione nuova"
+            style={btnStyle("ghost", saving)}>Nuova</button>
           <button onClick={() => void downloadPdf(true)} disabled={busyPdf} style={btnStyle("ghost", busyPdf)}>
             {busyPdf ? "Genero…" : "📄 Modulo"}
           </button>
