@@ -353,6 +353,19 @@ function CalendarPageInner() {
       prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
     );
   }, []);
+  /** Vista a corsie (mig. —): colonne affiancate per operatore o per stanza.
+   *  Riusa il meccanismo delle lane già presente per le sovrapposizioni,
+   *  quindi non serve un layout nuovo: cambia solo come si assegnano. */
+  const [laneMode, setLaneMode] = useState<"none" | "operators" | "rooms">(() => {
+    if (typeof window === "undefined") return "none";
+    const v = window.localStorage.getItem("fisiohub_mobile_lane_mode");
+    return v === "operators" || v === "rooms" ? v : "none";
+  });
+  const changeLaneMode = useCallback((m: "none" | "operators" | "rooms") => {
+    setLaneMode(m);
+    try { window.localStorage.setItem("fisiohub_mobile_lane_mode", m); } catch { /* noop */ }
+  }, []);
+
   /** Filtro stanza (multi-stanza): stessa logica, vuoto = tutte. */
   const [roomFilter, setRoomFilter] = useState<string[]>([]);
   const toggleRoomFilter = useCallback((key: string | null) => {
@@ -1038,6 +1051,8 @@ function CalendarPageInner() {
   }, [searchParams,router]);
 
   /* ── Derived ─────────────────────────────── */
+
+
   const dayEventsAll = useMemo(() =>
     events.filter(e=>isSameDay(e.start,currentDate)), [events,currentDate]);
 
@@ -1053,6 +1068,44 @@ function CalendarPageInner() {
     }
     return list;
   }, [events,currentDate,multiOpActive,operatorFilter,multiRoomEnabled,roomFilter]);
+
+  // Colonne della vista a corsie: operatori con agenda propria (o stanze),
+  // rispettando i chip di filtro attivi. La colonna "senza" compare solo se
+  // ci sono davvero eventi orfani, per non sprecare larghezza.
+  const laneCols = useMemo(() => {
+    if (laneMode === "none") return [] as Array<{ key: string; label: string; color: string }>;
+    const cols: Array<{ key: string; label: string; color: string }> = [];
+    if (laneMode === "operators") {
+      for (const m of activeMembers) {
+        if (!m.user_id) continue;
+        if (operatorFilter.length > 0 && !operatorFilter.includes(m.user_id)) continue;
+        cols.push({
+          key: m.user_id,
+          label: (m.signature_short || m.display_name || "?").substring(0, 3).toUpperCase(),
+          color: m.display_color || "#64748b",
+        });
+      }
+      if (dayEvents.some(e => !e.operator_id)
+          && (operatorFilter.length === 0 || operatorFilter.includes("__unassigned__"))) {
+        cols.push({ key: "__unassigned__", label: "—", color: "#cbd5e1" });
+      }
+    } else {
+      for (const r of (studioRooms ?? [])) {
+        if (roomFilter.length > 0 && !roomFilter.includes(r.id)) continue;
+        cols.push({
+          key: r.id,
+          label: r.name.substring(0, 4),
+          color: r.color || "#64748b",
+        });
+      }
+      if (dayEvents.some(e => !e.room_id)
+          && (roomFilter.length === 0 || roomFilter.includes("__noroom__"))) {
+        cols.push({ key: "__noroom__", label: "—", color: "#cbd5e1" });
+      }
+    }
+    return cols;
+  }, [laneMode, activeMembers, operatorFilter, studioRooms, roomFilter, dayEvents]);
+
 
   const dayStats = useMemo(() => ({
     total:   dayEvents.filter(e=>e.status!=="cancelled").length,
@@ -3187,6 +3240,36 @@ function CalendarPageInner() {
             })}
           </div>
         )}
+        {/* ─── Vista a corsie ───────────────────────────────────────────
+            Colonne affiancate per operatore o stanza. Su telefono si
+            attiva a richiesta: con molte colonne diventano strette, quindi
+            conviene combinarla con i chip di filtro. */}
+        {viewMode==="day" && (multiOpActive || (multiRoomEnabled && (studioRooms ?? []).length >= 2)) && (
+          <div style={{display:"flex",gap:6,marginBottom:8,alignItems:"center"}}>
+            <span style={{fontSize:10,fontWeight:700,color:THEME.muted,textTransform:"uppercase",letterSpacing:0.4}}>
+              Corsie
+            </span>
+            {([
+              ["none","Off"],
+              ...(multiOpActive ? [["operators","Operatori"]] : []),
+              ...(multiRoomEnabled && (studioRooms ?? []).length >= 2 ? [["rooms","Stanze"]] : []),
+            ] as Array<[typeof laneMode, string]>).map(([m,label]) => (
+              <button
+                key={m}
+                onClick={()=>changeLaneMode(m)}
+                style={{
+                  padding:"4px 11px",borderRadius:7,
+                  border:`1.5px solid ${laneMode===m ? "#334155" : THEME.border}`,
+                  background: laneMode===m ? "#334155" : "#fff",
+                  color: laneMode===m ? "#fff" : "#475569",
+                  fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         {/* ─── Chip filtro stanza (multi-stanza) ────────────────────────
             Prima su mobile le stanze si potevano solo assegnare, non
             filtrare: con due box non si riusciva a isolare un ambiente. */}
@@ -3249,6 +3332,24 @@ function CalendarPageInner() {
         }}>
           <div ref={timelineScrollRef}
             onTouchStart={handleSwipeTouchStart} onTouchEnd={handleSwipeTouchEnd}>
+            {/* Intestazione corsie: sigle allineate alle colonne, così si
+                capisce di chi è ciascuna striscia senza aprire una card. */}
+            {laneMode!=="none" && laneCols.length>1 && (
+              <div style={{display:"flex",gap:2,marginBottom:4,paddingLeft:52}}>
+                {laneCols.map(c=>(
+                  <div key={c.key} style={{
+                    flex:1,minWidth:0,textAlign:"center",
+                    padding:"3px 2px",borderRadius:6,
+                    background:`${c.color}14`,
+                    borderBottom:`2px solid ${c.color}`,
+                    fontSize:10,fontWeight:800,color:"#475569",
+                    whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",
+                  }}>
+                    {c.label}
+                  </div>
+                ))}
+              </div>
+            )}
             <div ref={timelineRef}
               onDragOver={handleDragOver} onDrop={handleDrop} onDragLeave={()=>setDragOverY(null)}
               onTouchMove={handleTimelineTouchMove}
@@ -3286,6 +3387,22 @@ function CalendarPageInner() {
                 if (dragId) {
                   return dayEvents.map(ev => renderEventCard(ev, { lane: 0, totalLanes: 1 }));
                 }
+
+                // Vista a corsie: ogni operatore (o stanza) ha la sua colonna.
+                // Si riusa lo stesso meccanismo delle sovrapposizioni: cambia
+                // solo il criterio con cui si assegna la lane.
+                if (laneMode !== "none" && laneCols.length > 1) {
+                  const idx = new Map(laneCols.map((c, i) => [c.key, i]));
+                  return dayEvents.map(ev => {
+                    const k = laneMode === "operators"
+                      ? (ev.operator_id ?? "__unassigned__")
+                      : (ev.room_id ?? "__noroom__");
+                    const lane = idx.get(k);
+                    if (lane === undefined) return null;
+                    return renderEventCard(ev, { lane, totalLanes: laneCols.length });
+                  });
+                }
+
                 const lanePositions = assignLanes(dayEvents, 3);
                 return dayEvents
                   .filter(ev => ev.status === "cancelled" || lanePositions.has(ev.id))
