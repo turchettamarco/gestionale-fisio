@@ -85,6 +85,8 @@ export type StudioMember = {
   role: "owner" | "co_owner" | "therapist" | "assistant";
   /** Permessi granulari (mig. 071). */
   permission_preset?: string | null;
+  /** Ha una propria agenda in calendario (mig. 081). */
+  shows_in_agenda?: boolean;
   permissions?: unknown;
   display_name: string | null;
   // Campi mig. 019 (opzionali per backward-compat con DB pre-019)
@@ -188,7 +190,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       // Tentativo 1: query post-019 con tutti i campi nuovi
       const { data, error: memErr } = await supabase
         .from("studio_members")
-        .select("studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invited_at, invite_token, permission_preset, permissions")
+        .select("studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invited_at, invite_token, permission_preset, permissions, shows_in_agenda")
         .eq("studio_id", studioId)
         .order("sort_order", { ascending: true })
         .order("display_name", { ascending: true });
@@ -205,7 +207,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       // Tentativo 2: fallback query pre-019 (solo campi base)
       const { data: dataBasic, error: memErrBasic } = await supabase
         .from("studio_members")
-        .select("studio_id, user_id, role, display_name, permission_preset, permissions")
+        .select("studio_id, user_id, role, display_name, permission_preset, permissions, shows_in_agenda")
         .eq("studio_id", studioId);
 
       if (!memErrBasic && dataBasic) {
@@ -276,7 +278,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       let memberData: StudioMember | null = null;
       const { data: memberDataRich, error: memberErrRich } = await supabase
         .from("studio_members")
-        .select("studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invited_at, invite_token, permission_preset, permissions")
+        .select("studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invited_at, invite_token, permission_preset, permissions, shows_in_agenda")
         .eq("user_id", userData.user.id)
         .limit(1)
         .maybeSingle();
@@ -287,7 +289,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
         // Fallback pre-019
         const { data: memberDataBasic, error: memberErrBasic } = await supabase
           .from("studio_members")
-          .select("studio_id, user_id, role, display_name, permission_preset, permissions")
+          .select("studio_id, user_id, role, display_name, permission_preset, permissions, shows_in_agenda")
           .eq("user_id", userData.user.id)
           .limit(1)
           .maybeSingle();

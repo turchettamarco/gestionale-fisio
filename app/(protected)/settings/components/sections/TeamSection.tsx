@@ -77,6 +77,7 @@ function MemberForm({
     role: StudioMemberRow["role"];
     display_color: string;
     signature_short: string;
+    shows_in_agenda?: boolean;
   }) => void;
   saving: boolean;
   isEdit?: boolean;
@@ -91,6 +92,10 @@ function MemberForm({
   }, [initial?.display_color, alreadyUsedColors]);
 
   const [displayName, setDisplayName] = useState(initial?.display_name ?? "");
+  // Compare in agenda (mig. 081): default sì, ma per la segreteria no.
+  const [showsInAgenda, setShowsInAgenda] = useState<boolean>(
+    initial?.shows_in_agenda ?? (initial?.role === "assistant" ? false : true)
+  );
   const [email, setEmail] = useState(initial?.email ?? "");
   const [role, setRole] = useState<StudioMemberRow["role"]>(initial?.role ?? "therapist");
   const [color, setColor] = useState<string>(suggestedColor);
@@ -121,6 +126,7 @@ function MemberForm({
       role,
       display_color: color,
       signature_short: signature.trim().toUpperCase().slice(0, 3),
+      shows_in_agenda: showsInAgenda,
     });
   };
 
@@ -200,6 +206,30 @@ function MemberForm({
           <div style={{ fontSize: 11, color: THEME.muted, marginTop: 4 }}>
             {ROLE_DESCRIPTIONS[role]}
           </div>
+          {/* Visibilità in agenda (mig. 081) ─────────────────────────
+              Chi non svolge sedute (tipicamente la segreteria) non deve
+              avere una colonna in calendario, pur potendo prenotare per
+              gli altri. Vale anche per un titolare che non riceve. */}
+          <label style={{
+            display: "flex", alignItems: "flex-start", gap: 8,
+            marginTop: 10, cursor: "pointer",
+          }}>
+            <input
+              type="checkbox"
+              checked={showsInAgenda}
+              onChange={(e) => setShowsInAgenda(e.target.checked)}
+              style={{ marginTop: 2 }}
+            />
+            <span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: THEME.text }}>
+                Compare in agenda
+              </span>
+              <span style={{ display: "block", fontSize: 11, color: THEME.muted, marginTop: 1 }}>
+                Ha una propria colonna in calendario e può ricevere appuntamenti.
+                Togli la spunta per chi non svolge sedute.
+              </span>
+            </span>
+          </label>
         </div>
       </div>
 
@@ -261,6 +291,7 @@ function MemberCard({
   onPermissions,
   onHandover,
   onCopyInvite,
+  onActivate,
   onResendInvite,
   inviteUrl,
   copyFlash,
@@ -274,6 +305,8 @@ function MemberCard({
   onPermissions: () => void;
   onHandover: () => void;
   onCopyInvite?: () => void;
+  /** Attiva subito il collaboratore creando il suo account (mig. —, API team/activate). */
+  onActivate?: () => void;
   onResendInvite?: () => void;
   inviteUrl?: string;
   copyFlash: boolean;
@@ -374,6 +407,24 @@ function MemberCard({
             >
               {copyFlash ? "✓ Copiato" : "📋 Copia"}
             </button>
+            {/* Attivazione immediata: crea l'account al posto suo, così
+                diventa subito assegnabile in agenda senza aspettare che
+                completi la registrazione. */}
+            {onActivate && (
+              <button
+                onClick={onActivate}
+                title="Crea subito il suo account con una password provvisoria"
+                style={{
+                  fontSize: 11, fontWeight: 700,
+                  padding: "4px 10px",
+                  background: "#fff", color: THEME.teal,
+                  border: `1px solid ${THEME.border}`,
+                  borderRadius: 6, cursor: "pointer",
+                }}
+              >
+                ⚡ Attiva subito
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -942,6 +993,7 @@ export type TeamSectionProps = {
     role: StudioMemberRow["role"];
     display_color: string;
     signature_short: string;
+    shows_in_agenda?: boolean;
   }) => Promise<{ inviteToken: string } | null>;
   onUpdateMember: (
     userIdOrToken: string,
@@ -951,6 +1003,7 @@ export type TeamSectionProps = {
       role: StudioMemberRow["role"];
       display_color: string;
       signature_short: string;
+    shows_in_agenda?: boolean;
     }>
   ) => Promise<void>;
   onDeleteMember: (userIdOrToken: string, isToken: boolean) => Promise<void>;
@@ -1001,6 +1054,42 @@ export default function TeamSection({
   const [permsMemberId, setPermsMemberId] = useState<string | null>(null);
   // Sostituzione operatore (Tappa L): riassegnazione massiva appuntamenti.
   const [handoverMemberId, setHandoverMemberId] = useState<string | null>(null);
+  // Attivazione immediata di un invitato (crea l'account al posto suo).
+  const [activatingId, setActivatingId] = useState<string | null>(null);
+
+  async function handleActivate(memberId: string, name: string) {
+    const pwd = window.prompt(
+      `Password provvisoria per ${name}\n\n` +
+      `Verrà creato subito il suo account: potrai assegnargli appuntamenti\n` +
+      `senza attendere che completi la registrazione.\n` +
+      `Comunicagliela: la cambierà al primo accesso.\n\n` +
+      `Minimo 8 caratteri.`
+    );
+    if (!pwd) return;
+    if (pwd.length < 8) { alert("La password deve avere almeno 8 caratteri."); return; }
+
+    setActivatingId(memberId);
+    try {
+      const r = await fetch("/api/team/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ member_id: memberId, password: pwd }),
+      });
+      const j = await r.json();
+      if (!r.ok) { alert(j?.message || "Attivazione non riuscita."); return; }
+      alert(
+        `${name} è ora attivo.\n\n` +
+        `Email: ${j.email}\n` +
+        `Password provvisoria: quella che hai appena scelto.\n\n` +
+        `Ora puoi assegnargli appuntamenti in agenda.`
+      );
+      await onReloadMembers?.();
+    } catch {
+      alert("Errore di rete. Riprova.");
+    } finally {
+      setActivatingId(null);
+    }
+  }
 
   // Catalogo trattamenti dello studio (per la matrice tariffe).
   // Carico una volta al mount, refresh quando si apre la sezione tariffe.
@@ -1063,6 +1152,7 @@ export default function TeamSection({
     role: StudioMemberRow["role"];
     display_color: string;
     signature_short: string;
+    shows_in_agenda?: boolean;
   }) => {
     const result = await onCreateInvite(payload);
     if (result) {
@@ -1286,6 +1376,9 @@ export default function TeamSection({
                       setHandoverMemberId(handoverMemberId === member.id ? null : member.id);
                     }}
                     onCopyInvite={() => member.invite_token && handleCopyInvite(member.invite_token)}
+                    onActivate={member.user_id == null && activatingId !== member.id
+                      ? () => handleActivate(member.id, member.display_name || "il collaboratore")
+                      : undefined}
                   />
                   {ratesMemberId === member.id && treatmentsCatalog.length > 0 && (
                     <MemberRatesForm

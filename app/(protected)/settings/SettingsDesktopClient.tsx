@@ -444,7 +444,7 @@ export default function SettingsDesktopClient() {
     try {
       const { data, error } = await supabase
         .from("studio_members")
-        .select("id, studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invite_token, invited_at, permission_preset, permissions")
+        .select("id, studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invite_token, invited_at, permission_preset, permissions, shows_in_agenda")
         .eq("studio_id", studio.id)
         .eq("is_active", true)
         .order("role", { ascending: true })  // owner first
@@ -619,6 +619,7 @@ export default function SettingsDesktopClient() {
     role: StudioMemberRow["role"];
     display_color: string;
     signature_short: string;
+    shows_in_agenda?: boolean;
   }): Promise<{ inviteToken: string } | null> => {
     if (!studio?.id) { alert("Studio non disponibile"); return null; }
     setSavingMember(true);
@@ -646,6 +647,9 @@ export default function SettingsDesktopClient() {
         studio_id: studio.id,
         user_id: null,
         role: payload.role,
+        // Chi non svolge sedute non deve avere una colonna in agenda
+        // (mig. 081): default coerente col ruolo, modificabile poi.
+        shows_in_agenda: payload.shows_in_agenda ?? (payload.role !== "assistant"),
         display_name: payload.display_name,
         display_color: payload.display_color,
         signature_short: payload.signature_short,
@@ -678,6 +682,7 @@ export default function SettingsDesktopClient() {
       role: StudioMemberRow["role"];
       display_color: string;
       signature_short: string;
+      shows_in_agenda: boolean;
     }>
   ) => {
     if (!studio?.id) return;
@@ -688,6 +693,7 @@ export default function SettingsDesktopClient() {
       if (payload.role !== undefined) upd.role = payload.role;
       if (payload.display_color !== undefined) upd.display_color = payload.display_color;
       if (payload.signature_short !== undefined) upd.signature_short = payload.signature_short;
+      if (payload.shows_in_agenda !== undefined) upd.shows_in_agenda = payload.shows_in_agenda;
 
       const query = supabase
         .from("studio_members")

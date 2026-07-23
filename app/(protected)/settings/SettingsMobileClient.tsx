@@ -1235,7 +1235,7 @@ export default function SettingsMobileClient() {
     try {
       const { data, error } = await supabase
         .from("studio_members")
-        .select("id, studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invite_token, invited_at, permission_preset, permissions")
+        .select("id, studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invite_token, invited_at, permission_preset, permissions, shows_in_agenda")
         .eq("studio_id", currentStudioId)
         .eq("is_active", true)
         .order("role", { ascending: true })

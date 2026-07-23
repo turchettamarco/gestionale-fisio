@@ -142,6 +142,8 @@ export type StudioMemberRow = {
   invited_at: string | null;    // ISO
   /** Permessi granulari (mig. 071): preset o "custom" con elenco esplicito. */
   permission_preset?: string | null;
+  /** Ha una propria agenda in calendario (mig. 081). */
+  shows_in_agenda?: boolean;
   permissions?: unknown;
 };
 

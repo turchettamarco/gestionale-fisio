@@ -160,7 +160,17 @@ function CalendarPageInner() {
   // Pilotato dai chip della legenda OperatorLegend: click = attiva/disattiva.
   // Funziona in TUTTE le viste calendario (Day/Week/Month) perché filtra
   // direttamente filteredEvents.
-  const [operatorFilter, setOperatorFilter] = useState<string | null>(null);
+  // Filtro operatore a selezione MULTIPLA (array vuoto = tutti). Prima era
+  // singolo: o un operatore o tutti, senza vie di mezzo. Con tre o più
+  // colleghi serve poter guardare due agende insieme.
+  const [operatorFilter, setOperatorFilter] = useState<string[]>([]);
+  const toggleOperatorFilter = useCallback((key: string | null) => {
+    // null = azzera la selezione (mostra tutti)
+    if (key === null) { setOperatorFilter([]); return; }
+    setOperatorFilter(prev =>
+      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+    );
+  }, []);
 
 
   // Filtro stanza interattivo (Fase Stanze, parallelo a operatorFilter).
@@ -175,8 +185,11 @@ function CalendarPageInner() {
   // l'owner potrebbe voler pianificare appuntamenti per loro PRIMA che
   // il collega si registri. Nel rendering distingueremo poi i pending
   // con un badge nell'header (vedi DayTimelineMulti).
+  // Membri con agenda propria (mig. 081): colonne, legenda e selettori si
+  // costruiscono solo su chi svolge sedute. La segreteria resta fuori dal
+  // calendario pur potendo prenotare per gli altri.
   const activeMembers = useMemo(
-    () => allMembers.filter(m => m.is_active !== false),
+    () => allMembers.filter(m => m.is_active !== false && m.shows_in_agenda !== false),
     [allMembers]
   );
 
@@ -301,7 +314,7 @@ function CalendarPageInner() {
     const role = me.role as string;
     if (role === "owner" || role === "co_owner") return;
     const perms = resolvePermissions(me as never);
-    if (!perms.has("agenda.view_all")) setOperatorFilter(userId);
+    if (!perms.has("agenda.view_all")) setOperatorFilter([userId]);
   }, [multiOperatorEnabled, userId, activeMembers]);
 
 
@@ -1352,12 +1365,10 @@ function CalendarPageInner() {
     // Quando operatorFilter è valorizzato, mostra solo gli appuntamenti di
     // quell'operatore. Il valore "_unassigned_" filtra gli eventi orfani
     // (operator_id NULL). Funziona trasversalmente a tutte le viste.
-    if (operatorFilter !== null) {
-      if (operatorFilter === "_unassigned_") {
-        result = result.filter(e => !e.operator_id);
-      } else {
-        result = result.filter(e => e.operator_id === operatorFilter);
-      }
+    if (operatorFilter.length > 0) {
+      result = result.filter(e =>
+        operatorFilter.includes(e.operator_id ?? "_unassigned_")
+      );
     }
 
     // Step 8: filtro stanza (Fase Stanze)
@@ -2423,8 +2434,8 @@ return (
               members={activeMembers}
               operatorColorMap={operatorColorMap}
               showUnassigned={events.some(ev => !ev.operator_id)}
-              selectedKey={operatorFilter}
-              onSelectKey={setOperatorFilter}
+              selectedKeys={operatorFilter}
+              onToggleKey={toggleOperatorFilter}
               currentUserId={userId}
             />
           )}
@@ -2615,6 +2626,7 @@ return (
               onResizeStart={eventResize.startResize}
               resizePreview={eventResize.resizePreview}
               operatorSchedules={operatorSchedules}
+              visibleOperatorKeys={operatorFilter}
               onSlotClickGuest={(date, hour, minute, guestId) => {
                 // Click sulla colonna ospite (mig. 029): apro prima il modale
                 // (che resetta gli state al loro default), poi sovrascrivo

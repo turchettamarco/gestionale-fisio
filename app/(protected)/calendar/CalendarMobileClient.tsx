@@ -323,8 +323,10 @@ function CalendarPageInner() {
   // assegnazione. Qui allineiamo il comportamento al desktop.
   const multiOperatorEnabled = Boolean((currentStudio as { multi_operator_enabled?: boolean } | null)?.multi_operator_enabled);
   const multiRoomEnabled = Boolean((currentStudio as { multi_room_enabled?: boolean } | null)?.multi_room_enabled);
+  // Solo chi ha un'agenda propria (mig. 081): la segreteria non compare
+  // tra i colori né tra i chip di filtro.
   const activeMembers = useMemo(
-    () => (studioMembers ?? []).filter(m => m.is_active !== false),
+    () => (studioMembers ?? []).filter(m => m.is_active !== false && m.shows_in_agenda !== false),
     [studioMembers]
   );
   const multiOpActive = multiOperatorEnabled && activeMembers.length >= 2;
@@ -343,8 +345,22 @@ function CalendarPageInner() {
     }
     return m;
   }, [activeMembers]);
-  /** Filtro operatore attivo (null = tutti, "__unassigned__" = non assegnati). */
-  const [operatorFilter, setOperatorFilter] = useState<string | null>(null);
+  /** Filtro operatore a selezione MULTIPLA (vuoto = tutti). */
+  const [operatorFilter, setOperatorFilter] = useState<string[]>([]);
+  const toggleOperatorFilter = useCallback((key: string | null) => {
+    if (key === null) { setOperatorFilter([]); return; }
+    setOperatorFilter(prev =>
+      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+    );
+  }, []);
+  /** Filtro stanza (multi-stanza): stessa logica, vuoto = tutte. */
+  const [roomFilter, setRoomFilter] = useState<string[]>([]);
+  const toggleRoomFilter = useCallback((key: string | null) => {
+    if (key === null) { setRoomFilter([]); return; }
+    setRoomFilter(prev =>
+      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+    );
+  }, []);
   // Granularità agenda: 30 o 15 minuti. Persistita su studios.slot_minutes,
   // quindi vale su tutti i dispositivi. Governa snap del drag e click sugli slot.
   const [slotMin, setSlotMin] = useState(30);
@@ -577,6 +593,9 @@ function CalendarPageInner() {
   }, [openGroup]);
 
   const [editStatus,    setEditStatus]    = useState<Status>("booked");
+  // Operatore dell'appuntamento in modifica (multi-op): mancava del tutto
+  // sul mobile, quindi non si vedeva né si poteva cambiare di chi fosse.
+  const [editOperatorId, setEditOperatorId] = useState<string | null>(null);
   const [editConv, setEditConv] = useState<ConvenzioneValue>(EMPTY_CONVENZIONE);
   const [editNote,      setEditNote]      = useState("");
   const [editAmount,    setEditAmount]    = useState("");
@@ -1025,13 +1044,15 @@ function CalendarPageInner() {
   const dayEvents = useMemo(() => {
     let list = events.filter(e=>isSameDay(e.start,currentDate));
     // Tappa D: filtro operatore (chip in alto). "__unassigned__" = orfani.
-    if (multiOpActive && operatorFilter) {
-      list = operatorFilter === "__unassigned__"
-        ? list.filter(e => !e.operator_id)
-        : list.filter(e => e.operator_id === operatorFilter);
+    if (multiOpActive && operatorFilter.length > 0) {
+      list = list.filter(e => operatorFilter.includes(e.operator_id ?? "__unassigned__"));
+    }
+    // Filtro stanza, combinato in AND con quello operatore.
+    if (multiRoomEnabled && roomFilter.length > 0) {
+      list = list.filter(e => roomFilter.includes(e.room_id ?? "__noroom__"));
     }
     return list;
-  }, [events,currentDate,multiOpActive,operatorFilter]);
+  }, [events,currentDate,multiOpActive,operatorFilter,multiRoomEnabled,roomFilter]);
 
   const dayStats = useMemo(() => ({
     total:   dayEvents.filter(e=>e.status!=="cancelled").length,
@@ -1407,6 +1428,7 @@ function CalendarPageInner() {
       return;
     }
     setSelectedEvent(ev); setEditStatus(ev.status);
+    setEditOperatorId(ev.operator_id ?? null);
     setEditNote(ev.calendar_note??""); setEditAmount(ev.amount==null?"":String(ev.amount));
     setEditPriceType((ev.price_type as "invoiced" | "cash") || "invoiced");
     setEditPaymentMethod((ev.payment_method as "cash" | "pos" | "bank_transfer" | null) || null);
@@ -1474,6 +1496,10 @@ function CalendarPageInner() {
       treatment_type: editTreatmentType || null,
       ...convenzioneToColumns(editConv),
     };
+    // Operatore: solo in multi-op, e solo se davvero cambiato.
+    if (multiOpActive && editOperatorId !== (selectedEvent.operator_id ?? null)) {
+      upd.operator_id = editOperatorId;
+    }
     if (isValidISODate(editDate)&&isValidHHMM(editTime)) {
       const ns=buildDateTime(editDate,editTime);
       const d=Number(editDuration);
@@ -1490,7 +1516,7 @@ function CalendarPageInner() {
     const freedDur = Math.round((selectedEvent.end.getTime() - selectedEvent.start.getTime()) / 60_000);
     setSelectedEvent(null); setBusy(false); await reloadCurrent();
     if (becameCancelled) await openWaitlistMatchesForSlot(freedSlot, freedDur);
-  }, [selectedEvent,editStatus,editNote,editAmount,editPriceType,editPaymentMethod,editDate,editTime,editDuration,editTreatmentType,editConv,currentDate,loadAppointments,paymentMethodRequired,defaultPaymentMethod,openWaitlistMatchesForSlot]);
+  }, [selectedEvent,editStatus,editNote,editAmount,editPriceType,editPaymentMethod,editDate,editTime,editDuration,editTreatmentType,editConv,editOperatorId,multiOpActive,currentDate,loadAppointments,paymentMethodRequired,defaultPaymentMethod,openWaitlistMatchesForSlot]);
 
   const deleteEvent = useCallback(async () => {
     if (!selectedEvent||!window.confirm("Eliminare definitivamente questo appuntamento?")) return;
@@ -2867,7 +2893,16 @@ function CalendarPageInner() {
             const { mon } = weekRange(currentDate);
             const days = Array.from({length: showSaturday ? 6 : 5},(_,i)=>{ const d=new Date(mon); d.setDate(d.getDate()+i); return d; });
             const now = new Date();
-            const weekEvs = events.filter(e => e.status !== "cancelled");
+            const weekEvs = events.filter(e => {
+              if (e.status === "cancelled") return false;
+              // Filtro operatore attivo anche in vista settimana (prima
+              // valeva solo per la giornata).
+              if (multiOpActive && operatorFilter.length > 0
+                  && !operatorFilter.includes(e.operator_id ?? "__unassigned__")) return false;
+              if (multiRoomEnabled && roomFilter.length > 0
+                  && !roomFilter.includes(e.room_id ?? "__noroom__")) return false;
+              return true;
+            });
             const totCount = weekEvs.length;
             const totRev = weekEvs.reduce((s,e)=> s + (e.is_group ? (e.group_total ?? 0) : (typeof e.amount==="number"?e.amount:0)), 0);
             const labelFor = (ev: CalendarEvent) => {
@@ -2954,7 +2989,16 @@ function CalendarPageInner() {
                                 touchAction:"none",
                                 opacity:wkDragId===ev.id?0.22:1,
                                 transition:wkDragId?"none":"opacity 0.15s"}}>
-                                <p style={{margin:0,fontSize:7,fontWeight:800,lineHeight:1.2,color:THEME.text,opacity:0.75,whiteSpace:"nowrap",overflow:"hidden"}}>
+                                {multiOpActive && (
+                                  <span style={{
+                                    position:"absolute",left:0,top:0,bottom:0,width:3,
+                                    borderRadius:"6px 0 0 6px",
+                                    background: ev.operator_id
+                                      ? (operatorColorById.get(ev.operator_id) ?? "#94a3b8")
+                                      : "repeating-linear-gradient(45deg,#cbd5e1 0 3px,transparent 3px 6px)",
+                                  }} />
+                                )}
+                                <p style={{margin:0,fontSize:7,fontWeight:800,lineHeight:1.2,color:THEME.text,opacity:0.75,whiteSpace:"nowrap",overflow:"hidden",paddingLeft:multiOpActive?4:0}}>
                                   {fmtTime(ev.start)}{small?` ${labelFor(ev)}`:""}
                                 </p>
                                 {!small&&(
@@ -3093,11 +3137,10 @@ function CalendarPageInner() {
           </div>
         )}
 
-        {viewMode==="day"&&(<>
         {/* ─── Tappa D: chip filtro operatore ───────────────────────────
             Scorrevoli orizzontalmente. I membri PENDING non compaiono:
             non possono avere appuntamenti assegnati (come nel desktop). */}
-        {multiOpActive && (
+        {multiOpActive && viewMode!=="month" && (
           <div style={{
             display:"flex", gap:6, marginBottom:8, overflowX:"auto",
             WebkitOverflowScrolling:"touch", paddingBottom:2,
@@ -3109,15 +3152,17 @@ function CalendarPageInner() {
                 label: m.display_name || m.signature_short || "—",
                 color: m.display_color || "#64748b",
               })),
-              ...(dayEventsAll.some(e=>!e.operator_id)
+              ...((viewMode==="week" ? events : dayEventsAll).some(e=>!e.operator_id)
                 ? [{ key:"__unassigned__" as string|null, label:"Non assegnati", color:"#94a3b8" }]
                 : []),
             ].map(chip => {
-              const active = operatorFilter === chip.key;
+              const active = chip.key === null
+                ? operatorFilter.length === 0
+                : operatorFilter.includes(chip.key);
               return (
                 <button
                   key={chip.key ?? "all"}
-                  onClick={()=>setOperatorFilter(chip.key)}
+                  onClick={()=>toggleOperatorFilter(chip.key)}
                   style={{
                     display:"inline-flex", alignItems:"center", gap:5,
                     padding:"5px 11px", borderRadius:99, flexShrink:0,
@@ -3142,6 +3187,55 @@ function CalendarPageInner() {
             })}
           </div>
         )}
+        {/* ─── Chip filtro stanza (multi-stanza) ────────────────────────
+            Prima su mobile le stanze si potevano solo assegnare, non
+            filtrare: con due box non si riusciva a isolare un ambiente. */}
+        {multiRoomEnabled && (studioRooms ?? []).length >= 2 && viewMode!=="month" && (
+          <div style={{
+            display:"flex", gap:6, marginBottom:8, overflowX:"auto",
+            WebkitOverflowScrolling:"touch", paddingBottom:2,
+          }}>
+            {[
+              { key:null as string|null, label:"Tutte le stanze", color:"#64748b" },
+              ...(studioRooms ?? []).map(r=>({
+                key: r.id as string|null,
+                label: r.name,
+                color: r.color || "#64748b",
+              })),
+              { key:"__noroom__" as string|null, label:"Senza stanza", color:"#94a3b8" },
+            ].map(chip => {
+              const active = chip.key === null
+                ? roomFilter.length === 0
+                : roomFilter.includes(chip.key);
+              return (
+                <button
+                  key={chip.key ?? "allrooms"}
+                  onClick={()=>toggleRoomFilter(chip.key)}
+                  style={{
+                    display:"inline-flex", alignItems:"center", gap:5,
+                    padding:"5px 11px", borderRadius:99, flexShrink:0,
+                    border:`1.5px solid ${active ? chip.color : THEME.border}`,
+                    background: active ? `${chip.color}14` : "#fff",
+                    color: active ? "#334155" : "#475569",
+                    fontSize:12, fontWeight:700, fontFamily:"inherit",
+                    cursor:"pointer", whiteSpace:"nowrap",
+                  }}
+                >
+                  {chip.key !== null && (
+                    <span style={{
+                      width:7,height:7,borderRadius:2,
+                      background: chip.key==="__noroom__" ? "transparent" : chip.color,
+                      border: chip.key==="__noroom__" ? "1.5px dashed #94a3b8" : "none",
+                      boxSizing:"border-box", flexShrink:0,
+                    }} />
+                  )}
+                  {chip.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {viewMode==="day"&&(<>
         {/* ─── Legenda swipe ─── */}
         <div style={{display:"flex",gap:10,marginBottom:8,fontSize:10,color:THEME.muted,fontWeight:600}}>
           <span>← scorri card per aprire</span>
@@ -3480,6 +3574,22 @@ function CalendarPageInner() {
                   onChange={e=>setEditDuration(Number(e.target.value))} style={inputS()} placeholder="Min" />
               </div>
             </FG>
+            {/* Operatore: chi svolge la seduta. Su mobile mancava, quindi
+                gli appuntamenti sembravano tutti uguali. */}
+            {multiOpActive && (
+              <FG label="Operatore">
+                <select
+                  value={editOperatorId ?? ""}
+                  onChange={e=>setEditOperatorId(e.target.value || null)}
+                  style={inputS()}
+                >
+                  <option value="">Non assegnato</option>
+                  {activeMembers.filter(m=>m.user_id).map(m=>(
+                    <option key={m.user_id!} value={m.user_id!}>{m.display_name || "—"}</option>
+                  ))}
+                </select>
+              </FG>
+            )}
             <FG label="Stato">
               <select value={editStatus} onChange={e=>setEditStatus(e.target.value as Status)} style={inputS()}>
                 <option value="booked">Prenotato</option>

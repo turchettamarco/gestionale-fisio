@@ -31,12 +31,14 @@ export type OperatorLegendProps = {
    * Filtro attivo: chiave operatore selezionata. null = mostra tutti.
    * Possibili valori: user_id, "pending:<token>", "_unassigned_".
    */
-  selectedKey: string | null;
+  /** Chiavi selezionate (array vuoto = tutti visibili). Selezione MULTIPLA. */
+  selectedKeys: string[];
   /**
    * Callback al click su un chip. Il padre decide se attivare/disattivare
    * il filtro (toggle) confrontando con `selectedKey` corrente.
    */
-  onSelectKey: (key: string | null) => void;
+  /** Aggiunge/toglie una chiave dalla selezione. null = azzera (mostra tutti). */
+  onToggleKey: (key: string | null) => void;
   /** Tappa E: user_id dell'utente loggato. Se presente e corrisponde a un
    *  membro attivo, mostra il chip "Io" come scorciatoia di filtro. */
   currentUserId?: string | null;
@@ -52,8 +54,8 @@ export default function OperatorLegend({
   members,
   operatorColorMap,
   showUnassigned = false,
-  selectedKey,
-  onSelectKey,
+  selectedKeys,
+  onToggleKey,
   currentUserId,
 }: OperatorLegendProps) {
   const rows = members
@@ -62,16 +64,11 @@ export default function OperatorLegend({
 
   if (rows.length === 0) return null;
 
-  const filterActive = selectedKey !== null;
+  const filterActive = selectedKeys.length > 0;
 
-  // Toggle: click sullo stesso → disattiva filtro, click su altro → switch
-  const handleClick = (key: string) => {
-    if (selectedKey === key) {
-      onSelectKey(null);
-    } else {
-      onSelectKey(key);
-    }
-  };
+  // Selezione multipla: ogni click aggiunge o toglie un operatore, così si
+  // possono guardare due o tre agende insieme. Nessuna selezione = tutti.
+  const handleClick = (key: string) => onToggleKey(key);
 
   return (
     <div
@@ -106,14 +103,14 @@ export default function OperatorLegend({
           un collaboratore che apre l'agenda condivisa. */}
       {currentUserId && rows.some(r => r.key === currentUserId) && (
         <button
-          onClick={() => onSelectKey(selectedKey === currentUserId ? null : currentUserId)}
-          title={selectedKey === currentUserId ? "Mostra tutti gli operatori" : "Mostra solo le mie sedute"}
+          onClick={() => onToggleKey(currentUserId)}
+          title={selectedKeys.includes(currentUserId) ? "Togli il filtro sulle tue sedute" : "Aggiungi le tue sedute al filtro"}
           style={{
             display: "inline-flex", alignItems: "center", gap: 5,
             padding: "4px 11px", borderRadius: 99,
-            border: `1.5px solid ${selectedKey === currentUserId ? "#334155" : "#cbd5e1"}`,
-            background: selectedKey === currentUserId ? "#334155" : "#fff",
-            color: selectedKey === currentUserId ? "#fff" : "#475569",
+            border: `1.5px solid ${selectedKeys.includes(currentUserId) ? "#334155" : "#cbd5e1"}`,
+            background: selectedKeys.includes(currentUserId) ? "#334155" : "#fff",
+            color: selectedKeys.includes(currentUserId) ? "#fff" : "#475569",
             fontSize: 11, fontWeight: 800, letterSpacing: 0.3,
             cursor: "pointer", fontFamily: "inherit",
           }}
@@ -124,7 +121,7 @@ export default function OperatorLegend({
       {rows.map(({ key, member }) => {
         const color = operatorColorMap.get(key) || "#94a3b8";
         const isPending = !member.user_id;
-        const isSelected = selectedKey === key;
+        const isSelected = selectedKeys.includes(key);
         const isDimmed = filterActive && !isSelected;
         const initials = (member.signature_short || member.display_name || "?")
           .substring(0, 2)
@@ -204,7 +201,7 @@ export default function OperatorLegend({
       })}
 
       {showUnassigned && (() => {
-        const isSelected = selectedKey === "_unassigned_";
+        const isSelected = selectedKeys.includes("_unassigned_");
         const isDimmed = filterActive && !isSelected;
         return (
           <button
@@ -250,7 +247,7 @@ export default function OperatorLegend({
       {/* Banner "Mostra tutti" visibile solo quando un filtro è attivo */}
       {filterActive && (
         <button
-          onClick={() => onSelectKey(null)}
+          onClick={() => onToggleKey(null)}
           style={{
             marginLeft: "auto",
             display: "inline-flex",

@@ -135,6 +135,9 @@ export type DayTimelineMultiProps = {
    *  Le ore fuori turno vengono ombreggiate nella colonna dell'operatore:
    *  finora i turni si configuravano e avvisavano, ma non si vedevano. */
   schedules?: Array<{ operator_id: string; day_of_week: number; start_time: string; end_time: string }>;
+  /** Operatori selezionati nel filtro (vuoto = tutti). Le colonne degli
+   *  altri vengono nascoste: lasciarle vuote sprecherebbe spazio. */
+  visibleOperatorKeys?: string[];
   /** Resize durata (come WeekView). */
   onResizeStart?: (event: CalendarEvent, clientY: number, pxPerMin: number) => void;
   resizePreview?: { id: string; deltaMin: number } | null;
@@ -182,6 +185,7 @@ export default function DayTimelineMulti({
   onResizeStart,
   resizePreview,
   schedules,
+  visibleOperatorKeys,
 }: DayTimelineMultiProps) {
   const slotOffsets = slotMinutes === 15 ? [0, 15, 30, 45] : [0, 30];
   const roomsMode = columnMode === "rooms" && !!rooms && rooms.length > 0;
@@ -236,7 +240,14 @@ export default function DayTimelineMulti({
           isUnassigned: false,
           isPending: m.user_id == null,
         }));
-    if (hasUnassignedEvents) {
+    // Filtro operatore attivo: si mostrano solo le colonne selezionate.
+    if (!roomsMode && visibleOperatorKeys && visibleOperatorKeys.length > 0) {
+      const keep = new Set(visibleOperatorKeys);
+      const filtered = cols.filter(c => keep.has(c.key));
+      cols.length = 0;
+      cols.push(...filtered);
+    }
+    if (hasUnassignedEvents && (!visibleOperatorKeys || visibleOperatorKeys.length === 0 || visibleOperatorKeys.includes("_unassigned_"))) {
       cols.push({
         key: "__unassigned__",
         label: roomsMode ? "Senza stanza" : "Non assegnati",
@@ -247,7 +258,7 @@ export default function DayTimelineMulti({
       });
     }
     return cols;
-  }, [members, hasUnassignedEvents, roomsMode, rooms]);
+  }, [members, hasUnassignedEvents, roomsMode, rooms, visibleOperatorKeys]);
 
   // Mappa user_id → indice colonna per posizionare eventi velocemente
   const colIndexById = useMemo(() => {
