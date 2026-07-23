@@ -307,7 +307,7 @@ export default function ReportsPage(){
       const [membersResult, studioResult] = await Promise.all([
         supabase
           .from("studio_members")
-          .select("studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invited_at, invite_token")
+          .select("studio_id, user_id, role, display_name, display_color, signature_short, is_active, sort_order, email, invited_at, invite_token, shows_in_agenda")
           .eq("studio_id", currentStudio.id)
           .order("sort_order", { ascending: true })
           .order("display_name", { ascending: true }),
