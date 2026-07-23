@@ -204,6 +204,9 @@ export type CreateAppointmentModalProps = {
     reason: string | null;
     all_day: boolean;
   }>;
+  /** Può prenotare nell'agenda dei colleghi (mig. 082). Se false il
+   *  selettore operatore non compare: l'appuntamento resta suo. */
+  canBookForOthers?: boolean;
   /** Tappa E: turni settimanali (operator_schedules). Avviso, mai blocco. */
   operatorSchedules?: OperatorScheduleSlot[];
 
@@ -293,6 +296,7 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
     createOperatorId,
     unavailabilities,
     operatorSchedules,
+    canBookForOthers = true,
     setCreateOperatorId,
     existingEvents,
     multiRoomEnabled,
@@ -1317,7 +1321,7 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
             chi svolge la seduta tra i membri attivi del team. Sotto, eventuale
             warning se l'orario è in conflitto con un altro appuntamento dello
             stesso operatore. */}
-        {multiOperatorEnabled && members && members.length > 0 && setCreateOperatorId && !isGuestAppointment && (
+        {canBookForOthers && multiOperatorEnabled && members && members.length > 0 && setCreateOperatorId && !isGuestAppointment && (
           <div style={{ marginBottom: 20, border: `1.5px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft, marginBottom: 12 }}>
               Operatore

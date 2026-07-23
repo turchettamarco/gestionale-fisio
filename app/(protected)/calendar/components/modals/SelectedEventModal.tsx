@@ -149,6 +149,8 @@ export type SelectedEventModalProps = {
     reason: string | null;
     all_day: boolean;
   }>;
+  /** Può riassegnare l'appuntamento a un collega (mig. 082). */
+  canBookForOthers?: boolean;
   /** Tappa E: turni settimanali (operator_schedules). Avviso, mai blocco. */
   operatorSchedules?: OperatorScheduleSlot[];
 };
@@ -180,6 +182,7 @@ export default function SelectedEventModal({
   setEditRoomId,
   unavailabilities,
   operatorSchedules,
+  canBookForOthers = true,
 }: SelectedEventModalProps) {
 
   // Lookup evento corrente nei dati aggiornati
@@ -439,7 +442,7 @@ export default function SelectedEventModal({
         {/* ─── Operatore (Multi-op, Fase 4d.1) ────────────────────────────
             Visibile solo se multi_operator_enabled = true. Permette di cambiare
             l'operatore assegnato. Conflict detection sotto. */}
-        {multiOperatorEnabled && members && members.length > 0 && setEditOperatorId && (
+        {canBookForOthers && multiOperatorEnabled && members && members.length > 0 && setEditOperatorId && (
           <div style={{ marginBottom: 20, border: `1.5px solid ${THEME.border}`, padding: 16, borderRadius: 8, background: THEME.panelSoft }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: THEME.textSoft, marginBottom: 12 }}>
               Operatore

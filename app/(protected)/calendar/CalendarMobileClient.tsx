@@ -10,6 +10,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { usePermissions } from "@/src/hooks/usePermissions";
 import { useRealtimeCalendar } from "@/src/hooks/calendar/useRealtimeCalendar";
 import { usePrivacyMode, composeInitials } from "@/src/contexts/PrivacyModeContext";
 import { buildReminderMessage } from "./utils/reminderMessage";
@@ -330,6 +331,10 @@ function CalendarPageInner() {
     [studioMembers]
   );
   const multiOpActive = multiOperatorEnabled && activeMembers.length >= 2;
+  // Permesso di prenotare per i colleghi (mig. 082): senza, i selettori
+  // operatore spariscono e l'appuntamento resta di chi lo crea.
+  const { can: canPerm, isOwner: isOwnerPerm } = usePermissions();
+  const canBookForOthers = isOwnerPerm || canPerm("agenda.book_for_others");
   /** operator_id → colore (solo membri registrati: i pending non hanno appuntamenti). */
   const operatorColorById = useMemo(() => {
     const m = new Map<string, string>();
@@ -3177,7 +3182,7 @@ function CalendarPageInner() {
                 }} />
                 {realtime.status==="live"
                   ? (realtime.syncing ? "Aggiornamento…" : "Agenda aggiornata")
-                  : realtime.status==="error" ? "Sincronizzazione non attiva" : "Connessione…"}
+                  : realtime.status==="error" ? "Sincronizzazione non riuscita" : "Riconnessione…"}
               </div>
             )}
             {error&&(
@@ -3693,7 +3698,7 @@ function CalendarPageInner() {
             </FG>
             {/* Operatore: chi svolge la seduta. Su mobile mancava, quindi
                 gli appuntamenti sembravano tutti uguali. */}
-            {multiOpActive && (
+            {multiOpActive && canBookForOthers && (
               <FG label="Operatore">
                 <select
                   value={editOperatorId ?? ""}
@@ -3901,7 +3906,7 @@ function CalendarPageInner() {
           studioLocations={studioLocations as any}
           createLocationId={createLocationId}
           createConflict={createConflict}
-          multiOperatorEnabled={multiOpActive}
+          multiOperatorEnabled={multiOpActive && canBookForOthers}
           operators={activeMembers.filter(m=>m.user_id).map(m=>({ user_id: m.user_id as string, display_name: m.display_name ?? null, display_color: m.display_color ?? null }))}
           createOperatorId={createOperatorId}
           setCreateOperatorId={setCreateOperatorId}

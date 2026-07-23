@@ -100,6 +100,7 @@ import DayView from "./components/views/DayView";
 import type { OperatorUnavailabilitySlot } from "./components/views/DayTimelineMulti";
 import type { OperatorScheduleSlot } from "@/src/hooks/calendar/moveValidation";
 import { resolvePermissions } from "@/src/lib/permissions";
+import { usePermissions } from "@/src/hooks/usePermissions";
 import WeekView from "./components/views/WeekView";
 import WeekViewTimeline from "./components/views/WeekViewTimeline";
 import WeekViewPile from "./components/views/WeekViewPile";
@@ -299,6 +300,12 @@ function CalendarPageInner() {
     isTablet,
     TIME_COL,
   } = bootstrap;
+
+  // Permessi (mig. 082): chi non può prenotare per i colleghi non vede
+  // il selettore operatore e resta assegnato a sé stesso.
+  const { can: canPerm, isOwner: isOwnerPerm } = usePermissions();
+  const canBookForOthers = isOwnerPerm || canPerm("agenda.book_for_others");
+
 
   // Auto-filtro "Io" (mig. 071): chi non ha il permesso di vedere l'agenda
   // di tutti parte filtrato sulle proprie sedute — è l'unica vista che gli
@@ -2368,8 +2375,8 @@ return (
                 : realtime.lastSyncAt
                   ? `Agenda sincronizzata alle ${realtime.lastSyncAt.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}`
                   : "Agenda in tempo reale")}
-              {realtime.status === "connecting" && "Connessione in corso…"}
-              {realtime.status === "error" && "Sincronizzazione non attiva — ricarica la pagina"}
+              {realtime.status === "connecting" && "Riconnessione in corso…"}
+              {realtime.status === "error" && "Sincronizzazione non riuscita — controlla la connessione"}
             </div>
           )}
 
@@ -2785,6 +2792,7 @@ return (
           createOperatorId={createOperatorId}
           setCreateOperatorId={setCreateOperatorId}
           existingEvents={events}
+          canBookForOthers={canBookForOthers}
           unavailabilities={unavailabilities}
           operatorSchedules={operatorSchedules}
           multiRoomEnabled={multiRoomEnabled && studioRooms.length > 0}
@@ -2906,6 +2914,7 @@ return (
           setEditRoomId={setEditRoomId}
           unavailabilities={unavailabilities}
           operatorSchedules={operatorSchedules}
+          canBookForOthers={canBookForOthers}
         />
         );
       })()}

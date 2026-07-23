@@ -30,6 +30,7 @@ export type PermissionKey =
   // ── Agenda ───────────────────────────────────────────────────────────
   | "agenda.view_all"        // vede l'agenda di tutti (altrimenti solo la propria)
   | "agenda.edit_others"     // può modificare appuntamenti altrui
+  | "agenda.book_for_others" // può prenotare NELL'agenda dei colleghi
   | "agenda.create"          // può creare appuntamenti
   // ── Aspetti economici ────────────────────────────────────────────────
   | "money.amounts"          // importi delle sedute
@@ -76,6 +77,7 @@ export const PERMISSION_GROUPS: Array<{
       { key: "agenda.view_all", label: "Vede l'agenda di tutti", hint: "Se disattivo vede solo le proprie sedute" },
       { key: "agenda.create", label: "Può creare appuntamenti" },
       { key: "agenda.edit_others", label: "Può modificare appuntamenti altrui" },
+      { key: "agenda.book_for_others", label: "Può prenotare per i colleghi", hint: "Se disattivo può creare appuntamenti solo per sé" },
     ],
   },
   {
@@ -136,6 +138,7 @@ const PRESET_PATIENT_FULL: PermissionKey[] = [
   "patient.fiscal_code",
   "patient.notes_private",
   "agenda.edit_others",
+  "agenda.book_for_others",
   "manage.patients_edit",
   "manage.exports",
 ];
