@@ -34,8 +34,9 @@ export async function GET(req: NextRequest) {
     if (all) {
       const { data: rows } = await supabase
         .from("notifications")
-        .select("id, type, appointment_id, patient_id, payload, created_at, read_at")
+        .select("id, type, appointment_id, patient_id, payload, created_at, read_at, recipient_id")
         .eq("studio_id", member.studio_id)
+        .or(`recipient_id.is.null,recipient_id.eq.${user.id}`)
         .order("created_at", { ascending: false })
         .limit(100);
 
@@ -48,16 +49,18 @@ export async function GET(req: NextRequest) {
     // Lista normale (campanella): tutte le non lette + ultime 5 lette
     const { data: unread } = await supabase
       .from("notifications")
-      .select("id, type, appointment_id, patient_id, payload, created_at, read_at")
+      .select("id, type, appointment_id, patient_id, payload, created_at, read_at, recipient_id")
       .eq("studio_id", member.studio_id)
+      .or(`recipient_id.is.null,recipient_id.eq.${user.id}`)
       .is("read_at", null)
       .order("created_at", { ascending: false })
       .limit(50);
 
     const { data: lastRead } = await supabase
       .from("notifications")
-      .select("id, type, appointment_id, patient_id, payload, created_at, read_at")
+      .select("id, type, appointment_id, patient_id, payload, created_at, read_at, recipient_id")
       .eq("studio_id", member.studio_id)
+      .or(`recipient_id.is.null,recipient_id.eq.${user.id}`)
       .not("read_at", "is", null)
       .order("created_at", { ascending: false })
       .limit(5);

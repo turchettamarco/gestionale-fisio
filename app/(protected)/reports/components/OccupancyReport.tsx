@@ -64,6 +64,7 @@ export default function OccupancyReport({
       const [whRes, apRes] = await Promise.all([
         supabase.from("working_hours")
           .select("day_of_week, is_open, open_time, close_time")
+          .is("location_id", null)
           .eq("studio_id", studioId),
         supabase.from("appointments")
           .select("start_at, end_at")

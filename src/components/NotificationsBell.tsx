@@ -19,7 +19,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 
 export type NotificationItem = {
   id: string;
-  type: "confirm" | "cancel" | "booking";
+  type: "confirm" | "cancel" | "booking" | "assigned" | "moved" | "unassigned";
   appointment_id: string | null;
   patient_id: string | null;
   payload: {
@@ -323,10 +323,13 @@ export default function NotificationsBell({
 // ─── Singola riga della lista ──────────────────────────────────────────
 function NotificationRow({ item, onClick }: { item: NotificationItem; onClick: () => void }) {
   const isUnread = !item.read_at;
-  const patientName = item.payload?.patient_name || "Paziente";
-  const apptStart = item.payload?.appointment_start
-    ? new Date(item.payload.appointment_start)
-    : null;
+  // Le notifiche di team (mig. 076) portano un messaggio già formattato e
+  // usano start_at; quelle storiche dei pazienti usano appointment_start.
+  const teamMessage = (item.payload as { message?: string } | null)?.message ?? null;
+  const patientName = teamMessage || item.payload?.patient_name || "Paziente";
+  const rawStart = item.payload?.appointment_start
+    ?? (item.payload as { start_at?: string } | null)?.start_at;
+  const apptStart = rawStart ? new Date(rawStart) : null;
 
   const apptStr = apptStart
     ? apptStart.toLocaleString("it-IT", {
@@ -350,6 +353,19 @@ function NotificationRow({ item, onClick }: { item: NotificationItem; onClick: (
     icon = "📅";
     color = "#2563eb";
     label = "Prenotato online";
+  } else if (item.type === "assigned") {
+    // Notifiche di team (mig. 076): riguardano l'agenda dell'operatore.
+    icon = "👤";
+    color = "#0f766e";
+    label = "Assegnata a te";
+  } else if (item.type === "moved") {
+    icon = "🔄";
+    color = "#1d4ed8";
+    label = "Seduta spostata";
+  } else if (item.type === "unassigned") {
+    icon = "↩";
+    color = "#64748b";
+    label = "Non più tua";
   }
 
   // "5 min fa" / "ieri" / "lun 3 Mag"

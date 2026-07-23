@@ -28,6 +28,16 @@ type ErrorLike = unknown;
  * stare prima dei generici.
  */
 const TRANSLATIONS: Array<[RegExp, string]> = [
+  // ─── Vincoli anti doppia prenotazione (mig. 074) ────────────────
+  // Vanno PRIMA delle regole generiche: il messaggio Postgres per una
+  // violazione EXCLUDE contiene "conflicting key value", che altrimenti
+  // finirebbe in un messaggio tecnico incomprensibile.
+  [/appointments_no_overlap_operator/i,
+    "Questo operatore ha già un appuntamento in quell'orario. Scegli un altro orario o un altro operatore."],
+  [/appointments_no_overlap_room/i,
+    "Questa stanza è già occupata in quell'orario. Scegli un altro orario o un'altra stanza."],
+  [/conflicting key value violates exclusion constraint/i,
+    "L'orario scelto si sovrappone a un altro appuntamento."],
   // ─── PostgreSQL / Supabase ──────────────────────────────────────
   [/duplicate key value violates unique constraint/i,
     "Esiste già un record con gli stessi dati"],

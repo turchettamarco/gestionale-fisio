@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Icon, type IconName } from "./icons";
 import { COLORS } from "@/src/theme/tokens";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { usePermissions } from "@/src/hooks/usePermissions";
 
 // ─────────────────────────────────────────────────────────────────────
 // Barra di navigazione inferiore — Restyling Direzione A (R1).
@@ -35,7 +36,20 @@ const BAR_CONTENT_H = 48;
 
 export default function MobileTabBar() {
   const { studio } = useCurrentStudio();
-  const items = ITEMS.filter(it => it.href !== "/domicili" || studio?.feature_domicili === true);
+  const { can, isOwner } = usePermissions();
+  // Permessi (mig. 071): le voci compaiono solo se il collaboratore ha il
+  // permesso corrispondente. Un terapista con livello Base vede Home,
+  // Agenda e Pazienti.
+  const items = ITEMS.filter(it => {
+    if (it.href === "/domicili" && studio?.feature_domicili !== true) return false;
+    switch (it.href) {
+      case "/reports":   return can("money.reports");
+      case "/noleggio":  return can("money.accounting");
+      case "/domicili":  return can("manage.domicili");
+      case "/settings":  return isOwner || can("manage.settings");
+      default:           return true;
+    }
+  });
 
   const pathname = usePathname() || "/";
 

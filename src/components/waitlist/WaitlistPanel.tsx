@@ -40,11 +40,14 @@ export async function fetchActiveWaitlistCount(studioId: string): Promise<number
 }
 
 export function WaitlistPanel({
-  open, onClose, studioId, onChanged, onFindSlot,
+  open, onClose, studioId, onChanged, onFindSlot, members, multiOperatorEnabled,
 }: {
   open: boolean;
   onClose: () => void;
   studioId: string;
+  /** Membri del team: abilitano la scelta del professionista atteso (mig. 079). */
+  members?: Array<{ user_id: string | null; display_name: string | null }>;
+  multiOperatorEnabled?: boolean;
   onChanged?: (activeCount: number) => void;
   /** Apre "Trova buco" precompilato con le preferenze della voce. */
   onFindSlot?: (entry: WaitlistEntry) => void;
@@ -63,6 +66,8 @@ export function WaitlistPanel({
   const [timeFrom, setTimeFrom] = useState("");
   const [timeTo, setTimeTo] = useState("");
   const [note, setNote] = useState("");
+  // Professionista atteso (mig. 079). "" = va bene chiunque.
+  const [waitOperator, setWaitOperator] = useState<string>("");
   const [durationMin, setDurationMin] = useState(60);
   const [priority, setPriority] = useState<WaitlistPriority>("normale");
   const [expiresOn, setExpiresOn] = useState("");
@@ -115,7 +120,7 @@ export function WaitlistPanel({
   function resetForm() {
     setQuery(""); setResults([]); setSelected(null);
     setDays([]); setTimeFrom(""); setTimeTo(""); setNote("");
-    setDurationMin(60); setPriority("normale"); setExpiresOn("");
+    setDurationMin(60); setPriority("normale"); setExpiresOn(""); setWaitOperator("");
   }
 
   async function addEntry() {
@@ -137,6 +142,7 @@ export function WaitlistPanel({
       duration_min: durationMin,
       priority,
       expires_on: expiresOn || null,
+      operator_id: waitOperator || null,
     });
     setSaving(false);
     if (error) { setErr(error.message); return; }
@@ -358,6 +364,23 @@ export function WaitlistPanel({
                   <input type="date" value={expiresOn} onChange={(e) => setExpiresOn(e.target.value)} style={inputStyle} />
                 </div>
               </div>
+
+              {/* Professionista atteso (mig. 079): la lista di studio non
+                  bastava, il paziente di solito aspetta UNA persona. */}
+              {multiOperatorEnabled && members && members.filter(m => m.user_id).length >= 2 && (
+                <div style={{ marginBottom: 8 }}>
+                  <select
+                    value={waitOperator}
+                    onChange={(e) => setWaitOperator(e.target.value)}
+                    style={inputStyle}
+                  >
+                    <option value="">Va bene qualsiasi professionista</option>
+                    {members.filter(m => m.user_id).map(m => (
+                      <option key={m.user_id!} value={m.user_id!}>Aspetta {m.display_name || "—"}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Nota */}
               <input

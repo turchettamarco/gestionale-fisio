@@ -94,6 +94,8 @@ export type DayViewProps = {
   ) => void;
   onResizeStart?: (event: CalendarEvent, clientY: number, pxPerMin: number) => void;
   resizePreview?: { id: string; deltaMin: number } | null;
+  /** Turni operatori: ombreggiano le ore fuori turno (mig. 022). */
+  operatorSchedules?: Array<{ operator_id: string; day_of_week: number; start_time: string; end_time: string }>;
   /** Click su slot della colonna ospite in vista split (mig. 029).
    *  Se non passato, cade in onSlotClick (= mantiene comportamento legacy).
    *  Quando passato, il parent può pre-selezionare createGuestPractitionerId
@@ -134,7 +136,7 @@ export default function DayView({
   onSlotClick, onSlotClickMulti, onSlotClickGuest, onContextMenu,
   onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
   draggingEventId,
-  columnMode, onColumnModeChange, rooms, onDropAssign, onResizeStart, resizePreview,
+  columnMode, onColumnModeChange, rooms, onDropAssign, onResizeStart, resizePreview, operatorSchedules,
   getDayEventPosition, getFreeWindows, getEventColor,
   onSelectEvent, onToggleBulkSelect,
   onToggleDone, onTogglePaid, onUpdatePayment, onSendReminder,
@@ -262,6 +264,7 @@ export default function DayView({
           draggingEventId={draggingEventId}
           onResizeStart={onResizeStart}
           resizePreview={resizePreview}
+          schedules={operatorSchedules}
         />
       ) : useSplit ? (
         // ─── Vista SPLIT (titolare + ospite) — mig. 029 ──────────────

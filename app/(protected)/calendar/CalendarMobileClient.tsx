@@ -10,6 +10,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
+import { useRealtimeCalendar } from "@/src/hooks/calendar/useRealtimeCalendar";
 import { usePrivacyMode, composeInitials } from "@/src/contexts/PrivacyModeContext";
 import { buildReminderMessage } from "./utils/reminderMessage";
 import { assignLanes } from "./utils/laneAssignment";
@@ -141,6 +142,8 @@ type CreateModalProps = {
   // Multi-sede (mig. 014, fase 2)
   studioLocations?: Array<{ id: string; name: string; address: string | null; is_primary: boolean; border_color: string | null }>;
   createLocationId?: string | null;
+  /** Avviso di sovrapposizione calcolato dal client (parità col desktop). */
+  createConflict?: string | null;
   // ─── Tappa D: assegnazione operatore/stanza da mobile ───────────────
   multiOperatorEnabled?: boolean;
   operators?: Array<{ user_id: string; display_name: string | null; display_color: string | null }>;
@@ -632,6 +635,35 @@ function CalendarPageInner() {
   // al trigger mig. 067 (assegna a chi crea), coerente col desktop.
   const [createOperatorId,      setCreateOperatorId]      = useState<string | null>(null);
   const [createRoomId,          setCreateRoomId]          = useState<string | null>(null);
+
+  // ─── Conflitti in creazione (parità col desktop) ──────────────────────
+  // Da mobile non c'era alcun avviso: si poteva prenotare sopra un altro
+  // appuntamento dello stesso operatore o nella stessa stanza occupata.
+  const createConflict = useMemo(() => {
+    if (!createDate || !createTime) return null;
+    const st = new Date(`${createDate}T${createTime}:00`);
+    if (Number.isNaN(st.getTime())) return null;
+    const ns = st.getTime();
+    const ne = ns + (createDuration || 60) * 60000;
+
+    for (const ev of events) {
+      if (ev.status === "cancelled") continue;
+      if (ev.end.getTime() <= ns || ev.start.getTime() >= ne) continue;
+      const hhmm = `${ev.start.getHours().toString().padStart(2,"0")}:${ev.start.getMinutes().toString().padStart(2,"0")}`;
+      if (multiOpActive) {
+        const targetOp = createOperatorId; // null = "assegna a me" → risolto dal trigger
+        if (targetOp && ev.operator_id === targetOp) {
+          return `L'operatore ha già ${ev.patient_name} alle ${hhmm}.`;
+        }
+        if (multiRoomEnabled && createRoomId && ev.room_id === createRoomId) {
+          return `La stanza è occupata da ${ev.patient_name} alle ${hhmm}.`;
+        }
+      } else {
+        return `Sovrapposizione con ${ev.patient_name} alle ${hhmm}.`;
+      }
+    }
+    return null;
+  }, [createDate, createTime, createDuration, events, multiOpActive, multiRoomEnabled, createOperatorId, createRoomId]);
   const [createAmount,          setCreateAmount]          = useState("");
   const [createNote,            setCreateNote]            = useState("");
 
@@ -830,6 +862,23 @@ function CalendarPageInner() {
   useEffect(() => {
     if (viewMode === "week") { const { mon, end } = weekRange(currentDate); loadAppointments(mon, end); }
   }, [viewMode, currentDate, loadAppointments, weekRange]);
+
+  // ─── Realtime anche da mobile (mig. 070) ────────────────────────────
+  // Prima era solo desktop: da telefono l'agenda restava ferma finché non
+  // si ricaricava, quindi chi lavora da tablet non vedeva gli spostamenti
+  // fatti dai colleghi.
+  const reloadVisibleWindow = useCallback(() => {
+    if (viewMode === "week") {
+      const { mon, end } = weekRange(currentDate);
+      return loadAppointments(mon, end);
+    }
+    return loadAppointments(currentDate);
+  }, [viewMode, currentDate, loadAppointments, weekRange]);
+
+  const realtime = useRealtimeCalendar({
+    studioId: currentStudioId ?? null,
+    reload: reloadVisibleWindow,
+  });
 
   useEffect(() => {
     if (viewMode !== "week" || loading) return;
@@ -3020,6 +3069,20 @@ function CalendarPageInner() {
                 {busy?"Operazione in corso…":"Caricamento…"}
               </div>
             )}
+            {/* Indicatore realtime (mig. 070): dot discreto, niente bordi colorati. */}
+            {!loading&&!busy&&!error&&realtime.status!=="off"&&(
+              <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,color:THEME.muted}}>
+                <span style={{
+                  width:6,height:6,borderRadius:"50%",
+                  background: realtime.status==="live"
+                    ? (realtime.syncing ? "#0ea5e9" : "#10b981")
+                    : realtime.status==="error" ? "#f59e0b" : "#cbd5e1",
+                }} />
+                {realtime.status==="live"
+                  ? (realtime.syncing ? "Aggiornamento…" : "Agenda aggiornata")
+                  : realtime.status==="error" ? "Sincronizzazione non attiva" : "Connessione…"}
+              </div>
+            )}
             {error&&(
               <div style={{padding:"10px 12px",borderRadius:10,
                 background:"rgba(220,38,38,0.06)",border:"1.5px solid rgba(220,38,38,0.25)",
@@ -3610,6 +3673,7 @@ function CalendarPageInner() {
           createDomicileAddress={createDomicileAddress} setCreateDomicileAddress={setCreateDomicileAddress}
           studioLocations={studioLocations as any}
           createLocationId={createLocationId}
+          createConflict={createConflict}
           multiOperatorEnabled={multiOpActive}
           operators={activeMembers.filter(m=>m.user_id).map(m=>({ user_id: m.user_id as string, display_name: m.display_name ?? null, display_color: m.display_color ?? null }))}
           createOperatorId={createOperatorId}
@@ -4620,6 +4684,17 @@ function CreateModal(props:CreateModalProps) {
             </select>
           </div>
         </FG>
+        )}
+        {props.createConflict && (
+          <div style={{
+            margin: "0 0 10px", padding: "9px 11px", borderRadius: 9,
+            background: "rgba(245,158,11,0.09)", border: "1px solid rgba(245,158,11,0.35)",
+            color: "#92400e", fontSize: 12, fontWeight: 600,
+            display: "flex", alignItems: "center", gap: 7,
+          }}>
+            <span style={{ fontSize: 15 }}>⚠️</span>
+            <span>{props.createConflict} Puoi comunque salvare.</span>
+          </div>
         )}
         <FG label="Luogo">
           <select value={createLocation} onChange={e=>setCreateLocation(e.target.value as LocationType)} style={inputS()}>

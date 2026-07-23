@@ -250,6 +250,7 @@ export default function SettingsMobileClient() {
         const { data: wh } = await supabase
           .from("working_hours")
           .select("*")
+          .is("location_id", null)
           .eq("studio_id", currentStudioId)
           .order("day_of_week");
         if (cancelled) return;
@@ -634,8 +635,8 @@ export default function SettingsMobileClient() {
       // 3. Working hours (per studio)
       if (hours.length) {
         await supabase.from("working_hours").upsert(
-          hours.map(h=>({day_of_week:h.day_of_week,open_time:h.open_time,close_time:h.close_time,is_open:h.is_open,studio_id:currentStudioId})),
-          { onConflict:"studio_id,day_of_week" }
+          hours.map(h=>({day_of_week:h.day_of_week,open_time:h.open_time,close_time:h.close_time,is_open:h.is_open,studio_id:currentStudioId,location_id:null})),
+          { onConflict:"studio_id,location_id,day_of_week" }
         );
       }
 

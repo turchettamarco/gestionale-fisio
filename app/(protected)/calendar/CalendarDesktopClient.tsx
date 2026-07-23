@@ -99,6 +99,7 @@ import MonthView from "./components/views/MonthView";
 import DayView from "./components/views/DayView";
 import type { OperatorUnavailabilitySlot } from "./components/views/DayTimelineMulti";
 import type { OperatorScheduleSlot } from "@/src/hooks/calendar/moveValidation";
+import { resolvePermissions } from "@/src/lib/permissions";
 import WeekView from "./components/views/WeekView";
 import WeekViewTimeline from "./components/views/WeekViewTimeline";
 import WeekViewPile from "./components/views/WeekViewPile";
@@ -137,7 +138,7 @@ function CalendarPageInner() {
 
   // Multi-stanza (mig. 019, Fase Stanze): toggle del flag e elenco stanze attive.
   const [multiRoomEnabled, setMultiRoomEnabled] = useState<boolean>(false);
-  const [studioRooms, setStudioRooms] = useState<Array<{ id: string; name: string; color: string | null }>>([]);
+  const [studioRooms, setStudioRooms] = useState<Array<{ id: string; name: string; color: string | null; treatment_types?: string[] | null }>>([]);
   const [allMembers, setAllMembers] = useState<StudioMember[]>([]);
 
   // Professionisti ospiti (mig. 029): toggle del flag + elenco ospiti attivi.
@@ -160,6 +161,7 @@ function CalendarPageInner() {
   // Funziona in TUTTE le viste calendario (Day/Week/Month) perché filtra
   // direttamente filteredEvents.
   const [operatorFilter, setOperatorFilter] = useState<string | null>(null);
+
 
   // Filtro stanza interattivo (Fase Stanze, parallelo a operatorFilter).
   // Combinabile in AND con il filtro operatori. Valori speciali:
@@ -218,6 +220,9 @@ function CalendarPageInner() {
     }
     return m;
   }, [activeMembers]);
+
+
+
 
   // Mappa room_id → color per la vista Roster (e future viste).
   // Le stanze sono caricate dallo studio corrente via useEffect più sotto.
@@ -281,6 +286,24 @@ function CalendarPageInner() {
     isTablet,
     TIME_COL,
   } = bootstrap;
+
+  // Auto-filtro "Io" (mig. 071): chi non ha il permesso di vedere l'agenda
+  // di tutti parte filtrato sulle proprie sedute — è l'unica vista che gli
+  // serve, e gliela apriamo già pronta. Una volta sola, non a ogni render,
+  // così resta libero di togliere il filtro.
+  const autoFilterDone = useRef(false);
+  useEffect(() => {
+    if (autoFilterDone.current) return;
+    if (!multiOperatorEnabled || !userId || activeMembers.length < 2) return;
+    const me = activeMembers.find(m => m.user_id === userId);
+    if (!me) return;
+    autoFilterDone.current = true;
+    const role = me.role as string;
+    if (role === "owner" || role === "co_owner") return;
+    const perms = resolvePermissions(me as never);
+    if (!perms.has("agenda.view_all")) setOperatorFilter(userId);
+  }, [multiOperatorEnabled, userId, activeMembers]);
+
 
   const params = useSearchParams();
 
@@ -632,7 +655,7 @@ function CalendarPageInner() {
           .maybeSingle(),
         supabase
           .from("studio_rooms")
-          .select("id, name, color, is_active, sort_order")
+          .select("id, name, color, is_active, sort_order, treatment_types")
           .eq("studio_id", currentStudioId)
           .eq("is_active", true)
           .order("sort_order", { ascending: true })
@@ -1501,6 +1524,19 @@ function CalendarPageInner() {
   // operatore/stanza preselezionati.
   // NB: prima questa callback non veniva passata a DayView → il fallback
   // ignorava l'operatorId (gap sistemato in Tappa B).
+  // ─── Terapista di riferimento (mig. 078) ──────────────────────────────
+  // Scegliendo un paziente che ha un terapista di riferimento, l'operatore
+  // dell'appuntamento si imposta da solo. Resta modificabile a mano: è un
+  // valore predefinito, non un vincolo.
+  const selectPatientForCreate = useCallback((p: PatientLite | null) => {
+    setSelectedPatient(p);
+    if (!multiOperatorEnabled) return;
+    const ref = p?.referent_operator_id ?? null;
+    if (ref && activeMembers.some(m => m.user_id === ref)) {
+      setCreateOperatorId(ref);
+    }
+  }, [multiOperatorEnabled, activeMembers, setSelectedPatient]);
+
   const handleSlotClickMulti = useCallback(
     (date: Date, hour: number, minute: number, operatorId: string | null, roomId?: string | null) => {
       openCreateModal(date, hour, minute);
@@ -2578,6 +2614,7 @@ return (
               onDropAssign={handleDropAssign}
               onResizeStart={eventResize.startResize}
               resizePreview={eventResize.resizePreview}
+              operatorSchedules={operatorSchedules}
               onSlotClickGuest={(date, hour, minute, guestId) => {
                 // Click sulla colonna ospite (mig. 029): apro prima il modale
                 // (che resetta gli state al loro default), poi sovrascrivo
@@ -2702,7 +2739,7 @@ return (
           searching={searching}
           patientResults={patientResults}
           selectedPatient={selectedPatient}
-          setSelectedPatient={setSelectedPatient}
+          setSelectedPatient={selectPatientForCreate}
           loadLastPatientSettings={loadLastPatientSettings}
           quickPatientOpen={quickPatientOpen}
           setQuickPatientOpen={setQuickPatientOpen}
@@ -2958,6 +2995,8 @@ return (
       </button>
 
       <WaitlistPanel
+        members={activeMembers.map(m => ({ user_id: m.user_id, display_name: m.display_name }))}
+        multiOperatorEnabled={multiOperatorEnabled}
         open={waitlistOpen}
         onClose={() => setWaitlistOpen(false)}
         onFindSlot={(e) => { setWaitlistOpen(false); setFinderEntry(e); setFinderOpen(true); }}

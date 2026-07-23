@@ -69,6 +69,7 @@ export default function DashboardDesktopClient() {
       const { data } = await supabase
         .from("working_hours")
         .select("day_of_week, open_time, close_time, is_open")
+        .is("location_id", null)
         .eq("studio_id", currentStudioId)
         .order("day_of_week");
       if (!cancelled) setWorkingHours((data ?? []) as WorkingHourRow[]);

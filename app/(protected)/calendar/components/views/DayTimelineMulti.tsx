@@ -131,6 +131,10 @@ export type DayTimelineMultiProps = {
   ) => void;
   /** id dell'evento in drag (per lasciar passare i drop sotto le ALTRE card). */
   draggingEventId?: string | null;
+  /** Turni settimanali degli operatori (operator_schedules, mig. 022).
+   *  Le ore fuori turno vengono ombreggiate nella colonna dell'operatore:
+   *  finora i turni si configuravano e avvisavano, ma non si vedevano. */
+  schedules?: Array<{ operator_id: string; day_of_week: number; start_time: string; end_time: string }>;
   /** Resize durata (come WeekView). */
   onResizeStart?: (event: CalendarEvent, clientY: number, pxPerMin: number) => void;
   resizePreview?: { id: string; deltaMin: number } | null;
@@ -177,6 +181,7 @@ export default function DayTimelineMulti({
   draggingEventId = null,
   onResizeStart,
   resizePreview,
+  schedules,
 }: DayTimelineMultiProps) {
   const slotOffsets = slotMinutes === 15 ? [0, 15, 30, 45] : [0, 30];
   const roomsMode = columnMode === "rooms" && !!rooms && rooms.length > 0;
@@ -485,6 +490,58 @@ export default function DayTimelineMulti({
               })}
 
               {/* ── Indisponibilità (ferie/pause) sotto agli eventi ──── */}
+              {/* ─── Fuori turno (mig. 022) ────────────────────────────
+                  Fasce grigie sulle ore in cui l'operatore non lavora.
+                  Nessun turno configurato = nessuna ombreggiatura, così
+                  chi lavora a orario pieno non vede nulla di diverso. */}
+              {(() => {
+                if (roomsMode || col.isUnassigned || !schedules || schedules.length === 0) return null;
+                const mine = schedules.filter(x => x.operator_id === col.key);
+                if (mine.length === 0) return null;
+                const dow = currentDate.getDay();
+                const ofDay = mine.filter(x => x.day_of_week === dow);
+                const toMin = (t: string) => {
+                  const [h, m] = t.split(":").map(Number);
+                  return (h || 0) * 60 + (m || 0);
+                };
+                const gridStart = gridStartHour * 60;
+                const gridEnd = gridStart + gridContentHeight / DAY_PX_PER_MIN;
+
+                // Giorno non lavorativo: ombreggia tutta la colonna.
+                const gaps: Array<[number, number]> = [];
+                if (ofDay.length === 0) {
+                  gaps.push([gridStart, gridEnd]);
+                } else {
+                  const shifts = ofDay
+                    .map(x => [toMin(x.start_time), toMin(x.end_time)] as [number, number])
+                    .sort((a, b) => a[0] - b[0]);
+                  let cursor = gridStart;
+                  for (const [s0, e0] of shifts) {
+                    if (s0 > cursor) gaps.push([cursor, Math.min(s0, gridEnd)]);
+                    cursor = Math.max(cursor, e0);
+                  }
+                  if (cursor < gridEnd) gaps.push([cursor, gridEnd]);
+                }
+
+                return gaps.map(([g0, g1], i) => {
+                  const top = (g0 - gridStart) * DAY_PX_PER_MIN;
+                  const height = (g1 - g0) * DAY_PX_PER_MIN;
+                  if (height <= 0) return null;
+                  return (
+                    <div
+                      key={`off-${col.key}-${i}`}
+                      title="Fuori turno"
+                      style={{
+                        position: "absolute", left: 0, right: 0,
+                        top: `${top}px`, height: `${height}px`,
+                        background: "rgba(148,163,184,0.10)",
+                        pointerEvents: "none",
+                        zIndex: 0,
+                      }}
+                    />
+                  );
+                });
+              })()}
               {colUnav.map(u => {
                 const startMin = u.start_at.getHours() * 60 + u.start_at.getMinutes();
                 const endMin = u.end_at.getHours() * 60 + u.end_at.getMinutes();

@@ -19,6 +19,7 @@ import { useState } from "react";
 import { THEME, cardStyle, sectionHead, inputStyle, labelStyle } from "../shared/theme";
 import { BtnPrimary, BtnOutline } from "../shared/Buttons";
 import type { StudioLocation } from "../shared/types";
+import LocationHoursForm from "./LocationHoursForm";
 
 // ── Palette dei 6 colori preimpostati per il bordo ───────────────────────
 // Combaciano con THEME.blue/red/green/amber/teal e un viola per varietà.
@@ -32,6 +33,8 @@ export const LOCATION_BORDER_PRESETS: Array<{ value: string; label: string }> = 
 ];
 
 export type LocationsSectionProps = {
+  /** ID studio: necessario per gli orari per sede (mig. 077). */
+  studioId?: string;
   show: boolean;
   onToggle: () => void;
   // Toggle globale (su tabella studios)
@@ -139,12 +142,14 @@ function LocationForm({
 function LocationCard({
   loc,
   onEdit,
+  onHours,
   onDelete,
   onSetPrimary,
   isOnly,
 }: {
   loc: StudioLocation;
   onEdit: () => void;
+  onHours: () => void;
   onDelete: () => void;
   onSetPrimary: () => void;
   isOnly: boolean;
@@ -199,6 +204,18 @@ function LocationCard({
             </button>
           )}
           <button
+            onClick={onHours}
+            title="Orari di apertura di questa sede"
+            style={{
+              padding: "4px 10px", fontSize: 11, fontWeight: 600,
+              background: "#fff", color: THEME.muted,
+              border: `1px solid ${THEME.border}`, borderRadius: 6,
+              cursor: "pointer",
+            }}
+          >
+            Orari
+          </button>
+          <button
             onClick={onEdit}
             style={{
               padding: "4px 10px", fontSize: 11, fontWeight: 600,
@@ -249,6 +266,8 @@ function LocationCard({
 export default function LocationsSection(p: LocationsSectionProps) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Orari per sede (mig. 077): pannello aperto sotto la riga della sede.
+  const [hoursId, setHoursId] = useState<string | null>(null);
 
   const sortedLocs = [...p.locations].sort((a, b) => {
     if (a.is_primary && !b.is_primary) return -1;
@@ -381,10 +400,19 @@ export default function LocationsSection(p: LocationsSectionProps) {
                 ) : (
                   <LocationCard
                     loc={loc}
-                    onEdit={() => { setEditingId(loc.id); setShowAddForm(false); }}
+                    onEdit={() => { setEditingId(loc.id); setShowAddForm(false); setHoursId(null); }}
+                    onHours={() => { setHoursId(hoursId === loc.id ? null : loc.id); setEditingId(null); }}
                     onDelete={() => void handleDelete(loc)}
                     onSetPrimary={() => void p.onSetPrimary(loc.id)}
                     isOnly={sortedLocs.length === 1}
+                  />
+                )}
+                {hoursId === loc.id && p.studioId && (
+                  <LocationHoursForm
+                    studioId={p.studioId}
+                    locationId={loc.id}
+                    locationName={loc.name}
+                    onClose={() => setHoursId(null)}
                   />
                 )}
               </div>

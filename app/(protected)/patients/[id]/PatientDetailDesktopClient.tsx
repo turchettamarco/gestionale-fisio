@@ -218,6 +218,8 @@ type Patient = {
   birth_place: string | null;
   tax_code: string | null;
   residence_city: string | null;
+  /** Terapista di riferimento (mig. 078) */
+  referent_operator_id?: string | null;
   preferred_plan: Plan | null;
   anamnesis: string | null;
   diagnosis: string | null;
@@ -365,7 +367,11 @@ export default function PatientDetailDesktopClient({
   const patientId = params.id;
 
   // Studio corrente (multi-tenancy) — per firma e indirizzo nei messaggi
-  const { studio: currentStudio } = useCurrentStudio();
+  const { studio: currentStudio, members: teamMembers } = useCurrentStudio();
+  // Multi-operatore: governa la visibilità del terapista di riferimento.
+  const multiOperatorEnabled = Boolean(
+    (currentStudio as { multi_operator_enabled?: boolean } | null)?.multi_operator_enabled
+  );
   const { privacyMode } = usePrivacyMode();
   const displayPhone = useDisplayPatientPhone();
   const { maskName, maskInitial } = usePrivacyDisplay();
@@ -492,6 +498,9 @@ export default function PatientDetailDesktopClient({
   const [lastName,    setLastName]    = useState("");
   const [phone,       setPhone]       = useState("");
   const [resCity,     setResCity]     = useState("");
+  // Terapista di riferimento (mig. 078): preseleziona l'operatore nei
+  // nuovi appuntamenti di questo paziente.
+  const [referentId,  setReferentId]  = useState<string>("");
   const [preferredPlan, setPreferredPlan] = useState<Plan>("invoice");
   const [birthDate,   setBirthDate]   = useState("");
   const [birthPlace,  setBirthPlace]  = useState("");
@@ -658,6 +667,7 @@ export default function PatientDetailDesktopClient({
     setLastName(p.last_name ?? "");
     setPhone(p.phone ?? "");
     setResCity(p.residence_city ?? "");
+    setReferentId(p.referent_operator_id ?? "");
     setPreferredPlan((p.preferred_plan ?? "invoice") as Plan);
     setBirthDate(p.birth_date ?? "");
     setBirthPlace(p.birth_place ?? "");
@@ -719,12 +729,23 @@ export default function PatientDetailDesktopClient({
     setError("");
     const res = await supabase
       .from("patients")
-      .select("id, first_name, last_name, phone, birth_date, birth_place, tax_code, residence_city, preferred_plan, anamnesis, diagnosis, treatment, patient_status, acquisition_channel, first_visit_date, main_complaint, body_region, side, pathology_type, medical_diagnosis, expected_frequency, package_size")
+      .select("id, first_name, last_name, phone, birth_date, birth_place, tax_code, residence_city, referent_operator_id, preferred_plan, anamnesis, diagnosis, treatment, patient_status, acquisition_channel, first_visit_date, main_complaint, body_region, side, pathology_type, medical_diagnosis, expected_frequency, package_size")
       .eq("id", patientId)
       .single();
     if (res.error) { setError(translateError(res.error)); setPatient(null); setLoading(false); return; }
     const p = res.data as Patient;
     setPatient(p);
+
+    // Audit delle consultazioni (mig. 075): registra che questo utente ha
+    // aperto la cartella. La funzione deduplica entro 30 minuti e non
+    // blocca mai la visualizzazione in caso di errore.
+    if (currentStudio?.id && p?.id) {
+      void supabase.rpc("log_patient_access", {
+        p_studio_id: currentStudio.id,
+        p_patient_id: p.id,
+        p_context: "scheda paziente",
+      });
+    }
     hydrateFromPatient(p);
     setDemoEditMode(false);
     setLoading(false);
@@ -864,6 +885,7 @@ A presto,
       last_name:           ln,
       phone:               phone.trim() || null,
       residence_city:      resCity.trim() || null,
+      referent_operator_id: referentId || null,
       preferred_plan:      preferredPlan,
       birth_date:          birthDate || null,
       birth_place:         birthPlace.trim() || null,
@@ -896,6 +918,7 @@ A presto,
     setLastName(patient.last_name ?? "");
     setPhone(patient.phone ?? "");
     setResCity(patient.residence_city ?? "");
+    setReferentId(patient.referent_operator_id ?? "");
     setPreferredPlan((patient.preferred_plan ?? "invoice") as Plan);
     setBirthDate(patient.birth_date ?? "");
     setBirthPlace(patient.birth_place ?? "");
@@ -2504,6 +2527,23 @@ ${rows}
               <div>
                 <label style={labelStyle}>Telefono</label>
                 <input value={phone} onChange={e => setPhone(e.target.value)} style={inputStyle} disabled={!demoEditMode} />
+              </div>
+            )}
+            {/* Terapista di riferimento (mig. 078): solo in multi-operatore. */}
+            {multiOperatorEnabled && teamMembers.length >= 2 && (
+              <div>
+                <label style={labelStyle}>Terapista di riferimento</label>
+                <select
+                  value={referentId}
+                  onChange={e => setReferentId(e.target.value)}
+                  style={inputStyle}
+                  disabled={!demoEditMode}
+                >
+                  <option value="">Nessuno</option>
+                  {teamMembers.filter(m => m.user_id).map(m => (
+                    <option key={m.user_id!} value={m.user_id!}>{m.display_name || "—"}</option>
+                  ))}
+                </select>
               </div>
             )}
             {canPerm("patient.address") && (

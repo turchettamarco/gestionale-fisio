@@ -31,6 +31,7 @@ import { AiBriefingModal, AiLetterModal } from "@/src/components/clinical/Clinic
 import { getStudioBranding } from "@/src/lib/studioBranding";
 import Link from "next/link";
 import { supabase } from "@/src/lib/supabaseClient";
+import { usePermissions } from "@/src/hooks/usePermissions";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import TimeSelect from "@/src/components/TimeSelect";
 import { usePrivacyMode, useDisplayPatientPhone, usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
@@ -278,9 +279,11 @@ function QuickActionBar({ phone, waPhone, patientId, unpaidAmount, birthDate, fi
   birthdayTpl: string | null;
   paymentTpl: string | null;
 }) {
+  // Permessi (mig. 071): senza 'patient.phone' spariscono chiamata e WhatsApp.
+  const { can: canPerm } = usePermissions();
   const actions = [
-    phone    ? { label: "Chiama",    icon: "📞", href: `tel:${phone}`,                          color: T.blue  } : null,
-    waPhone  ? { label: "WhatsApp",  icon: "💬", href: `#`, color: T.green } : null,
+    (phone && canPerm("patient.phone")) ? { label: "Chiama",    icon: "📞", href: `tel:${phone}`,                          color: T.blue  } : null,
+    (waPhone && canPerm("patient.phone")) ? { label: "WhatsApp",  icon: "💬", href: `#`, color: T.green } : null,
     { label: "Prenota",   icon: "📅", href: `/calendar?new=1&patient_id=${patientId}`, color: T.teal  },
     { label: "Consensi",  icon: "🖊️", href: `#consents`, color: "#0d9488" },
     (birthDate && phone) ? { label: "Auguri",   icon: "🎂", href: `#birthday`, color: "#f59e0b" } : null,
@@ -391,6 +394,9 @@ export default function PatientDetailMobileClient({ patientId }: { patientId: st
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState("");
   const [patient,   setPatient]   = useState<Patient | null>(null);
+  // Permessi (mig. 071): prima il mobile mostrava i contatti a chiunque,
+  // ignorando la configurazione fatta in Impostazioni.
+  const { can: canPerm } = usePermissions();
   const [infoOpen,  setInfoOpen]  = useState(false);
   const [consentOk, setConsentOk] = useState<boolean | null>(null);  // null=loading
   const [consentPending, setConsentPending] = useState(0);
@@ -485,6 +491,14 @@ export default function PatientDetailMobileClient({ patientId }: { patientId: st
       setFirstName(p.first_name ?? "");
       setLastName(p.last_name ?? "");
       setPhone(p.phone ?? "");
+      // Audit consultazioni (mig. 075): traccia anche le aperture da mobile.
+      if (p?.id) {
+        void supabase.rpc("log_patient_access", {
+          p_studio_id: (p as { studio_id?: string }).studio_id ?? null,
+          p_patient_id: p.id,
+          p_context: "scheda paziente (mobile)",
+        });
+      }
       setEmail(p.email ?? "");
       setBirthDate(p.birth_date ?? "");
       setTaxCode(p.tax_code ?? "");
@@ -853,7 +867,7 @@ export default function PatientDetailMobileClient({ patientId }: { patientId: st
               {privacyMode ? maskName(patient) : `${patient.last_name} ${patient.first_name}`}
             </div>
             <div style={{ fontSize: 10, color: "rgba(255,255,255,0.75)", marginTop: 2 }}>
-              {patient.phone ? displayPhone(patient.phone) : "Nessun telefono"}
+              {!canPerm("patient.phone") ? "Contatto non visibile" : patient.phone ? displayPhone(patient.phone) : "Nessun telefono"}
             </div>
           </div>
         </div>
@@ -908,13 +922,13 @@ export default function PatientDetailMobileClient({ patientId }: { patientId: st
               {age !== null ? `${age} anni` : "—"} · {apptStats.done} sedute
             </div>
           </div>
-          <a href={patient.phone ? `tel:${patient.phone}` : undefined}
+          <a href={(patient.phone && canPerm("patient.phone")) ? `tel:${patient.phone}` : undefined}
             onClick={e => e.stopPropagation()}
             style={{ width: 38, height: 38, borderRadius: 11, flexShrink: 0,
-              background: patient.phone ? "rgba(13,148,136,0.1)" : T.appBg,
-              color: patient.phone ? T.teal : T.muted, display: "flex", alignItems: "center",
+              background: (patient.phone && canPerm("patient.phone")) ? "rgba(13,148,136,0.1)" : T.appBg,
+              color: (patient.phone && canPerm("patient.phone")) ? T.teal : T.muted, display: "flex", alignItems: "center",
               justifyContent: "center", fontSize: 17, textDecoration: "none",
-              pointerEvents: patient.phone ? "auto" : "none" }}>
+              pointerEvents: (patient.phone && canPerm("patient.phone")) ? "auto" : "none" }}>
             📞
           </a>
         </div>

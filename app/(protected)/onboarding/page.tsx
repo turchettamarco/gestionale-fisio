@@ -139,6 +139,7 @@ export default function OnboardingPage() {
       const { data } = await supabase
         .from("working_hours")
         .select("day_of_week, open_time, close_time, is_open")
+        .is("location_id", null)
         .order("day_of_week");
       if (!alive) return;
       if (data && data.length > 0) {
@@ -205,7 +206,7 @@ export default function OnboardingPage() {
               is_open: h.is_open,
               studio_id: studio.id,
                   })),
-            { onConflict: "day_of_week" }
+            { onConflict: "studio_id,location_id,day_of_week" }
           );
         if (whErr) {
           console.error("[onboarding] errore working_hours:", whErr);

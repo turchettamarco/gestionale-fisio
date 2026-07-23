@@ -15,6 +15,7 @@ import { studioPdfHeader, studioHeaderCss, studioPdfFooter, type StudioHeaderDat
 import AppNavbar from "@/src/components/AppNavbar";
 import OperatorEarningsReport from "./components/OperatorEarningsReport";
 import OccupancyReport from "./components/OccupancyReport";
+import RoomOccupancyReport from "./components/RoomOccupancyReport";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const T = {
@@ -1495,6 +1496,17 @@ export default function ReportsPage(){
             {currentStudio?.id && (() => {
               const { from, to } = getRange(period, baseDate);
               return <OccupancyReport studioId={currentStudio.id} from={from} to={to} />;
+            })()}
+
+            {/* ── Occupazione per stanza e sede (Tappa M) ──────────────
+                Mostrato solo se lo studio usa stanze o più sedi: senza,
+                sarebbe un riquadro con una sola barra. */}
+            {currentStudio?.id
+              && ((currentStudio as { multi_room_enabled?: boolean }).multi_room_enabled
+                  || (currentStudio as { multi_location_enabled?: boolean }).multi_location_enabled)
+              && (() => {
+              const { from, to } = getRange(period, baseDate);
+              return <RoomOccupancyReport studioId={currentStudio.id} from={from} to={to} />;
             })()}
 
             {/* ── Fase R3: Sedute, ore, compensi per terapista ────────── */}

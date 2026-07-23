@@ -57,6 +57,7 @@ import PasswordSection from "./components/sections/PasswordSection";
 import PrivacySection from "./components/sections/PrivacySection";
 import IntegrationsSection from "./components/sections/IntegrationsSection";
 import TeamSection from "./components/sections/TeamSection";
+import AuditLogSection from "./components/sections/AuditLogSection";
 import OperatorAbsencesSection from "./components/sections/OperatorAbsencesSection";
 import RoomsSection from "./components/sections/RoomsSection";
 import GuestPractitionersSection from "./components/sections/GuestPractitionersSection";
@@ -101,6 +102,8 @@ export default function SettingsDesktopClient() {
   const [showBackup,    setShowBackup]    = useState(false);
   // Tab "Team" (mig. 019/020)
   const [showTeam,      setShowTeam]      = useState(true);
+  // Registro attività (mig. 073): chiuso di default, si apre su richiesta.
+  const [showAudit,     setShowAudit]     = useState(false);
   const [showRooms,     setShowRooms]     = useState(true);
   const [showAbsences,  setShowAbsences]  = useState(false);
   const [showGuests,    setShowGuests]    = useState(false); // mig. 029
@@ -124,7 +127,9 @@ export default function SettingsDesktopClient() {
   const [loadingTemplates, setLoadingTemplates] = useState(true);
 
   // ── Studio (multi-tenancy) ───────────────────────────────────────────────
-  const { studio, refresh: refreshStudio, locations: studioLocations, refreshLocations } = useCurrentStudio();
+  const { studio, refresh: refreshStudio, locations: studioLocations, refreshLocations, member: currentMember } = useCurrentStudio();
+  // Ruolo dell'utente loggato: governa la visibilità del registro attività.
+  const currentMemberRole = currentMember?.role ?? "therapist";
   const planLimits = usePlanLimits();
 
   const [studioName, setStudioName]                     = useState("");
@@ -1506,6 +1511,7 @@ export default function SettingsDesktopClient() {
       let query = supabase
         .from("working_hours")
         .select("day_of_week, open_time, close_time, is_open")
+        .is("location_id", null)
         .order("day_of_week", { ascending: true });
       // Filtro esplicito per studio se disponibile (oltre alle RLS)
       if (studio?.id) {
@@ -1559,10 +1565,11 @@ export default function SettingsDesktopClient() {
         close_time: r.close_time,
         is_open: r.is_open,
         studio_id: studio?.id ?? null,
+        location_id: null, // riga di studio (mig. 077)
       }));
       const { error } = await supabase
         .from("working_hours")
-        .upsert(payload, { onConflict: "studio_id,day_of_week" });
+        .upsert(payload, { onConflict: "studio_id,location_id,day_of_week" });
       if (error) throw new Error(error.message);
       flashSuccess("Orari salvati.");
     } catch (e) {
@@ -2070,6 +2077,7 @@ export default function SettingsDesktopClient() {
 
             <div id="set-sec-sedi">
               <LocationsSection
+                studioId={studio?.id ?? ""}
                 show={showLocations} onToggle={() => setShowLocations(!showLocations)}
                 multiLocationEnabled={multiLocationEnabled}
                 setMultiLocationEnabled={setMultiLocationEnabled}
@@ -2182,6 +2190,20 @@ export default function SettingsDesktopClient() {
                 />
               </div>
             )}
+            {/* ─── Registro attività (mig. 073) ───────────────────
+                Visibile solo a titolare e co-titolare: le RLS su audit_log
+                lo impongono comunque lato database. */}
+            {(currentMemberRole === "owner" || currentMemberRole === "co_owner") && (
+              <div id="set-sec-audit">
+                <AuditLogSection
+                  show={showAudit}
+                  onToggle={() => setShowAudit(!showAudit)}
+                  studioId={studio?.id ?? ""}
+                  members={members}
+                />
+              </div>
+            )}
+
           </>
         )}
 

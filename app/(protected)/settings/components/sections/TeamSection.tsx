@@ -20,6 +20,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
 import MemberPermissionsForm from "./MemberPermissionsForm";
+import OperatorHandoverForm from "./OperatorHandoverForm";
 import { THEME, cardStyle, sectionHead, inputStyle, labelStyle } from "../shared/theme";
 import { BtnPrimary, BtnOutline } from "../shared/Buttons";
 import type { StudioMemberRow } from "../shared/types";
@@ -258,6 +259,7 @@ function MemberCard({
   onRates,
   onSchedule,
   onPermissions,
+  onHandover,
   onCopyInvite,
   onResendInvite,
   inviteUrl,
@@ -270,6 +272,7 @@ function MemberCard({
   onRates: () => void;
   onSchedule: () => void;
   onPermissions: () => void;
+  onHandover: () => void;
   onCopyInvite?: () => void;
   onResendInvite?: () => void;
   inviteUrl?: string;
@@ -377,6 +380,20 @@ function MemberCard({
 
       {/* Azioni */}
       <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+        {member.user_id && (
+          <button
+            onClick={onHandover}
+            title="Sostituisci: trasferisci i suoi appuntamenti a un collega"
+            style={{
+              padding: "6px 10px", fontSize: 13, fontWeight: 700,
+              background: "#fff", color: THEME.text,
+              border: `1px solid ${THEME.border}`, borderRadius: 6,
+              cursor: "pointer",
+            }}
+          >
+            🔁
+          </button>
+        )}
         <button
           onClick={onPermissions}
           title="Permessi e visibilità dati"
@@ -982,6 +999,8 @@ export default function TeamSection({
   const [scheduleMemberId, setScheduleMemberId] = useState<string | null>(null);
   // Tappa G: pannello permessi granulari del membro (mig. 071)
   const [permsMemberId, setPermsMemberId] = useState<string | null>(null);
+  // Sostituzione operatore (Tappa L): riassegnazione massiva appuntamenti.
+  const [handoverMemberId, setHandoverMemberId] = useState<string | null>(null);
 
   // Catalogo trattamenti dello studio (per la matrice tariffe).
   // Carico una volta al mount, refresh quando si apre la sezione tariffe.
@@ -1257,7 +1276,14 @@ export default function TeamSection({
                     onPermissions={() => {
                       setRatesMemberId(null);
                       setScheduleMemberId(null);
+                      setHandoverMemberId(null);
                       setPermsMemberId(permsMemberId === member.id ? null : member.id);
+                    }}
+                    onHandover={() => {
+                      setRatesMemberId(null);
+                      setScheduleMemberId(null);
+                      setPermsMemberId(null);
+                      setHandoverMemberId(handoverMemberId === member.id ? null : member.id);
                     }}
                     onCopyInvite={() => member.invite_token && handleCopyInvite(member.invite_token)}
                   />
@@ -1282,6 +1308,16 @@ export default function TeamSection({
                     }}>
                       Nessun trattamento configurato. Vai prima nella sezione "Trattamenti" per crearne almeno uno.
                     </div>
+                  )}
+                  {handoverMemberId === member.id && member.user_id && (
+                    <OperatorHandoverForm
+                      studioId={studioId}
+                      fromUserId={member.user_id}
+                      fromName={member.display_name || "—"}
+                      members={members.map(m => ({ user_id: m.user_id, display_name: m.display_name }))}
+                      onClose={() => setHandoverMemberId(null)}
+                      onDone={() => { void onReloadMembers?.(); }}
+                    />
                   )}
                   {permsMemberId === member.id && (
                     <MemberPermissionsForm

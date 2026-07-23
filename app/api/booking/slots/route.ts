@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
   const { data: wh, error: whErr } = await supabase
     .from("working_hours")
     .select("open_time, close_time, is_open")
+    .is("location_id", null)
     .eq("day_of_week", dayOfWeek)
     .single();
 

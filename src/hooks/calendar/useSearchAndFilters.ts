@@ -164,7 +164,7 @@ export function useSearchAndFilters(
 
       const { data, error } = await supabase
         .from("patients")
-        .select("id, first_name, last_name, phone, treatment, diagnosis")
+        .select("id, first_name, last_name, phone, treatment, diagnosis, referent_operator_id")
         .or(`first_name.ilike.%${cleaned}%,last_name.ilike.%${cleaned}%`)
         .order("last_name", { ascending: true })
         .limit(12);
@@ -208,7 +208,7 @@ export function useSearchAndFilters(
       if (!cleaned) return [];
       const { data, error } = await supabase
         .from("patients")
-        .select("id, first_name, last_name, phone, treatment, diagnosis")
+        .select("id, first_name, last_name, phone, treatment, diagnosis, referent_operator_id")
         .or(`first_name.ilike.%${cleaned}%,last_name.ilike.%${cleaned}%`)
         .order("last_name", { ascending: true })
         .limit(12);

@@ -215,6 +215,8 @@ export type CreateAppointmentModalProps = {
     id: string;
     name: string;
     color: string | null;
+    /** Trattamenti ammessi (mig. 020). NULL/vuoto = stanza universale. */
+    treatment_types?: string[] | null;
   }>;
   /** ID stanza selezionata o null = nessuna */
   createRoomId?: string | null;
@@ -1440,6 +1442,27 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
                 </span>
               </div>
             )}
+            {/* ─── Stanza non attrezzata per il trattamento (mig. 020) ─ */}
+            {(() => {
+              if (!createRoomId || !rooms) return null;
+              const r = rooms.find(x => x.id === createRoomId);
+              const allowed = r?.treatment_types;
+              if (!r || !allowed || allowed.length === 0 || allowed.includes(treatmentType)) return null;
+              return (
+                <div style={{
+                  marginTop: 12, padding: "10px 12px",
+                  background: "rgba(245,158,11,0.07)",
+                  border: "1px solid rgba(245,158,11,0.3)",
+                  borderRadius: 8, fontSize: 12, color: "#92400e",
+                  fontWeight: 600, display: "flex", alignItems: "center", gap: 8,
+                }}>
+                  <span style={{ fontSize: 16 }}>🚪</span>
+                  <span>
+                    <strong>{r.name}</strong> non è attrezzata per questo trattamento. Scegli un&apos;altra stanza.
+                  </span>
+                </div>
+              );
+            })()}
             {/* ─── Warning fuori turno (Tappa E) ─────────────────────── */}
             {operatorOffShift && !operatorAbsence && (
               <div style={{
@@ -1492,11 +1515,19 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
               {rooms.map(r => {
                 const isSelected = createRoomId === r.id;
                 const color = r.color || "#94a3b8";
+                // Stanza compatibile col trattamento scelto? (mig. 020)
+                // NULL o array vuoto = universale, nessuna restrizione.
+                const allowed = r.treatment_types;
+                const isCompatible = !allowed || allowed.length === 0
+                  || allowed.includes(treatmentType);
                 return (
                   <button
                     key={r.id}
                     type="button"
-                    onClick={() => setCreateRoomId(isSelected ? null : r.id)}
+                    onClick={() => { if (!isCompatible) return; setCreateRoomId(isSelected ? null : r.id); }}
+                    title={isCompatible
+                      ? r.name
+                      : `${r.name}: non attrezzata per questo trattamento`}
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
@@ -1505,7 +1536,8 @@ export default function CreateAppointmentModal(props: CreateAppointmentModalProp
                       borderRadius: 99,
                       background: isSelected ? color : "#fff",
                       border: isSelected ? `2px solid ${color}` : `1.5px solid ${THEME.border}`,
-                      cursor: "pointer",
+                      cursor: isCompatible ? "pointer" : "not-allowed",
+                      opacity: isCompatible ? 1 : 0.4,
                       fontFamily: "inherit",
                       transition: "all 0.15s",
                     }}

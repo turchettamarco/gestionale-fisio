@@ -1,0 +1,313 @@
+-- ═══════════════════════════════════════════════════════════════════════
+-- Migration 080: Riservatezza garantita — mascheramento a livello database
+-- ═══════════════════════════════════════════════════════════════════════
+--
+-- ⚠️  MIGRATION STRUTTURALE. Leggere tutto prima di applicarla, e provarla
+--     su un ambiente di prova prima della produzione (vedi in fondo).
+--
+-- PROBLEMA:
+-- Finora i permessi nascondevano i dati nell'INTERFACCIA. Le RLS filtrano
+-- RIGHE, non COLONNE: un collaboratore con livello Base non vedeva il
+-- telefono nell'app, ma poteva comunque leggerlo chiamando l'API. Per
+-- promettere riservatezza — a un paziente, a un socio, a un'ispezione —
+-- serve che il dato non esca proprio dal database.
+--
+-- SOLUZIONE (pattern standard PostgreSQL/Supabase):
+--   1. La tabella fisica si sposta nello schema `private`, che PostgREST
+--      NON espone: nessuna API può interrogarla direttamente.
+--   2. Al suo posto, in `public`, resta una VISTA con lo stesso nome e le
+--      stesse colonne, in cui i campi sensibili passano da un CASE che
+--      interroga has_permission(). Senza permesso, il valore restituito è
+--      NULL: non nascosto graficamente, proprio assente.
+--   3. La vista è security_invoker: le RLS della tabella continuano ad
+--      applicarsi con l'identità di chi interroga, quindi la separazione
+--      fra studi resta intatta.
+--   4. Trigger INSTEAD OF per scrittura, generati dinamicamente sulle
+--      colonne realmente presenti: nessuna query dell'applicazione va
+--      modificata, l'app continua a leggere e scrivere "patients".
+--
+-- COSA VIENE MASCHERATO (e con quale permesso):
+--   phone                                   → patient.phone
+--   email                                   → patient.email
+--   tax_code                                → patient.fiscal_code
+--   residence_city, address                 → patient.address
+--   birth_date, birth_place                 → patient.birthdate
+--   anamnesis, diagnosis, treatment,
+--   main_complaint, medical_diagnosis       → patient.clinical
+--   private_notes / notes_private           → patient.notes_private
+--
+-- NON viene mascherato nome e cognome: servono ovunque (ricerca, agenda,
+-- ordinamenti) e sono comunque visibili a chiunque veda un appuntamento.
+-- Per quelli resta il mascheramento grafico in iniziali già presente.
+--
+-- Titolare e co-titolare vedono sempre tutto: has_permission() li tratta
+-- come autorizzati per definizione.
+--
+-- ═══════════════════════════════════════════════════════════════════════
+-- ROLLBACK COMPLETO (ripristina lo stato precedente):
+--   DROP VIEW IF EXISTS public.patients;
+--   ALTER TABLE private.patients SET SCHEMA public;
+--   DROP FUNCTION IF EXISTS private.fn_patients_view_write() CASCADE;
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- ── 1. Schema privato, non esposto dalle API ────────────────────────────
+CREATE SCHEMA IF NOT EXISTS private;
+REVOKE ALL ON SCHEMA private FROM PUBLIC, anon;
+GRANT USAGE ON SCHEMA private TO authenticated, service_role;
+
+-- ── 2. Sposta la tabella (idempotente) ──────────────────────────────────
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'patients'
+      AND table_type = 'BASE TABLE'
+  ) THEN
+    ALTER TABLE public.patients SET SCHEMA private;
+  END IF;
+END $$;
+
+-- Le RLS restano sulla tabella e continuano ad applicarsi tramite la
+-- vista security_invoker: servono i privilegi, non il bypass.
+GRANT SELECT, INSERT, UPDATE, DELETE ON private.patients TO authenticated;
+GRANT ALL ON private.patients TO service_role;
+
+-- ── 3. Vista mascherata, generata sulle colonne reali ───────────────────
+DO $$
+DECLARE
+  col      record;
+  sel      text := '';
+  perm     text;
+  first    boolean := true;
+BEGIN
+  FOR col IN
+    SELECT column_name, is_generated
+    FROM information_schema.columns
+    WHERE table_schema = 'private' AND table_name = 'patients'
+    ORDER BY ordinal_position
+  LOOP
+    -- Permesso richiesto per vedere questa colonna (NULL = sempre visibile)
+    perm := CASE col.column_name
+      WHEN 'phone'             THEN 'patient.phone'
+      WHEN 'email'             THEN 'patient.email'
+      WHEN 'tax_code'          THEN 'patient.fiscal_code'
+      WHEN 'residence_city'    THEN 'patient.address'
+      WHEN 'address'           THEN 'patient.address'
+      WHEN 'birth_date'        THEN 'patient.birthdate'
+      WHEN 'birth_place'       THEN 'patient.birthdate'
+      WHEN 'anamnesis'         THEN 'patient.clinical'
+      WHEN 'diagnosis'         THEN 'patient.clinical'
+      WHEN 'treatment'         THEN 'patient.clinical'
+      WHEN 'main_complaint'    THEN 'patient.clinical'
+      WHEN 'medical_diagnosis' THEN 'patient.clinical'
+      WHEN 'private_notes'     THEN 'patient.notes_private'
+      WHEN 'notes_private'     THEN 'patient.notes_private'
+      ELSE NULL
+    END;
+
+    IF NOT first THEN
+      sel := sel || ', ';
+    END IF;
+    first := false;
+
+    IF perm IS NULL THEN
+      sel := sel || format('p.%I', col.column_name);
+    ELSE
+      sel := sel || format(
+        'CASE WHEN public.has_permission(p.studio_id, %L) THEN p.%I ELSE NULL END AS %I',
+        perm, col.column_name, col.column_name);
+    END IF;
+
+  END LOOP;
+
+  EXECUTE format(
+    'CREATE OR REPLACE VIEW public.patients WITH (security_invoker = true) AS SELECT %s FROM private.patients p',
+    sel);
+END $$;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.patients TO authenticated;
+GRANT ALL ON public.patients TO service_role;
+
+-- ── 4. Scrittura attraverso la vista ────────────────────────────────────
+-- Una vista con colonne calcolate non è aggiornabile automaticamente:
+-- servono trigger INSTEAD OF. Sono generici (jsonb) così restano validi
+-- anche quando si aggiungono colonne alla tabella.
+--
+-- REGOLA IMPORTANTE: nelle UPDATE, una colonna mascherata che arriva a
+-- NULL viene IGNORATA. Altrimenti un collaboratore senza permesso, salvando
+-- la scheda, sovrascriverebbe con NULL il telefono che nemmeno vede —
+-- cancellando dati per errore.
+
+CREATE OR REPLACE FUNCTION private.fn_patients_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = private, public
+AS $fn$
+DECLARE
+  j       jsonb;
+  collist text;
+BEGIN
+  -- Si scartano le chiavi NULL: le colonne omesse prendono il DEFAULT
+  -- della tabella (id, created_at…), che altrimenti verrebbe sovrascritto.
+  j := (SELECT jsonb_object_agg(k, v)
+        FROM jsonb_each(to_jsonb(NEW))
+        WHERE v <> 'null'::jsonb);
+
+  IF j IS NULL OR j = '{}'::jsonb THEN
+    RAISE EXCEPTION 'Nessun dato da inserire';
+  END IF;
+
+  SELECT string_agg(quote_ident(k), ', ') INTO collist
+  FROM jsonb_object_keys(j) AS k;
+
+  EXECUTE format(
+    'INSERT INTO private.patients (%s) SELECT %s FROM jsonb_populate_record(NULL::private.patients, $1)',
+    collist, collist
+  ) USING j;
+
+  RETURN NEW;
+END;
+$fn$;
+
+CREATE OR REPLACE FUNCTION private.fn_patients_update()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = private, public
+AS $fn$
+DECLARE
+  jn      jsonb := to_jsonb(NEW);
+  jo      jsonb := to_jsonb(OLD);
+  patch   jsonb := '{}'::jsonb;
+  collist text;
+  k       text;
+  masked  CONSTANT text[][] := ARRAY[
+    ['phone','patient.phone'], ['email','patient.email'],
+    ['tax_code','patient.fiscal_code'],
+    ['residence_city','patient.address'], ['address','patient.address'],
+    ['birth_date','patient.birthdate'], ['birth_place','patient.birthdate'],
+    ['anamnesis','patient.clinical'], ['diagnosis','patient.clinical'],
+    ['treatment','patient.clinical'], ['main_complaint','patient.clinical'],
+    ['medical_diagnosis','patient.clinical'],
+    ['private_notes','patient.notes_private'], ['notes_private','patient.notes_private']
+  ];
+  i int;
+BEGIN
+  -- Solo i campi realmente cambiati.
+  FOR k IN SELECT jsonb_object_keys(jn) LOOP
+    IF (jn -> k) IS DISTINCT FROM (jo -> k) THEN
+      patch := patch || jsonb_build_object(k, jn -> k);
+    END IF;
+  END LOOP;
+
+  -- Un campo mascherato non può essere sovrascritto da chi non lo vede:
+  -- altrimenti salvando la scheda ne cancellerebbe il contenuto con NULL
+  -- senza nemmeno sapere che esisteva.
+  FOR i IN 1 .. array_length(masked, 1) LOOP
+    IF patch ? masked[i][1]
+       AND NOT public.has_permission(OLD.studio_id, masked[i][2]) THEN
+      patch := patch - masked[i][1];
+    END IF;
+  END LOOP;
+
+  IF patch = '{}'::jsonb THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT string_agg(quote_ident(k2), ', ') INTO collist
+  FROM jsonb_object_keys(patch) AS k2;
+
+  EXECUTE format(
+    'UPDATE private.patients SET (%s) = (SELECT %s FROM jsonb_populate_record(NULL::private.patients, $1)) WHERE id = $2',
+    collist, collist
+  ) USING patch, OLD.id;
+
+  RETURN NEW;
+END;
+$fn$;
+
+CREATE OR REPLACE FUNCTION private.fn_patients_delete()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = private, public
+AS $fn$
+BEGIN
+  DELETE FROM private.patients WHERE id = OLD.id;
+  RETURN OLD;
+END;
+$fn$;
+
+DROP TRIGGER IF EXISTS trg_patients_insert ON public.patients;
+CREATE TRIGGER trg_patients_insert INSTEAD OF INSERT ON public.patients
+  FOR EACH ROW EXECUTE FUNCTION private.fn_patients_insert();
+
+DROP TRIGGER IF EXISTS trg_patients_update ON public.patients;
+CREATE TRIGGER trg_patients_update INSTEAD OF UPDATE ON public.patients
+  FOR EACH ROW EXECUTE FUNCTION private.fn_patients_update();
+
+DROP TRIGGER IF EXISTS trg_patients_delete ON public.patients;
+CREATE TRIGGER trg_patients_delete INSTEAD OF DELETE ON public.patients
+  FOR EACH ROW EXECUTE FUNCTION private.fn_patients_delete();
+
+-- ── 5. Funzioni interne che devono vedere il dato reale ─────────────────
+-- log_patient_access (mig. 075) scrive il nome nel registro: deve leggere
+-- la tabella, non la vista, altrimenti registrerebbe valori mascherati.
+CREATE OR REPLACE FUNCTION public.log_patient_access(
+  p_studio_id uuid, p_patient_id uuid, p_context text DEFAULT 'scheda')
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, private
+AS $$
+DECLARE
+  v_actor UUID := auth.uid();
+  v_label TEXT;
+  v_name  TEXT;
+  v_recent BOOLEAN;
+BEGIN
+  IF v_actor IS NULL OR p_studio_id IS NULL OR p_patient_id IS NULL THEN RETURN; END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM studio_members m
+    WHERE m.studio_id = p_studio_id AND m.user_id = v_actor AND COALESCE(m.is_active, TRUE)
+  ) THEN RETURN; END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM audit_log a
+    WHERE a.studio_id = p_studio_id AND a.actor_id = v_actor
+      AND a.action = 'READ' AND a.record_id = p_patient_id
+      AND a.created_at > NOW() - INTERVAL '30 minutes'
+  ) INTO v_recent;
+  IF v_recent THEN RETURN; END IF;
+
+  SELECT m.display_name INTO v_label FROM studio_members m
+  WHERE m.studio_id = p_studio_id AND m.user_id = v_actor LIMIT 1;
+
+  SELECT COALESCE(p.last_name,'') || ' ' || COALESCE(p.first_name,'')
+    INTO v_name FROM private.patients p WHERE p.id = p_patient_id LIMIT 1;
+
+  INSERT INTO audit_log (studio_id, actor_id, actor_label, action, table_name, record_id, summary, changed)
+  VALUES (p_studio_id, v_actor, v_label, 'READ', 'patients', p_patient_id,
+    'Consultazione ' || COALESCE(p_context,'scheda')
+      || CASE WHEN v_name IS NOT NULL THEN ' — ' || btrim(v_name) ELSE '' END, NULL);
+EXCEPTION WHEN OTHERS THEN RETURN;
+END;
+$$;
+
+COMMENT ON VIEW public.patients IS
+  'Vista mascherata su private.patients (mig. 080): i campi sensibili tornano NULL a chi non ha il permesso. Scrittura via trigger INSTEAD OF.';
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- VERIFICA DOPO L'APPLICAZIONE (eseguire come titolare, poi come collega):
+--   SELECT id, first_name, phone, tax_code FROM patients LIMIT 3;
+-- Da titolare i valori si vedono; da un terapista con livello Base
+-- phone e tax_code devono risultare NULL.
+--
+--   INSERT INTO patients (studio_id, first_name, last_name)
+--   VALUES ('<studio>', 'Prova', 'Migrazione') RETURNING id;
+--   UPDATE patients SET last_name = 'Modificata' WHERE first_name = 'Prova';
+--   DELETE FROM patients WHERE first_name = 'Prova';
+-- Le tre operazioni devono funzionare: confermano i trigger di scrittura.
+-- ═══════════════════════════════════════════════════════════════════════

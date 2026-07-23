@@ -48,6 +48,8 @@ export type PatientLite = {
   phone?: string | null;
   treatment?: string | null;
   diagnosis?: string | null;
+  /** Terapista di riferimento (mig. 078): preseleziona l'operatore. */
+  referent_operator_id?: string | null;
 };
 
 export type PracticeSettings = {

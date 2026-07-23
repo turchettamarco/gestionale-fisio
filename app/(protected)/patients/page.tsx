@@ -22,6 +22,7 @@ import ConvenzioniMenuItem from "@/src/components/ConvenzioniMenuItem";
 import { RecallPanel } from "@/src/components/RecallPanel";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/src/lib/supabaseClient";
+import { usePermissions } from "@/src/hooks/usePermissions";
 import { useCurrentStudioId } from "@/src/contexts/StudioContext";
 import { StudioAdherenceModal } from "@/src/components/exercises/StudioAdherenceModal";
 import {
@@ -131,6 +132,9 @@ export default function PatientsPage() {
   // Privacy Mode (entrambe le viste)
   const displayName  = useDisplayPatientName();
   const displayPhone = useDisplayPatientPhone();
+  // Permessi (mig. 071): senza 'patient.phone' la lista non espone i numeri
+  // né le scorciatoie di chiamata/WhatsApp.
+  const { can: canPerm } = usePermissions();
   const { privacyMode } = usePrivacyMode();
   const { maskName, maskInitial } = usePrivacyDisplay();
 
@@ -542,7 +546,7 @@ export default function PatientsPage() {
                 {items.map((p, i) => {
                   const incomplete = isIncomplete(p);
                   const appt = nextApptMap.get(p.id);
-                  const phoneVal = p.phone?.trim();
+                  const phoneVal = canPerm("patient.phone") ? p.phone?.trim() : undefined;
                   const waPhone = phoneVal ? normalizePhoneForWA(phoneVal) : null;
 
                   return (
