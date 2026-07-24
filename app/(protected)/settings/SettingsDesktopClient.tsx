@@ -53,6 +53,7 @@ import CalendarPrefsSection from "./components/sections/CalendarPrefsSection";
 import OnlineBookingSection from "./components/sections/OnlineBookingSection";
 import PatientAreaSection, { type PortalFeatures } from "./components/sections/PatientAreaSection";
 import ClinicalTemplateSection from "./components/sections/ClinicalTemplateSection";
+import DataTransferSection from "./components/sections/DataTransferSection";
 import { type ClinicalField, type ClinicalFieldType, type ClinicalTemplate, STARTER_TEMPLATES } from "@/src/lib/clinical/customFields";
 import BlockedDaysSection from "./components/sections/BlockedDaysSection";
 import ManagementSection from "./components/sections/ManagementSection";
@@ -1828,6 +1829,7 @@ export default function SettingsDesktopClient() {
 
   // ── Scheda clinica configurabile (mig. 095) ─────────────────────────
   const [showClinicalTpl, setShowClinicalTpl] = useState(false);
+  const [showDataTransfer, setShowDataTransfer] = useState(false);
   const [clinicalTemplates, setClinicalTemplates] = useState<ClinicalTemplate[]>([]);
   const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
   const [archivedTemplates, setArchivedTemplates] = useState<ClinicalTemplate[]>([]);
@@ -2317,6 +2319,7 @@ export default function SettingsDesktopClient() {
     { id: "granularita",  label: "Preferenze agenda (granularità, vista)", place: "Agenda", keywords: "granularità slot 15 minuti 30 minuti passo vista predefinita giorno settimana mese apertura calendario" },
     { id: "calprefs",     label: "Preferenze calendario",      place: "Agenda",        keywords: "preferenze calendario stato predefinito promemoria sovrapposizioni overlap conferma whatsapp default" },
     { id: "catalogo",     label: "Catalogo trattamenti",       place: "Agenda",        keywords: "trattamenti catalogo prestazioni tecar laser prezzi durata colore tipi seduta" },
+    { id: "dati", label: "Importa ed esporta dati", place: "Area Paziente", keywords: "import export importa esporta excel csv migrazione backup dati anagrafiche altro gestionale" },
     { id: "scheda-clinica", label: "Scheda clinica", place: "Area Paziente", keywords: "scheda clinica campi personalizzati cartella anamnesi modello template configurabile" },
     { id: "area-paziente", label: "Area Paziente", place: "Area Paziente", keywords: "area paziente portale link personale storico sedute importi pagamenti riservata" },
     { id: "prenotazione-online", label: "Prenotazione Online", place: "Prenotazione Online", keywords: "prenotazioni online booking sito servizi prenotabili listino prezzi link pubblico indirizzo slug condividi whatsapp prenota" },
@@ -2348,6 +2351,7 @@ export default function SettingsDesktopClient() {
     "prenotazione-online": { tab: "booking", open: () => setShowOnlineBooking(true) },
     "area-paziente": { tab: "patient_area", open: () => setShowPatientArea(true) },
     "scheda-clinica": { tab: "patient_area", open: () => setShowClinicalTpl(true) },
+    "dati": { tab: "patient_area", open: () => setShowDataTransfer(true) },
     chiusure:    { tab: "calendar",       open: () => setShowBlockDays(true) },
     team:        { tab: "team",           open: () => setShowTeam(true) },
     stanze:      { tab: "team",           open: () => setShowRooms(true) },
@@ -2644,6 +2648,13 @@ export default function SettingsDesktopClient() {
         {/* ─── Tab "Contabilità & Fiscale": dati fiscali + Sistema TS ─── */}
         {activeTab === "patient_area" && (
           <>
+            <div id="set-sec-dati">
+              <DataTransferSection
+                show={showDataTransfer} onToggle={() => setShowDataTransfer(!showDataTransfer)}
+                studioId={studio?.id ?? null}
+              />
+            </div>
+
             <div id="set-sec-scheda-clinica">
               <ClinicalTemplateSection
                 show={showClinicalTpl} onToggle={() => setShowClinicalTpl(!showClinicalTpl)}
