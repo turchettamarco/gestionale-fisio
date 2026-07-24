@@ -14,7 +14,7 @@ import AgendaViewPrefsSection from "./components/sections/AgendaViewPrefsSection
 import CalendarPrefsSection from "./components/sections/CalendarPrefsSection";
 import BlockedDaysSection from "./components/sections/BlockedDaysSection";
 import OnlineBookingSection from "./components/sections/OnlineBookingSection";
-import PatientAreaSection from "./components/sections/PatientAreaSection";
+import PatientAreaSection, { type PortalFeatures } from "./components/sections/PatientAreaSection";
 import TeamSection from "./components/sections/TeamSection";
 import RoomsSection from "./components/sections/RoomsSection";
 import OperatorAbsencesSection from "./components/sections/OperatorAbsencesSection";
@@ -110,6 +110,13 @@ export default function SettingsMobileClient() {
   const [showPatientAreaM, setShowPatientAreaM] = useState(false);
   const [portalShowAmounts, setPortalShowAmounts] = useState(true);
   const [savingPatientArea, setSavingPatientArea] = useState(false);
+  // Blocchi visibili nell'area paziente (mig. 091)
+  const [portalFeatures, setPortalFeatures] = useState<PortalFeatures>({
+    appointments: true, history: true, booking: true,
+    exercises: true, scales: true, consents: true,
+  });
+  const setPortalFeature = (key: keyof PortalFeatures, value: boolean) =>
+    setPortalFeatures(prev => ({ ...prev, [key]: value }));
 
   // ── Multi-sede (mig. 014) ──
   const [multiLocationEnabled, setMultiLocationEnabled] = useState(false);
@@ -251,10 +258,17 @@ export default function SettingsMobileClient() {
       setBookingSlug(
         ((currentStudio as { booking_slug?: string | null }).booking_slug) ?? ""
       );
-      // Area paziente (mig. 087)
-      setPortalShowAmounts(
-        ((currentStudio as { portal_show_amounts?: boolean | null }).portal_show_amounts) ?? true
-      );
+      // Area paziente (mig. 087 / 091)
+      const st = currentStudio as unknown as Record<string, boolean | null | undefined>;
+      setPortalShowAmounts(st.portal_show_amounts ?? true);
+      setPortalFeatures({
+        appointments: st.portal_show_appointments !== false,
+        history:      st.portal_show_history      !== false,
+        booking:      st.portal_show_booking      !== false,
+        exercises:    st.portal_show_exercises    !== false,
+        scales:       st.portal_show_scales       !== false,
+        consents:     st.portal_show_consents     !== false,
+      });
       // Multi-sede (mig. 014)
       setMultiLocationEnabled(currentStudio.multi_location_enabled ?? false);
       // Professionisti ospiti (mig. 029, 031)
@@ -377,7 +391,15 @@ export default function SettingsMobileClient() {
     setSavingPatientArea(true); setError(""); setSuccess("");
     try {
       const { error: err } = await supabase.from("studios")
-        .update({ portal_show_amounts: portalShowAmounts })
+        .update({
+          portal_show_amounts: portalShowAmounts,
+          portal_show_appointments: portalFeatures.appointments,
+          portal_show_history:      portalFeatures.history,
+          portal_show_booking:      portalFeatures.booking,
+          portal_show_exercises:    portalFeatures.exercises,
+          portal_show_scales:       portalFeatures.scales,
+          portal_show_consents:     portalFeatures.consents,
+        })
         .eq("id", currentStudioId);
       if (err) { setError("Errore: " + err.message); return; }
       await refreshStudio();
@@ -2519,6 +2541,7 @@ export default function SettingsMobileClient() {
             show={showPatientAreaM} onToggle={() => setShowPatientAreaM(!showPatientAreaM)}
             portalShowAmounts={portalShowAmounts}
             setPortalShowAmounts={setPortalShowAmounts}
+            features={portalFeatures} setFeature={setPortalFeature}
             saving={savingPatientArea}
             onSave={() => void savePatientArea()}
           />

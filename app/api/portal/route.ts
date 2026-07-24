@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
 
     const nowIso = new Date().toISOString();
 
-    const [patientRes, apptRes, historyRes, exercisesRes] = await Promise.all([
+    const [patientRes, apptRes, historyRes, exercisesRes, scalesRes, consentsRes] = await Promise.all([
       db.from("patients").select("first_name,last_name,studio_id").eq("id", tk.patient_id).maybeSingle(),
       db.from("appointments")
         .select("id,start_at,end_at,status,location,clinic_site,domicile_address,treatment_type")
@@ -71,6 +71,20 @@ export async function GET(req: NextRequest) {
         .eq("patient_id", tk.patient_id)
         .order("created_at", { ascending: false })
         .limit(1),
+      // Questionari di valutazione ancora da compilare (mig. 091)
+      db.from("scale_requests")
+        .select("access_token,scale_type,sent_at")
+        .eq("patient_id", tk.patient_id)
+        .eq("status", "pending")
+        .order("sent_at", { ascending: false })
+        .limit(5),
+      // Consensi informati ancora da firmare (mig. 091)
+      db.from("patient_consents")
+        .select("access_token,consent_type,title,sent_at")
+        .eq("patient_id", tk.patient_id)
+        .eq("status", "pending")
+        .order("sent_at", { ascending: false })
+        .limit(5),
     ]);
 
     // Recupera dati studio (branding) — usa il campo studio_id del paziente
@@ -79,7 +93,7 @@ export async function GET(req: NextRequest) {
     if (studioId) {
       const studioRes = await db
         .from("studios")
-        .select("name,address,phone,signature_name,signature_title,google_review_link,website,logo_base64,booking_slug,booking_public_enabled,portal_show_amounts")
+        .select("name,address,phone,signature_name,signature_title,google_review_link,website,logo_base64,booking_slug,booking_public_enabled,portal_show_amounts,portal_show_appointments,portal_show_history,portal_show_booking,portal_show_exercises,portal_show_scales,portal_show_consents")
         .eq("id", studioId)
         .maybeSingle();
       studio = studioRes.data || null;
@@ -113,11 +127,31 @@ export async function GET(req: NextRequest) {
       upcoming: apptRes.data || [],
       history,
       show_amounts: showAmounts,
+      // Questionari e consensi in attesa: il portale li mostra solo se il
+      // relativo interruttore è attivo (mig. 091)
+      pending_scales: (scalesRes.data ?? []).map(r => ({
+        token: r.access_token as string,
+        scale_type: r.scale_type as string | null,
+      })),
+      pending_consents: (consentsRes.data ?? []).map(r => ({
+        token: r.access_token as string,
+        title: (r.title as string | null) ?? (r.consent_type as string | null),
+      })),
+      // Interruttori di visibilità dell'area paziente (mig. 091)
+      features: {
+        appointments: studio?.portal_show_appointments !== false,
+        history:      studio?.portal_show_history      !== false,
+        booking:      studio?.portal_show_booking      !== false,
+        exercises:    studio?.portal_show_exercises    !== false,
+        scales:       studio?.portal_show_scales       !== false,
+        consents:     studio?.portal_show_consents     !== false,
+      },
       exercise_token: exercisesRes.data?.[0]?.token || null,
       studio,
       // Prenotazione online (mig. 083): il pulsante compare solo se lo
       // studio ha davvero attivato la pagina pubblica.
-      booking: studio?.booking_public_enabled && studio?.booking_slug
+      booking: studio?.portal_show_booking !== false
+        && studio?.booking_public_enabled && studio?.booking_slug
         ? { slug: studio.booking_slug as string }
         : null,
     });

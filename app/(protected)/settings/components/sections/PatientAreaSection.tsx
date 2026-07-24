@@ -14,11 +14,34 @@
 
 import { THEME, cardStyle, sectionHead } from "../shared/theme";
 
+/** Blocchi dell'area paziente che si possono accendere e spegnere (mig. 091). */
+export type PortalFeatures = {
+  appointments: boolean;
+  history: boolean;
+  booking: boolean;
+  exercises: boolean;
+  scales: boolean;
+  consents: boolean;
+};
+
+export const PORTAL_FEATURE_LABELS: Array<{
+  key: keyof PortalFeatures; label: string; hint: string;
+}> = [
+  { key: "appointments", label: "Prossimi appuntamenti", hint: "Data, ora e sede delle sedute in programma" },
+  { key: "history",      label: "Storico sedute",        hint: "Le sedute già svolte, con stato di pagamento" },
+  { key: "booking",      label: "Richiesta appuntamento", hint: "Pulsante che porta alla pagina di prenotazione. Serve che la prenotazione online sia attiva" },
+  { key: "exercises",    label: "Scheda esercizi",       hint: "Il programma di esercizi assegnato al paziente" },
+  { key: "scales",       label: "Questionari da compilare", hint: "Scale di valutazione inviate e non ancora compilate" },
+  { key: "consents",     label: "Consensi da firmare",   hint: "Consensi informati in attesa di firma" },
+];
+
 export type PatientAreaSectionProps = {
   show: boolean;
   onToggle: () => void;
   portalShowAmounts: boolean;
   setPortalShowAmounts: (v: boolean) => void;
+  features: PortalFeatures;
+  setFeature: (key: keyof PortalFeatures, value: boolean) => void;
   saving: boolean;
   onSave: () => void;
 };
@@ -48,10 +71,35 @@ export default function PatientAreaSection(p: PatientAreaSectionProps) {
             richiedere un nuovo appuntamento.
           </p>
 
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: THEME.text, marginBottom: 10 }}>
+            Cosa vede il paziente
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+            {PORTAL_FEATURE_LABELS.map(f => (
+              <label key={f.key} style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={p.features[f.key]}
+                  onChange={e => p.setFeature(f.key, e.target.checked)}
+                  style={{ width: 18, height: 18, cursor: "pointer", marginTop: 1 }}
+                />
+                <span style={{ fontSize: 13, fontWeight: 600, color: THEME.text }}>
+                  {f.label}
+                  <span style={{ display: "block", fontWeight: 400, fontSize: 11.5, color: THEME.muted, marginTop: 1, lineHeight: 1.45 }}>
+                    {f.hint}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+
+          <div style={{ height: 1, background: THEME.border, marginBottom: 18 }} />
+
           <label style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 16, cursor: "pointer" }}>
             <input
               type="checkbox"
               checked={p.portalShowAmounts}
+              disabled={!p.features.history}
               onChange={e => p.setPortalShowAmounts(e.target.checked)}
               style={{ width: 18, height: 18, cursor: "pointer", marginTop: 1 }}
             />

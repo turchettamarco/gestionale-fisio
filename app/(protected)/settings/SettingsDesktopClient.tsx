@@ -51,7 +51,7 @@ import WorkingHoursSection from "./components/sections/WorkingHoursSection";
 import TemplatesSection from "./components/sections/TemplatesSection";
 import CalendarPrefsSection from "./components/sections/CalendarPrefsSection";
 import OnlineBookingSection from "./components/sections/OnlineBookingSection";
-import PatientAreaSection from "./components/sections/PatientAreaSection";
+import PatientAreaSection, { type PortalFeatures } from "./components/sections/PatientAreaSection";
 import BlockedDaysSection from "./components/sections/BlockedDaysSection";
 import ManagementSection from "./components/sections/ManagementSection";
 import PasswordSection from "./components/sections/PasswordSection";
@@ -170,6 +170,14 @@ export default function SettingsDesktopClient() {
   const [showPatientArea, setShowPatientArea]           = useState(false);
   const [portalShowAmounts, setPortalShowAmounts]       = useState(true);
   const [savingPatientArea, setSavingPatientArea]       = useState(false);
+  // Blocchi visibili nell'area paziente (mig. 091)
+  const [portalFeatures, setPortalFeatures] = useState<PortalFeatures>({
+    appointments: true, history: true, booking: true,
+    exercises: true, scales: true, consents: true,
+  });
+  const setPortalFeature = (key: keyof PortalFeatures, value: boolean) =>
+    setPortalFeatures(prev => ({ ...prev, [key]: value }));
+
 
   // ── Multi-sede (mig. 014) ─────────────────────────────────────────────
   // Toggle globale + state separato dal salvataggio studio (può essere
@@ -276,10 +284,18 @@ export default function SettingsDesktopClient() {
     setBookingSlug(
       ((studio as unknown as { booking_slug?: string | null }).booking_slug) ?? ""
     );
-    // Area paziente (mig. 087)
-    setPortalShowAmounts(
-      ((studio as unknown as { portal_show_amounts?: boolean | null }).portal_show_amounts) ?? true
-    );
+    // Area paziente (mig. 087 / 091)
+    const st = studio as unknown as Record<string, boolean | null | undefined>;
+    setPortalShowAmounts(st.portal_show_amounts ?? true);
+    setPortalFeatures({
+      appointments: st.portal_show_appointments !== false,
+      history:      st.portal_show_history      !== false,
+      booking:      st.portal_show_booking      !== false,
+      exercises:    st.portal_show_exercises    !== false,
+      scales:       st.portal_show_scales       !== false,
+      consents:     st.portal_show_consents     !== false,
+    });
+
     // Multi-sede (mig. 014)
     setMultiLocationEnabled(studio.multi_location_enabled ?? false);
     // Appuntamenti di gruppo (mig. 014) — cast perché StudioContext potrebbe
@@ -1808,7 +1824,15 @@ export default function SettingsDesktopClient() {
     setSavingPatientArea(true);
     try {
       const { error } = await supabase.from("studios")
-        .update({ portal_show_amounts: portalShowAmounts })
+        .update({
+          portal_show_amounts: portalShowAmounts,
+          portal_show_appointments: portalFeatures.appointments,
+          portal_show_history:      portalFeatures.history,
+          portal_show_booking:      portalFeatures.booking,
+          portal_show_exercises:    portalFeatures.exercises,
+          portal_show_scales:       portalFeatures.scales,
+          portal_show_consents:     portalFeatures.consents,
+        })
         .eq("id", studio.id);
       if (error) { alert("Errore: " + error.message); return; }
       await refreshStudio();
@@ -2448,6 +2472,7 @@ export default function SettingsDesktopClient() {
                 show={showPatientArea} onToggle={() => setShowPatientArea(!showPatientArea)}
                 portalShowAmounts={portalShowAmounts}
                 setPortalShowAmounts={setPortalShowAmounts}
+                features={portalFeatures} setFeature={setPortalFeature}
                 saving={savingPatientArea}
                 onSave={() => void savePatientArea()}
               />

@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
+type PendingItem = { token: string; title?: string | null; scale_type?: string | null };
+
 type HistoryItem = {
   id: string;
   start_at: string;
@@ -46,6 +48,12 @@ export default function PortalPage() {
   const booking = data.booking;
   const unpaid = history.filter(h => h.payment_state === "unpaid");
   const showAmounts = data.show_amounts !== false;
+  // Interruttori impostati dallo studio (mig. 091). In assenza, tutto visibile.
+  const feat = (data.features ?? {}) as Partial<Record<
+    "appointments"|"history"|"booking"|"exercises"|"scales"|"consents", boolean>>;
+  const on = (k: keyof typeof feat) => feat[k] !== false;
+  const pendingScales: PendingItem[] = data.pending_scales ?? [];
+  const pendingConsents: PendingItem[] = data.pending_consents ?? [];
   const paidCount = history.filter(h => h.payment_state !== "unpaid").length;
 
   return <Wrap headerTitle={headerTitle} logoBase64={studio?.logo_base64}>
@@ -57,6 +65,7 @@ export default function PortalPage() {
       </div>
 
       {/* Prossimi appuntamenti */}
+      {on("appointments") && (
       <section style={{marginBottom:24}}>
         <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
           📅 Prossimi appuntamenti
@@ -89,6 +98,7 @@ export default function PortalPage() {
           </div>
         )}
       </section>
+      )}
 
       {/* Prenota una seduta — solo se lo studio ha attivato la pagina pubblica */}
       {booking && (
@@ -104,6 +114,7 @@ export default function PortalPage() {
       )}
 
       {/* Storico sedute */}
+      {on("history") && (
       <section style={{marginBottom:24}}>
         {/* Banner riassuntivo: è anche il comando per aprire l'elenco */}
         <button
@@ -185,9 +196,58 @@ export default function PortalPage() {
           </div>
         )}
       </section>
+      )}
+
+      {/* Consensi da firmare — in cima alle cose "da fare" (mig. 091) */}
+      {on("consents") && pendingConsents.length > 0 && (
+        <section style={{marginBottom:24}}>
+          <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
+            ✍️ Da firmare
+          </h2>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {pendingConsents.map(c => (
+              <a key={c.token} href={`/consensi/${c.token}`} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"14px 16px",background:"#fff",border:"1.5px solid #fde68a",borderRadius:10,textDecoration:"none"}}>
+                <span style={{minWidth:0}}>
+                  <span style={{display:"block",fontSize:13.5,fontWeight:700,color:"#0f172a"}}>
+                    {c.title || "Consenso informato"}
+                  </span>
+                  <span style={{display:"block",fontSize:11.5,color:"#b45309",marginTop:2}}>
+                    In attesa della tua firma
+                  </span>
+                </span>
+                <span style={{flexShrink:0,color:"#0d9488",fontWeight:800,fontSize:13}}>Firma →</span>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Questionari di valutazione da compilare (mig. 091) */}
+      {on("scales") && pendingScales.length > 0 && (
+        <section style={{marginBottom:24}}>
+          <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
+            📝 Da compilare
+          </h2>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {pendingScales.map(sc => (
+              <a key={sc.token} href={`/scale/${sc.token}`} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"14px 16px",background:"#fff",border:"1.5px solid #e2e8f0",borderRadius:10,textDecoration:"none"}}>
+                <span style={{minWidth:0}}>
+                  <span style={{display:"block",fontSize:13.5,fontWeight:700,color:"#0f172a"}}>
+                    {sc.scale_type || "Questionario di valutazione"}
+                  </span>
+                  <span style={{display:"block",fontSize:11.5,color:"#64748b",marginTop:2}}>
+                    Bastano un paio di minuti
+                  </span>
+                </span>
+                <span style={{flexShrink:0,color:"#0d9488",fontWeight:800,fontSize:13}}>Compila →</span>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Scheda esercizi */}
-      {data.exercise_token && (
+      {on("exercises") && data.exercise_token && (
         <section style={{marginBottom:24}}>
           <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
             🏋️ La tua scheda esercizi
