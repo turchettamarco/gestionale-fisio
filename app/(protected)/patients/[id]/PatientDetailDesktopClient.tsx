@@ -35,6 +35,7 @@ import type { PaymentMethod } from "@/src/components/PaidPopover";
 import PatientPackagesSection from "@/src/components/packages/PatientPackagesSection";
 import RemoteConsentsSection from "@/src/components/patient/RemoteConsentsSection";
 import IntakeSection from "@/src/components/patient/IntakeSection";
+import PainDiarySection from "@/src/components/patient/PainDiarySection";
 import { quickSendRemoteConsents } from "@/src/lib/consents/quickSend";
 import ExerciseProgramSection from "@/src/components/patient/ExerciseProgramSection";
 import PatientOverview from "@/src/components/patient/PatientOverview";
@@ -3327,6 +3328,14 @@ ${rows}
               </button>
             </div>
 
+            {/* Diario del dolore compilato dal paziente (mig. 092) */}
+            <div style={{ marginBottom: 16 }}>
+              <PainDiarySection
+                patientId={patientId}
+                enabled={Boolean((currentStudio as unknown as { portal_show_pain_diary?: boolean })?.portal_show_pain_diary)}
+              />
+            </div>
+
             {/* Autovalutazione pre-visita (mig. 093) */}
             <div style={{ marginBottom: 16 }}>
               <IntakeSection
@@ -3334,6 +3343,12 @@ ${rows}
                 patientFirstName={patient?.first_name ?? ""}
                 patientPhone={patient?.phone ?? null}
                 studioId={currentStudio?.id ?? null}
+                onCopyToAnamnesis={(testo) => {
+                  // Si accoda a quello che c'è già e NON salva: il testo va
+                  // riletto e corretto prima di finire in cartella.
+                  setAnamnesis(prev => prev.trim() ? `${prev.trim()}\n\n${testo}` : testo);
+                  alert("Riportato nel campo Anamnesi. Rileggilo e salva la scheda.");
+                }}
               />
             </div>
 

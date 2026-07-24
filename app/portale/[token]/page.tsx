@@ -21,6 +21,64 @@ type HistoryItem = {
   payment_state: "paid" | "unpaid" | "package";
 };
 
+
+// ── Icone a tratto, stessa griglia 24x24 della pagina di prenotazione ──
+function Ico({ d, size = 17 }: { d: React.ReactNode; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
+      {d}
+    </svg>
+  );
+}
+
+const ICONS = {
+  calendar:  <><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></>,
+  book:      <><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /><path d="m8.5 15.5 2 2 4-4" /></>,
+  list:      <><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></>,
+  ticket:    <><path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4z" /><path d="M12 6v12" /></>,
+  pulse:     <><path d="M3 12h4l2-6 4 12 2-6h6" /></>,
+  dumbbell:  <><path d="M4 9v6M8 6v12M16 6v12M20 9v6M8 12h8" /></>,
+  pen:       <><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></>,
+  clipboard: <><rect x="5" y="4" width="14" height="17" rx="2" /><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1" /><path d="M9 11h6M9 15h4" /></>,
+  stetho:    <><path d="M6 3v6a4 4 0 0 0 8 0V3" /><path d="M10 13v3a5 5 0 0 0 8 3" /><circle cx="19" cy="17" r="2" /></>,
+};
+
+/** Intestazione di sezione: icona a tratto in un riquadro neutro, titolo
+ *  in grassetto. Sostituisce le emoji, che a nove sezioni facevano confusione. */
+function SectionTitle({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 10 }}>
+      <span style={{
+        width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        background: "#f1f5f9", color: "#475569",
+      }}><Ico d={icon} /></span>
+      <span style={{ fontSize: 14, fontWeight: 800, color: "#0f172a" }}>{children}</span>
+    </div>
+  );
+}
+
+/** Card d'azione: bordo neutro e barretta di colore a sinistra, invece del
+ *  fondo pieno in gradiente che dominava la pagina. */
+function ActionCard({ href, title, subtitle, accent = "#0d9488" }: {
+  href: string; title: string; subtitle: string; accent?: string;
+}) {
+  return (
+    <a href={href} style={{
+      display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+      padding: "15px 16px", borderRadius: 12, textDecoration: "none",
+      background: "#fff", border: "1px solid #e2e8f0", borderLeft: `3px solid ${accent}`,
+    }}>
+      <span style={{ minWidth: 0 }}>
+        <span style={{ display: "block", fontSize: 14.5, fontWeight: 800, color: "#0f172a" }}>{title}</span>
+        <span style={{ display: "block", fontSize: 12, color: "#64748b", marginTop: 2 }}>{subtitle}</span>
+      </span>
+      <span style={{ flexShrink: 0, color: accent, fontSize: 18, fontWeight: 700 }}>›</span>
+    </a>
+  );
+}
+
 export default function PortalPage() {
   const params = useParams();
   const token = params?.token as string;
@@ -133,9 +191,7 @@ export default function PortalPage() {
       {/* Prossimi appuntamenti */}
       {on("appointments") && (
       <section style={{marginBottom:24}}>
-        <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
-          📅 Prossimi appuntamenti
-        </h2>
+        <SectionTitle icon={ICONS.calendar}>Prossimi appuntamenti</SectionTitle>
         {upcoming.length === 0 ? (
           <div style={{padding:20,background:"#f8fafc",borderRadius:10,textAlign:"center",color:"#64748b",fontSize:13}}>
             Nessun appuntamento programmato.
@@ -150,13 +206,16 @@ export default function PortalPage() {
               const statusColor = a.status==="confirmed"?"#2563eb":a.status==="booked"?"#0d9488":"#64748b";
               const statusLabel = a.status==="confirmed"?"Confermato":a.status==="booked"?"Prenotato":a.status;
               return (
-                <div key={a.id} style={{background:"#fff",border:"1.5px solid #e2e8f0",borderRadius:10,padding:"14px 16px",borderLeft:`4px solid ${statusColor}`}}>
+                <div key={a.id} style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:10,padding:"14px 16px",borderLeft:`4px solid ${statusColor}`}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
                     <div style={{fontSize:14,fontWeight:700,color:"#0f172a",textTransform:"capitalize"}}>{dStr}</div>
                     <div style={{fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:5,background:`${statusColor}15`,color:statusColor,textTransform:"uppercase"}}>{statusLabel}</div>
                   </div>
-                  <div style={{fontSize:20,fontWeight:800,color:statusColor,marginBottom:4}}>🕐 {tStr}</div>
-                  <div style={{fontSize:12,color:"#64748b"}}>📍 {luogo}</div>
+                  <div style={{fontSize:22,fontWeight:800,color:statusColor,marginBottom:4,letterSpacing:-0.5}}>{tStr}</div>
+                  <div style={{fontSize:12,color:"#64748b",display:"flex",alignItems:"center",gap:5}}>
+                    <Ico size={13} d={<><path d="M12 21s7-5.4 7-11a7 7 0 1 0-14 0c0 5.6 7 11 7 11z" /><circle cx="12" cy="10" r="2.5" /></>} />
+                    {luogo}
+                  </div>
                   {a.treatment_type && <div style={{fontSize:11,color:"#64748b",marginTop:3}}>Tipo: {a.treatment_type}</div>}
 
                   {/* Disdetta e spostamento: sono richieste, l'appuntamento
@@ -190,13 +249,12 @@ export default function PortalPage() {
       {/* Prenota una seduta — solo se lo studio ha attivato la pagina pubblica */}
       {booking && (
         <section style={{marginBottom:24}}>
-          <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
-            🗓️ Prenota una seduta
-          </h2>
-          <a href={`/prenota/${booking.slug}`} style={{display:"block",padding:"16px 18px",background:"linear-gradient(135deg,#0d9488,#2563eb)",borderRadius:10,color:"#fff",textDecoration:"none"}}>
-            <div style={{fontSize:15,fontWeight:800,marginBottom:4}}>Richiedi un appuntamento →</div>
-            <div style={{fontSize:11,opacity:0.85}}>Scegli il servizio e l&apos;orario che preferisci</div>
-          </a>
+          <SectionTitle icon={ICONS.book}>Prenota una seduta</SectionTitle>
+          <ActionCard
+            href={`/prenota/${booking.slug}`}
+            title="Richiedi un appuntamento"
+            subtitle="Scegli il servizio e l&apos;orario che preferisci"
+          />
         </section>
       )}
 
@@ -209,11 +267,13 @@ export default function PortalPage() {
           aria-expanded={historyOpen}
           style={{
             width:"100%", textAlign:"left", cursor:"pointer",
-            background:"#fff", border:"1.5px solid #e2e8f0", borderRadius:10,
+            background:"#fff", border:"1px solid #e2e8f0", borderRadius:10,
             padding:"14px 16px", display:"flex", alignItems:"center", gap:12,
           }}
         >
-          <span style={{fontSize:18,flexShrink:0}}>📋</span>
+          <span style={{width:28,height:28,borderRadius:8,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",background:"#f1f5f9",color:"#475569"}}>
+            <Ico d={ICONS.list} />
+          </span>
           <span style={{flex:1,minWidth:0}}>
             <span style={{display:"block",fontSize:14,fontWeight:800,color:"#0f172a"}}>
               Le tue sedute
@@ -288,14 +348,15 @@ export default function PortalPage() {
       {/* Autovalutazione pre-visita (mig. 093) */}
       {on("intake") && pendingIntake.length > 0 && (
         <section style={{marginBottom:24}}>
-          <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
-            🩺 Prima della visita
-          </h2>
+          <SectionTitle icon={ICONS.stetho}>Prima della visita</SectionTitle>
           {pendingIntake.map(it => (
-            <a key={it.token} href={`/autovalutazione/${it.token}`} style={{display:"block",padding:"16px 18px",background:"linear-gradient(135deg,#0d9488,#2563eb)",borderRadius:10,color:"#fff",textDecoration:"none"}}>
-              <div style={{fontSize:15,fontWeight:800,marginBottom:4}}>Compila l&apos;autovalutazione →</div>
-              <div style={{fontSize:11,opacity:0.85}}>Cinque minuti, così in seduta partiamo già preparati</div>
-            </a>
+            <ActionCard
+              key={it.token}
+              href={`/autovalutazione/${it.token}`}
+              title="Compila l&apos;autovalutazione"
+              subtitle="Cinque minuti, così in seduta partiamo già preparati"
+              accent="#b45309"
+            />
           ))}
         </section>
       )}
@@ -303,12 +364,10 @@ export default function PortalPage() {
       {/* Consensi da firmare — in cima alle cose "da fare" (mig. 091) */}
       {on("consents") && pendingConsents.length > 0 && (
         <section style={{marginBottom:24}}>
-          <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
-            ✍️ Da firmare
-          </h2>
+          <SectionTitle icon={ICONS.pen}>Da firmare</SectionTitle>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {pendingConsents.map(c => (
-              <a key={c.token} href={`/consensi/${c.token}`} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"14px 16px",background:"#fff",border:"1.5px solid #fde68a",borderRadius:10,textDecoration:"none"}}>
+              <a key={c.token} href={`/consensi/${c.token}`} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"14px 16px",background:"#fff",border:"1px solid #fde68a",borderRadius:10,textDecoration:"none"}}>
                 <span style={{minWidth:0}}>
                   <span style={{display:"block",fontSize:13.5,fontWeight:700,color:"#0f172a"}}>
                     {c.title || "Consenso informato"}
@@ -327,12 +386,10 @@ export default function PortalPage() {
       {/* Questionari di valutazione da compilare (mig. 091) */}
       {on("scales") && pendingScales.length > 0 && (
         <section style={{marginBottom:24}}>
-          <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
-            📝 Da compilare
-          </h2>
+          <SectionTitle icon={ICONS.clipboard}>Da compilare</SectionTitle>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {pendingScales.map(sc => (
-              <a key={sc.token} href={`/scale/${sc.token}`} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"14px 16px",background:"#fff",border:"1.5px solid #e2e8f0",borderRadius:10,textDecoration:"none"}}>
+              <a key={sc.token} href={`/scale/${sc.token}`} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"14px 16px",background:"#fff",border:"1px solid #e2e8f0",borderRadius:10,textDecoration:"none"}}>
                 <span style={{minWidth:0}}>
                   <span style={{display:"block",fontSize:13.5,fontWeight:700,color:"#0f172a"}}>
                     {sc.scale_type || "Questionario di valutazione"}
@@ -351,9 +408,7 @@ export default function PortalPage() {
       {/* Sedute residue del pacchetto (mig. 092) */}
       {on("packages") && packages.length > 0 && (
         <section style={{marginBottom:24}}>
-          <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
-            🎟️ Il tuo pacchetto
-          </h2>
+          <SectionTitle icon={ICONS.ticket}>Il tuo pacchetto</SectionTitle>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {packages.map(pk => (
               <div key={pk.id} style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:10,padding:"14px 16px"}}>
@@ -387,9 +442,7 @@ export default function PortalPage() {
       {/* Diario del dolore (mig. 092) */}
       {on("pain_diary") && (
         <section style={{marginBottom:24}}>
-          <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
-            🩹 Come stai oggi?
-          </h2>
+          <SectionTitle icon={ICONS.pulse}>Come stai oggi?</SectionTitle>
           <div style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:10,padding:"16px"}}>
             <div style={{fontSize:12,color:"#64748b",marginBottom:12,lineHeight:1.5}}>
               Segna il livello di dolore di oggi: 0 nessun dolore, 10 il massimo.
@@ -435,13 +488,12 @@ export default function PortalPage() {
       {/* Scheda esercizi */}
       {on("exercises") && data.exercise_token && (
         <section style={{marginBottom:24}}>
-          <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
-            🏋️ La tua scheda esercizi
-          </h2>
-          <a href={`/esercizi/${data.exercise_token}`} style={{display:"block",padding:"16px 18px",background:"linear-gradient(135deg,#16a34a,#0d9488)",borderRadius:10,color:"#fff",textDecoration:"none"}}>
-            <div style={{fontSize:15,fontWeight:800,marginBottom:4}}>📋 Apri scheda esercizi domiciliari →</div>
-            <div style={{fontSize:11,opacity:0.85}}>Esercizi, video e indicazioni da fare a casa</div>
-          </a>
+          <SectionTitle icon={ICONS.dumbbell}>La tua scheda esercizi</SectionTitle>
+          <ActionCard
+            href={`/esercizi/${data.exercise_token}`}
+            title="Apri la scheda esercizi"
+            subtitle="Esercizi, video e indicazioni da fare a casa"
+          />
           {/* Aderenza: giorni con almeno un esercizio spuntato (mig. 054) */}
           <div style={{marginTop:8,padding:"10px 14px",borderRadius:8,background:"#f8fafc",border:"1px solid #e2e8f0",fontSize:12,color:"#475569"}}>
             {adherenceDays === 0
@@ -465,7 +517,7 @@ export default function PortalPage() {
 
       <section style={{marginBottom:20}}>
         <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10}}>📞 Contatti studio</h2>
-        <div style={{background:"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:10,padding:"14px 16px",fontSize:13,color:"#0f172a",lineHeight:1.6}}>
+        <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:10,padding:"14px 16px",fontSize:13,color:"#0f172a",lineHeight:1.6}}>
           {studio?.signature_name && <div><strong>{studio.signature_name}</strong></div>}
           {studio?.signature_title && <div>{studio.signature_title}</div>}
           {studio?.address && <div style={{color:"#64748b",fontSize:12,marginTop:4}}>📍 {studio.address}</div>}

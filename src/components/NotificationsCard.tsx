@@ -15,10 +15,21 @@ import { useRouter } from "next/navigation";
 
 type NotificationItem = {
   id: string;
-  type: "confirm" | "cancel" | "booking";
+  // mig. 094: aggiunti change_request (disdette e spostamenti chiesti dal
+  // paziente) e intake (autovalutazione pre-visita compilata)
+  type: "confirm" | "cancel" | "booking" | "change_request" | "intake";
   appointment_id: string | null;
   patient_id: string | null;
-  payload: { patient_name?: string; appointment_start?: string };
+  payload: {
+    patient_name?: string;
+    appointment_start?: string;
+    /** change_request: che cosa ha chiesto il paziente */
+    kind?: "cancel" | "reschedule";
+    message?: string | null;
+    start_at?: string;
+    /** intake: quanti segnali di controllo ha marcato */
+    red_flags?: number;
+  };
   created_at: string;
   read_at: string | null;
 };
@@ -41,6 +52,49 @@ const T = {
 export default function NotificationsCard() {
   const router = useRouter();
   const [items, setItems] = useState<NotificationItem[]>([]);
+
+  // Risposta a una richiesta di disdetta o spostamento (mig. 094).
+  // Accettando una disdetta l'appuntamento viene annullato davvero:
+  // è l'unico caso in cui l'agenda si muove, e solo su decisione dello studio.
+  const answerChangeRequest = useCallback(async (
+    item: NotificationItem,
+    status: "accepted" | "rejected"
+  ) => {
+    if (!item.appointment_id) return;
+    const isCancel = item.payload?.kind === "cancel";
+    const conferma = status === "accepted"
+      ? (isCancel
+          ? "Confermi la disdetta? L'appuntamento verrà annullato e lo slot tornerà libero."
+          : "Confermi di accogliere la richiesta di spostamento? L'appuntamento resta dov'è: spostalo tu dal calendario.")
+      : "Confermi di non accogliere la richiesta? Il paziente resta prenotato.";
+    if (!confirm(conferma)) return;
+
+    try {
+      const { supabase } = await import("@/src/lib/supabaseClient");
+
+      await supabase
+        .from("appointment_change_requests")
+        .update({ status, handled_at: new Date().toISOString() })
+        .eq("appointment_id", item.appointment_id)
+        .eq("status", "pending");
+
+      if (status === "accepted" && isCancel) {
+        await supabase
+          .from("appointments")
+          .update({ status: "cancelled" })
+          .eq("id", item.appointment_id);
+      }
+
+      await supabase
+        .from("notifications")
+        .update({ read_at: new Date().toISOString() })
+        .eq("id", item.id);
+
+      setItems(prev => prev.filter(n => n.id !== item.id));
+    } catch {
+      alert("Errore nel salvataggio della risposta.");
+    }
+  }, []);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
@@ -177,7 +231,7 @@ export default function NotificationsCard() {
             </div>
           </div>
         ) : (
-          display.map(n => <NotifRow key={n.id} item={n} onClick={() => onClickItem(n)} />)
+          display.map(n => <NotifRow key={n.id} item={n} onClick={() => onClickItem(n)} onAnswer={answerChangeRequest} />)
         )}
       </div>
 
@@ -200,12 +254,15 @@ export default function NotificationsCard() {
 }
 
 // ─── Riga singola ──────────────────────────────────────────────────────
-function NotifRow({ item, onClick }: { item: NotificationItem; onClick: () => void }) {
+function NotifRow({ item, onClick, onAnswer }: {
+  item: NotificationItem;
+  onClick: () => void;
+  onAnswer?: (item: NotificationItem, status: "accepted" | "rejected") => Promise<void>;
+}) {
   const isUnread = !item.read_at;
   const patientName = item.payload?.patient_name || "Paziente";
-  const apptStart = item.payload?.appointment_start
-    ? new Date(item.payload.appointment_start)
-    : null;
+  const rawStart = item.payload?.appointment_start ?? item.payload?.start_at;
+  const apptStart = rawStart ? new Date(rawStart) : null;
   const apptStr = apptStart
     ? apptStart.toLocaleString("it-IT", {
         weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
@@ -218,6 +275,20 @@ function NotifRow({ item, onClick }: { item: NotificationItem; onClick: () => vo
   if (item.type === "cancel")  { icon = "✗"; color = T.red;   label = "Annullato"; }
   if (item.type === "confirm") { icon = "✓"; color = T.green; label = "Confermato"; }
   if (item.type === "booking") { icon = "📅"; color = T.blue;  label = "Prenotato online"; }
+  if (item.type === "change_request") {
+    icon = item.payload?.kind === "cancel" ? "🚫" : "🔄";
+    color = "#b45309";
+    label = item.payload?.kind === "cancel"
+      ? "Chiede di disdire"
+      : "Chiede di spostare";
+  }
+  if (item.type === "intake") {
+    icon = "🩺";
+    color = (item.payload?.red_flags ?? 0) > 0 ? "#b45309" : T.teal;
+    label = (item.payload?.red_flags ?? 0) > 0
+      ? `Autovalutazione · ${item.payload?.red_flags} da verificare`
+      : "Autovalutazione compilata";
+  }
 
   const ago = timeAgo(new Date(item.created_at));
 
@@ -257,6 +328,41 @@ function NotifRow({ item, onClick }: { item: NotificationItem; onClick: () => vo
           {apptStr && ago && <span style={{ margin: "0 6px" }}>·</span>}
           {ago && <span>{ago}</span>}
         </div>
+
+        {/* Messaggio scritto dal paziente insieme alla richiesta (mig. 094) */}
+        {item.type === "change_request" && item.payload?.message && (
+          <div style={{ fontSize: 11.5, color: T.text, marginTop: 4, fontStyle: "italic" }}>
+            “{item.payload.message}”
+          </div>
+        )}
+
+        {/* Risposta alla richiesta. Accettare una disdetta libera davvero lo
+            slot in agenda; per uno spostamento si conferma soltanto, poi la
+            seduta la sposti tu dal calendario. */}
+        {item.type === "change_request" && onAnswer && (
+          <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+            <button
+              onClick={e => { e.stopPropagation(); void onAnswer(item, "accepted"); }}
+              style={{
+                padding: "5px 12px", borderRadius: 6, border: "none",
+                background: T.teal, color: "#fff", fontWeight: 700,
+                fontSize: 11.5, cursor: "pointer",
+              }}
+            >
+              {item.payload?.kind === "cancel" ? "Accetta e libera" : "Va bene, la sposto"}
+            </button>
+            <button
+              onClick={e => { e.stopPropagation(); void onAnswer(item, "rejected"); }}
+              style={{
+                padding: "5px 12px", borderRadius: 6,
+                border: `1px solid ${T.border}`, background: "#fff",
+                color: T.muted, fontWeight: 700, fontSize: 11.5, cursor: "pointer",
+              }}
+            >
+              Non accolgo
+            </button>
+          </div>
+        )}
       </div>
       {isUnread && (
         <div

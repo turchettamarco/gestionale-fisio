@@ -28,6 +28,7 @@
 import Link from "next/link";
 import ConvenzioneFields, { type ConvenzioneValue } from "@/src/components/convenzioni/ConvenzioneFields";
 import { SOAPNotesEditor } from "../SOAPNotes";
+import PatientPulse from "@/src/components/patient/PatientPulse";
 import { checkOperatorSchedule, type OperatorScheduleSlot } from "@/src/hooks/calendar/moveValidation";
 import {
   THEME, ALL_TREATMENTS,
@@ -1045,6 +1046,10 @@ export default function SelectedEventModal({
         {/* ─── SOAP Notes (solo se patient_id) ───────────── */}
         {selectedEvent.patient_id && (
           <div style={{ marginTop: -8, marginBottom: 20 }}>
+            {/* Come è andata da casa: dolore, esercizi, autovalutazione.
+                Sta sopra il SOAP perché è quello che vuoi sapere PRIMA di
+                scrivere la nota, non dopo. */}
+            <PatientPulse patientId={selectedEvent.patient_id} />
             <SOAPNotesEditor appointmentId={selectedEvent.id} patientId={selectedEvent.patient_id} />
           </div>
         )}

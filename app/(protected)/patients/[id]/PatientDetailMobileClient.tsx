@@ -46,6 +46,8 @@ import { PhotoGallerySection } from "./PhotoGallery";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import WeeklyReminderDialog from "@/src/components/WeeklyReminderDialog";
 import AttendanceCertificateDialog from "@/src/components/certificates/AttendanceCertificateDialog";
+import IntakeSection from "@/src/components/patient/IntakeSection";
+import PainDiarySection from "@/src/components/patient/PainDiarySection";
 import { showToast, ToastProvider } from "@/src/components/mobile/ToastProvider";
 import MobileTabBar from "@/src/components/MobileTabBar";
 import PaidPill from "@/src/components/PaidPill";
@@ -1626,14 +1628,31 @@ export default function PatientDetailMobileClient({ patientId }: { patientId: st
         )}
 
         {activeTab === "consensi" && (
-          <RemoteConsentsSection
-            patientId={patientId}
-            patientFirstName={patient?.first_name ?? ""}
-            patientLastName={patient?.last_name ?? ""}
-            patientPhone={patient?.phone ?? null}
-            patientBirthDate={patient?.birth_date ?? null}
-            studio={currentStudio}
-          />
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {/* Parità col desktop: dal telefono servono uguali (mig. 092/093) */}
+            <PainDiarySection
+              patientId={patientId}
+              enabled={Boolean((currentStudio as unknown as { portal_show_pain_diary?: boolean })?.portal_show_pain_diary)}
+            />
+            <IntakeSection
+              patientId={patientId}
+              patientFirstName={patient?.first_name ?? ""}
+              patientPhone={patient?.phone ?? null}
+              studioId={currentStudio?.id ?? null}
+              onCopyToAnamnesis={(testo) => {
+                setAnamnesis(prev => prev.trim() ? `${prev.trim()}\n\n${testo}` : testo);
+                alert("Riportato nel campo Anamnesi. Rileggilo e salva la scheda.");
+              }}
+            />
+            <RemoteConsentsSection
+              patientId={patientId}
+              patientFirstName={patient?.first_name ?? ""}
+              patientLastName={patient?.last_name ?? ""}
+              patientPhone={patient?.phone ?? null}
+              patientBirthDate={patient?.birth_date ?? null}
+              studio={currentStudio}
+            />
+          </div>
         )}
 
         {activeTab === "docs" && (

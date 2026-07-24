@@ -37,7 +37,28 @@ export type IntakeSectionProps = {
   patientFirstName: string;
   patientPhone: string | null;
   studioId: string | null;
+  /** Se presente, compare "Riporta in anamnesi": passa il testo composto al
+   *  campo anamnesi della cartella, che resta da rileggere e salvare a mano. */
+  onCopyToAnamnesis?: (text: string) => void;
 };
+
+/** Compone un testo leggibile dalle risposte, pronto da incollare in
+ *  anamnesi. Solo le domande a cui il paziente ha risposto, nell'ordine
+ *  del questionario; le domande di controllo restano fuori perché vanno
+ *  verificate a voce, non trascritte come se fossero un dato clinico. */
+function composeAnamnesis(payload: Record<string, unknown>): string {
+  const parts: string[] = [];
+  for (const sec of INTAKE_SECTIONS) {
+    if (sec.id === "segnali") continue;
+    for (const q of sec.questions) {
+      const v = payload[q.id];
+      if (v === undefined || v === null || v === "" || v === false) continue;
+      const val = q.type === "scale" ? `${v}/10` : String(v).trim();
+      parts.push(`${q.label} ${val}`);
+    }
+  }
+  return parts.join("\n");
+}
 
 export default function IntakeSection(p: IntakeSectionProps) {
   const [rows, setRows] = useState<IntakeRow[]>([]);
@@ -58,7 +79,10 @@ export default function IntakeSection(p: IntakeSectionProps) {
     setLoading(false);
   }, [p.patientId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+  }, [load]);
 
   async function createInvite() {
     if (!p.studioId) { alert("Studio non identificato."); return; }
@@ -171,6 +195,23 @@ export default function IntakeSection(p: IntakeSectionProps) {
                           Sono risposte del paziente, non una valutazione: da approfondire in visita.
                         </div>
                       </div>
+                    )}
+
+                    {p.onCopyToAnamnesis && (
+                      <button
+                        onClick={() => {
+                          const testo = composeAnamnesis(r.payload ?? {});
+                          if (!testo) { alert("Nessuna risposta da riportare."); return; }
+                          p.onCopyToAnamnesis?.(testo);
+                        }}
+                        style={{
+                          marginBottom: 12, padding: "7px 14px", borderRadius: 7,
+                          border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a",
+                          fontWeight: 700, fontSize: 12, cursor: "pointer",
+                        }}
+                      >
+                        Riporta in anamnesi
+                      </button>
                     )}
 
                     {INTAKE_SECTIONS.map(sec => {
