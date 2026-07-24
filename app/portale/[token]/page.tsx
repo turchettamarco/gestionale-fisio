@@ -93,7 +93,7 @@ export default function PortalPage() {
           <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
             🗓️ Prenota una seduta
           </h2>
-          <a href={`/prenota/${booking.slug}`} style={{display:"block",padding:"16px 18px",background:"linear-gradient(135deg,#0f5c3f,#14795a)",borderRadius:10,color:"#fff",textDecoration:"none"}}>
+          <a href={`/prenota/${booking.slug}`} style={{display:"block",padding:"16px 18px",background:"linear-gradient(135deg,#0d9488,#2563eb)",borderRadius:10,color:"#fff",textDecoration:"none"}}>
             <div style={{fontSize:15,fontWeight:800,marginBottom:4}}>Richiedi un appuntamento →</div>
             <div style={{fontSize:11,opacity:0.85}}>Scegli il servizio e l&apos;orario che preferisci</div>
           </a>

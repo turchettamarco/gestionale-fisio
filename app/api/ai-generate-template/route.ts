@@ -5,7 +5,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
-const MODEL = "claude-sonnet-4-20250514";
+// Aggiornato: "claude-sonnet-4-20250514" non è più disponibile e faceva
+// fallire questa route con 404. Allineato ai modelli usati dalle altre.
+const MODEL = "claude-sonnet-4-6";
 
 export async function POST(req: NextRequest) {
   try {

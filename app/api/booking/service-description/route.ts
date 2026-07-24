@@ -17,7 +17,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/src/lib/supabaseServer";
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
-const MODEL = "claude-sonnet-4-20250514";
+// Haiku 4.5: la descrizione è una riga sola, non serve un modello più
+// grande. Lo stesso usato da ai-esercizi e ai-clinical.
+const MODEL = "claude-haiku-4-5-20251001";
 
 export async function POST(req: NextRequest) {
   try {

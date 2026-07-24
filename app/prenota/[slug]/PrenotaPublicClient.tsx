@@ -15,25 +15,27 @@ import type { PublicBookingStudio, PublicBookingService, PublicBookingLocation }
 
 // ── Palette brand FisioHub (stessa della pagina agenda pubblica) ──────
 const T = {
-  appBg:      "#faf9f7",
+  appBg:      "#f1f5f9",
   panelBg:    "#ffffff",
-  panelSoft:  "#f6f8f7",
-  text:       "#14342c",
-  textSoft:   "#2f4a42",
-  muted:      "#5b6b66",
-  mutedSoft:  "#7b8a85",
-  border:     "#dfe5e2",
-  borderSoft: "#e8ecea",
-  // verde brand, tono scuro come il pulsante dello screenshot
-  green:      "#0f5c3f",
-  greenSoft:  "#eef5f1",
-  greenLine:  "#bfd9cc",
+  panelSoft:  "#f8fafc",
+  text:       "#0f172a",
+  textSoft:   "#1e293b",
+  muted:      "#475569",
+  mutedSoft:  "#64748b",
+  border:     "#cbd5e1",
+  borderSoft: "#e2e8f0",
+  // Colori brand FisioHub: teal + blu, come nel resto del gestionale
+  teal:       "#0d9488",
+  tealSoft:   "#f0fdfa",   // sfondo della card selezionata
+  tealLine:   "#99f6e4",   // bordo della card selezionata
+  tealIcon:   "#ccfbf1",   // riquadro icona quando selezionata
+  blue:       "#2563eb",
   red:        "#dc2626",
   white:      "#ffffff",
   wa:         "#25D366",
 };
 
-const GRADIENT = "linear-gradient(135deg, #0f5c3f, #14795a)";
+const GRADIENT = "linear-gradient(135deg, #0d9488, #2563eb)";
 
 // "location" compare solo se lo studio ha più sedi (mig. 084).
 type Step = "location" | "service" | "datetime" | "details" | "done";
@@ -344,16 +346,16 @@ export default function PrenotaPublicClient() {
                           display: "flex", alignItems: "center", gap: 14,
                           width: "100%", textAlign: "left", cursor: "pointer",
                           padding: "14px 16px", borderRadius: 12,
-                          border: `1px solid ${active ? T.greenLine : T.borderSoft}`,
-                          background: active ? T.greenSoft : T.panelBg,
+                          border: `1px solid ${active ? T.tealLine : T.borderSoft}`,
+                          background: active ? T.tealSoft : T.panelBg,
                           transition: "background 0.15s, border-color 0.15s",
                         }}
                       >
                         <span style={{
                           flexShrink: 0, width: 38, height: 38, borderRadius: 10,
                           display: "flex", alignItems: "center", justifyContent: "center",
-                          background: active ? "#dcebe3" : T.panelSoft,
-                          color: active ? T.green : T.textSoft,
+                          background: active ? T.tealIcon : T.panelSoft,
+                          color: active ? T.teal : T.textSoft,
                         }}>
                           <ServiceIcon name={svc.name} />
                         </span>
@@ -361,7 +363,7 @@ export default function PrenotaPublicClient() {
                         <span style={{ flex: 1, minWidth: 0 }}>
                           <span style={{
                             display: "block", fontWeight: 700, fontSize: 15,
-                            color: active ? T.green : T.text,
+                            color: active ? T.teal : T.text,
                           }}>
                             {svc.name}
                           </span>
@@ -380,7 +382,7 @@ export default function PrenotaPublicClient() {
                         </span>
 
                         {active && (
-                          <span style={{ flexShrink: 0, color: T.green, fontSize: 18, lineHeight: 1 }}>✓</span>
+                          <span style={{ flexShrink: 0, color: T.teal, fontSize: 18, lineHeight: 1 }}>✓</span>
                         )}
                       </button>
                     );
@@ -393,7 +395,7 @@ export default function PrenotaPublicClient() {
                   style={{
                     width: "100%", marginTop: 20, padding: "15px",
                     borderRadius: 12, border: "none",
-                    background: T.green, color: T.white,
+                    background: T.teal, color: T.white,
                     fontWeight: 700, fontSize: 15, cursor: "pointer",
                     opacity: selectedService ? 1 : 0.45,
                   }}
@@ -443,8 +445,8 @@ export default function PrenotaPublicClient() {
                       onClick={() => setSelectedTime(t)}
                       style={{
                         padding: "9px 6px", borderRadius: 8, cursor: "pointer",
-                        border: `1px solid ${selectedTime === t ? T.green : T.borderSoft}`,
-                        background: selectedTime === t ? T.green : T.panelBg,
+                        border: `1px solid ${selectedTime === t ? T.teal : T.borderSoft}`,
+                        background: selectedTime === t ? T.teal : T.panelBg,
                         color: selectedTime === t ? T.white : T.text,
                         fontWeight: 700, fontSize: 13,
                       }}
@@ -507,7 +509,7 @@ export default function PrenotaPublicClient() {
           <Panel title="Richiesta inviata">
             <div style={{ textAlign: "center", padding: "12px 0 4px" }}>
               <div style={{
-                width: 52, height: 52, borderRadius: "50%", background: T.green,
+                width: 52, height: 52, borderRadius: "50%", background: T.teal,
                 color: T.white, display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: 26, margin: "0 auto 14px",
               }}>✓</div>
@@ -623,5 +625,5 @@ const inputStyle: React.CSSProperties = {
 
 const primaryButtonStyle: React.CSSProperties = {
   width: "100%", padding: "15px", borderRadius: 12, border: "none",
-  background: T.green, color: T.white, fontWeight: 700, fontSize: 15, cursor: "pointer",
+  background: T.teal, color: T.white, fontWeight: 700, fontSize: 15, cursor: "pointer",
 };
