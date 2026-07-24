@@ -32,7 +32,8 @@ export type PublicBookingStudio = {
 export type PublicBookingService = {
   id: string;
   name: string;
-  duration: number;
+  /** Minuti. NULL = non indicata: non si mostra il minutaggio (mig. 089). */
+  duration: number | null;
   price: number;
   /** Riga di spiegazione sotto il nome (mig. 086). */
   description: string | null;

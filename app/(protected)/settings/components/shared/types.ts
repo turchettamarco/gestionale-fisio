@@ -92,7 +92,8 @@ export type WorkingHourRow = {
 export type BookableService = {
   id: string;
   name: string;
-  duration: number;
+  /** Minuti. NULL = non indicata, non mostrata nella pagina pubblica (mig. 089). */
+  duration: number | null;
   price: number;
   /** Riga di spiegazione mostrata sulla pagina pubblica (mig. 086). */
   description?: string | null;

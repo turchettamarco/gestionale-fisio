@@ -45,6 +45,14 @@ function todayISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// Durata usata per capire dove c'è posto in agenda quando il servizio non
+// ne ha una (es. un noleggio). Serve solo al calcolo: non si mostra mai.
+const FALLBACK_DURATION_MIN = 30;
+
+function slotDuration(service: PublicBookingService): number {
+  return service.duration && service.duration > 0 ? service.duration : FALLBACK_DURATION_MIN;
+}
+
 function formatDateLabel(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
   return d.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
@@ -157,7 +165,7 @@ export default function PrenotaPublicClient() {
     try {
       const locParam = location ? `&location_id=${location.id}` : "";
       const res = await fetch(
-        `/api/booking/slots?studio_id=${studio.id}&date=${date}&duration=${service.duration}${locParam}`
+        `/api/booking/slots?studio_id=${studio.id}&date=${date}&duration=${slotDuration(service)}${locParam}`
       );
       const data = await res.json();
       setSlots(data.slots ?? []);
@@ -207,7 +215,7 @@ export default function PrenotaPublicClient() {
           studio_id: studio.id,
           location_id: selectedLocation?.id ?? null,
           service_name: selectedService.name,
-          service_duration: selectedService.duration,
+          service_duration: slotDuration(selectedService),
           requested_date: selectedDate,
           requested_time: selectedTime,
           patient_name: name.trim(),
@@ -377,8 +385,8 @@ export default function PrenotaPublicClient() {
                           <span style={{
                             display: "block", fontSize: 12, color: T.mutedSoft, marginTop: 3,
                           }}>
-                            {svc.duration} min
-                            {showPrices && ` · €${svc.price}${svc.price_unit ? ` ${svc.price_unit}` : ""}`}
+                            {svc.duration ? `${svc.duration} min` : ""}
+                            {showPrices && `${svc.duration ? " · " : ""}€${svc.price}${svc.price_unit ? ` ${svc.price_unit}` : ""}`}
                           </span>
                         </span>
 
@@ -413,7 +421,7 @@ export default function PrenotaPublicClient() {
             <div style={{ marginBottom: 16 }}>
               <label style={labelStyle}>Servizio</label>
               <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>
-                {selectedService.name} · {selectedService.duration} min
+                {selectedService.name}{selectedService.duration ? ` · ${selectedService.duration} min` : ""}
               </div>
             </div>
 

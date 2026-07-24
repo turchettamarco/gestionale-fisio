@@ -476,7 +476,7 @@ export default function SettingsMobileClient() {
     if (results.some(r => r.error)) await loadServices();
   }
 
-  async function updateService(id: string, patch: { name: string; duration: number; price: number; description: string | null; price_unit: string | null }) {
+  async function updateService(id: string, patch: { name: string; duration: number | null; price: number; description: string | null; price_unit: string | null }) {
     if (!currentStudioId) return;
     const { error: err } = await supabase.from("booking_services")
       .update(patch).eq("id", id).eq("studio_id", currentStudioId);
@@ -1341,7 +1341,7 @@ export default function SettingsMobileClient() {
     setSavingSvc(true);
     try {
       const { error } = await supabase.from("booking_services").insert({
-        name: newSvcName.trim(), duration: parseInt(newSvcDuration) || 60,
+        name: newSvcName.trim(), duration: newSvcDuration.trim() === "" ? null : (parseInt(newSvcDuration) || null),
         price: parseFloat(newSvcPrice) || 40,
         description: newSvcDescription.trim() || null,
         price_unit: newSvcPriceUnit.trim() || null,

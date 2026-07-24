@@ -66,7 +66,7 @@ export type OnlineBookingSectionProps = {
   newSvcPriceUnit: string; setNewSvcPriceUnit: (v: string) => void;
   onAdd: () => void;
   onUpdate: (id: string, patch: {
-    name: string; duration: number; price: number;
+    name: string; duration: number | null; price: number;
     description: string | null; price_unit: string | null;
   }) => void;
   onDelete: (id: string) => void;
@@ -129,7 +129,8 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
     if (!editingId || !editName.trim()) return;
     p.onUpdate(editingId, {
       name: editName.trim(),
-      duration: parseInt(editDuration) || 60,
+      // vuoto = durata non indicata (mig. 089): il paziente non vedrà minuti
+      duration: editDuration.trim() === "" ? null : (parseInt(editDuration) || null),
       price: parseFloat(editPrice) || 0,
       description: editDescription.trim() || null,
       price_unit: editPriceUnit.trim() || null,
@@ -295,9 +296,9 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
                   placeholder="Es. Prima visita" style={inputStyle} />
               </div>
               <div style={{ flex: "1 1 80px" }}>
-                <label style={labelStyle}>Minuti</label>
+                <label style={labelStyle}>Minuti (facoltativo)</label>
                 <input value={p.newSvcDuration} onChange={e => p.setNewSvcDuration(e.target.value)}
-                  inputMode="numeric" style={inputStyle} />
+                  inputMode="numeric" placeholder="vuoto = non mostrare" style={inputStyle} />
               </div>
               <div style={{ flex: "1 1 80px" }}>
                 <label style={labelStyle}>Prezzo €</label>
@@ -305,11 +306,34 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
                   inputMode="decimal" style={inputStyle} />
               </div>
               <div style={{ flex: "1 1 110px" }}>
-                <label style={labelStyle}>Per (facoltativo)</label>
+                <label style={labelStyle}>Prezzo per (facoltativo)</label>
                 <input value={p.newSvcPriceUnit} onChange={e => p.setNewSvcPriceUnit(e.target.value)}
                   placeholder="es. al giorno" maxLength={24} style={inputStyle} />
               </div>
             </div>
+
+            {(p.newSvcName.trim() || p.newSvcPrice.trim()) && (
+              <div style={{
+                marginBottom: 14, padding: "10px 14px", borderRadius: 8,
+                background: THEME.panelSoft, border: `1px solid ${THEME.border}`,
+              }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: THEME.muted, letterSpacing: 0.4, textTransform: "uppercase", marginBottom: 4 }}>
+                  Come lo vedrà il paziente
+                </div>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: THEME.text }}>
+                  {p.newSvcName.trim() || "Nome servizio"}
+                </div>
+                {p.newSvcDescription.trim() && (
+                  <div style={{ fontSize: 12.5, color: THEME.textSoft, marginTop: 1 }}>{p.newSvcDescription.trim()}</div>
+                )}
+                <div style={{ fontSize: 12, color: THEME.muted, marginTop: 2 }}>
+                  {p.newSvcDuration.trim() ? `${p.newSvcDuration.trim()} min` : ""}
+                  {p.bookingShowPrices && p.newSvcPrice.trim()
+                    ? `${p.newSvcDuration.trim() ? " · " : ""}€${p.newSvcPrice.trim()}${p.newSvcPriceUnit.trim() ? ` ${p.newSvcPriceUnit.trim()}` : ""}`
+                    : ""}
+                </div>
+              </div>
+            )}
 
             <div style={{ marginBottom: 16 }}>
               <label style={labelStyle}>Descrizione (mostrata sotto il nome)</label>
@@ -381,7 +405,7 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
                             inputMode="decimal" style={inputStyle} />
                         </div>
                         <div style={{ flex: "1 1 100px" }}>
-                          <label style={labelStyle}>Per</label>
+                          <label style={labelStyle}>Prezzo per</label>
                           <input value={editPriceUnit} onChange={e => setEditPriceUnit(e.target.value)}
                             placeholder="es. al giorno" maxLength={24} style={inputStyle} />
                         </div>
@@ -432,7 +456,7 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
                             <div style={{ fontSize: 12, color: THEME.textSoft, marginTop: 1 }}>{svc.description}</div>
                           )}
                           <div style={{ fontSize: 12, color: THEME.muted, marginTop: 1 }}>
-                            {svc.duration} min
+                            {svc.duration ? `${svc.duration} min` : "durata non indicata"}
                             {` · €${svc.price}`}
                             {svc.price_unit ? ` ${svc.price_unit}` : ""}
                             {p.bookingShowPrices ? "" : " (non pubblicato)"}
