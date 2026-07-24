@@ -72,11 +72,6 @@ export function useRealtimeCalendar(
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef = useRef(false);
-  // Tentativi di riconnessione: senza, un singolo intoppo del canale
-  // lasciava l'indicatore bloccato su "errore" fino al ricaricamento della
-  // pagina, anche quando la rete era tornata a posto.
-  const [retry, setRetry] = useState(0);
-  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!enabled || !studioId) {
@@ -108,7 +103,7 @@ export function useRealtimeCalendar(
     };
 
     const channel = supabase
-      .channel(`agenda:${studioId}:${retry}`)
+      .channel(`agenda:${studioId}`)
       .on(
         "postgres_changes",
         {
@@ -131,35 +126,15 @@ export function useRealtimeCalendar(
       )
       .subscribe((s: string) => {
         if (cancelled) return;
-        if (s === "SUBSCRIBED") {
-          setStatus("live");
-          // Connessione riuscita: azzeriamo il contatore dei tentativi.
-          if (retry !== 0) setRetry(0);
-          // Si risincronizza subito: durante la disconnessione possono
-          // essere arrivate modifiche dei colleghi che non abbiamo visto.
-          scheduleReload();
-          return;
-        }
-        if (s === "CHANNEL_ERROR" || s === "TIMED_OUT" || s === "CLOSED") {
-          setStatus(retry >= 5 ? "error" : "connecting");
-          // Backoff: 1s, 2s, 4s, 8s, 16s, poi si dichiara il problema.
-          if (retry < 5) {
-            if (retryTimer.current) clearTimeout(retryTimer.current);
-            retryTimer.current = setTimeout(
-              () => { if (!cancelled) setRetry(r => r + 1); },
-              Math.min(1000 * 2 ** retry, 16000)
-            );
-          }
-        }
+        if (s === "SUBSCRIBED") setStatus("live");
+        else if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") setStatus("error");
+        else if (s === "CLOSED") setStatus("off");
       });
 
     // Ritorno da sospensione/tab in background: il socket può aver perso
     // eventi, quindi risincronizziamo appena la tab torna visibile.
     const onVisible = () => {
-      if (document.visibilityState !== "visible") return;
-      scheduleReload();
-      // Tornando sulla scheda si ritenta anche la connessione, se persa.
-      if (status === "error") setRetry(r => r + 1);
+      if (document.visibilityState === "visible") scheduleReload();
     };
     document.addEventListener("visibilitychange", onVisible);
 
@@ -167,12 +142,11 @@ export function useRealtimeCalendar(
       cancelled = true;
       document.removeEventListener("visibilitychange", onVisible);
       if (timerRef.current) clearTimeout(timerRef.current);
-      if (retryTimer.current) clearTimeout(retryTimer.current);
       supabase.removeChannel(channel);
       setStatus("off");
       setSyncing(false);
     };
-  }, [studioId, enabled, debounceMs, retry]);
+  }, [studioId, enabled, debounceMs]);
 
   return { status, lastSyncAt, syncing };
 }

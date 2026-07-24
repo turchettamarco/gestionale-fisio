@@ -38,6 +38,13 @@ const TRANSLATIONS: Array<[RegExp, string]> = [
     "Questa stanza è già occupata in quell'orario. Scegli un altro orario o un'altra stanza."],
   [/conflicting key value violates exclusion constraint/i,
     "L'orario scelto si sovrappone a un altro appuntamento."],
+  // ─── Permessi a livello database (RLS: mig. 072, 082, 083) ──────
+  // Va PRIMA dei generici: senza questa riga l'utente vedrebbe il
+  // messaggio Postgres grezzo in inglese quando una policy lo blocca.
+  [/new row violates row-level security policy/i,
+    "Non hai il permesso per questa operazione. Chiedi al titolare dello studio."],
+  [/violates row-level security policy/i,
+    "Non hai il permesso per questa operazione. Chiedi al titolare dello studio."],
   // ─── PostgreSQL / Supabase ──────────────────────────────────────
   [/duplicate key value violates unique constraint/i,
     "Esiste già un record con gli stessi dati"],

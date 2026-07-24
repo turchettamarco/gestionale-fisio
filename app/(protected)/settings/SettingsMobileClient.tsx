@@ -14,6 +14,7 @@ import AgendaViewPrefsSection from "./components/sections/AgendaViewPrefsSection
 import CalendarPrefsSection from "./components/sections/CalendarPrefsSection";
 import BlockedDaysSection from "./components/sections/BlockedDaysSection";
 import BookableServicesSection from "./components/sections/BookableServicesSection";
+import PublicBookingLinkSection from "./components/sections/PublicBookingLinkSection";
 import TeamSection from "./components/sections/TeamSection";
 import RoomsSection from "./components/sections/RoomsSection";
 import OperatorAbsencesSection from "./components/sections/OperatorAbsencesSection";
@@ -98,6 +99,11 @@ export default function SettingsMobileClient() {
   // UI legacy Prenotazioni dal sito (Fase N2.1)
   const [showBookingCardHome, setShowBookingCardHome] = useState(false);
   const [showBookingBellCalendar, setShowBookingBellCalendar] = useState(false);
+  // Link di prenotazione pubblico senza sito (mig. 083)
+  const [showPubBookM, setShowPubBookM] = useState(false);
+  const [bookingPublicEnabled, setBookingPublicEnabled] = useState(false);
+  const [bookingSlug, setBookingSlug] = useState<string | null>(null);
+  const [savingPubBook, setSavingPubBook] = useState(false);
 
   // ── Multi-sede (mig. 014) ──
   const [multiLocationEnabled, setMultiLocationEnabled] = useState(false);
@@ -229,6 +235,13 @@ export default function SettingsMobileClient() {
       // UI legacy Prenotazioni dal sito (Fase N2.1)
       setShowBookingCardHome(currentStudio.show_booking_card_home ?? false);
       setShowBookingBellCalendar(currentStudio.show_booking_bell_calendar ?? false);
+      // Link di prenotazione pubblico senza sito (mig. 083)
+      setBookingPublicEnabled(
+        Boolean((currentStudio as { booking_public_enabled?: boolean }).booking_public_enabled)
+      );
+      setBookingSlug(
+        ((currentStudio as { booking_slug?: string | null }).booking_slug) ?? null
+      );
       // Multi-sede (mig. 014)
       setMultiLocationEnabled(currentStudio.multi_location_enabled ?? false);
       // Professionisti ospiti (mig. 029, 031)
@@ -345,6 +358,26 @@ export default function SettingsMobileClient() {
   }
 
   // Modulo convenzioni (mig. 065)
+  // Link di prenotazione pubblico senza sito (mig. 083)
+  async function savePublicBooking() {
+    if (!currentStudioId) return;
+    setSavingPubBook(true); setError(""); setSuccess("");
+    try {
+      const { error: err } = await supabase
+        .from("studios")
+        .update({ booking_public_enabled: bookingPublicEnabled })
+        .eq("id", currentStudioId);
+      if (err) { setError("Errore: " + err.message); return; }
+      await refreshStudio();
+      setSuccess(bookingPublicEnabled
+        ? "Pagina di prenotazione attivata."
+        : "Pagina di prenotazione disattivata.");
+      setTimeout(() => setSuccess(""), 3000);
+    } finally {
+      setSavingPubBook(false);
+    }
+  }
+
   async function saveConvToggle() {
     if (!currentStudioId) return;
     setSavingConv(true); setError(""); setSuccess("");
@@ -1177,9 +1210,16 @@ export default function SettingsMobileClient() {
 
   // ── Servizi prenotabili ──
   async function loadServices() {
+    if (!currentStudioId) return;
     setLoadingServices(true);
     try {
-      const { data } = await supabase.from("booking_services").select("*").order("name");
+      // mig. 083: prima senza filtro studio_id (e con policy anon-only)
+      // questo elenco era sempre vuoto per lo staff, o mostrava tutti gli studi.
+      const { data } = await supabase
+        .from("booking_services")
+        .select("*")
+        .eq("studio_id", currentStudioId)
+        .order("name");
       setServices((data as BookableService[]) || []);
     } finally { setLoadingServices(false); }
   }
@@ -1200,13 +1240,19 @@ export default function SettingsMobileClient() {
   }
   async function deleteService(id: string) {
     if (!confirm("Eliminare questo servizio?")) return;
-    await supabase.from("booking_services").delete().eq("id", id);
+    if (!currentStudioId) return;
+    await supabase.from("booking_services").delete().eq("id", id).eq("studio_id", currentStudioId);
     await loadServices();
   }
 
   // ── Giorni di blocco ──
   async function loadBlockDays() {
-    const { data } = await supabase.from("blocked_days").select("*").order("date");
+    if (!currentStudioId) return;
+    const { data } = await supabase
+      .from("blocked_days")
+      .select("*")
+      .eq("studio_id", currentStudioId)
+      .order("date");
     setBlockDays((data as BlockedDay[]) || []);
   }
   async function addBlockDay() {
@@ -1224,7 +1270,8 @@ export default function SettingsMobileClient() {
     finally { setSavingBlock(false); }
   }
   async function deleteBlockDay(id: string) {
-    await supabase.from("blocked_days").delete().eq("id", id);
+    if (!currentStudioId) return;
+    await supabase.from("blocked_days").delete().eq("id", id).eq("studio_id", currentStudioId);
     await loadBlockDays();
   }
 
@@ -1520,15 +1567,19 @@ export default function SettingsMobileClient() {
   useEffect(() => {
     void loadPracticeFull();
     void loadTemplates();
-    void loadServices();
-    void loadBlockDays();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
     if (!currentStudioId) return;
+    // mig. 083: servizi e chiusure filtrano per studio, quindi devono
+    // partire QUI e non al mount: a mount currentStudioId è ancora null
+    // (arriva dal context in modo asincrono) e non caricherebbero mai.
+    void loadServices();
+    void loadBlockDays();
     void loadMembers();
     void loadRooms();
     void loadAllTreatments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStudioId, loadMembers, loadRooms, loadAllTreatments]);
   useEffect(() => {
     if (currentStudio) {
@@ -2347,6 +2398,17 @@ export default function SettingsMobileClient() {
             newSvcPrice={newSvcPrice} setNewSvcPrice={setNewSvcPrice}
             onAdd={() => void addService()}
             onDelete={id => void deleteService(id)}
+          />
+        </div>
+
+        <div id="msec-booking-pubblico">
+          <PublicBookingLinkSection
+            show={showPubBookM} onToggle={() => setShowPubBookM(!showPubBookM)}
+            bookingSlug={bookingSlug}
+            bookingPublicEnabled={bookingPublicEnabled}
+            setBookingPublicEnabled={setBookingPublicEnabled}
+            saving={savingPubBook}
+            onSave={() => void savePublicBooking()}
           />
         </div>
 

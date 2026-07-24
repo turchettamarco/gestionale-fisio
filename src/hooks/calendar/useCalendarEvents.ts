@@ -794,16 +794,21 @@ export function useCalendarEvents(
   const [bookingActionId, setBookingActionId] = useState<string | null>(null);
 
   const loadBookingRequests = useCallback(async () => {
+    if (!currentStudioId) return;
     setBookingLoading(true);
+    // mig. 083: prima non filtrava per studio_id — con la policy RLS dello
+    // staff ripristinata (era mancante dalla mig. 009) senza questo filtro
+    // si vedrebbero le richieste di TUTTI gli studi a cui si è membri.
     const { data } = await supabase
       .from("booking_requests")
       .select("*")
+      .eq("studio_id", currentStudioId)
       .in("status", ["pending", "confirmed", "cancelled"])
       .order("created_at", { ascending: false })
       .limit(50);
     setBookingRequests(data ?? []);
     setBookingLoading(false);
-  }, []);
+  }, [currentStudioId]);
 
   useEffect(() => {
     void loadBookingRequests();
@@ -817,7 +822,8 @@ export function useCalendarEvents(
         const { error: updErr } = await supabase
           .from("booking_requests")
           .update({ status: "confirmed" })
-          .eq("id", req.id);
+          .eq("id", req.id)
+          .eq("studio_id", currentStudioId ?? "");
         if (updErr) {
           alert(`Errore aggiornamento: ${translateError(updErr)}`);
           return;
@@ -861,6 +867,22 @@ export function useCalendarEvents(
         const isHome = req.service_name.toLowerCase().includes("domicil");
         const locationVal = isHome ? "domicile" : "studio";
 
+        // Sede scelta dal paziente sulla pagina pubblica (mig. 084).
+        // Prima non veniva riportata: in uno studio multi-sede
+        // l'appuntamento confermato finiva senza sede, quindi nella
+        // corsia sbagliata del calendario.
+        const bookedLocationId = req.location_id ?? null;
+        let bookedLocationName: string | null = null;
+        if (bookedLocationId && !isHome) {
+          const { data: locRow } = await supabase
+            .from("studio_locations")
+            .select("name")
+            .eq("id", bookedLocationId)
+            .eq("studio_id", currentStudioId ?? "")
+            .maybeSingle();
+          bookedLocationName = locRow?.name ?? null;
+        }
+
         const { data: cbUser } = await supabase.auth.getUser();
         const { error: insErr } = await supabase.from("appointments").insert({
           start_at: startAt,
@@ -868,7 +890,10 @@ export function useCalendarEvents(
           status: "booked",
           is_paid: false,
           location: locationVal,
-          clinic_site: isHome ? null : currentStudio?.name || "Studio",
+          location_id: isHome ? null : bookedLocationId,
+          clinic_site: isHome
+            ? null
+            : bookedLocationName || currentStudio?.name || "Studio",
           domicile_address: isHome ? req.notes ?? "da definire" : null,
           calendar_note: note,
           studio_id: currentStudioId, // multi-tenancy
@@ -904,29 +929,33 @@ export function useCalendarEvents(
 
   const rejectBooking = useCallback(
     async (id: string) => {
+      if (!currentStudioId) return;
       setBookingActionId(id);
       await supabase
         .from("booking_requests")
         .update({ status: "cancelled" })
-        .eq("id", id);
+        .eq("id", id)
+        .eq("studio_id", currentStudioId);
       await loadBookingRequests();
       setBookingActionId(null);
     },
-    [loadBookingRequests]
+    [loadBookingRequests, currentStudioId]
   );
 
   // Rimette in stato "pending" una prenotazione confermata o annullata
   const reopenBooking = useCallback(
     async (id: string) => {
+      if (!currentStudioId) return;
       setBookingActionId(id);
       await supabase
         .from("booking_requests")
         .update({ status: "pending" })
-        .eq("id", id);
+        .eq("id", id)
+        .eq("studio_id", currentStudioId);
       await loadBookingRequests();
       setBookingActionId(null);
     },
-    [loadBookingRequests]
+    [loadBookingRequests, currentStudioId]
   );
 
   return {

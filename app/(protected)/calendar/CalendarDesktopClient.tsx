@@ -2375,8 +2375,8 @@ return (
                 : realtime.lastSyncAt
                   ? `Agenda sincronizzata alle ${realtime.lastSyncAt.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}`
                   : "Agenda in tempo reale")}
-              {realtime.status === "connecting" && "Riconnessione in corso…"}
-              {realtime.status === "error" && "Sincronizzazione non riuscita — controlla la connessione"}
+              {realtime.status === "connecting" && "Connessione in corso…"}
+              {realtime.status === "error" && "Sincronizzazione non attiva — ricarica la pagina"}
             </div>
           )}
 

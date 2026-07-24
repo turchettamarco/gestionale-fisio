@@ -51,6 +51,7 @@ import WorkingHoursSection from "./components/sections/WorkingHoursSection";
 import TemplatesSection from "./components/sections/TemplatesSection";
 import CalendarPrefsSection from "./components/sections/CalendarPrefsSection";
 import BookableServicesSection from "./components/sections/BookableServicesSection";
+import PublicBookingLinkSection from "./components/sections/PublicBookingLinkSection";
 import BlockedDaysSection from "./components/sections/BlockedDaysSection";
 import ManagementSection from "./components/sections/ManagementSection";
 import PasswordSection from "./components/sections/PasswordSection";
@@ -159,6 +160,10 @@ export default function SettingsDesktopClient() {
   // Toggle UI legacy Prenotazioni dal sito (Fase N2.1)
   const [showBookingCardHome, setShowBookingCardHome]   = useState(false);
   const [showBookingBellCalendar, setShowBookingBellCalendar] = useState(false);
+  // Link di prenotazione pubblico senza sito (mig. 083)
+  const [showPublicBooking, setShowPublicBooking]       = useState(false);
+  const [bookingPublicEnabled, setBookingPublicEnabled] = useState(false);
+  const [bookingSlug, setBookingSlug]                   = useState<string | null>(null);
 
   // ── Multi-sede (mig. 014) ─────────────────────────────────────────────
   // Toggle globale + state separato dal salvataggio studio (può essere
@@ -255,6 +260,13 @@ export default function SettingsDesktopClient() {
     // UI legacy Prenotazioni dal sito (Fase N2.1)
     setShowBookingCardHome(studio.show_booking_card_home ?? false);
     setShowBookingBellCalendar(studio.show_booking_bell_calendar ?? false);
+    // Link di prenotazione pubblico senza sito (mig. 083)
+    setBookingPublicEnabled(
+      ((studio as unknown as { booking_public_enabled?: boolean | null }).booking_public_enabled) ?? false
+    );
+    setBookingSlug(
+      ((studio as unknown as { booking_slug?: string | null }).booking_slug) ?? null
+    );
     // Multi-sede (mig. 014)
     setMultiLocationEnabled(studio.multi_location_enabled ?? false);
     // Appuntamenti di gruppo (mig. 014) — cast perché StudioContext potrebbe
@@ -294,6 +306,8 @@ export default function SettingsDesktopClient() {
         // UI legacy Prenotazioni dal sito (Fase N2.1)
         show_booking_card_home:      showBookingCardHome,
         show_booking_bell_calendar:  showBookingBellCalendar,
+        // Link di prenotazione pubblico senza sito (mig. 083)
+        booking_public_enabled:      bookingPublicEnabled,
       }).eq("id", studio.id);
       if (error) { alert("Errore: " + error.message); return; }
       await refreshStudio();
@@ -308,6 +322,7 @@ export default function SettingsDesktopClient() {
       notifyEmailEnabled, notifyBellEnabled, notifyWaRedirectEnabled,
       reportMonthlyEnabled, reportQuarterlyEnabled, reportYearlyEnabled, reportEmail,
       showBookingCardHome, showBookingBellCalendar,
+      bookingPublicEnabled,
       refreshStudio]);
 
   // ── Salvataggio toggle statistiche gruppo (su tabella studios, mig. 014) ─
@@ -1727,9 +1742,16 @@ export default function SettingsDesktopClient() {
   const [newSvcPrice, setNewSvcPrice]         = useState("40");
 
   async function loadServices() {
+    if (!studio?.id) return;
     setLoadingServices(true);
     try {
-      const { data } = await supabase.from("booking_services").select("*").order("name");
+      // mig. 083: prima senza filtro studio_id mostrava (o non mostrava
+      // affatto, essendo la policy anon-only) i servizi di tutti gli studi.
+      const { data } = await supabase
+        .from("booking_services")
+        .select("*")
+        .eq("studio_id", studio.id)
+        .order("name");
       setServices((data as BookableService[]) || []);
     } catch (e) {
       console.warn(e);
@@ -1764,7 +1786,8 @@ export default function SettingsDesktopClient() {
 
   async function deleteService(id: string) {
     if (!confirm("Eliminare questo servizio?")) return;
-    await supabase.from("booking_services").delete().eq("id", id);
+    if (!studio?.id) return;
+    await supabase.from("booking_services").delete().eq("id", id).eq("studio_id", studio.id);
     await loadServices();
   }
 
@@ -1777,8 +1800,13 @@ export default function SettingsDesktopClient() {
   const [newBlockLabel, setNewBlockLabel] = useState("");
 
   async function loadBlockDays() {
+    if (!studio?.id) return;
     try {
-      const { data } = await supabase.from("blocked_days").select("*").order("date");
+      const { data } = await supabase
+        .from("blocked_days")
+        .select("*")
+        .eq("studio_id", studio.id)
+        .order("date");
       setBlockDays((data as BlockedDay[]) || []);
     } catch (e) {
       console.warn(e);
@@ -1809,7 +1837,8 @@ export default function SettingsDesktopClient() {
   }
 
   async function deleteBlockDay(id: string) {
-    await supabase.from("blocked_days").delete().eq("id", id);
+    if (!studio?.id) return;
+    await supabase.from("blocked_days").delete().eq("id", id).eq("studio_id", studio.id);
     await loadBlockDays();
   }
 
@@ -1948,6 +1977,7 @@ export default function SettingsDesktopClient() {
     { id: "calprefs",     label: "Preferenze calendario",      place: "Agenda",        keywords: "preferenze calendario stato predefinito promemoria sovrapposizioni overlap conferma whatsapp default" },
     { id: "catalogo",     label: "Catalogo trattamenti",       place: "Agenda",        keywords: "trattamenti catalogo prestazioni tecar laser prezzi durata colore tipi seduta" },
     { id: "servizi",      label: "Servizi prenotabili online", place: "Agenda",        keywords: "prenotazioni online booking sito servizi prenotabili link pubblico" },
+    { id: "booking-pubblico", label: "Link di prenotazione pubblico", place: "Agenda", keywords: "prenotazione pubblica senza sito link condividi whatsapp slug prenota" },
     { id: "chiusure",     label: "Giorni di chiusura e ferie", place: "Agenda",        keywords: "chiusure ferie ponte giorni bloccati vacanze blocco agenda festivi" },
     { id: "team",         label: "Team e collaboratori",       place: "Team",          keywords: "team membri operatori multi operatore invito collaboratori layout settimana colonne" },
     { id: "stanze",       label: "Stanze e box",               place: "Team",          keywords: "stanze box sale multi stanza room lettini" },
@@ -2262,6 +2292,17 @@ export default function SettingsDesktopClient() {
                 newSvcPrice={newSvcPrice} setNewSvcPrice={setNewSvcPrice}
                 onAdd={() => void addService()}
                 onDelete={(id) => void deleteService(id)}
+              />
+            </div>
+
+            <div id="set-sec-booking-pubblico">
+              <PublicBookingLinkSection
+                show={showPublicBooking} onToggle={() => setShowPublicBooking(!showPublicBooking)}
+                bookingSlug={bookingSlug}
+                bookingPublicEnabled={bookingPublicEnabled}
+                setBookingPublicEnabled={setBookingPublicEnabled}
+                saving={savingStudio}
+                onSave={() => void saveStudio()}
               />
             </div>
 

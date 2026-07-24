@@ -25,6 +25,8 @@ export type BookingRequest = {
   notes: string | null;
   status: "pending" | "confirmed" | "cancelled";
   created_at: string;
+  /** Sede scelta dal paziente (mig. 084). NULL = non indicata. */
+  location_id?: string | null;
 };
 
 export type AppointmentRow = {

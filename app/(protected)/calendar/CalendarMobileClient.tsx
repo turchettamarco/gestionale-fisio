@@ -3182,7 +3182,7 @@ function CalendarPageInner() {
                 }} />
                 {realtime.status==="live"
                   ? (realtime.syncing ? "Aggiornamento…" : "Agenda aggiornata")
-                  : realtime.status==="error" ? "Sincronizzazione non riuscita" : "Riconnessione…"}
+                  : realtime.status==="error" ? "Sincronizzazione non attiva" : "Connessione…"}
               </div>
             )}
             {error&&(
