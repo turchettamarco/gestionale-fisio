@@ -52,6 +52,8 @@ import TemplatesSection from "./components/sections/TemplatesSection";
 import CalendarPrefsSection from "./components/sections/CalendarPrefsSection";
 import OnlineBookingSection from "./components/sections/OnlineBookingSection";
 import PatientAreaSection, { type PortalFeatures } from "./components/sections/PatientAreaSection";
+import ClinicalTemplateSection from "./components/sections/ClinicalTemplateSection";
+import { type ClinicalField, type ClinicalFieldType, type ClinicalTemplate, STARTER_TEMPLATES } from "@/src/lib/clinical/customFields";
 import BlockedDaysSection from "./components/sections/BlockedDaysSection";
 import ManagementSection from "./components/sections/ManagementSection";
 import PasswordSection from "./components/sections/PasswordSection";
@@ -1823,6 +1825,169 @@ export default function SettingsDesktopClient() {
     }
   }
 
+
+  // ── Scheda clinica configurabile (mig. 095) ─────────────────────────
+  const [showClinicalTpl, setShowClinicalTpl] = useState(false);
+  const [clinicalTemplates, setClinicalTemplates] = useState<ClinicalTemplate[]>([]);
+  const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
+  const [archivedTemplates, setArchivedTemplates] = useState<ClinicalTemplate[]>([]);
+  const [clinicalFields, setClinicalFields] = useState<ClinicalField[]>([]);
+  const [loadingClinical, setLoadingClinical] = useState(false);
+  const [savingClinical, setSavingClinical] = useState(false);
+
+  const loadClinicalFields = useCallback(async (templateId?: string | null) => {
+    if (!studio?.id) return;
+    setLoadingClinical(true);
+    const { data: tpls } = await supabase
+      .from("studio_clinical_templates")
+      .select("id, name, is_default, sort_order, is_active")
+      .eq("studio_id", studio.id)
+      .order("sort_order", { ascending: true });
+
+    const tutte = (tpls as ClinicalTemplate[]) ?? [];
+    setArchivedTemplates(tutte.filter(t => t.is_active === false));
+    const lista = tutte.filter(t => t.is_active !== false);
+    setClinicalTemplates(lista);
+
+    const scelta = templateId
+      ?? (lista.some(t => t.id === activeTemplateId) ? activeTemplateId : null)
+      ?? lista.find(t => t.is_default)?.id
+      ?? lista[0]?.id
+      ?? null;
+    setActiveTemplateId(scelta);
+
+    if (scelta) {
+      const { data } = await supabase
+        .from("studio_clinical_fields")
+        .select("id, studio_id, template_id, label, hint, type, options, section, sort_order, is_active")
+        .eq("template_id", scelta).eq("is_active", true)
+        .order("sort_order", { ascending: true });
+      setClinicalFields((data as ClinicalField[]) ?? []);
+    } else {
+      setClinicalFields([]);
+    }
+    setLoadingClinical(false);
+  }, [studio?.id, activeTemplateId]);
+
+  async function createClinicalTemplate(name: string, campi?: Array<{ label: string; hint: string | null; type: ClinicalFieldType; options: string[]; section: string | null }>) {
+    if (!studio?.id) return;
+    setSavingClinical(true);
+    try {
+      const ord = clinicalTemplates.reduce((m, t) => Math.max(m, t.sort_order), 0) + 10;
+      const { data, error } = await supabase.from("studio_clinical_templates")
+        .insert({ studio_id: studio.id, name, sort_order: ord, is_default: clinicalTemplates.length === 0 })
+        .select("id").single();
+      if (error) { alert("Errore: " + error.message); return; }
+
+      if (campi && campi.length > 0) {
+        const righe = campi.map((f, i) => ({
+          studio_id: studio.id, template_id: data.id,
+          label: f.label, hint: f.hint, type: f.type,
+          options: f.options, section: f.section, sort_order: (i + 1) * 10,
+        }));
+        const { error: e2 } = await supabase.from("studio_clinical_fields").insert(righe);
+        if (e2) { alert("Errore: " + e2.message); return; }
+      }
+      await loadClinicalFields(data.id);
+    } finally { setSavingClinical(false); }
+  }
+
+  async function renameClinicalTemplate(id: string, name: string) {
+    if (!studio?.id) return;
+    const { error } = await supabase.from("studio_clinical_templates")
+      .update({ name }).eq("id", id).eq("studio_id", studio.id);
+    if (error) { alert("Errore: " + error.message); return; }
+    await loadClinicalFields(id);
+  }
+
+  async function setDefaultClinicalTemplate(id: string) {
+    if (!studio?.id) return;
+    // Una sola predefinita per studio: si azzerano le altre e si imposta questa
+    await supabase.from("studio_clinical_templates")
+      .update({ is_default: false }).eq("studio_id", studio.id);
+    await supabase.from("studio_clinical_templates")
+      .update({ is_default: true }).eq("id", id).eq("studio_id", studio.id);
+    await loadClinicalFields(id);
+  }
+
+  // Archiviare, non cancellare: i campi conservano le etichette e le
+  // risposte già raccolte sui pazienti restano leggibili in cartella.
+  async function deleteClinicalTemplate(id: string) {
+    if (!studio?.id) return;
+    const tpl = clinicalTemplates.find(t => t.id === id);
+    if (!confirm(`Archiviare la scheda "${tpl?.name ?? ""}"?\n\nSparisce dall'elenco e dal menu del paziente, ma quello che è già stato scritto sui pazienti resta consultabile nella loro cartella. Puoi ripristinarla quando vuoi.`)) return;
+    const { error } = await supabase.from("studio_clinical_templates")
+      .update({ is_active: false, is_default: false })
+      .eq("id", id).eq("studio_id", studio.id);
+    if (error) { alert("Errore: " + error.message); return; }
+    await loadClinicalFields(null);
+  }
+
+  async function restoreClinicalTemplate(id: string) {
+    if (!studio?.id) return;
+    const { error } = await supabase.from("studio_clinical_templates")
+      .update({ is_active: true }).eq("id", id).eq("studio_id", studio.id);
+    if (error) { alert("Errore: " + error.message); return; }
+    await loadClinicalFields(id);
+  }
+
+  async function addClinicalField(f: { label: string; hint: string | null; type: ClinicalFieldType; options: string[] }) {
+    if (!studio?.id) return;
+    setSavingClinical(true);
+    try {
+      if (!activeTemplateId) { alert("Crea prima una scheda."); return; }
+      const next = clinicalFields.reduce((m, x) => Math.max(m, x.sort_order), 0) + 10;
+      const { error } = await supabase.from("studio_clinical_fields").insert({
+        studio_id: studio.id, template_id: activeTemplateId,
+        label: f.label, hint: f.hint,
+        type: f.type, options: f.options, sort_order: next,
+      });
+      if (error) { alert("Errore: " + error.message); return; }
+      await loadClinicalFields();
+    } finally { setSavingClinical(false); }
+  }
+
+  async function updateClinicalField(id: string, patch: Partial<ClinicalField>) {
+    if (!studio?.id) return;
+    const { error } = await supabase.from("studio_clinical_fields")
+      .update(patch).eq("id", id).eq("studio_id", studio.id);
+    if (error) { alert("Errore: " + error.message); return; }
+    await loadClinicalFields();
+  }
+
+  // Rimozione "morbida": il campo sparisce dalla scheda ma i valori già
+  // raccolti sui pazienti restano nel database e tornano se lo riattivi.
+  async function removeClinicalField(id: string) {
+    if (!studio?.id) return;
+    if (!confirm("Togliere questo campo dalla scheda?\n\nI valori già inseriti sui pazienti NON vengono cancellati.")) return;
+    await updateClinicalField(id, { is_active: false });
+  }
+
+  async function moveClinicalField(id: string, direction: "up" | "down") {
+    if (!studio?.id) return;
+    const i = clinicalFields.findIndex(f => f.id === id);
+    const j = direction === "up" ? i - 1 : i + 1;
+    if (i < 0 || j < 0 || j >= clinicalFields.length) return;
+    const a = clinicalFields[i], b = clinicalFields[j];
+    await Promise.all([
+      supabase.from("studio_clinical_fields").update({ sort_order: b.sort_order }).eq("id", a.id).eq("studio_id", studio.id),
+      supabase.from("studio_clinical_fields").update({ sort_order: a.sort_order }).eq("id", b.id).eq("studio_id", studio.id),
+    ]);
+    await loadClinicalFields();
+  }
+
+  async function loadClinicalTemplate(starterId: string, name: string) {
+    const tpl = STARTER_TEMPLATES.find(t => t.id === starterId);
+    if (!tpl) return;
+    // Nome univoco: se esiste già "Osteopatia", diventa "Osteopatia 2"
+    let nome = name;
+    let n = 1;
+    while (clinicalTemplates.some(t => t.name === nome)) { n += 1; nome = `${name} ${n}`; }
+    await createClinicalTemplate(nome, tpl.fields.map(f => ({
+      label: f.label, hint: f.hint, type: f.type, options: f.options, section: f.section,
+    })));
+  }
+
   // ── Area paziente: salvataggio (mig. 087) ───────────────────────────
   async function savePatientArea() {
     if (!studio?.id) return;
@@ -2133,6 +2298,7 @@ export default function SettingsDesktopClient() {
         loadWorkingHours(),
         loadServices(),
         loadBlockDays(),
+        loadClinicalFields(),
       ]);
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2151,6 +2317,7 @@ export default function SettingsDesktopClient() {
     { id: "granularita",  label: "Preferenze agenda (granularità, vista)", place: "Agenda", keywords: "granularità slot 15 minuti 30 minuti passo vista predefinita giorno settimana mese apertura calendario" },
     { id: "calprefs",     label: "Preferenze calendario",      place: "Agenda",        keywords: "preferenze calendario stato predefinito promemoria sovrapposizioni overlap conferma whatsapp default" },
     { id: "catalogo",     label: "Catalogo trattamenti",       place: "Agenda",        keywords: "trattamenti catalogo prestazioni tecar laser prezzi durata colore tipi seduta" },
+    { id: "scheda-clinica", label: "Scheda clinica", place: "Area Paziente", keywords: "scheda clinica campi personalizzati cartella anamnesi modello template configurabile" },
     { id: "area-paziente", label: "Area Paziente", place: "Area Paziente", keywords: "area paziente portale link personale storico sedute importi pagamenti riservata" },
     { id: "prenotazione-online", label: "Prenotazione Online", place: "Prenotazione Online", keywords: "prenotazioni online booking sito servizi prenotabili listino prezzi link pubblico indirizzo slug condividi whatsapp prenota" },
     { id: "chiusure",     label: "Giorni di chiusura e ferie", place: "Agenda",        keywords: "chiusure ferie ponte giorni bloccati vacanze blocco agenda festivi" },
@@ -2180,6 +2347,7 @@ export default function SettingsDesktopClient() {
     catalogo:    { tab: "calendar",       open: () => setShowTreatments(true) },
     "prenotazione-online": { tab: "booking", open: () => setShowOnlineBooking(true) },
     "area-paziente": { tab: "patient_area", open: () => setShowPatientArea(true) },
+    "scheda-clinica": { tab: "patient_area", open: () => setShowClinicalTpl(true) },
     chiusure:    { tab: "calendar",       open: () => setShowBlockDays(true) },
     team:        { tab: "team",           open: () => setShowTeam(true) },
     stanze:      { tab: "team",           open: () => setShowRooms(true) },
@@ -2476,6 +2644,28 @@ export default function SettingsDesktopClient() {
         {/* ─── Tab "Contabilità & Fiscale": dati fiscali + Sistema TS ─── */}
         {activeTab === "patient_area" && (
           <>
+            <div id="set-sec-scheda-clinica">
+              <ClinicalTemplateSection
+                show={showClinicalTpl} onToggle={() => setShowClinicalTpl(!showClinicalTpl)}
+                templates={clinicalTemplates}
+                activeTemplateId={activeTemplateId}
+                onSelectTemplate={(id) => void loadClinicalFields(id)}
+                onCreateTemplate={(name) => void createClinicalTemplate(name)}
+                onRenameTemplate={(id, name) => void renameClinicalTemplate(id, name)}
+                onDeleteTemplate={(id) => void deleteClinicalTemplate(id)}
+                archivedTemplates={archivedTemplates}
+                onRestoreTemplate={(id) => void restoreClinicalTemplate(id)}
+                onSetDefaultTemplate={(id) => void setDefaultClinicalTemplate(id)}
+                fields={clinicalFields}
+                loading={loadingClinical} saving={savingClinical}
+                onAdd={(f) => void addClinicalField(f)}
+                onUpdate={(id, patch) => void updateClinicalField(id, patch)}
+                onMove={(id, dir) => void moveClinicalField(id, dir)}
+                onRemove={(id) => void removeClinicalField(id)}
+                onLoadTemplate={(starterId, name) => void loadClinicalTemplate(starterId, name)}
+              />
+            </div>
+
             <div id="set-sec-area-paziente">
               <PatientAreaSection
                 show={showPatientArea} onToggle={() => setShowPatientArea(!showPatientArea)}

@@ -18,6 +18,7 @@ import PatientSidebar, {
 import PatientSummaryPanel from "@/src/components/patient/PatientSummaryPanel";
 import PainMap from "@/src/components/patient/PainMap";
 import StructuredAnamnesis from "@/src/components/patient/clinical/StructuredAnamnesis";
+import CustomClinicalFields from "@/src/components/patient/clinical/CustomClinicalFields";
 import StructuredDiagnosis from "@/src/components/patient/clinical/StructuredDiagnosis";
 import StructuredTreatmentPlan from "@/src/components/patient/clinical/StructuredTreatmentPlan";
 import ClinicalDiarySection from "@/src/components/patient/clinical/ClinicalDiarySection";
@@ -602,6 +603,26 @@ export default function PatientDetailDesktopClient({
 
   // ── Clinica ───────────────────────────────────────────────────────────────
   const [anamnesis,       setAnamnesis]       = useState("");
+
+  // MODALITÀ DEL QUADRO CLINICO
+  // "semplice" = solo i tre campi liberi (anamnesi, diagnosi, trattamento),
+  // che è come lavora chi scrive di getto mentre parla col paziente.
+  // "completo" = anche i blocchi strutturati con zone, test, obiettivi.
+  // Il dato non si perde mai: quello strutturato resta salvato e riappare
+  // tornando a "completo". Preferenza per dispositivo.
+  const [clinicalFull, setClinicalFull] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("quadro_clinico_completo") === "1";
+  });
+  const toggleClinicalMode = () => {
+    setClinicalFull(prev => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("quadro_clinico_completo", next ? "1" : "0");
+      }
+      return next;
+    });
+  };
   const [diagnosis,       setDiagnosis]       = useState("");
   const [treatment,       setTreatment]       = useState("");
 
@@ -2719,8 +2740,42 @@ ${rows}
               patientId={patient?.id}
             />
 
+            {/* Scheda clinica costruita dallo studio (mig. 095).
+                Non rende nulla se non sono stati definiti campi. */}
+            {patient && (
+              <CustomClinicalFields
+                patientId={patient.id}
+                studioId={currentStudio?.id ?? null}
+              />
+            )}
+
+            {/* Interruttore semplice/completo del quadro clinico */}
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              gap: 12, flexWrap: "wrap", padding: "10px 14px", borderRadius: 10,
+              background: "#f8fafc", border: "1px solid #e2e8f0", marginBottom: 16,
+            }}>
+              <div style={{ fontSize: 12, color: THEME.muted, lineHeight: 1.45 }}>
+                {clinicalFull
+                  ? "Quadro completo: campi strutturati, test e obiettivi."
+                  : "Quadro semplice: scrivi liberamente. I campi strutturati restano salvati e tornano quando riattivi il completo."}
+              </div>
+              <button
+                onClick={toggleClinicalMode}
+                style={{
+                  padding: "7px 14px", borderRadius: 7, cursor: "pointer",
+                  border: `1px solid ${clinicalFull ? "#cbd5e1" : "#0d9488"}`,
+                  background: clinicalFull ? "#fff" : "rgba(13,148,136,0.08)",
+                  color: clinicalFull ? "#475569" : "#0d9488",
+                  fontWeight: 700, fontSize: 12, whiteSpace: "nowrap",
+                }}
+              >
+                {clinicalFull ? "Passa a semplice" : "Mostra quadro completo"}
+              </button>
+            </div>
+
             {/* ── Tappa 5: ANAMNESI STRUTTURATA ──────────────────────── */}
-            {patient && currentStudio && userId && (
+            {clinicalFull && patient && currentStudio && userId && (
               <StructuredAnamnesis
                 patientId={patient.id}
                 studioId={currentStudio.id}
@@ -2732,16 +2787,18 @@ ${rows}
             <div style={{ marginTop: 18 }}>
               <div style={{ fontSize: 11, fontWeight: 800, color: THEME.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
                 <span>📝</span>
-                <span>Note libere aggiuntive (anamnesi)</span>
+                <span>{clinicalFull ? "Note libere aggiuntive (anamnesi)" : "Anamnesi"}</span>
               </div>
               <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 6, fontWeight: 500 }}>
-                Tutto quello che non sta nei campi strutturati sopra
+                {clinicalFull
+                  ? "Tutto quello che non sta nei campi strutturati sopra"
+                  : "Racconta il caso come lo diresti a voce: sede, da quanto, cosa peggiora, cosa hai trovato"}
               </div>
               <textarea value={anamnesis} onChange={e => setAnamnesis(e.target.value)} rows={4} style={{ ...textareaStyle, marginTop: 0 }} placeholder="Note aggiuntive di anamnesi: farmaci, allergie, dettagli specifici, contesto…" />
             </div>
 
             <div style={{ marginTop: 18 }}>
-              {patient && currentStudio && userId && (
+              {clinicalFull && patient && currentStudio && userId && (
                 <StructuredDiagnosis
                   patientId={patient.id}
                   studioId={currentStudio.id}

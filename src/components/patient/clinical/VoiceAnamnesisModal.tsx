@@ -17,7 +17,7 @@
 //   - red flag menzionati: SOLO avviso visivo, mai scritti in automatico
 // ═══════════════════════════════════════════════════════════════════════
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useDictation, appendDictated } from "@/src/hooks/useDictation";
 import { DictationMicButton } from "@/src/components/DictationMicButton";
 import {
@@ -53,10 +53,13 @@ type FieldKey =
   | "occupation" | "sport";
 
 export function VoiceAnamnesisModal({
-  open, onClose, current, onApply,
+  open, onClose, current, onApply, initialTranscript,
 }: {
   open: boolean;
   onClose: () => void;
+  /** Testo già pronto da analizzare invece di dettarlo: usato per far
+   *  passare l'autovalutazione del paziente dallo stesso estrattore. */
+  initialTranscript?: string;
   /** Valori attuali dell'anamnesi, per mostrare il confronto in revisione */
   current: AnamnesisData;
   /**
@@ -71,6 +74,15 @@ export function VoiceAnamnesisModal({
 }) {
   const [step, setStep] = useState<"dictate" | "review">("dictate");
   const [transcript, setTranscript] = useState("");
+
+  // Apertura con testo precompilato (autovalutazione del paziente):
+  // si parte dal testo già scritto, pronto da analizzare.
+  useEffect(() => {
+    if (!open || !initialTranscript) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTranscript(initialTranscript);
+    setStep("dictate");
+  }, [open, initialTranscript]);
   const [saveTranscript, setSaveTranscript] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [applying, setApplying] = useState(false);

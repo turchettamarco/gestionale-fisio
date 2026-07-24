@@ -44,6 +44,7 @@ import {
 } from "@/src/lib/clinical/anamnesisOptions";
 import RedFlagsModal from "./RedFlagsModal";
 import { VoiceAnamnesisModal } from "./VoiceAnamnesisModal";
+import { composeIntakeNarrative } from "@/src/lib/intakeQuestions";
 
 const T = {
   panelBg:     "#ffffff",
@@ -106,6 +107,27 @@ export default function StructuredAnamnesis({ patientId, studioId, ownerId }: St
   const [redFlagsExcluded,  setRedFlagsExcluded]  = useState(0);
 
   const [editingField, setEditingField] = useState<FieldId | null>(null);
+
+  // MODALITÀ COMPILAZIONE RAPIDA
+  // Il meccanismo "apri una riga, compila, chiudi, apri la successiva"
+  // costringeva a otto aperture per una sola anamnesi, col paziente che
+  // aspetta. Qui tutti i campi restano aperti insieme: si scorre una volta
+  // sola e si salva alla fine. Attiva di default; la preferenza resta
+  // memorizzata sul dispositivo per chi preferisce l'elenco compatto.
+  const [fastMode, setFastMode] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("anamnesi_modalita_rapida") !== "0";
+  });
+
+  const toggleFastMode = useCallback(() => {
+    setFastMode(prev => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("anamnesi_modalita_rapida", next ? "1" : "0");
+      }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (!patientId) return;
@@ -193,6 +215,30 @@ export default function StructuredAnamnesis({ patientId, studioId, ownerId }: St
 
   // ── Anamnesi vocale: applica i campi approvati e salva subito ──
   const [voiceOpen, setVoiceOpen] = useState(false);
+
+  // Autovalutazione compilata dal paziente: se c'è, i campi si possono
+  // proporre da lì invece di riscriverli a mano (mig. 093).
+  const [intakeText, setIntakeText] = useState<string | null>(null);
+  const [prefillText, setPrefillText] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!patientId) return;
+    let annullato = false;
+    void (async () => {
+      const { data } = await supabase
+        .from("patient_intake")
+        .select("payload")
+        .eq("patient_id", patientId)
+        .eq("status", "completed")
+        .order("completed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (annullato) return;
+      const testo = data?.payload ? composeIntakeNarrative(data.payload) : "";
+      setIntakeText(testo.trim() ? testo : null);
+    })();
+    return () => { annullato = true; };
+  }, [patientId]);
 
   async function applyVoice(
     partial: Partial<AnamnesisData>,
@@ -305,6 +351,20 @@ export default function StructuredAnamnesis({ patientId, studioId, ownerId }: St
 
         <div style={{ display: "flex", gap: 6 }}>
           <button
+            onClick={toggleFastMode}
+            title={fastMode
+              ? "Torna all'elenco compatto: una riga alla volta"
+              : "Apri tutti i campi insieme: si compila scorrendo, senza aprire e chiudere"}
+            style={{
+              padding: "6px 12px", borderRadius: 7,
+              border: `1px solid ${fastMode ? T.green : "#cbd5e1"}`,
+              background: fastMode ? "rgba(22,163,74,0.08)" : "#fff",
+              color: fastMode ? T.green : "#475569",
+              fontWeight: 700, fontSize: 11, cursor: "pointer", fontFamily: "inherit",
+              display: "inline-flex", alignItems: "center", gap: 5,
+            }}
+          >{fastMode ? "⚡ Tutto aperto" : "☰ Compatto"}</button>
+          <button
             onClick={() => setVoiceOpen(true)}
             title="Detta la valutazione: l'AI compila i campi strutturati"
             style={{
@@ -315,6 +375,19 @@ export default function StructuredAnamnesis({ patientId, studioId, ownerId }: St
               display: "inline-flex", alignItems: "center", gap: 5,
             }}
           >🎙 Vocale</button>
+          {intakeText && (
+            <button
+              onClick={() => { setPrefillText(intakeText); setVoiceOpen(true); }}
+              title="Il paziente ha già risposto da casa: l'AI propone i campi dalle sue risposte"
+              style={{
+                padding: "6px 12px", borderRadius: 7, border: "none",
+                background: "linear-gradient(135deg, #0d9488, #2563eb)",
+                color: "#fff", fontWeight: 700, fontSize: 11,
+                cursor: "pointer", fontFamily: "inherit",
+                display: "inline-flex", alignItems: "center", gap: 5,
+              }}
+            >🩺 Da autovalutazione</button>
+          )}
           <button
             onClick={reset}
             disabled={!dirty || saving}
@@ -347,7 +420,7 @@ export default function StructuredAnamnesis({ patientId, studioId, ownerId }: St
         <Row
           label="Sede del dolore"
           filled={filled.locations}
-          editing={editingField === "locations"}
+          editing={fastMode || editingField === "locations"}
           value={data.pain_locations.length === 0 ? null : data.pain_locations.map(getPainLocationLabel).join(", ")}
           onClick={() => handleRowClick("locations")}
         >
@@ -361,7 +434,7 @@ export default function StructuredAnamnesis({ patientId, studioId, ownerId }: St
         <Row
           label="Durata"
           filled={filled.duration}
-          editing={editingField === "duration"}
+          editing={fastMode || editingField === "duration"}
           value={filled.duration ? `${data.duration_value} ${labelOf(DURATION_UNITS, data.duration_unit)}` : null}
           onClick={() => handleRowClick("duration")}
         >
@@ -376,7 +449,7 @@ export default function StructuredAnamnesis({ patientId, studioId, ownerId }: St
         <Row
           label="Insorgenza"
           filled={filled.onset}
-          editing={editingField === "onset"}
+          editing={fastMode || editingField === "onset"}
           value={labelOf(ONSET_TYPES, data.onset_type)}
           onClick={() => handleRowClick("onset")}
         >
@@ -391,7 +464,7 @@ export default function StructuredAnamnesis({ patientId, studioId, ownerId }: St
         <Row
           label="Frequenza"
           filled={filled.frequency}
-          editing={editingField === "frequency"}
+          editing={fastMode || editingField === "frequency"}
           value={labelOf(PAIN_FREQUENCIES, data.pain_frequency)}
           onClick={() => handleRowClick("frequency")}
         >
@@ -406,7 +479,7 @@ export default function StructuredAnamnesis({ patientId, studioId, ownerId }: St
         <Row
           label="Caratteristiche"
           filled={filled.characteristics}
-          editing={editingField === "characteristics"}
+          editing={fastMode || editingField === "characteristics"}
           value={data.pain_characteristics.length === 0 ? null : data.pain_characteristics.map(c => labelOf(PAIN_CHARACTERISTICS, c)).join(", ")}
           onClick={() => handleRowClick("characteristics")}
         >
@@ -421,7 +494,7 @@ export default function StructuredAnamnesis({ patientId, studioId, ownerId }: St
         <Row
           label="Aggravato da"
           filled={filled.aggravating}
-          editing={editingField === "aggravating"}
+          editing={fastMode || editingField === "aggravating"}
           value={data.aggravating_factors.length === 0 ? null : data.aggravating_factors.join(", ")}
           onClick={() => handleRowClick("aggravating")}
         >
@@ -436,7 +509,7 @@ export default function StructuredAnamnesis({ patientId, studioId, ownerId }: St
         <Row
           label="Alleviato da"
           filled={filled.relieving}
-          editing={editingField === "relieving"}
+          editing={fastMode || editingField === "relieving"}
           value={data.relieving_factors.length === 0 ? null : data.relieving_factors.join(", ")}
           onClick={() => handleRowClick("relieving")}
         >
@@ -469,8 +542,9 @@ export default function StructuredAnamnesis({ patientId, studioId, ownerId }: St
 
       {/* ── Modale anamnesi vocale ────────────────────────────── */}
       <VoiceAnamnesisModal
+        initialTranscript={prefillText}
         open={voiceOpen}
-        onClose={() => setVoiceOpen(false)}
+        onClose={() => { setVoiceOpen(false); setPrefillText(undefined); }}
         current={data}
         onApply={applyVoice}
       />

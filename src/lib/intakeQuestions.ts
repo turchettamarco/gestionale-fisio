@@ -216,3 +216,72 @@ export const INTAKE_RED_FLAG_IDS: string[] =
 export function redFlagsFrom(payload: Record<string, unknown>): IntakeQuestion[] {
   return INTAKE_ALL_QUESTIONS.filter(q => q.redFlag && payload[q.id] === true);
 }
+
+/**
+ * Trasforma le risposte dell'autovalutazione in un racconto discorsivo,
+ * nella stessa forma di una dettatura a voce.
+ *
+ * Serve per far passare l'autovalutazione dallo stesso estrattore AI che
+ * già struttura le dettature (/api/ai-clinical, azione "anamnesis"): così
+ * il paziente compila da casa e i campi dell'anamnesi arrivano proposti,
+ * con la solita revisione a spunte prima di finire in cartella.
+ *
+ * Le domande di controllo restano fuori: vanno verificate a voce, non
+ * trasformate in un dato strutturato da un modello.
+ */
+export function composeIntakeNarrative(payload: Record<string, unknown>): string {
+  const get = (id: string): string => {
+    const v = payload[id];
+    if (v === undefined || v === null || v === "" || v === false) return "";
+    return String(v).trim();
+  };
+
+  const frasi: string[] = [];
+
+  const motivo = get("motivo");
+  const zona = get("zona");
+  if (motivo || zona) {
+    frasi.push(`Il paziente riferisce ${motivo || "un disturbo"}${zona ? `, localizzato in sede ${zona}` : ""}.`);
+  }
+
+  const daQuanto = get("da_quanto");
+  const esordio = get("esordio");
+  if (daQuanto) frasi.push(`Il problema dura da ${daQuanto.toLowerCase()}.`);
+  if (esordio) frasi.push(`Esordio: ${esordio.toLowerCase()}.`);
+
+  const ora = get("dolore_ora");
+  const peggiore = get("dolore_peggiore");
+  if (ora) frasi.push(`Dolore attuale ${ora} su 10${peggiore ? `, con picco settimanale di ${peggiore} su 10` : ""}.`);
+
+  const peggiora = get("peggiora");
+  if (peggiora) frasi.push(`Peggiora con: ${peggiora}.`);
+
+  const migliora = get("migliora");
+  if (migliora) frasi.push(`Migliora con: ${migliora}.`);
+
+  const limita = get("limita");
+  if (limita) frasi.push(`Riferisce limitazione in: ${limita}.`);
+
+  const esami = get("esami");
+  if (esami) frasi.push(`Esami eseguiti: ${esami}.`);
+
+  const terapie = get("terapie");
+  if (terapie) frasi.push(`Terapie già effettuate: ${terapie}.`);
+
+  const farmaci = get("farmaci");
+  if (farmaci) frasi.push(`Farmaci in corso: ${farmaci}.`);
+
+  const patologie = get("patologie");
+  if (patologie) frasi.push(`Anamnesi patologica remota: ${patologie}.`);
+
+  const lavoro = get("lavoro_sport");
+  if (lavoro) frasi.push(`Attività lavorativa e sportiva: ${lavoro}.`);
+
+  const obiettivo = get("obiettivo");
+  if (obiettivo) frasi.push(`Obiettivo del paziente: ${obiettivo}.`);
+
+  const note = get("note");
+  if (note) frasi.push(`Nota aggiuntiva: ${note}.`);
+
+  return frasi.join(" ");
+}
