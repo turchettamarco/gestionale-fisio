@@ -112,7 +112,7 @@ export default function SettingsDesktopClient() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const saved = localStorage.getItem("settings_active_tab");
-    if (saved === "studio" || saved === "team" || saved === "calendar" || saved === "accounting" || saved === "convenzioni" || saved === "communications" || saved === "account" || saved === "subscription") {
+    if (saved === "studio" || saved === "team" || saved === "calendar" || saved === "patient_area" || saved === "booking" || saved === "accounting" || saved === "convenzioni" || saved === "communications" || saved === "account" || saved === "subscription") {
       setActiveTab(saved);
     }
   }, []);
@@ -1917,6 +1917,15 @@ export default function SettingsDesktopClient() {
     await loadServices();
   }
 
+  // Mostra/nasconde il prezzo del singolo servizio (mig. 090)
+  async function toggleServicePrice(id: string, next: boolean) {
+    if (!studio?.id) return;
+    const { error } = await supabase.from("booking_services")
+      .update({ show_price: next }).eq("id", id).eq("studio_id", studio.id);
+    if (error) { alert("Errore: " + error.message); return; }
+    await loadServices();
+  }
+
   async function deleteService(id: string) {
     if (!confirm("Eliminare questo servizio?")) return;
     if (!studio?.id) return;
@@ -2109,8 +2118,8 @@ export default function SettingsDesktopClient() {
     { id: "granularita",  label: "Preferenze agenda (granularità, vista)", place: "Agenda", keywords: "granularità slot 15 minuti 30 minuti passo vista predefinita giorno settimana mese apertura calendario" },
     { id: "calprefs",     label: "Preferenze calendario",      place: "Agenda",        keywords: "preferenze calendario stato predefinito promemoria sovrapposizioni overlap conferma whatsapp default" },
     { id: "catalogo",     label: "Catalogo trattamenti",       place: "Agenda",        keywords: "trattamenti catalogo prestazioni tecar laser prezzi durata colore tipi seduta" },
-    { id: "area-paziente", label: "Area Paziente", place: "Agenda", keywords: "area paziente portale link personale storico sedute importi pagamenti riservata" },
-    { id: "prenotazione-online", label: "Prenotazione Online", place: "Agenda", keywords: "prenotazioni online booking sito servizi prenotabili listino prezzi link pubblico indirizzo slug condividi whatsapp prenota" },
+    { id: "area-paziente", label: "Area Paziente", place: "Area Paziente", keywords: "area paziente portale link personale storico sedute importi pagamenti riservata" },
+    { id: "prenotazione-online", label: "Prenotazione Online", place: "Prenotazione Online", keywords: "prenotazioni online booking sito servizi prenotabili listino prezzi link pubblico indirizzo slug condividi whatsapp prenota" },
     { id: "chiusure",     label: "Giorni di chiusura e ferie", place: "Agenda",        keywords: "chiusure ferie ponte giorni bloccati vacanze blocco agenda festivi" },
     { id: "team",         label: "Team e collaboratori",       place: "Team",          keywords: "team membri operatori multi operatore invito collaboratori layout settimana colonne" },
     { id: "stanze",       label: "Stanze e box",               place: "Team",          keywords: "stanze box sale multi stanza room lettini" },
@@ -2136,8 +2145,8 @@ export default function SettingsDesktopClient() {
     granularita: { tab: "calendar" },
     calprefs:    { tab: "calendar",       open: () => setShowCalPrefs(true) },
     catalogo:    { tab: "calendar",       open: () => setShowTreatments(true) },
-    "prenotazione-online": { tab: "calendar", open: () => setShowOnlineBooking(true) },
-    "area-paziente": { tab: "calendar", open: () => setShowPatientArea(true) },
+    "prenotazione-online": { tab: "booking", open: () => setShowOnlineBooking(true) },
+    "area-paziente": { tab: "patient_area", open: () => setShowPatientArea(true) },
     chiusure:    { tab: "calendar",       open: () => setShowBlockDays(true) },
     team:        { tab: "team",           open: () => setShowTeam(true) },
     stanze:      { tab: "team",           open: () => setShowRooms(true) },
@@ -2219,7 +2228,7 @@ export default function SettingsDesktopClient() {
           <SettingsTabs activeTab={activeTab} onTabChange={setActiveTab} />
           <div className="set-content">
             <SettingsSearch items={SEARCH_INDEX} onJump={jumpToSetting} />
-            <h2 className="set-panel-title">{({ studio: "Studio", team: "Team", calendar: "Agenda & Catalogo", accounting: "Contabilità & Fiscale", convenzioni: "Convenzioni", communications: "Comunicazioni", account: "Account", subscription: "Abbonamento" } as Record<string, string>)[activeTab]}</h2>
+            <h2 className="set-panel-title">{({ studio: "Studio", team: "Team", calendar: "Agenda & Catalogo", patient_area: "Area Paziente", booking: "Prenotazione Online", accounting: "Contabilità & Fiscale", convenzioni: "Convenzioni", communications: "Comunicazioni", account: "Account", subscription: "Abbonamento" } as Record<string, string>)[activeTab]}</h2>
             <div className="set-panel-rule" />
             <div className="set-cards">
 
@@ -2416,6 +2425,24 @@ export default function SettingsDesktopClient() {
               />
             </div>
 
+
+
+            <div id="set-sec-chiusure">
+              <BlockedDaysSection
+                show={showBlockDays} onToggle={() => setShowBlockDays(!showBlockDays)}
+                savingBlock={savingBlock} blockDays={blockDays}
+                newBlockDate={newBlockDate} setNewBlockDate={setNewBlockDate}
+                newBlockLabel={newBlockLabel} setNewBlockLabel={setNewBlockLabel}
+                onAdd={() => void addBlockDay()}
+                onDelete={(id) => void deleteBlockDay(id)}
+              />
+            </div>
+          </>
+        )}
+
+        {/* ─── Tab "Contabilità & Fiscale": dati fiscali + Sistema TS ─── */}
+        {activeTab === "patient_area" && (
+          <>
             <div id="set-sec-area-paziente">
               <PatientAreaSection
                 show={showPatientArea} onToggle={() => setShowPatientArea(!showPatientArea)}
@@ -2425,7 +2452,11 @@ export default function SettingsDesktopClient() {
                 onSave={() => void savePatientArea()}
               />
             </div>
+          </>
+        )}
 
+        {activeTab === "booking" && (
+          <>
             <div id="set-sec-prenotazione-online">
               <OnlineBookingSection
                 show={showOnlineBooking} onToggle={() => setShowOnlineBooking(!showOnlineBooking)}
@@ -2447,24 +2478,13 @@ export default function SettingsDesktopClient() {
                 onGenerateDescription={generateServiceDescription}
                 onAdd={() => void addService()}
                 onUpdate={(id, patch) => void updateService(id, patch)}
+                onTogglePrice={(id, next) => void toggleServicePrice(id, next)}
                 onDelete={(id) => void deleteService(id)}
-              />
-            </div>
-
-            <div id="set-sec-chiusure">
-              <BlockedDaysSection
-                show={showBlockDays} onToggle={() => setShowBlockDays(!showBlockDays)}
-                savingBlock={savingBlock} blockDays={blockDays}
-                newBlockDate={newBlockDate} setNewBlockDate={setNewBlockDate}
-                newBlockLabel={newBlockLabel} setNewBlockLabel={setNewBlockLabel}
-                onAdd={() => void addBlockDay()}
-                onDelete={(id) => void deleteBlockDay(id)}
               />
             </div>
           </>
         )}
 
-        {/* ─── Tab "Contabilità & Fiscale": dati fiscali + Sistema TS ─── */}
         {activeTab === "accounting" && (
           <>
             <div id="set-sec-pratica">

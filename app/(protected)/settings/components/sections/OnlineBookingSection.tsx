@@ -72,6 +72,8 @@ export type OnlineBookingSectionProps = {
   onDelete: (id: string) => void;
   /** Sposta un servizio di una posizione (mig. 088). */
   onMove: (id: string, direction: "up" | "down") => void;
+  /** Mostra o nasconde il prezzo di una singola voce (mig. 090). */
+  onTogglePrice: (id: string, next: boolean) => void;
   /** Chiede all'AI una descrizione a partire dal nome. Restituisce null se fallisce. */
   onGenerateDescription: (name: string, duration: number) => Promise<string | null>;
 };
@@ -190,7 +192,8 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
             <span style={{ fontSize: 13, fontWeight: 600, color: THEME.text }}>
               Mostra i prezzi sulla pagina
               <span style={{ display: "block", fontWeight: 400, fontSize: 11.5, color: THEME.muted, marginTop: 1 }}>
-                Se disattivo, il paziente vede solo nome e durata del servizio
+                Se disattivo li nasconde tutti. Lasciandolo attivo puoi decidere
+                voce per voce, dall&apos;elenco qui sotto
               </span>
             </span>
           </label>
@@ -459,10 +462,31 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
                             {svc.duration ? `${svc.duration} min` : "durata non indicata"}
                             {` · €${svc.price}`}
                             {svc.price_unit ? ` ${svc.price_unit}` : ""}
-                            {p.bookingShowPrices ? "" : " (non pubblicato)"}
+                            {!p.bookingShowPrices
+                              ? " (prezzi disattivati per tutti)"
+                              : svc.show_price === false ? " (prezzo nascosto)" : ""}
                           </div>
                         </div>
                         <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
+                          {/* mig. 090: prezzo visibile o no per questa singola voce.
+                              Disabilitato quando i prezzi sono spenti per tutto lo studio. */}
+                          <button
+                            onClick={() => p.onTogglePrice(svc.id, svc.show_price === false)}
+                            disabled={!p.bookingShowPrices}
+                            title={!p.bookingShowPrices
+                              ? "I prezzi sono disattivati per tutto lo studio"
+                              : svc.show_price === false ? "Mostra il prezzo al paziente" : "Nascondi il prezzo al paziente"}
+                            style={{
+                              padding: "5px 10px", borderRadius: 6, cursor: p.bookingShowPrices ? "pointer" : "default",
+                              border: `1px solid ${THEME.border}`,
+                              background: svc.show_price === false ? "#fff" : THEME.panelSoft,
+                              color: svc.show_price === false ? THEME.muted : THEME.text,
+                              fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap",
+                              opacity: p.bookingShowPrices ? 1 : 0.45,
+                            }}
+                          >
+                            {svc.show_price === false ? "€ nascosto" : "€ visibile"}
+                          </button>
                           <div style={{ display: "flex", flexDirection: "column", gap: 2, marginRight: 2 }}>
                             <button
                               onClick={() => p.onMove(svc.id, "up")}

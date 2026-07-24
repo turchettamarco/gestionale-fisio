@@ -386,7 +386,8 @@ export default function PrenotaPublicClient() {
                             display: "block", fontSize: 12, color: T.mutedSoft, marginTop: 3,
                           }}>
                             {svc.duration ? `${svc.duration} min` : ""}
-                            {showPrices && `${svc.duration ? " · " : ""}€${svc.price}${svc.price_unit ? ` ${svc.price_unit}` : ""}`}
+                            {showPrices && svc.show_price !== false
+                              && `${svc.duration ? " · " : ""}€${svc.price}${svc.price_unit ? ` ${svc.price_unit}` : ""}`}
                           </span>
                         </span>
 

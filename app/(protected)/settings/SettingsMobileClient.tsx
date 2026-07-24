@@ -1355,6 +1355,15 @@ export default function SettingsMobileClient() {
     } catch (e) { setError(e instanceof Error ? e.message : "Errore"); }
     finally { setSavingSvc(false); }
   }
+  // Mostra/nasconde il prezzo del singolo servizio (mig. 090)
+  async function toggleServicePrice(id: string, next: boolean) {
+    if (!currentStudioId) return;
+    const { error: err } = await supabase.from("booking_services")
+      .update({ show_price: next }).eq("id", id).eq("studio_id", currentStudioId);
+    if (err) { setError("Errore: " + err.message); return; }
+    await loadServices();
+  }
+
   async function deleteService(id: string) {
     if (!confirm("Eliminare questo servizio?")) return;
     if (!currentStudioId) return;
@@ -2536,6 +2545,7 @@ export default function SettingsMobileClient() {
             onGenerateDescription={generateServiceDescription}
             onAdd={() => void addService()}
             onUpdate={(id, patch) => void updateService(id, patch)}
+            onTogglePrice={(id, next) => void toggleServicePrice(id, next)}
             onDelete={id => void deleteService(id)}
           />
         </div>

@@ -39,6 +39,8 @@ export type PublicBookingService = {
   description: string | null;
   /** Unità dopo il prezzo, es. "al giorno" (mig. 088). NULL = a seduta. */
   price_unit: string | null;
+  /** Se false il prezzo non va mostrato per questa voce (mig. 090). */
+  show_price: boolean;
 };
 
 export type PublicBookingLocation = {
@@ -91,7 +93,7 @@ export async function GET(
 
     const { data: services, error: servicesErr } = await supabaseAdmin
       .from("booking_services")
-      .select("id, name, duration, price, description, price_unit")
+      .select("id, name, duration, price, description, price_unit, show_price")
       .eq("studio_id", studio.id)
       // mig. 088: ordine deciso dallo studio; il nome è solo lo spareggio
       .order("sort_order", { ascending: true })

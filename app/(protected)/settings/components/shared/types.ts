@@ -101,6 +101,8 @@ export type BookableService = {
   sort_order?: number;
   /** Unità dopo il prezzo, es. "al giorno" per i noleggi (mig. 088). */
   price_unit?: string | null;
+  /** Se false il prezzo di questa voce non compare al paziente (mig. 090). */
+  show_price?: boolean;
 };
 
 export type BlockedDay = {
