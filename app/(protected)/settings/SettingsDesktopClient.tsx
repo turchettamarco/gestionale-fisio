@@ -174,6 +174,7 @@ export default function SettingsDesktopClient() {
   const [portalFeatures, setPortalFeatures] = useState<PortalFeatures>({
     appointments: true, history: true, booking: true,
     exercises: true, scales: true, consents: true,
+    packages: true, pain_diary: false,
   });
   const setPortalFeature = (key: keyof PortalFeatures, value: boolean) =>
     setPortalFeatures(prev => ({ ...prev, [key]: value }));
@@ -294,6 +295,8 @@ export default function SettingsDesktopClient() {
       exercises:    st.portal_show_exercises    !== false,
       scales:       st.portal_show_scales       !== false,
       consents:     st.portal_show_consents     !== false,
+      packages:     st.portal_show_packages     !== false,
+      pain_diary:   st.portal_show_pain_diary   === true,
     });
 
     // Multi-sede (mig. 014)
@@ -1832,6 +1835,8 @@ export default function SettingsDesktopClient() {
           portal_show_exercises:    portalFeatures.exercises,
           portal_show_scales:       portalFeatures.scales,
           portal_show_consents:     portalFeatures.consents,
+          portal_show_packages:     portalFeatures.packages,
+          portal_show_pain_diary:   portalFeatures.pain_diary,
         })
         .eq("id", studio.id);
       if (error) { alert("Errore: " + error.message); return; }

@@ -4,6 +4,13 @@ import { useParams } from "next/navigation";
 
 type PendingItem = { token: string; title?: string | null; scale_type?: string | null };
 
+type PackageItem = {
+  id: string; title: string | null; total: number | null;
+  used: number; remaining: number | null; expires_at: string | null;
+};
+
+type PainEntry = { day: string; level: number };
+
 type HistoryItem = {
   id: string;
   start_at: string;
@@ -22,6 +29,28 @@ export default function PortalPage() {
   const [error, setError] = useState("");
   // Lo storico può essere lungo: chiuso di default, si apre con un tocco
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Diario del dolore: valore scelto oggi e stato di salvataggio
+  const [painLevel, setPainLevel] = useState<number | null>(null);
+  const [painSaving, setPainSaving] = useState(false);
+  const [painSaved, setPainSaved] = useState(false);
+
+  async function savePain(level: number) {
+    setPainLevel(level);
+    setPainSaving(true);
+    setPainSaved(false);
+    try {
+      const r = await fetch("/api/portal/pain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, level }),
+      });
+      if (r.ok) setPainSaved(true);
+    } catch {
+      // silenzioso: riprova al prossimo tocco
+    } finally {
+      setPainSaving(false);
+    }
+  }
 
   useEffect(()=>{
     if(!token) return;
@@ -50,10 +79,16 @@ export default function PortalPage() {
   const showAmounts = data.show_amounts !== false;
   // Interruttori impostati dallo studio (mig. 091). In assenza, tutto visibile.
   const feat = (data.features ?? {}) as Partial<Record<
-    "appointments"|"history"|"booking"|"exercises"|"scales"|"consents", boolean>>;
-  const on = (k: keyof typeof feat) => feat[k] !== false;
+    "appointments"|"history"|"booking"|"exercises"|"scales"|"consents"|"packages"|"pain_diary", boolean>>;
+  // Tutti i blocchi sono visibili salvo diversa indicazione, tranne il
+  // diario del dolore che va acceso esplicitamente dal terapista.
+  const on = (k: keyof typeof feat) =>
+    k === "pain_diary" ? feat[k] === true : feat[k] !== false;
   const pendingScales: PendingItem[] = data.pending_scales ?? [];
   const pendingConsents: PendingItem[] = data.pending_consents ?? [];
+  const packages: PackageItem[] = data.packages ?? [];
+  const painLog: PainEntry[] = data.pain_log ?? [];
+  const adherenceDays: number = data.adherence_days ?? 0;
   const paidCount = history.filter(h => h.payment_state !== "unpaid").length;
 
   return <Wrap headerTitle={headerTitle} logoBase64={studio?.logo_base64}>
@@ -246,6 +281,90 @@ export default function PortalPage() {
         </section>
       )}
 
+      {/* Sedute residue del pacchetto (mig. 092) */}
+      {on("packages") && packages.length > 0 && (
+        <section style={{marginBottom:24}}>
+          <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
+            🎟️ Il tuo pacchetto
+          </h2>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {packages.map(pk => (
+              <div key={pk.id} style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:10,padding:"14px 16px"}}>
+                <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:10}}>
+                  <span style={{fontSize:13.5,fontWeight:700,color:"#0f172a"}}>{pk.title || "Pacchetto sedute"}</span>
+                  {pk.remaining !== null && (
+                    <span style={{fontSize:15,fontWeight:800,color:pk.remaining === 0 ? "#b45309" : "#0d9488"}}>
+                      {pk.remaining}
+                    </span>
+                  )}
+                </div>
+                <div style={{fontSize:11.5,color:"#64748b",marginTop:3}}>
+                  {pk.remaining === null
+                    ? `${pk.used} sedute utilizzate`
+                    : pk.remaining === 0
+                      ? "Pacchetto terminato"
+                      : `${pk.remaining === 1 ? "seduta rimasta" : "sedute rimaste"} su ${pk.total} · ${pk.used} già svolte`}
+                  {pk.expires_at && ` · valido fino al ${new Date(pk.expires_at).toLocaleDateString("it-IT")}`}
+                </div>
+                {pk.remaining !== null && pk.total ? (
+                  <div style={{marginTop:8,height:6,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}>
+                    <div style={{height:"100%",width:`${Math.min(100,(pk.used/pk.total)*100)}%`,background:"#0d9488"}} />
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Diario del dolore (mig. 092) */}
+      {on("pain_diary") && (
+        <section style={{marginBottom:24}}>
+          <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
+            🩹 Come stai oggi?
+          </h2>
+          <div style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:10,padding:"16px"}}>
+            <div style={{fontSize:12,color:"#64748b",marginBottom:12,lineHeight:1.5}}>
+              Segna il livello di dolore di oggi: 0 nessun dolore, 10 il massimo.
+              Serve al tuo terapista per vedere l&apos;andamento reale tra una seduta e l&apos;altra.
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(11,1fr)",gap:4}}>
+              {Array.from({length:11},(_,i)=>i).map(n => {
+                const active = painLevel === n;
+                return (
+                  <button key={n} onClick={()=>void savePain(n)} disabled={painSaving}
+                    style={{padding:"8px 0",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:800,
+                      border:`1px solid ${active?"#0d9488":"#e2e8f0"}`,
+                      background:active?"#0d9488":"#fff",
+                      color:active?"#fff":"#475569"}}>
+                    {n}
+                  </button>
+                );
+              })}
+            </div>
+            {painSaved && (
+              <div style={{fontSize:11.5,color:"#15803d",marginTop:10,fontWeight:700}}>
+                Registrato ✓ — puoi cambiarlo quando vuoi
+              </div>
+            )}
+            {painLog.length > 0 && (
+              <div style={{marginTop:14,paddingTop:12,borderTop:"1px solid #e2e8f0"}}>
+                <div style={{fontSize:10.5,fontWeight:700,color:"#64748b",letterSpacing:0.4,textTransform:"uppercase",marginBottom:8}}>
+                  Ultimi giorni
+                </div>
+                <div style={{display:"flex",alignItems:"flex-end",gap:3,height:44}}>
+                  {painLog.slice(0,14).reverse().map(e => (
+                    <div key={e.day} title={`${new Date(e.day).toLocaleDateString("it-IT")} — ${e.level}/10`}
+                      style={{flex:1,height:`${Math.max(8,(e.level/10)*100)}%`,borderRadius:2,
+                        background:e.level>=7?"#dc2626":e.level>=4?"#f59e0b":"#0d9488"}} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
       {/* Scheda esercizi */}
       {on("exercises") && data.exercise_token && (
         <section style={{marginBottom:24}}>
@@ -256,10 +375,27 @@ export default function PortalPage() {
             <div style={{fontSize:15,fontWeight:800,marginBottom:4}}>📋 Apri scheda esercizi domiciliari →</div>
             <div style={{fontSize:11,opacity:0.85}}>Esercizi, video e indicazioni da fare a casa</div>
           </a>
+          {/* Aderenza: giorni con almeno un esercizio spuntato (mig. 054) */}
+          <div style={{marginTop:8,padding:"10px 14px",borderRadius:8,background:"#f8fafc",border:"1px solid #e2e8f0",fontSize:12,color:"#475569"}}>
+            {adherenceDays === 0
+              ? "Questa settimana non hai ancora spuntato nessun esercizio."
+              : `Questa settimana ti sei allenato ${adherenceDays} ${adherenceDays === 1 ? "giorno" : "giorni"} su 7.`}
+          </div>
         </section>
       )}
 
       {/* Info contatti — dinamico dallo studio */}
+      {/* Invito a installare: il manifest c'è (tappa 2), ma su iOS il
+          browser non propone nulla da solo e va spiegato al paziente. */}
+      <section style={{marginBottom:20}}>
+        <div style={{padding:"12px 14px",borderRadius:10,background:"#f8fafc",border:"1px dashed #cbd5e1",fontSize:11.5,color:"#64748b",lineHeight:1.55}}>
+          <strong style={{color:"#475569"}}>Tienila a portata di mano.</strong> Puoi
+          aggiungere questa pagina alla schermata Home del telefono e aprirla come
+          un&apos;app: su iPhone tocca <em>Condividi</em> e poi <em>Aggiungi a Home</em>,
+          su Android il menu <em>⋮</em> e poi <em>Installa app</em>.
+        </div>
+      </section>
+
       <section style={{marginBottom:20}}>
         <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10}}>📞 Contatti studio</h2>
         <div style={{background:"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:10,padding:"14px 16px",fontSize:13,color:"#0f172a",lineHeight:1.6}}>

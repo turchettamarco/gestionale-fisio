@@ -22,6 +22,8 @@ export type PortalFeatures = {
   exercises: boolean;
   scales: boolean;
   consents: boolean;
+  packages: boolean;
+  pain_diary: boolean;
 };
 
 export const PORTAL_FEATURE_LABELS: Array<{
@@ -33,6 +35,8 @@ export const PORTAL_FEATURE_LABELS: Array<{
   { key: "exercises",    label: "Scheda esercizi",       hint: "Il programma di esercizi assegnato al paziente" },
   { key: "scales",       label: "Questionari da compilare", hint: "Scale di valutazione inviate e non ancora compilate" },
   { key: "consents",     label: "Consensi da firmare",   hint: "Consensi informati in attesa di firma" },
+  { key: "packages",     label: "Sedute residue",        hint: "Quante sedute restano nei pacchetti attivi del paziente" },
+  { key: "pain_diary",   label: "Diario del dolore",     hint: "Il paziente segna ogni giorno il dolore da 0 a 10 e tu vedi l'andamento tra una seduta e l'altra. Spento di default: attivalo dopo averlo spiegato" },
 ];
 
 export type PatientAreaSectionProps = {

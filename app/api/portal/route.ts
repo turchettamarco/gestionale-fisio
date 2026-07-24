@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
 
     const nowIso = new Date().toISOString();
 
-    const [patientRes, apptRes, historyRes, exercisesRes, scalesRes, consentsRes] = await Promise.all([
+    const [patientRes, apptRes, historyRes, exercisesRes, scalesRes, packagesRes, painRes, consentsRes] = await Promise.all([
       db.from("patients").select("first_name,last_name,studio_id").eq("id", tk.patient_id).maybeSingle(),
       db.from("appointments")
         .select("id,start_at,end_at,status,location,clinic_site,domicile_address,treatment_type")
@@ -78,6 +78,17 @@ export async function GET(req: NextRequest) {
         .eq("status", "pending")
         .order("sent_at", { ascending: false })
         .limit(5),
+      // Pacchetti attivi, per calcolare le sedute residue (mig. 092)
+      db.from("patient_packages")
+        .select("id,title,total_sessions,status,expires_at")
+        .eq("patient_id", tk.patient_id)
+        .eq("status", "active"),
+      // Diario del dolore: ultimi 30 giorni (mig. 092)
+      db.from("patient_pain_log")
+        .select("day,level")
+        .eq("patient_id", tk.patient_id)
+        .order("day", { ascending: false })
+        .limit(30),
       // Consensi informati ancora da firmare (mig. 091)
       db.from("patient_consents")
         .select("access_token,consent_type,title,sent_at")
@@ -93,7 +104,7 @@ export async function GET(req: NextRequest) {
     if (studioId) {
       const studioRes = await db
         .from("studios")
-        .select("name,address,phone,signature_name,signature_title,google_review_link,website,logo_base64,booking_slug,booking_public_enabled,portal_show_amounts,portal_show_appointments,portal_show_history,portal_show_booking,portal_show_exercises,portal_show_scales,portal_show_consents")
+        .select("name,address,phone,signature_name,signature_title,google_review_link,website,logo_base64,booking_slug,booking_public_enabled,portal_show_amounts,portal_show_appointments,portal_show_history,portal_show_booking,portal_show_exercises,portal_show_scales,portal_show_consents,portal_show_packages,portal_show_pain_diary")
         .eq("id", studioId)
         .maybeSingle();
       studio = studioRes.data || null;
@@ -111,6 +122,67 @@ export async function GET(req: NextRequest) {
     // vengono esclusi QUI, lato server. Nasconderli solo nella pagina non
     // servirebbe: resterebbero leggibili nella risposta di rete.
     const showAmounts = studio?.portal_show_amounts !== false;
+
+    // ── Sedute residue per ogni pacchetto attivo (mig. 092) ──────────
+    type PackageRow = {
+      id: string; title: string | null;
+      total_sessions: number | null; expires_at: string | null;
+    };
+    const activePackages = (packagesRes.data ?? []) as PackageRow[];
+    let packageSummary: Array<{
+      id: string; title: string | null; total: number | null;
+      used: number; remaining: number | null; expires_at: string | null;
+    }> = [];
+
+    if (activePackages.length > 0) {
+      const ids = activePackages.map(pk => pk.id);
+      const { data: consumed } = await db
+        .from("appointments")
+        .select("package_id")
+        .in("package_id", ids)
+        .neq("status", "cancelled");
+
+      const usedByPackage: Record<string, number> = {};
+      for (const row of consumed ?? []) {
+        const pid = row.package_id as string | null;
+        if (pid) usedByPackage[pid] = (usedByPackage[pid] ?? 0) + 1;
+      }
+
+      packageSummary = activePackages.map(pk => {
+        const used = usedByPackage[pk.id] ?? 0;
+        return {
+          id: pk.id,
+          title: pk.title,
+          total: pk.total_sessions,
+          used,
+          remaining: pk.total_sessions === null
+            ? null
+            : Math.max(0, pk.total_sessions - used),
+          expires_at: pk.expires_at,
+        };
+      });
+    }
+
+    // ── Giorni con almeno un esercizio spuntato negli ultimi 7 ───────
+    let adherenceDays = 0;
+    const schedaToken = exercisesRes.data?.[0]?.token;
+    if (schedaToken) {
+      const { data: scheda } = await db
+        .from("schede_esercizi_pubbliche")
+        .select("id")
+        .eq("token", schedaToken)
+        .maybeSingle();
+      if (scheda?.id) {
+        const since = new Date(Date.now() - 6 * 86400000)
+          .toLocaleDateString("sv-SE", { timeZone: "Europe/Rome" });
+        const { data: checks } = await db
+          .from("esercizi_aderenza")
+          .select("done_date")
+          .eq("scheda_id", scheda.id)
+          .gte("done_date", since);
+        adherenceDays = new Set((checks ?? []).map(c => c.done_date as string)).size;
+      }
+    }
 
     const history = ((historyRes.data ?? []) as HistoryRow[]).map(a => ({
       id: a.id,
@@ -137,7 +209,19 @@ export async function GET(req: NextRequest) {
         token: r.access_token as string,
         title: (r.title as string | null) ?? (r.consent_type as string | null),
       })),
-      // Interruttori di visibilità dell'area paziente (mig. 091)
+      // Sedute residue dei pacchetti attivi (mig. 092).
+      // Le consumate si contano dagli appuntamenti collegati al pacchetto:
+      // è la stessa logica dell'agenda, non un contatore separato che
+      // potrebbe divergere.
+      packages: packageSummary,
+      // Diario del dolore: giorni già registrati, il più recente per primo
+      pain_log: (painRes.data ?? []).map(r => ({
+        day: r.day as string,
+        level: r.level as number,
+      })),
+      // Aderenza esercizi degli ultimi 7 giorni (mig. 054 riusata)
+      adherence_days: adherenceDays,
+      // Interruttori di visibilità dell'area paziente (mig. 091/092)
       features: {
         appointments: studio?.portal_show_appointments !== false,
         history:      studio?.portal_show_history      !== false,
@@ -145,6 +229,8 @@ export async function GET(req: NextRequest) {
         exercises:    studio?.portal_show_exercises    !== false,
         scales:       studio?.portal_show_scales       !== false,
         consents:     studio?.portal_show_consents     !== false,
+        packages:     studio?.portal_show_packages     !== false,
+        pain_diary:   studio?.portal_show_pain_diary   === true,
       },
       exercise_token: exercisesRes.data?.[0]?.token || null,
       studio,
