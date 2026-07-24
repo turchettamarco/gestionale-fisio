@@ -1,5 +1,6 @@
 "use client";
 import React, { useCallback, useEffect, useState } from "react";
+import ExerciseLibraryModal from "./ExerciseLibraryModal";
 import { supabase } from "@/src/lib/supabaseClient";
 import { showToast } from "@/src/components/mobile/ToastProvider";
 import { openWhatsApp } from "@/src/lib/whatsapp";
@@ -139,6 +140,53 @@ export default function ExerciseProgramSection({
   const [genLoading, setGenLoading] = useState(false);
   const [aiHint, setAiHint] = useState("");
   const [addName, setAddName] = useState("");
+
+  // Libreria esercizi dello studio (mig. 098)
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [savedToLib, setSavedToLib] = useState<Set<string>>(new Set());
+
+  /** Copia un esercizio della scheda nella libreria dello studio. */
+  async function salvaInLibreria(e: Esercizio) {
+    if (!studio?.id) return;
+    if (!e.nome?.trim()) { notify("error", "Dai un nome all'esercizio prima di salvarlo."); return; }
+    try {
+      // Stesso nome già in libreria: si aggiorna invece di duplicare
+      const { data: esistente } = await supabase
+        .from("studio_exercise_library")
+        .select("id")
+        .eq("studio_id", studio.id)
+        .ilike("nome", e.nome.trim())
+        .eq("is_active", true)
+        .maybeSingle();
+
+      const riga = {
+        studio_id: studio.id,
+        nome: e.nome.trim(),
+        descrizione: e.descrizione ?? "",
+        serie: e.serie ?? "",
+        ripetizioni: e.ripetizioni ?? "",
+        frequenza: e.frequenza ?? "",
+        note: e.note ?? null,
+        avvertenze: e.avvertenze ?? null,
+        youtube_id: e.youtube_id ?? null,
+        image_url: e.image_url ?? null,
+        categoria: e.categoria ?? null,
+        updated_at: new Date().toISOString(),
+      };
+
+      const res = esistente?.id
+        ? await supabase.from("studio_exercise_library").update(riga).eq("id", esistente.id)
+        : await supabase.from("studio_exercise_library").insert(riga);
+
+      if (res.error) { notify("error", "Errore: " + res.error.message); return; }
+      setSavedToLib(prev => new Set(prev).add(e.id));
+      notify("success", esistente?.id
+        ? `"${e.nome}" aggiornato in libreria`
+        : `"${e.nome}" salvato in libreria`);
+    } catch {
+      notify("error", "Errore nel salvataggio in libreria.");
+    }
+  }
   const [addLoading, setAddLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -611,6 +659,13 @@ export default function ExerciseProgramSection({
               cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
             ＋ Manuale
           </button>
+          <button onClick={() => setLibraryOpen(true)}
+            title="Riprendi un esercizio già scritto in passato"
+            style={{ padding: "7px 13px", borderRadius: 8, border: `1.5px solid ${T.teal}40`,
+              background: `${T.teal}0d`, color: T.teal, fontWeight: 700, fontSize: 12,
+              cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+            ☰ Libreria
+          </button>
         </div>
       </div>
 
@@ -648,6 +703,15 @@ export default function ExerciseProgramSection({
                   style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`,
                     background: "#fff", cursor: "pointer", fontSize: 11, color: T.faint,
                     opacity: i === esercizi.length - 1 ? 0.35 : 1 }}>↓</button>
+                <button onClick={() => void salvaInLibreria(e)}
+                  title={savedToLib.has(e.id) ? "Già salvato in libreria" : "Salva in libreria per riusarlo"}
+                  style={{ width: 24, height: 24, borderRadius: 6,
+                    border: `1px solid ${savedToLib.has(e.id) ? T.teal : T.border}`,
+                    background: savedToLib.has(e.id) ? `${T.teal}12` : "#fff",
+                    cursor: "pointer", fontSize: 11,
+                    color: savedToLib.has(e.id) ? T.teal : T.faint }}>
+                  {savedToLib.has(e.id) ? "✓" : "☆"}
+                </button>
                 <button onClick={() => removeEx(e.id)}
                   style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.red}30`,
                     background: `${T.red}0a`, cursor: "pointer", fontSize: 11, color: T.red }}>🗑</button>
@@ -837,6 +901,14 @@ export default function ExerciseProgramSection({
           )}
         </div>
       )}
+
+      {/* Libreria esercizi dello studio (mig. 098) */}
+      <ExerciseLibraryModal
+        open={libraryOpen}
+        onClose={() => setLibraryOpen(false)}
+        studioId={studio?.id ?? null}
+        onPick={(nuovi) => setEsercizi(prev => [...prev, ...nuovi])}
+      />
     </div>
   );
 }
