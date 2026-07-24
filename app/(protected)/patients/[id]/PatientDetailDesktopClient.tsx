@@ -34,6 +34,7 @@ import PaidPill from "@/src/components/PaidPill";
 import type { PaymentMethod } from "@/src/components/PaidPopover";
 import PatientPackagesSection from "@/src/components/packages/PatientPackagesSection";
 import RemoteConsentsSection from "@/src/components/patient/RemoteConsentsSection";
+import IntakeSection from "@/src/components/patient/IntakeSection";
 import { quickSendRemoteConsents } from "@/src/lib/consents/quickSend";
 import ExerciseProgramSection from "@/src/components/patient/ExerciseProgramSection";
 import PatientOverview from "@/src/components/patient/PatientOverview";
@@ -3324,6 +3325,16 @@ ${rows}
               <button onClick={() => setShowConsentModal(true)} style={{ width: "100%", padding: "9px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #0d9488, #2563eb)", color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
                 🔏 Firma entrambi su iPad e salva automaticamente
               </button>
+            </div>
+
+            {/* Autovalutazione pre-visita (mig. 093) */}
+            <div style={{ marginBottom: 16 }}>
+              <IntakeSection
+                patientId={patientId}
+                patientFirstName={patient?.first_name ?? ""}
+                patientPhone={patient?.phone ?? null}
+                studioId={currentStudio?.id ?? null}
+              />
             </div>
 
             {/* Consensi a distanza (firma via link da casa) */}

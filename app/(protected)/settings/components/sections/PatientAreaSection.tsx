@@ -24,6 +24,8 @@ export type PortalFeatures = {
   consents: boolean;
   packages: boolean;
   pain_diary: boolean;
+  intake: boolean;
+  changes: boolean;
 };
 
 export const PORTAL_FEATURE_LABELS: Array<{
@@ -36,6 +38,8 @@ export const PORTAL_FEATURE_LABELS: Array<{
   { key: "scales",       label: "Questionari da compilare", hint: "Scale di valutazione inviate e non ancora compilate" },
   { key: "consents",     label: "Consensi da firmare",   hint: "Consensi informati in attesa di firma" },
   { key: "packages",     label: "Sedute residue",        hint: "Quante sedute restano nei pacchetti attivi del paziente" },
+  { key: "intake",       label: "Autovalutazione pre-visita", hint: "I questionari che invii dalla cartella del paziente compaiono qui, pronti da compilare" },
+  { key: "changes",      label: "Disdette e spostamenti", hint: "Il paziente può chiedere di disdire o spostare un appuntamento. Non cancella nulla da solo: la richiesta arriva a te e resti tu a decidere. Spento di default" },
   { key: "pain_diary",   label: "Diario del dolore",     hint: "Il paziente segna ogni giorno il dolore da 0 a 10 e tu vedi l'andamento tra una seduta e l'altra. Spento di default: attivalo dopo averlo spiegato" },
 ];
 

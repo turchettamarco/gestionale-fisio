@@ -33,6 +33,31 @@ export default function PortalPage() {
   const [painLevel, setPainLevel] = useState<number | null>(null);
   const [painSaving, setPainSaving] = useState(false);
   const [painSaved, setPainSaved] = useState(false);
+  // Richiesta di disdetta/spostamento in corso di invio
+  const [reqSending, setReqSending] = useState<string | null>(null);
+  const [reqDone, setReqDone] = useState<Set<string>>(new Set());
+
+  async function sendChangeRequest(appointmentId: string, kind: "cancel" | "reschedule") {
+    const testo = kind === "cancel"
+      ? "Vuoi chiedere di disdire questo appuntamento?"
+      : "Vuoi chiedere di spostare questo appuntamento?";
+    if (!confirm(`${testo}\n\nLo studio riceverà la richiesta e ti ricontatterà. L'appuntamento resta valido finché non viene confermato.`)) return;
+    setReqSending(appointmentId);
+    try {
+      const r = await fetch("/api/portal/appointment-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, appointment_id: appointmentId, kind }),
+      });
+      const d = await r.json();
+      if (!r.ok) { alert(d.error || "Errore invio richiesta"); return; }
+      setReqDone(prev => new Set(prev).add(appointmentId));
+    } catch {
+      alert("Errore di connessione");
+    } finally {
+      setReqSending(null);
+    }
+  }
 
   async function savePain(level: number) {
     setPainLevel(level);
@@ -79,16 +104,22 @@ export default function PortalPage() {
   const showAmounts = data.show_amounts !== false;
   // Interruttori impostati dallo studio (mig. 091). In assenza, tutto visibile.
   const feat = (data.features ?? {}) as Partial<Record<
-    "appointments"|"history"|"booking"|"exercises"|"scales"|"consents"|"packages"|"pain_diary", boolean>>;
+    "appointments"|"history"|"booking"|"exercises"|"scales"|"consents"|"packages"|"pain_diary"|"intake"|"changes", boolean>>;
   // Tutti i blocchi sono visibili salvo diversa indicazione, tranne il
   // diario del dolore che va acceso esplicitamente dal terapista.
+  // Quasi tutto è visibile salvo diversa indicazione; diario e richieste
+  // di modifica vanno invece accesi apposta dal terapista.
+  const OPT_IN: string[] = ["pain_diary", "changes"];
   const on = (k: keyof typeof feat) =>
-    k === "pain_diary" ? feat[k] === true : feat[k] !== false;
+    OPT_IN.includes(k) ? feat[k] === true : feat[k] !== false;
   const pendingScales: PendingItem[] = data.pending_scales ?? [];
   const pendingConsents: PendingItem[] = data.pending_consents ?? [];
   const packages: PackageItem[] = data.packages ?? [];
   const painLog: PainEntry[] = data.pain_log ?? [];
   const adherenceDays: number = data.adherence_days ?? 0;
+  const pendingIntake: PendingItem[] = data.pending_intake ?? [];
+  const changeRequests: Array<{appointment_id: string|null; kind: string}> = data.change_requests ?? [];
+  const requestedIds = new Set(changeRequests.map(c => c.appointment_id));
   const paidCount = history.filter(h => h.payment_state !== "unpaid").length;
 
   return <Wrap headerTitle={headerTitle} logoBase64={studio?.logo_base64}>
@@ -127,6 +158,27 @@ export default function PortalPage() {
                   <div style={{fontSize:20,fontWeight:800,color:statusColor,marginBottom:4}}>🕐 {tStr}</div>
                   <div style={{fontSize:12,color:"#64748b"}}>📍 {luogo}</div>
                   {a.treatment_type && <div style={{fontSize:11,color:"#64748b",marginTop:3}}>Tipo: {a.treatment_type}</div>}
+
+                  {/* Disdetta e spostamento: sono richieste, l'appuntamento
+                      resta valido finché lo studio non risponde (mig. 094) */}
+                  {on("changes") && (
+                    requestedIds.has(a.id) || reqDone.has(a.id) ? (
+                      <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid #f1f5f9",fontSize:11.5,color:"#b45309",fontWeight:700}}>
+                        Richiesta inviata — lo studio ti ricontatterà
+                      </div>
+                    ) : (
+                      <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid #f1f5f9",display:"flex",gap:8}}>
+                        <button onClick={()=>void sendChangeRequest(a.id,"reschedule")} disabled={reqSending===a.id}
+                          style={{flex:1,padding:"8px",borderRadius:7,border:"1px solid #cbd5e1",background:"#fff",color:"#475569",fontWeight:700,fontSize:11.5,cursor:"pointer"}}>
+                          Chiedi di spostare
+                        </button>
+                        <button onClick={()=>void sendChangeRequest(a.id,"cancel")} disabled={reqSending===a.id}
+                          style={{flex:1,padding:"8px",borderRadius:7,border:"1px solid rgba(220,38,38,0.3)",background:"rgba(220,38,38,0.04)",color:"#dc2626",fontWeight:700,fontSize:11.5,cursor:"pointer"}}>
+                          Non posso venire
+                        </button>
+                      </div>
+                    )
+                  )}
                 </div>
               );
             })}
@@ -231,6 +283,21 @@ export default function PortalPage() {
           </div>
         )}
       </section>
+      )}
+
+      {/* Autovalutazione pre-visita (mig. 093) */}
+      {on("intake") && pendingIntake.length > 0 && (
+        <section style={{marginBottom:24}}>
+          <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
+            🩺 Prima della visita
+          </h2>
+          {pendingIntake.map(it => (
+            <a key={it.token} href={`/autovalutazione/${it.token}`} style={{display:"block",padding:"16px 18px",background:"linear-gradient(135deg,#0d9488,#2563eb)",borderRadius:10,color:"#fff",textDecoration:"none"}}>
+              <div style={{fontSize:15,fontWeight:800,marginBottom:4}}>Compila l&apos;autovalutazione →</div>
+              <div style={{fontSize:11,opacity:0.85}}>Cinque minuti, così in seduta partiamo già preparati</div>
+            </a>
+          ))}
+        </section>
       )}
 
       {/* Consensi da firmare — in cima alle cose "da fare" (mig. 091) */}

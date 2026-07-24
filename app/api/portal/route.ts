@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
 
     const nowIso = new Date().toISOString();
 
-    const [patientRes, apptRes, historyRes, exercisesRes, scalesRes, packagesRes, painRes, consentsRes] = await Promise.all([
+    const [patientRes, apptRes, historyRes, exercisesRes, scalesRes, packagesRes, painRes, intakeRes, changeReqRes, consentsRes] = await Promise.all([
       db.from("patients").select("first_name,last_name,studio_id").eq("id", tk.patient_id).maybeSingle(),
       db.from("appointments")
         .select("id,start_at,end_at,status,location,clinic_site,domicile_address,treatment_type")
@@ -89,6 +89,18 @@ export async function GET(req: NextRequest) {
         .eq("patient_id", tk.patient_id)
         .order("day", { ascending: false })
         .limit(30),
+      // Autovalutazioni pre-visita da compilare (mig. 093)
+      db.from("patient_intake")
+        .select("access_token,sent_at")
+        .eq("patient_id", tk.patient_id)
+        .eq("status", "pending")
+        .order("sent_at", { ascending: false })
+        .limit(3),
+      // Richieste di modifica già inviate e ancora in attesa (mig. 094)
+      db.from("appointment_change_requests")
+        .select("appointment_id,kind")
+        .eq("patient_id", tk.patient_id)
+        .eq("status", "pending"),
       // Consensi informati ancora da firmare (mig. 091)
       db.from("patient_consents")
         .select("access_token,consent_type,title,sent_at")
@@ -104,7 +116,7 @@ export async function GET(req: NextRequest) {
     if (studioId) {
       const studioRes = await db
         .from("studios")
-        .select("name,address,phone,signature_name,signature_title,google_review_link,website,logo_base64,booking_slug,booking_public_enabled,portal_show_amounts,portal_show_appointments,portal_show_history,portal_show_booking,portal_show_exercises,portal_show_scales,portal_show_consents,portal_show_packages,portal_show_pain_diary")
+        .select("name,address,phone,signature_name,signature_title,google_review_link,website,logo_base64,booking_slug,booking_public_enabled,portal_show_amounts,portal_show_appointments,portal_show_history,portal_show_booking,portal_show_exercises,portal_show_scales,portal_show_consents,portal_show_packages,portal_show_pain_diary,portal_show_intake,portal_allow_changes")
         .eq("id", studioId)
         .maybeSingle();
       studio = studioRes.data || null;
@@ -221,7 +233,16 @@ export async function GET(req: NextRequest) {
       })),
       // Aderenza esercizi degli ultimi 7 giorni (mig. 054 riusata)
       adherence_days: adherenceDays,
-      // Interruttori di visibilità dell'area paziente (mig. 091/092)
+      // Autovalutazioni da compilare (mig. 093)
+      pending_intake: (intakeRes.data ?? []).map(r => ({
+        token: r.access_token as string,
+      })),
+      // Appuntamenti per cui una richiesta è già partita (mig. 094)
+      change_requests: (changeReqRes.data ?? []).map(r => ({
+        appointment_id: r.appointment_id as string | null,
+        kind: r.kind as string,
+      })),
+      // Interruttori di visibilità dell'area paziente (mig. 091/092/093/094)
       features: {
         appointments: studio?.portal_show_appointments !== false,
         history:      studio?.portal_show_history      !== false,
@@ -231,6 +252,8 @@ export async function GET(req: NextRequest) {
         consents:     studio?.portal_show_consents     !== false,
         packages:     studio?.portal_show_packages     !== false,
         pain_diary:   studio?.portal_show_pain_diary   === true,
+        intake:       studio?.portal_show_intake       !== false,
+        changes:      studio?.portal_allow_changes     === true,
       },
       exercise_token: exercisesRes.data?.[0]?.token || null,
       studio,
