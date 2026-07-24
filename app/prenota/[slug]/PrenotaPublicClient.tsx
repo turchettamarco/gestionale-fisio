@@ -54,6 +54,7 @@ export default function PrenotaPublicClient() {
   const [studio, setStudio] = useState<PublicBookingStudio | null>(null);
   const [services, setServices] = useState<PublicBookingService[]>([]);
   const [locations, setLocations] = useState<PublicBookingLocation[]>([]);
+  const [showPrices, setShowPrices] = useState(true);
   const [selectedLocation, setSelectedLocation] = useState<PublicBookingLocation | null>(null);
 
   const [step, setStep] = useState<Step>("service");
@@ -83,6 +84,7 @@ export default function PrenotaPublicClient() {
         const data = await res.json();
         setStudio(data.studio);
         setServices(data.services ?? []);
+        setShowPrices(data.showPrices !== false);
         const locs: PublicBookingLocation[] = data.locations ?? [];
         setLocations(locs);
         // Con più sedi si parte dalla scelta della sede, altrimenti si va
@@ -275,7 +277,9 @@ export default function PrenotaPublicClient() {
                       <div style={{ fontWeight: 700, fontSize: 14, color: T.text }}>{svc.name}</div>
                       <div style={{ fontSize: 12, color: T.mutedSoft, marginTop: 2 }}>{svc.duration} min</div>
                     </div>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: T.teal }}>€{svc.price}</div>
+                    {showPrices && (
+                      <div style={{ fontWeight: 700, fontSize: 14, color: T.teal }}>€{svc.price}</div>
+                    )}
                   </button>
                 ))}
               </div>

@@ -13,8 +13,7 @@ import type { MessageTemplate, BookableService, BlockedDay, StudioMemberRow, Stu
 import AgendaViewPrefsSection from "./components/sections/AgendaViewPrefsSection";
 import CalendarPrefsSection from "./components/sections/CalendarPrefsSection";
 import BlockedDaysSection from "./components/sections/BlockedDaysSection";
-import BookableServicesSection from "./components/sections/BookableServicesSection";
-import PublicBookingLinkSection from "./components/sections/PublicBookingLinkSection";
+import OnlineBookingSection from "./components/sections/OnlineBookingSection";
 import TeamSection from "./components/sections/TeamSection";
 import RoomsSection from "./components/sections/RoomsSection";
 import OperatorAbsencesSection from "./components/sections/OperatorAbsencesSection";
@@ -99,11 +98,13 @@ export default function SettingsMobileClient() {
   // UI legacy Prenotazioni dal sito (Fase N2.1)
   const [showBookingCardHome, setShowBookingCardHome] = useState(false);
   const [showBookingBellCalendar, setShowBookingBellCalendar] = useState(false);
-  // Link di prenotazione pubblico senza sito (mig. 083)
-  const [showPubBookM, setShowPubBookM] = useState(false);
+  // Prenotazione online (mig. 083/084/085)
+  const [showOnlineBookingM, setShowOnlineBookingM] = useState(false);
   const [bookingPublicEnabled, setBookingPublicEnabled] = useState(false);
-  const [bookingSlug, setBookingSlug] = useState<string | null>(null);
-  const [savingPubBook, setSavingPubBook] = useState(false);
+  const [bookingShowPrices, setBookingShowPrices] = useState(true);
+  const [bookingSlug, setBookingSlug] = useState("");
+  const [savingBooking, setSavingBooking] = useState(false);
+  const [bookingError, setBookingError] = useState<string | null>(null);
 
   // ── Multi-sede (mig. 014) ──
   const [multiLocationEnabled, setMultiLocationEnabled] = useState(false);
@@ -235,12 +236,15 @@ export default function SettingsMobileClient() {
       // UI legacy Prenotazioni dal sito (Fase N2.1)
       setShowBookingCardHome(currentStudio.show_booking_card_home ?? false);
       setShowBookingBellCalendar(currentStudio.show_booking_bell_calendar ?? false);
-      // Link di prenotazione pubblico senza sito (mig. 083)
+      // Prenotazione online (mig. 083/084/085)
       setBookingPublicEnabled(
         Boolean((currentStudio as { booking_public_enabled?: boolean }).booking_public_enabled)
       );
+      setBookingShowPrices(
+        ((currentStudio as { booking_show_prices?: boolean | null }).booking_show_prices) ?? true
+      );
       setBookingSlug(
-        ((currentStudio as { booking_slug?: string | null }).booking_slug) ?? null
+        ((currentStudio as { booking_slug?: string | null }).booking_slug) ?? ""
       );
       // Multi-sede (mig. 014)
       setMultiLocationEnabled(currentStudio.multi_location_enabled ?? false);
@@ -358,24 +362,40 @@ export default function SettingsMobileClient() {
   }
 
   // Modulo convenzioni (mig. 065)
-  // Link di prenotazione pubblico senza sito (mig. 083)
-  async function savePublicBooking() {
+  // Prenotazione online: salvataggio pagina (mig. 083/085)
+  async function saveBookingPage() {
     if (!currentStudioId) return;
-    setSavingPubBook(true); setError(""); setSuccess("");
+    setSavingBooking(true); setBookingError(null); setError(""); setSuccess("");
     try {
-      const { error: err } = await supabase
-        .from("studios")
-        .update({ booking_public_enabled: bookingPublicEnabled })
-        .eq("id", currentStudioId);
-      if (err) { setError("Errore: " + err.message); return; }
+      const { error: err } = await supabase.from("studios").update({
+        booking_slug:           bookingSlug,
+        booking_public_enabled: bookingPublicEnabled,
+        booking_show_prices:    bookingShowPrices,
+      }).eq("id", currentStudioId);
+
+      if (err) {
+        // 23505 = violazione di UNIQUE: lo slug è già di un altro studio
+        const isDuplicate = err.code === "23505"
+          || /duplicate key|already exists/i.test(err.message);
+        setBookingError(isDuplicate
+          ? "Questo indirizzo è già usato da un altro studio. Scegline un altro."
+          : "Errore: " + err.message);
+        return;
+      }
       await refreshStudio();
-      setSuccess(bookingPublicEnabled
-        ? "Pagina di prenotazione attivata."
-        : "Pagina di prenotazione disattivata.");
+      setSuccess("Impostazioni prenotazione online salvate.");
       setTimeout(() => setSuccess(""), 3000);
     } finally {
-      setSavingPubBook(false);
+      setSavingBooking(false);
     }
+  }
+
+  async function updateService(id: string, patch: { name: string; duration: number; price: number }) {
+    if (!currentStudioId) return;
+    const { error: err } = await supabase.from("booking_services")
+      .update(patch).eq("id", id).eq("studio_id", currentStudioId);
+    if (err) { setError("Errore: " + err.message); return; }
+    await loadServices();
   }
 
   async function saveConvToggle() {
@@ -871,7 +891,7 @@ export default function SettingsMobileClient() {
     { id: "template",      label: "Template messaggi",        place: "Impostazioni", keywords: "template messaggi whatsapp promemoria testo variabili firma benvenuto compleanno pagamento" },
     { id: "integrazioni",  label: "Integrazioni e backup",    place: "Impostazioni", keywords: "integrazioni google calendar ics feed esterno sincronizzazione backup esporta csv" },
     { id: "booking-legacy",label: "Prenotazioni dal sito",    place: "Impostazioni", keywords: "prenotazioni online booking sito pubblico link" },
-    { id: "servizi",       label: "Servizi prenotabili online", place: "Impostazioni", keywords: "prenotazioni online booking servizi prenotabili prezzo durata" },
+    { id: "prenotazione-online", label: "Prenotazione Online", place: "Impostazioni", keywords: "prenotazioni online booking servizi prenotabili listino prezzo durata link pubblico indirizzo slug condividi whatsapp prenota" },
     { id: "catalogo",      label: "Catalogo trattamenti",     place: "Impostazioni", keywords: "trattamenti catalogo prestazioni tecar laser prezzi durata colore" },
     { id: "orari",         label: "Orari di lavoro",          place: "Impostazioni", keywords: "orari apertura chiusura giorni settimana working hours" },
     { id: "gestione",      label: "Gestione e obiettivi",     place: "Impostazioni", keywords: "gestione obiettivi soglie incassi inattivo promemoria ore" },
@@ -883,7 +903,8 @@ export default function SettingsMobileClient() {
     // Card condivise (parità desktop): si aprono col loro stato dedicato.
     const openMapM: Record<string, (v: boolean) => void> = {
       fiscale: setShowFiscM, pagamenti: setShowPayM, gestione: setShowGestM,
-      calprefs: setShowCalPrefsM, chiusure: setShowBlockM, servizi: setShowSvcM,
+      calprefs: setShowCalPrefsM, chiusure: setShowBlockM,
+      "prenotazione-online": setShowOnlineBookingM,
       team: setShowTeamM, stanze: setShowRoomsM, assenze: setShowAbsM,
       template: setShowTemplM, integrazioni: setShowIntegrM,
     };
@@ -900,7 +921,6 @@ export default function SettingsMobileClient() {
   const [showAgendaPrefsM, setShowAgendaPrefsM] = useState(false);
   const [showCalPrefsM, setShowCalPrefsM]   = useState(false);
   const [showBlockM, setShowBlockM]         = useState(false);
-  const [showSvcM, setShowSvcM]             = useState(false);
   const [showTeamM, setShowTeamM]           = useState(false);
   const [showRoomsM, setShowRoomsM]         = useState(false);
   const [showAbsM, setShowAbsM]             = useState(false);
@@ -2388,27 +2408,24 @@ export default function SettingsMobileClient() {
           </div>
         </Section>
 
-        <div id="msec-servizi">
-          <BookableServicesSection
-            show={showSvcM} onToggle={() => setShowSvcM(!showSvcM)}
+        <div id="msec-prenotazione-online">
+          <OnlineBookingSection
+            show={showOnlineBookingM} onToggle={() => setShowOnlineBookingM(!showOnlineBookingM)}
+            bookingSlug={bookingSlug} setBookingSlug={setBookingSlug}
+            bookingPublicEnabled={bookingPublicEnabled}
+            setBookingPublicEnabled={setBookingPublicEnabled}
+            bookingShowPrices={bookingShowPrices}
+            setBookingShowPrices={setBookingShowPrices}
+            savingBooking={savingBooking} bookingError={bookingError}
+            onSaveBooking={() => void saveBookingPage()}
             loadingServices={loadingServices} savingSvc={savingSvc}
             services={services}
             newSvcName={newSvcName} setNewSvcName={setNewSvcName}
             newSvcDuration={newSvcDuration} setNewSvcDuration={setNewSvcDuration}
             newSvcPrice={newSvcPrice} setNewSvcPrice={setNewSvcPrice}
             onAdd={() => void addService()}
+            onUpdate={(id, patch) => void updateService(id, patch)}
             onDelete={id => void deleteService(id)}
-          />
-        </div>
-
-        <div id="msec-booking-pubblico">
-          <PublicBookingLinkSection
-            show={showPubBookM} onToggle={() => setShowPubBookM(!showPubBookM)}
-            bookingSlug={bookingSlug}
-            bookingPublicEnabled={bookingPublicEnabled}
-            setBookingPublicEnabled={setBookingPublicEnabled}
-            saving={savingPubBook}
-            onSave={() => void savePublicBooking()}
           />
         </div>
 

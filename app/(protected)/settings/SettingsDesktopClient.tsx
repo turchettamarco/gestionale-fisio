@@ -50,8 +50,7 @@ import TreatmentsSection from "./components/sections/TreatmentsSection";
 import WorkingHoursSection from "./components/sections/WorkingHoursSection";
 import TemplatesSection from "./components/sections/TemplatesSection";
 import CalendarPrefsSection from "./components/sections/CalendarPrefsSection";
-import BookableServicesSection from "./components/sections/BookableServicesSection";
-import PublicBookingLinkSection from "./components/sections/PublicBookingLinkSection";
+import OnlineBookingSection from "./components/sections/OnlineBookingSection";
 import BlockedDaysSection from "./components/sections/BlockedDaysSection";
 import ManagementSection from "./components/sections/ManagementSection";
 import PasswordSection from "./components/sections/PasswordSection";
@@ -95,7 +94,6 @@ export default function SettingsDesktopClient() {
   const [showTreatments, setShowTreatments] = useState(true);
   const [showHours,     setShowHours]     = useState(true);
   const [showTemplates, setShowTemplates] = useState(true);
-  const [showServices,  setShowServices]  = useState(false);
   const [showBlockDays, setShowBlockDays] = useState(false);
   const [showGestione,  setShowGestione]  = useState(false);
   const [showPassword,  setShowPassword]  = useState(false);
@@ -160,10 +158,13 @@ export default function SettingsDesktopClient() {
   // Toggle UI legacy Prenotazioni dal sito (Fase N2.1)
   const [showBookingCardHome, setShowBookingCardHome]   = useState(false);
   const [showBookingBellCalendar, setShowBookingBellCalendar] = useState(false);
-  // Link di prenotazione pubblico senza sito (mig. 083)
-  const [showPublicBooking, setShowPublicBooking]       = useState(false);
+  // Prenotazione online (mig. 083/084/085)
+  const [showOnlineBooking, setShowOnlineBooking]       = useState(false);
   const [bookingPublicEnabled, setBookingPublicEnabled] = useState(false);
-  const [bookingSlug, setBookingSlug]                   = useState<string | null>(null);
+  const [bookingShowPrices, setBookingShowPrices]       = useState(true);
+  const [bookingSlug, setBookingSlug]                   = useState("");
+  const [savingBooking, setSavingBooking]               = useState(false);
+  const [bookingError, setBookingError]                 = useState<string | null>(null);
 
   // ── Multi-sede (mig. 014) ─────────────────────────────────────────────
   // Toggle globale + state separato dal salvataggio studio (può essere
@@ -260,12 +261,15 @@ export default function SettingsDesktopClient() {
     // UI legacy Prenotazioni dal sito (Fase N2.1)
     setShowBookingCardHome(studio.show_booking_card_home ?? false);
     setShowBookingBellCalendar(studio.show_booking_bell_calendar ?? false);
-    // Link di prenotazione pubblico senza sito (mig. 083)
+    // Prenotazione online (mig. 083/084/085)
     setBookingPublicEnabled(
       ((studio as unknown as { booking_public_enabled?: boolean | null }).booking_public_enabled) ?? false
     );
+    setBookingShowPrices(
+      ((studio as unknown as { booking_show_prices?: boolean | null }).booking_show_prices) ?? true
+    );
     setBookingSlug(
-      ((studio as unknown as { booking_slug?: string | null }).booking_slug) ?? null
+      ((studio as unknown as { booking_slug?: string | null }).booking_slug) ?? ""
     );
     // Multi-sede (mig. 014)
     setMultiLocationEnabled(studio.multi_location_enabled ?? false);
@@ -306,8 +310,6 @@ export default function SettingsDesktopClient() {
         // UI legacy Prenotazioni dal sito (Fase N2.1)
         show_booking_card_home:      showBookingCardHome,
         show_booking_bell_calendar:  showBookingBellCalendar,
-        // Link di prenotazione pubblico senza sito (mig. 083)
-        booking_public_enabled:      bookingPublicEnabled,
       }).eq("id", studio.id);
       if (error) { alert("Errore: " + error.message); return; }
       await refreshStudio();
@@ -322,7 +324,6 @@ export default function SettingsDesktopClient() {
       notifyEmailEnabled, notifyBellEnabled, notifyWaRedirectEnabled,
       reportMonthlyEnabled, reportQuarterlyEnabled, reportYearlyEnabled, reportEmail,
       showBookingCardHome, showBookingBellCalendar,
-      bookingPublicEnabled,
       refreshStudio]);
 
   // ── Salvataggio toggle statistiche gruppo (su tabella studios, mig. 014) ─
@@ -1784,6 +1785,41 @@ export default function SettingsDesktopClient() {
     }
   }
 
+  // ── Prenotazione online: salvataggio pagina (mig. 083/085) ──────────
+  async function saveBookingPage() {
+    if (!studio?.id) return;
+    setSavingBooking(true); setBookingError(null);
+    try {
+      const { error } = await supabase.from("studios").update({
+        booking_slug:           bookingSlug,
+        booking_public_enabled: bookingPublicEnabled,
+        booking_show_prices:    bookingShowPrices,
+      }).eq("id", studio.id);
+
+      if (error) {
+        // 23505 = violazione di UNIQUE: lo slug è già di un altro studio
+        const isDuplicate = error.code === "23505"
+          || /duplicate key|already exists/i.test(error.message);
+        setBookingError(isDuplicate
+          ? "Questo indirizzo è già usato da un altro studio. Scegline un altro."
+          : "Errore: " + error.message);
+        return;
+      }
+      await refreshStudio();
+      flashSuccess("Impostazioni prenotazione online salvate.");
+    } finally {
+      setSavingBooking(false);
+    }
+  }
+
+  async function updateService(id: string, patch: { name: string; duration: number; price: number }) {
+    if (!studio?.id) return;
+    const { error } = await supabase.from("booking_services")
+      .update(patch).eq("id", id).eq("studio_id", studio.id);
+    if (error) { alert("Errore: " + error.message); return; }
+    await loadServices();
+  }
+
   async function deleteService(id: string) {
     if (!confirm("Eliminare questo servizio?")) return;
     if (!studio?.id) return;
@@ -1976,8 +2012,7 @@ export default function SettingsDesktopClient() {
     { id: "granularita",  label: "Preferenze agenda (granularità, vista)", place: "Agenda", keywords: "granularità slot 15 minuti 30 minuti passo vista predefinita giorno settimana mese apertura calendario" },
     { id: "calprefs",     label: "Preferenze calendario",      place: "Agenda",        keywords: "preferenze calendario stato predefinito promemoria sovrapposizioni overlap conferma whatsapp default" },
     { id: "catalogo",     label: "Catalogo trattamenti",       place: "Agenda",        keywords: "trattamenti catalogo prestazioni tecar laser prezzi durata colore tipi seduta" },
-    { id: "servizi",      label: "Servizi prenotabili online", place: "Agenda",        keywords: "prenotazioni online booking sito servizi prenotabili link pubblico" },
-    { id: "booking-pubblico", label: "Link di prenotazione pubblico", place: "Agenda", keywords: "prenotazione pubblica senza sito link condividi whatsapp slug prenota" },
+    { id: "prenotazione-online", label: "Prenotazione Online", place: "Agenda", keywords: "prenotazioni online booking sito servizi prenotabili listino prezzi link pubblico indirizzo slug condividi whatsapp prenota" },
     { id: "chiusure",     label: "Giorni di chiusura e ferie", place: "Agenda",        keywords: "chiusure ferie ponte giorni bloccati vacanze blocco agenda festivi" },
     { id: "team",         label: "Team e collaboratori",       place: "Team",          keywords: "team membri operatori multi operatore invito collaboratori layout settimana colonne" },
     { id: "stanze",       label: "Stanze e box",               place: "Team",          keywords: "stanze box sale multi stanza room lettini" },
@@ -2003,7 +2038,7 @@ export default function SettingsDesktopClient() {
     granularita: { tab: "calendar" },
     calprefs:    { tab: "calendar",       open: () => setShowCalPrefs(true) },
     catalogo:    { tab: "calendar",       open: () => setShowTreatments(true) },
-    servizi:     { tab: "calendar",       open: () => setShowServices(true) },
+    "prenotazione-online": { tab: "calendar", open: () => setShowOnlineBooking(true) },
     chiusure:    { tab: "calendar",       open: () => setShowBlockDays(true) },
     team:        { tab: "team",           open: () => setShowTeam(true) },
     stanze:      { tab: "team",           open: () => setShowRooms(true) },
@@ -2282,27 +2317,24 @@ export default function SettingsDesktopClient() {
               />
             </div>
 
-            <div id="set-sec-servizi">
-              <BookableServicesSection
-                show={showServices} onToggle={() => setShowServices(!showServices)}
+            <div id="set-sec-prenotazione-online">
+              <OnlineBookingSection
+                show={showOnlineBooking} onToggle={() => setShowOnlineBooking(!showOnlineBooking)}
+                bookingSlug={bookingSlug} setBookingSlug={setBookingSlug}
+                bookingPublicEnabled={bookingPublicEnabled}
+                setBookingPublicEnabled={setBookingPublicEnabled}
+                bookingShowPrices={bookingShowPrices}
+                setBookingShowPrices={setBookingShowPrices}
+                savingBooking={savingBooking} bookingError={bookingError}
+                onSaveBooking={() => void saveBookingPage()}
                 loadingServices={loadingServices} savingSvc={savingSvc}
                 services={services}
                 newSvcName={newSvcName} setNewSvcName={setNewSvcName}
                 newSvcDuration={newSvcDuration} setNewSvcDuration={setNewSvcDuration}
                 newSvcPrice={newSvcPrice} setNewSvcPrice={setNewSvcPrice}
                 onAdd={() => void addService()}
+                onUpdate={(id, patch) => void updateService(id, patch)}
                 onDelete={(id) => void deleteService(id)}
-              />
-            </div>
-
-            <div id="set-sec-booking-pubblico">
-              <PublicBookingLinkSection
-                show={showPublicBooking} onToggle={() => setShowPublicBooking(!showPublicBooking)}
-                bookingSlug={bookingSlug}
-                bookingPublicEnabled={bookingPublicEnabled}
-                setBookingPublicEnabled={setBookingPublicEnabled}
-                saving={savingStudio}
-                onSave={() => void saveStudio()}
               />
             </div>
 

@@ -45,6 +45,8 @@ export type PublicBookingLocation = {
 export type PublicBookingInfo = {
   studio: PublicBookingStudio;
   services: PublicBookingService[];
+  /** Se false la pagina non mostra i prezzi accanto ai servizi (mig. 085). */
+  showPrices: boolean;
   /**
    * Sedi fra cui il paziente può scegliere (mig. 084). Vuoto quando lo
    * studio non ha il multi-sede attivo o ne ha una sola: in quel caso la
@@ -67,7 +69,7 @@ export async function GET(
   try {
     const { data: studio, error: studioErr } = await supabaseAdmin
       .from("studios")
-      .select("id, name, address, phone, booking_public_enabled, multi_location_enabled")
+      .select("id, name, address, phone, booking_public_enabled, multi_location_enabled, booking_show_prices")
       .eq("booking_slug", slug)
       .maybeSingle();
 
@@ -118,6 +120,7 @@ export async function GET(
         phone: studio.phone ?? null,
       },
       services: (services ?? []) as PublicBookingService[],
+      showPrices: studio.booking_show_prices ?? true,
       locations,
     };
 
