@@ -96,6 +96,10 @@ export type BookableService = {
   price: number;
   /** Riga di spiegazione mostrata sulla pagina pubblica (mig. 086). */
   description?: string | null;
+  /** Ordine di visualizzazione, crescente (mig. 088). */
+  sort_order?: number;
+  /** Unità dopo il prezzo, es. "al giorno" per i noleggi (mig. 088). */
+  price_unit?: string | null;
 };
 
 export type BlockedDay = {

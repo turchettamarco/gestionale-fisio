@@ -1751,6 +1751,7 @@ export default function SettingsDesktopClient() {
   const [newSvcDuration, setNewSvcDuration]   = useState("60");
   const [newSvcPrice, setNewSvcPrice]         = useState("40");
   const [newSvcDescription, setNewSvcDescription] = useState("");
+  const [newSvcPriceUnit, setNewSvcPriceUnit] = useState("");
 
   async function loadServices() {
     if (!studio?.id) return;
@@ -1762,7 +1763,9 @@ export default function SettingsDesktopClient() {
         .from("booking_services")
         .select("*")
         .eq("studio_id", studio.id)
-        .order("name");
+        // mig. 088: ordine deciso dallo studio, nome solo come spareggio
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true });
       setServices((data as BookableService[]) || []);
     } catch (e) {
       console.warn(e);
@@ -1783,10 +1786,13 @@ export default function SettingsDesktopClient() {
         duration: parseInt(newSvcDuration) || 60,
         price: parseFloat(newSvcPrice) || 40,
         description: newSvcDescription.trim() || null,
+        price_unit: newSvcPriceUnit.trim() || null,
+        // In fondo all'elenco: 10 più del massimo attuale (mig. 088)
+        sort_order: services.reduce((max, s) => Math.max(max, s.sort_order ?? 0), 0) + 10,
         studio_id: studio.id,
       });
       if (error) throw new Error(error.message);
-      setNewSvcName(""); setNewSvcDuration("60"); setNewSvcPrice("40"); setNewSvcDescription("");
+      setNewSvcName(""); setNewSvcDuration("60"); setNewSvcPrice("40"); setNewSvcDescription(""); setNewSvcPriceUnit("");
       await loadServices();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Errore";
@@ -1862,7 +1868,48 @@ export default function SettingsDesktopClient() {
     }
   }
 
-  async function updateService(id: string, patch: { name: string; duration: number; price: number; description: string | null }) {
+
+  // Sposta un servizio di una posizione (mig. 088).
+  // Scambia il sort_order con il vicino: due update, nessuna rinumerazione
+  // dell'intero elenco.
+  async function moveService(id: string, direction: "up" | "down") {
+    if (!studio?.id) return;
+    const idx = services.findIndex(s => s.id === id);
+    if (idx < 0) return;
+    const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= services.length) return;
+
+    const a = services[idx];
+    const b = services[swapIdx];
+    // Se i valori coincidono (o mancano) si riparte da posizioni pulite,
+    // altrimenti lo scambio non produrrebbe nessun cambiamento visibile.
+    const aOrder = a.sort_order ?? idx * 10;
+    const bOrder = b.sort_order ?? swapIdx * 10;
+    const [newA, newB] = aOrder === bOrder
+      ? [swapIdx * 10, idx * 10]
+      : [bOrder, aOrder];
+
+    // Aggiornamento ottimistico: l'elenco si riordina subito
+    setServices(prev => {
+      const next = [...prev];
+      next[idx] = { ...a, sort_order: newA };
+      next[swapIdx] = { ...b, sort_order: newB };
+      return next.sort((x, y) =>
+        (x.sort_order ?? 0) - (y.sort_order ?? 0) || x.name.localeCompare(y.name)
+      );
+    });
+
+    const results = await Promise.all([
+      supabase.from("booking_services").update({ sort_order: newA }).eq("id", a.id).eq("studio_id", studio.id),
+      supabase.from("booking_services").update({ sort_order: newB }).eq("id", b.id).eq("studio_id", studio.id),
+    ]);
+    if (results.some(r => r.error)) {
+      // Ripristina lo stato reale se il salvataggio non è andato a buon fine
+      await loadServices();
+    }
+  }
+
+  async function updateService(id: string, patch: { name: string; duration: number; price: number; description: string | null; price_unit: string | null }) {
     if (!studio?.id) return;
     const { error } = await supabase.from("booking_services")
       .update(patch).eq("id", id).eq("studio_id", studio.id);
@@ -2395,6 +2442,8 @@ export default function SettingsDesktopClient() {
                 newSvcDuration={newSvcDuration} setNewSvcDuration={setNewSvcDuration}
                 newSvcPrice={newSvcPrice} setNewSvcPrice={setNewSvcPrice}
                 newSvcDescription={newSvcDescription} setNewSvcDescription={setNewSvcDescription}
+                newSvcPriceUnit={newSvcPriceUnit} setNewSvcPriceUnit={setNewSvcPriceUnit}
+                onMove={(id, dir) => void moveService(id, dir)}
                 onGenerateDescription={generateServiceDescription}
                 onAdd={() => void addService()}
                 onUpdate={(id, patch) => void updateService(id, patch)}

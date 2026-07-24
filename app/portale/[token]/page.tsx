@@ -18,6 +18,8 @@ export default function PortalPage() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Lo storico può essere lungo: chiuso di default, si apre con un tocco
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   useEffect(()=>{
     if(!token) return;
@@ -44,6 +46,7 @@ export default function PortalPage() {
   const booking = data.booking;
   const unpaid = history.filter(h => h.payment_state === "unpaid");
   const showAmounts = data.show_amounts !== false;
+  const paidCount = history.filter(h => h.payment_state !== "unpaid").length;
 
   return <Wrap headerTitle={headerTitle} logoBase64={studio?.logo_base64}>
     <div style={{padding:"24px 20px"}}>
@@ -102,26 +105,49 @@ export default function PortalPage() {
 
       {/* Storico sedute */}
       <section style={{marginBottom:24}}>
-        <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
-          📋 Le tue sedute
-        </h2>
+        {/* Banner riassuntivo: è anche il comando per aprire l'elenco */}
+        <button
+          onClick={() => setHistoryOpen(o => !o)}
+          aria-expanded={historyOpen}
+          style={{
+            width:"100%", textAlign:"left", cursor:"pointer",
+            background:"#fff", border:"1.5px solid #e2e8f0", borderRadius:10,
+            padding:"14px 16px", display:"flex", alignItems:"center", gap:12,
+          }}
+        >
+          <span style={{fontSize:18,flexShrink:0}}>📋</span>
+          <span style={{flex:1,minWidth:0}}>
+            <span style={{display:"block",fontSize:14,fontWeight:800,color:"#0f172a"}}>
+              Le tue sedute
+            </span>
+            <span style={{display:"block",fontSize:12,color:"#64748b",marginTop:3}}>
+              {history.length === 0
+                ? "Nessuna seduta registrata"
+                : `${history.length} ${history.length === 1 ? "seduta" : "sedute"}`}
+              {paidCount > 0 && ` · ${paidCount} in regola`}
+              {unpaid.length > 0 && (
+                <span style={{color:"#b45309",fontWeight:700}}>
+                  {` · ${unpaid.length} da saldare`}
+                  {showAmounts && (() => {
+                    const tot = unpaid.reduce((sum, h) => sum + (Number(h.amount) || 0), 0);
+                    return tot > 0 ? ` (€${tot.toFixed(2).replace(".00","")})` : "";
+                  })()}
+                </span>
+              )}
+            </span>
+          </span>
+          <span style={{
+            flexShrink:0, color:"#64748b", fontSize:12, fontWeight:800,
+            transform: historyOpen ? "rotate(180deg)" : "none", transition:"transform 0.2s",
+          }}>▾</span>
+        </button>
 
-        {unpaid.length > 0 && (
-          <div style={{marginBottom:10,padding:"10px 14px",borderRadius:8,background:"#fffbeb",border:"1px solid #fde68a",fontSize:12.5,color:"#92400e"}}>
-            {unpaid.length === 1 ? "1 seduta risulta da saldare" : `${unpaid.length} sedute risultano da saldare`}
-            {showAmounts && (() => {
-              const tot = unpaid.reduce((sum, h) => sum + (Number(h.amount) || 0), 0);
-              return tot > 0 ? ` · totale €${tot.toFixed(2).replace(".00","")}` : "";
-            })()}
-          </div>
-        )}
-
-        {history.length === 0 ? (
-          <div style={{padding:20,background:"#f8fafc",borderRadius:10,textAlign:"center",color:"#64748b",fontSize:13}}>
+        {historyOpen && (history.length === 0 ? (
+          <div style={{marginTop:10,padding:20,background:"#f8fafc",borderRadius:10,textAlign:"center",color:"#64748b",fontSize:13}}>
             Nessuna seduta registrata.
           </div>
         ) : (
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:8}}>
             {history.map((h) => {
               const d = new Date(h.start_at);
               const dStr = d.toLocaleDateString("it-IT",{day:"2-digit",month:"long",year:"numeric"});
@@ -151,11 +177,13 @@ export default function PortalPage() {
               );
             })}
           </div>
-        )}
+        ))}
 
-        <div style={{fontSize:10.5,color:"#94a3b8",marginTop:8,lineHeight:1.5}}>
-          Per qualsiasi dubbio sugli importi puoi contattare lo studio.
-        </div>
+        {historyOpen && showAmounts && history.length > 0 && (
+          <div style={{fontSize:10.5,color:"#94a3b8",marginTop:8,lineHeight:1.5}}>
+            Per qualsiasi dubbio sugli importi puoi contattare lo studio.
+          </div>
+        )}
       </section>
 
       {/* Scheda esercizi */}

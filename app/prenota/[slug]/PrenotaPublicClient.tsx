@@ -377,7 +377,8 @@ export default function PrenotaPublicClient() {
                           <span style={{
                             display: "block", fontSize: 12, color: T.mutedSoft, marginTop: 3,
                           }}>
-                            {svc.duration} min{showPrices ? ` · €${svc.price}` : ""}
+                            {svc.duration} min
+                            {showPrices && ` · €${svc.price}${svc.price_unit ? ` ${svc.price_unit}` : ""}`}
                           </span>
                         </span>
 

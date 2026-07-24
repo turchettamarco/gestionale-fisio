@@ -63,11 +63,15 @@ export type OnlineBookingSectionProps = {
   newSvcDuration: string; setNewSvcDuration: (v: string) => void;
   newSvcPrice: string; setNewSvcPrice: (v: string) => void;
   newSvcDescription: string; setNewSvcDescription: (v: string) => void;
+  newSvcPriceUnit: string; setNewSvcPriceUnit: (v: string) => void;
   onAdd: () => void;
   onUpdate: (id: string, patch: {
-    name: string; duration: number; price: number; description: string | null;
+    name: string; duration: number; price: number;
+    description: string | null; price_unit: string | null;
   }) => void;
   onDelete: (id: string) => void;
+  /** Sposta un servizio di una posizione (mig. 088). */
+  onMove: (id: string, direction: "up" | "down") => void;
   /** Chiede all'AI una descrizione a partire dal nome. Restituisce null se fallisce. */
   onGenerateDescription: (name: string, duration: number) => Promise<string | null>;
 };
@@ -79,6 +83,7 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
   const [editDuration, setEditDuration] = useState("");
   const [editPrice, setEditPrice] = useState("");
   const [editDescription, setEditDescription] = useState("");
+  const [editPriceUnit, setEditPriceUnit] = useState("");
   // id del servizio in generazione, "new" per la riga di aggiunta
   const [generating, setGenerating] = useState<string | null>(null);
 
@@ -101,6 +106,7 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
     setEditDuration(String(svc.duration));
     setEditPrice(String(svc.price));
     setEditDescription(svc.description ?? "");
+    setEditPriceUnit(svc.price_unit ?? "");
   }
 
   async function generateFor(target: "new" | "edit") {
@@ -126,6 +132,7 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
       duration: parseInt(editDuration) || 60,
       price: parseFloat(editPrice) || 0,
       description: editDescription.trim() || null,
+      price_unit: editPriceUnit.trim() || null,
     });
     setEditingId(null);
   }
@@ -275,7 +282,8 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
               Servizi prenotabili
             </div>
             <div style={{ fontSize: 12.5, color: THEME.muted, marginBottom: 16, lineHeight: 1.5 }}>
-              Sono le voci che il paziente vede e può scegliere sulla pagina.
+              Sono le voci che il paziente vede e può scegliere sulla pagina,
+              nell&apos;ordine in cui compaiono qui: usa le frecce per spostarle.
               La durata determina gli slot proposti in agenda.
             </div>
 
@@ -295,6 +303,11 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
                 <label style={labelStyle}>Prezzo €</label>
                 <input value={p.newSvcPrice} onChange={e => p.setNewSvcPrice(e.target.value)}
                   inputMode="decimal" style={inputStyle} />
+              </div>
+              <div style={{ flex: "1 1 110px" }}>
+                <label style={labelStyle}>Per (facoltativo)</label>
+                <input value={p.newSvcPriceUnit} onChange={e => p.setNewSvcPriceUnit(e.target.value)}
+                  placeholder="es. al giorno" maxLength={24} style={inputStyle} />
               </div>
             </div>
 
@@ -346,7 +359,7 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {p.services.map(svc => (
+                {p.services.map((svc, idx) => (
                   <div key={svc.id} style={{
                     padding: "10px 14px", borderRadius: 8,
                     border: `1px solid ${THEME.border}`, background: "#fff",
@@ -366,6 +379,11 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
                           <label style={labelStyle}>Prezzo €</label>
                           <input value={editPrice} onChange={e => setEditPrice(e.target.value)}
                             inputMode="decimal" style={inputStyle} />
+                        </div>
+                        <div style={{ flex: "1 1 100px" }}>
+                          <label style={labelStyle}>Per</label>
+                          <input value={editPriceUnit} onChange={e => setEditPriceUnit(e.target.value)}
+                            placeholder="es. al giorno" maxLength={24} style={inputStyle} />
                         </div>
                         <div style={{ flex: "1 1 100%" }}>
                           <label style={labelStyle}>Descrizione</label>
@@ -415,12 +433,38 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
                           )}
                           <div style={{ fontSize: 12, color: THEME.muted, marginTop: 1 }}>
                             {svc.duration} min
-                            {p.bookingShowPrices
-                              ? ` · €${svc.price}`
-                              : ` · €${svc.price} (non pubblicato)`}
+                            {` · €${svc.price}`}
+                            {svc.price_unit ? ` ${svc.price_unit}` : ""}
+                            {p.bookingShowPrices ? "" : " (non pubblicato)"}
                           </div>
                         </div>
-                        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                        <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 2, marginRight: 2 }}>
+                            <button
+                              onClick={() => p.onMove(svc.id, "up")}
+                              disabled={idx === 0}
+                              title="Sposta su"
+                              style={{
+                                padding: "1px 7px", borderRadius: 5, lineHeight: 1.1,
+                                border: `1px solid ${THEME.border}`, background: "#fff",
+                                color: THEME.muted, fontSize: 11,
+                                cursor: idx === 0 ? "default" : "pointer",
+                                opacity: idx === 0 ? 0.35 : 1,
+                              }}
+                            >▲</button>
+                            <button
+                              onClick={() => p.onMove(svc.id, "down")}
+                              disabled={idx === p.services.length - 1}
+                              title="Sposta giù"
+                              style={{
+                                padding: "1px 7px", borderRadius: 5, lineHeight: 1.1,
+                                border: `1px solid ${THEME.border}`, background: "#fff",
+                                color: THEME.muted, fontSize: 11,
+                                cursor: idx === p.services.length - 1 ? "default" : "pointer",
+                                opacity: idx === p.services.length - 1 ? 0.35 : 1,
+                              }}
+                            >▼</button>
+                          </div>
                           <button onClick={() => startEdit(svc)} style={{
                             padding: "5px 12px", borderRadius: 6, border: `1px solid ${THEME.border}`,
                             background: "#fff", color: THEME.text, cursor: "pointer",
