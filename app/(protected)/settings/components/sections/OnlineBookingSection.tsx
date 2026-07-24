@@ -62,9 +62,14 @@ export type OnlineBookingSectionProps = {
   newSvcName: string; setNewSvcName: (v: string) => void;
   newSvcDuration: string; setNewSvcDuration: (v: string) => void;
   newSvcPrice: string; setNewSvcPrice: (v: string) => void;
+  newSvcDescription: string; setNewSvcDescription: (v: string) => void;
   onAdd: () => void;
-  onUpdate: (id: string, patch: { name: string; duration: number; price: number }) => void;
+  onUpdate: (id: string, patch: {
+    name: string; duration: number; price: number; description: string | null;
+  }) => void;
   onDelete: (id: string) => void;
+  /** Chiede all'AI una descrizione a partire dal nome. Restituisce null se fallisce. */
+  onGenerateDescription: (name: string, duration: number) => Promise<string | null>;
 };
 
 export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
@@ -73,6 +78,9 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
   const [editName, setEditName] = useState("");
   const [editDuration, setEditDuration] = useState("");
   const [editPrice, setEditPrice] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  // id del servizio in generazione, "new" per la riga di aggiunta
+  const [generating, setGenerating] = useState<string | null>(null);
 
   const origin = useSyncExternalStore(subscribeNoop, getOrigin, getOriginServer);
   const link = p.bookingSlug && origin ? `${origin}/prenota/${p.bookingSlug}` : null;
@@ -92,6 +100,23 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
     setEditName(svc.name);
     setEditDuration(String(svc.duration));
     setEditPrice(String(svc.price));
+    setEditDescription(svc.description ?? "");
+  }
+
+  async function generateFor(target: "new" | "edit") {
+    const name = target === "new" ? p.newSvcName : editName;
+    const duration = parseInt(target === "new" ? p.newSvcDuration : editDuration) || 60;
+    if (name.trim().length < 3) return;
+    setGenerating(target === "new" ? "new" : editingId);
+    try {
+      const text = await p.onGenerateDescription(name.trim(), duration);
+      if (text) {
+        if (target === "new") p.setNewSvcDescription(text);
+        else setEditDescription(text);
+      }
+    } finally {
+      setGenerating(null);
+    }
   }
 
   function confirmEdit() {
@@ -100,6 +125,7 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
       name: editName.trim(),
       duration: parseInt(editDuration) || 60,
       price: parseFloat(editPrice) || 0,
+      description: editDescription.trim() || null,
     });
     setEditingId(null);
   }
@@ -270,13 +296,41 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
                 <input value={p.newSvcPrice} onChange={e => p.setNewSvcPrice(e.target.value)}
                   inputMode="decimal" style={inputStyle} />
               </div>
-              <button onClick={p.onAdd} disabled={p.savingSvc || !p.newSvcName.trim()} style={{
-                padding: "9px 16px", borderRadius: 7, border: "none", background: THEME.teal,
-                color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer",
-                opacity: (p.savingSvc || !p.newSvcName.trim()) ? 0.5 : 1,
-              }}>
-                Aggiungi
-              </button>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={labelStyle}>Descrizione (mostrata sotto il nome)</label>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <input
+                  value={p.newSvcDescription}
+                  onChange={e => p.setNewSvcDescription(e.target.value)}
+                  placeholder="Es. Valutazione clinica e piano terapeutico"
+                  maxLength={70}
+                  style={{ ...inputStyle, flex: "1 1 220px" }}
+                />
+                <button
+                  onClick={() => void generateFor("new")}
+                  disabled={generating === "new" || p.newSvcName.trim().length < 3}
+                  title={p.newSvcName.trim().length < 3 ? "Scrivi prima il nome del servizio" : "Proponi una descrizione dal nome"}
+                  style={{
+                    padding: "9px 14px", borderRadius: 7,
+                    border: `1px solid ${THEME.border}`, background: "#fff",
+                    color: THEME.text, fontWeight: 700, fontSize: 12.5, cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    opacity: (generating === "new" || p.newSvcName.trim().length < 3) ? 0.5 : 1,
+                  }}
+                >
+                  {generating === "new" ? "Scrivo…" : "✨ Scrivila tu"}
+                </button>
+                <button onClick={p.onAdd} disabled={p.savingSvc || !p.newSvcName.trim()} style={{
+                  padding: "9px 16px", borderRadius: 7, border: "none", background: THEME.teal,
+                  color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer",
+                  whiteSpace: "nowrap",
+                  opacity: (p.savingSvc || !p.newSvcName.trim()) ? 0.5 : 1,
+                }}>
+                  Aggiungi
+                </button>
+              </div>
             </div>
 
             {/* Elenco */}
@@ -313,6 +367,31 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
                           <input value={editPrice} onChange={e => setEditPrice(e.target.value)}
                             inputMode="decimal" style={inputStyle} />
                         </div>
+                        <div style={{ flex: "1 1 100%" }}>
+                          <label style={labelStyle}>Descrizione</label>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                            <input
+                              value={editDescription}
+                              onChange={e => setEditDescription(e.target.value)}
+                              placeholder="Es. Trattamento individuale"
+                              maxLength={70}
+                              style={{ ...inputStyle, flex: "1 1 200px" }}
+                            />
+                            <button
+                              onClick={() => void generateFor("edit")}
+                              disabled={generating === editingId || editName.trim().length < 3}
+                              style={{
+                                padding: "8px 12px", borderRadius: 6,
+                                border: `1px solid ${THEME.border}`, background: "#fff",
+                                color: THEME.text, fontWeight: 700, fontSize: 12, cursor: "pointer",
+                                whiteSpace: "nowrap",
+                                opacity: (generating === editingId || editName.trim().length < 3) ? 0.5 : 1,
+                              }}
+                            >
+                              {generating === editingId ? "Scrivo…" : "✨ Scrivila tu"}
+                            </button>
+                          </div>
+                        </div>
                         <button onClick={confirmEdit} disabled={!editName.trim()} style={{
                           padding: "8px 14px", borderRadius: 6, border: "none", background: THEME.teal,
                           color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer",
@@ -331,6 +410,9 @@ export default function OnlineBookingSection(p: OnlineBookingSectionProps) {
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ fontWeight: 700, fontSize: 13.5, color: THEME.text }}>{svc.name}</div>
+                          {svc.description && (
+                            <div style={{ fontSize: 12, color: THEME.textSoft, marginTop: 1 }}>{svc.description}</div>
+                          )}
                           <div style={{ fontSize: 12, color: THEME.muted, marginTop: 1 }}>
                             {svc.duration} min
                             {p.bookingShowPrices

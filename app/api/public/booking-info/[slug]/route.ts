@@ -34,6 +34,8 @@ export type PublicBookingService = {
   name: string;
   duration: number;
   price: number;
+  /** Riga di spiegazione sotto il nome (mig. 086). */
+  description: string | null;
 };
 
 export type PublicBookingLocation = {
@@ -86,7 +88,7 @@ export async function GET(
 
     const { data: services, error: servicesErr } = await supabaseAdmin
       .from("booking_services")
-      .select("id, name, duration, price")
+      .select("id, name, duration, price, description")
       .eq("studio_id", studio.id)
       .order("name");
 

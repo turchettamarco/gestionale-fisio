@@ -15,22 +15,25 @@ import type { PublicBookingStudio, PublicBookingService, PublicBookingLocation }
 
 // ── Palette brand FisioHub (stessa della pagina agenda pubblica) ──────
 const T = {
-  appBg:      "#f1f5f9",
+  appBg:      "#faf9f7",
   panelBg:    "#ffffff",
-  panelSoft:  "#f8fafc",
-  text:       "#0f172a",
-  textSoft:   "#1e293b",
-  muted:      "#475569",
-  mutedSoft:  "#64748b",
-  border:     "#cbd5e1",
-  borderSoft: "#e2e8f0",
-  blue:       "#2563eb",
-  teal:       "#0d9488",
+  panelSoft:  "#f6f8f7",
+  text:       "#14342c",
+  textSoft:   "#2f4a42",
+  muted:      "#5b6b66",
+  mutedSoft:  "#7b8a85",
+  border:     "#dfe5e2",
+  borderSoft: "#e8ecea",
+  // verde brand, tono scuro come il pulsante dello screenshot
+  green:      "#0f5c3f",
+  greenSoft:  "#eef5f1",
+  greenLine:  "#bfd9cc",
   red:        "#dc2626",
   white:      "#ffffff",
+  wa:         "#25D366",
 };
 
-const GRADIENT = "linear-gradient(135deg, #0d9488, #2563eb)";
+const GRADIENT = "linear-gradient(135deg, #0f5c3f, #14795a)";
 
 // "location" compare solo se lo studio ha più sedi (mig. 084).
 type Step = "location" | "service" | "datetime" | "details" | "done";
@@ -43,6 +46,44 @@ function todayISO(): string {
 function formatDateLabel(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
   return d.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
+}
+
+
+// ── Icona del servizio, dedotta dal nome ─────────────────────────────
+// Tratto sottile, stessa griglia 24x24, così le card restano uniformi.
+function ServiceIcon({ name }: { name: string }) {
+  const n = name.toLowerCase();
+  const common = {
+    width: 20, height: 20, viewBox: "0 0 24 24", fill: "none",
+    stroke: "currentColor", strokeWidth: 1.7,
+    strokeLinecap: "round" as const, strokeLinejoin: "round" as const,
+  };
+
+  if (/domicil|casa|a domicilio/.test(n)) return (
+    <svg {...common}><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V21h14V9.5" /></svg>
+  );
+  if (/tecar|diatermia/.test(n)) return (
+    <svg {...common}><path d="M13 2 4.5 13.5H11L10 22l8.5-11.5H12z" /></svg>
+  );
+  if (/laser/.test(n)) return (
+    <svg {...common}><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="2" /></svg>
+  );
+  if (/ultrasuon|ecograf/.test(n)) return (
+    <svg {...common}><path d="M2 9c3-3 5 3 8 0s5 3 8 0" /><path d="M2 15c3-3 5 3 8 0s5 3 8 0" /></svg>
+  );
+  if (/noleggio|magneto|apparecch/.test(n)) return (
+    <svg {...common}><rect x="3" y="7" width="18" height="11" rx="2" /><path d="M8 7V5h8v2" /></svg>
+  );
+  if (/prima visita|valutazione|consulen/.test(n)) return (
+    <svg {...common}><path d="M6 3v6a4 4 0 0 0 8 0V3" /><path d="M10 13v3a5 5 0 0 0 8 3" /><circle cx="19" cy="17" r="2" /></svg>
+  );
+  if (/osteopat|manipol/.test(n)) return (
+    <svg {...common}><circle cx="12" cy="5" r="2.4" /><path d="M12 7.4V15" /><path d="M8 10h8" /><path d="m9 21 3-6 3 6" /></svg>
+  );
+  // predefinita: seduta / trattamento
+  return (
+    <svg {...common}><path d="M4 9v6" /><path d="M8 6v12" /><path d="M16 6v12" /><path d="M20 9v6" /><path d="M8 12h8" /></svg>
+  );
 }
 
 export default function PrenotaPublicClient() {
@@ -131,10 +172,16 @@ export default function PrenotaPublicClient() {
     setStep("service");
   }
 
+  // Il tocco seleziona soltanto: si avanza con "Continua", così si può
+  // cambiare idea prima di passare al calendario.
   function chooseService(svc: PublicBookingService) {
     setSelectedService(svc);
+  }
+
+  function confirmService() {
+    if (!selectedService) return;
     setStep("datetime");
-    void loadSlotsFor(svc, selectedDate, selectedLocation);
+    void loadSlotsFor(selectedService, selectedDate, selectedLocation);
   }
 
   function changeDate(date: string) {
@@ -232,15 +279,30 @@ export default function PrenotaPublicClient() {
                   key={loc.id}
                   onClick={() => chooseLocation(loc)}
                   style={{
-                    display: "block", width: "100%", textAlign: "left",
-                    padding: "14px 16px", borderRadius: 10, cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: 14,
+                    width: "100%", textAlign: "left", cursor: "pointer",
+                    padding: "14px 16px", borderRadius: 12,
                     border: `1px solid ${T.borderSoft}`, background: T.panelBg,
                   }}
                 >
-                  <div style={{ fontWeight: 700, fontSize: 14, color: T.text }}>{loc.name}</div>
-                  {loc.address && (
-                    <div style={{ fontSize: 12, color: T.mutedSoft, marginTop: 2 }}>{loc.address}</div>
-                  )}
+                  <span style={{
+                    flexShrink: 0, width: 38, height: 38, borderRadius: 10,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    background: T.panelSoft, color: T.textSoft,
+                  }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 21s7-5.4 7-11a7 7 0 1 0-14 0c0 5.6 7 11 7 11z" />
+                      <circle cx="12" cy="10" r="2.5" />
+                    </svg>
+                  </span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontWeight: 700, fontSize: 15, color: T.text }}>{loc.name}</span>
+                    {loc.address && (
+                      <span style={{ display: "block", fontSize: 13, color: T.muted, marginTop: 2 }}>{loc.address}</span>
+                    )}
+                  </span>
+                  <span style={{ flexShrink: 0, color: T.mutedSoft, fontSize: 16 }}>›</span>
                 </button>
               ))}
             </div>
@@ -262,27 +324,83 @@ export default function PrenotaPublicClient() {
                 Nessun servizio prenotabile online al momento.
               </div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {services.map(svc => (
-                  <button
-                    key={svc.id}
-                    onClick={() => chooseService(svc)}
-                    style={{
-                      display: "flex", justifyContent: "space-between", alignItems: "center",
-                      padding: "14px 16px", borderRadius: 10, cursor: "pointer",
-                      border: `1px solid ${T.borderSoft}`, background: T.panelBg, textAlign: "left",
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 14, color: T.text }}>{svc.name}</div>
-                      <div style={{ fontSize: 12, color: T.mutedSoft, marginTop: 2 }}>{svc.duration} min</div>
-                    </div>
-                    {showPrices && (
-                      <div style={{ fontWeight: 700, fontSize: 14, color: T.teal }}>€{svc.price}</div>
-                    )}
-                  </button>
-                ))}
-              </div>
+              <>
+                <div style={{
+                  fontSize: 11.5, fontWeight: 700, color: T.muted,
+                  letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 12,
+                }}>
+                  Scegli il tipo di visita
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {services.map(svc => {
+                    const active = selectedService?.id === svc.id;
+                    return (
+                      <button
+                        key={svc.id}
+                        onClick={() => chooseService(svc)}
+                        aria-pressed={active}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 14,
+                          width: "100%", textAlign: "left", cursor: "pointer",
+                          padding: "14px 16px", borderRadius: 12,
+                          border: `1px solid ${active ? T.greenLine : T.borderSoft}`,
+                          background: active ? T.greenSoft : T.panelBg,
+                          transition: "background 0.15s, border-color 0.15s",
+                        }}
+                      >
+                        <span style={{
+                          flexShrink: 0, width: 38, height: 38, borderRadius: 10,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          background: active ? "#dcebe3" : T.panelSoft,
+                          color: active ? T.green : T.textSoft,
+                        }}>
+                          <ServiceIcon name={svc.name} />
+                        </span>
+
+                        <span style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{
+                            display: "block", fontWeight: 700, fontSize: 15,
+                            color: active ? T.green : T.text,
+                          }}>
+                            {svc.name}
+                          </span>
+                          {svc.description && (
+                            <span style={{
+                              display: "block", fontSize: 13, color: T.muted, marginTop: 2,
+                            }}>
+                              {svc.description}
+                            </span>
+                          )}
+                          <span style={{
+                            display: "block", fontSize: 12, color: T.mutedSoft, marginTop: 3,
+                          }}>
+                            {svc.duration} min{showPrices ? ` · €${svc.price}` : ""}
+                          </span>
+                        </span>
+
+                        {active && (
+                          <span style={{ flexShrink: 0, color: T.green, fontSize: 18, lineHeight: 1 }}>✓</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <button
+                  onClick={confirmService}
+                  disabled={!selectedService}
+                  style={{
+                    width: "100%", marginTop: 20, padding: "15px",
+                    borderRadius: 12, border: "none",
+                    background: T.green, color: T.white,
+                    fontWeight: 700, fontSize: 15, cursor: "pointer",
+                    opacity: selectedService ? 1 : 0.45,
+                  }}
+                >
+                  Continua →
+                </button>
+              </>
             )}
           </Panel>
         )}
@@ -325,8 +443,8 @@ export default function PrenotaPublicClient() {
                       onClick={() => setSelectedTime(t)}
                       style={{
                         padding: "9px 6px", borderRadius: 8, cursor: "pointer",
-                        border: `1px solid ${selectedTime === t ? T.teal : T.borderSoft}`,
-                        background: selectedTime === t ? T.teal : T.panelBg,
+                        border: `1px solid ${selectedTime === t ? T.green : T.borderSoft}`,
+                        background: selectedTime === t ? T.green : T.panelBg,
                         color: selectedTime === t ? T.white : T.text,
                         fontWeight: 700, fontSize: 13,
                       }}
@@ -389,7 +507,7 @@ export default function PrenotaPublicClient() {
           <Panel title="Richiesta inviata">
             <div style={{ textAlign: "center", padding: "12px 0 4px" }}>
               <div style={{
-                width: 52, height: 52, borderRadius: "50%", background: T.teal,
+                width: 52, height: 52, borderRadius: "50%", background: T.green,
                 color: T.white, display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: 26, margin: "0 auto 14px",
               }}>✓</div>
@@ -405,6 +523,40 @@ export default function PrenotaPublicClient() {
           </Panel>
         )}
       </div>
+
+      {/* Scorciatoia WhatsApp: per chi preferisce scrivere invece di
+          compilare il modulo. Compare solo se lo studio ha un telefono. */}
+      {studio.phone && step !== "done" && (
+        <div style={{
+          borderTop: `1px solid ${T.borderSoft}`, background: T.panelBg,
+          padding: "18px 20px 26px",
+        }}>
+          <div style={{
+            maxWidth: 480, margin: "0 auto",
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            gap: 12, flexWrap: "wrap",
+          }}>
+            <span style={{ fontSize: 13.5, color: T.muted }}>
+              Preferisci scrivere direttamente?
+            </span>
+            <a
+              href={`https://wa.me/${studio.phone.replace(/[^0-9]/g, "")}`}
+              target="_blank" rel="noopener noreferrer"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 8,
+                padding: "11px 20px", borderRadius: 999,
+                background: T.wa, color: T.white, textDecoration: "none",
+                fontWeight: 700, fontSize: 14.5,
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 4a10 10 0 0 0-15.6 12L3 21l5.2-1.4A10 10 0 1 0 20 4zM8.5 7.6c.2 0 .4 0 .5.4l.8 1.9c.1.2 0 .4-.1.5l-.6.7c-.1.2-.2.3 0 .6a8 8 0 0 0 3.6 3.1c.3.1.4 0 .6-.1l.7-.8c.1-.2.3-.2.5-.1l1.9.9c.2.1.3.3.3.5 0 1-1 1.9-2 1.9-2.8 0-7.3-4.5-7.3-7.3 0-1 .9-2 1.9-2.1z" />
+              </svg>
+              WhatsApp
+            </a>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -470,6 +622,6 @@ const inputStyle: React.CSSProperties = {
 };
 
 const primaryButtonStyle: React.CSSProperties = {
-  width: "100%", padding: "13px", borderRadius: 10, border: "none",
-  background: T.teal, color: T.white, fontWeight: 700, fontSize: 14, cursor: "pointer",
+  width: "100%", padding: "15px", borderRadius: 12, border: "none",
+  background: T.green, color: T.white, fontWeight: 700, fontSize: 15, cursor: "pointer",
 };

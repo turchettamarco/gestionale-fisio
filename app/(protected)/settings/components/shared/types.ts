@@ -94,6 +94,8 @@ export type BookableService = {
   name: string;
   duration: number;
   price: number;
+  /** Riga di spiegazione mostrata sulla pagina pubblica (mig. 086). */
+  description?: string | null;
 };
 
 export type BlockedDay = {

@@ -390,7 +390,30 @@ export default function SettingsMobileClient() {
     }
   }
 
-  async function updateService(id: string, patch: { name: string; duration: number; price: number }) {
+
+  // Chiede all'AI una descrizione per il servizio (mig. 086).
+  // Il token di sessione va passato a mano: la route lo richiede per non
+  // esporre una chiamata a pagamento a chiunque conosca l'indirizzo.
+  async function generateServiceDescription(name: string, duration: number): Promise<string | null> {
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess?.session?.access_token;
+      if (!token) return null;
+      const res = await fetch("/api/booking/service-description", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name, duration }),
+      });
+      const json = await res.json();
+      if (!res.ok) { alert(json?.error || "Errore generazione descrizione"); return null; }
+      return json.description as string;
+    } catch {
+      alert("Errore di connessione durante la generazione.");
+      return null;
+    }
+  }
+
+  async function updateService(id: string, patch: { name: string; duration: number; price: number; description: string | null }) {
     if (!currentStudioId) return;
     const { error: err } = await supabase.from("booking_services")
       .update(patch).eq("id", id).eq("studio_id", currentStudioId);
@@ -978,6 +1001,7 @@ export default function SettingsMobileClient() {
   const [newSvcName, setNewSvcName]           = useState("");
   const [newSvcDuration, setNewSvcDuration]   = useState("60");
   const [newSvcPrice, setNewSvcPrice]         = useState("40");
+  const [newSvcDescription, setNewSvcDescription] = useState("");
 
   const [blockDays, setBlockDays]         = useState<BlockedDay[]>([]);
   const [savingBlock, setSavingBlock]     = useState(false);
@@ -1250,10 +1274,11 @@ export default function SettingsMobileClient() {
     try {
       const { error } = await supabase.from("booking_services").insert({
         name: newSvcName.trim(), duration: parseInt(newSvcDuration) || 60,
-        price: parseFloat(newSvcPrice) || 40, studio_id: currentStudioId,
+        price: parseFloat(newSvcPrice) || 40,
+        description: newSvcDescription.trim() || null, studio_id: currentStudioId,
       });
       if (error) throw new Error(error.message);
-      setNewSvcName(""); setNewSvcDuration("60"); setNewSvcPrice("40");
+      setNewSvcName(""); setNewSvcDuration("60"); setNewSvcPrice("40"); setNewSvcDescription("");
       await loadServices();
     } catch (e) { setError(e instanceof Error ? e.message : "Errore"); }
     finally { setSavingSvc(false); }
@@ -2423,6 +2448,8 @@ export default function SettingsMobileClient() {
             newSvcName={newSvcName} setNewSvcName={setNewSvcName}
             newSvcDuration={newSvcDuration} setNewSvcDuration={setNewSvcDuration}
             newSvcPrice={newSvcPrice} setNewSvcPrice={setNewSvcPrice}
+            newSvcDescription={newSvcDescription} setNewSvcDescription={setNewSvcDescription}
+            onGenerateDescription={generateServiceDescription}
             onAdd={() => void addService()}
             onUpdate={(id, patch) => void updateService(id, patch)}
             onDelete={id => void deleteService(id)}
