@@ -51,6 +51,7 @@ import WorkingHoursSection from "./components/sections/WorkingHoursSection";
 import TemplatesSection from "./components/sections/TemplatesSection";
 import CalendarPrefsSection from "./components/sections/CalendarPrefsSection";
 import OnlineBookingSection from "./components/sections/OnlineBookingSection";
+import PatientAreaSection from "./components/sections/PatientAreaSection";
 import BlockedDaysSection from "./components/sections/BlockedDaysSection";
 import ManagementSection from "./components/sections/ManagementSection";
 import PasswordSection from "./components/sections/PasswordSection";
@@ -165,6 +166,10 @@ export default function SettingsDesktopClient() {
   const [bookingSlug, setBookingSlug]                   = useState("");
   const [savingBooking, setSavingBooking]               = useState(false);
   const [bookingError, setBookingError]                 = useState<string | null>(null);
+  // Area paziente (mig. 087)
+  const [showPatientArea, setShowPatientArea]           = useState(false);
+  const [portalShowAmounts, setPortalShowAmounts]       = useState(true);
+  const [savingPatientArea, setSavingPatientArea]       = useState(false);
 
   // ── Multi-sede (mig. 014) ─────────────────────────────────────────────
   // Toggle globale + state separato dal salvataggio studio (può essere
@@ -270,6 +275,10 @@ export default function SettingsDesktopClient() {
     );
     setBookingSlug(
       ((studio as unknown as { booking_slug?: string | null }).booking_slug) ?? ""
+    );
+    // Area paziente (mig. 087)
+    setPortalShowAmounts(
+      ((studio as unknown as { portal_show_amounts?: boolean | null }).portal_show_amounts) ?? true
     );
     // Multi-sede (mig. 014)
     setMultiLocationEnabled(studio.multi_location_enabled ?? false);
@@ -1787,6 +1796,22 @@ export default function SettingsDesktopClient() {
     }
   }
 
+  // ── Area paziente: salvataggio (mig. 087) ───────────────────────────
+  async function savePatientArea() {
+    if (!studio?.id) return;
+    setSavingPatientArea(true);
+    try {
+      const { error } = await supabase.from("studios")
+        .update({ portal_show_amounts: portalShowAmounts })
+        .eq("id", studio.id);
+      if (error) { alert("Errore: " + error.message); return; }
+      await refreshStudio();
+      flashSuccess("Impostazioni area paziente salvate.");
+    } finally {
+      setSavingPatientArea(false);
+    }
+  }
+
   // ── Prenotazione online: salvataggio pagina (mig. 083/085) ──────────
   async function saveBookingPage() {
     if (!studio?.id) return;
@@ -2037,6 +2062,7 @@ export default function SettingsDesktopClient() {
     { id: "granularita",  label: "Preferenze agenda (granularità, vista)", place: "Agenda", keywords: "granularità slot 15 minuti 30 minuti passo vista predefinita giorno settimana mese apertura calendario" },
     { id: "calprefs",     label: "Preferenze calendario",      place: "Agenda",        keywords: "preferenze calendario stato predefinito promemoria sovrapposizioni overlap conferma whatsapp default" },
     { id: "catalogo",     label: "Catalogo trattamenti",       place: "Agenda",        keywords: "trattamenti catalogo prestazioni tecar laser prezzi durata colore tipi seduta" },
+    { id: "area-paziente", label: "Area Paziente", place: "Agenda", keywords: "area paziente portale link personale storico sedute importi pagamenti riservata" },
     { id: "prenotazione-online", label: "Prenotazione Online", place: "Agenda", keywords: "prenotazioni online booking sito servizi prenotabili listino prezzi link pubblico indirizzo slug condividi whatsapp prenota" },
     { id: "chiusure",     label: "Giorni di chiusura e ferie", place: "Agenda",        keywords: "chiusure ferie ponte giorni bloccati vacanze blocco agenda festivi" },
     { id: "team",         label: "Team e collaboratori",       place: "Team",          keywords: "team membri operatori multi operatore invito collaboratori layout settimana colonne" },
@@ -2064,6 +2090,7 @@ export default function SettingsDesktopClient() {
     calprefs:    { tab: "calendar",       open: () => setShowCalPrefs(true) },
     catalogo:    { tab: "calendar",       open: () => setShowTreatments(true) },
     "prenotazione-online": { tab: "calendar", open: () => setShowOnlineBooking(true) },
+    "area-paziente": { tab: "calendar", open: () => setShowPatientArea(true) },
     chiusure:    { tab: "calendar",       open: () => setShowBlockDays(true) },
     team:        { tab: "team",           open: () => setShowTeam(true) },
     stanze:      { tab: "team",           open: () => setShowRooms(true) },
@@ -2339,6 +2366,16 @@ export default function SettingsDesktopClient() {
                 onSaveGroupStats={() => void saveGroupStats()}
                 savingGroupStats={savingGroupStats}
                 onSave={() => void savePracticeSettings()}
+              />
+            </div>
+
+            <div id="set-sec-area-paziente">
+              <PatientAreaSection
+                show={showPatientArea} onToggle={() => setShowPatientArea(!showPatientArea)}
+                portalShowAmounts={portalShowAmounts}
+                setPortalShowAmounts={setPortalShowAmounts}
+                saving={savingPatientArea}
+                onSave={() => void savePatientArea()}
               />
             </div>
 

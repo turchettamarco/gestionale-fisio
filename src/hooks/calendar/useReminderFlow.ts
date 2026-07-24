@@ -62,6 +62,7 @@ import { getStudioBranding } from "@/src/lib/studioBranding";
 import { translateError } from "@/src/lib/translateError";
 import {
   buildReminderMessage,
+  getPatientAreaLink,
   cleanPhoneForWA,
   openWhatsApp,
   GOOGLE_REVIEW_LINK_FALLBACK,
@@ -281,6 +282,11 @@ A presto,
           .eq("name", templateName)
           .maybeSingle();
 
+        // 2-bis. Link all'area riservata del paziente (storico sedute,
+        //        pagamenti, prenotazioni). Se fallisce resta vuoto e il
+        //        messaggio parte lo stesso.
+        const linkArea = await getPatientAreaLink(appointment.patient_id);
+
         // 3. Costruisci messaggio usando l'helper puro
         const message = buildReminderMessage({
           appointment,
@@ -288,6 +294,7 @@ A presto,
           template: templateData?.template ?? undefined,
           isConfirmation: !!isConfirmation,
           linkConferma,
+          linkArea,
           studioAddress: currentStudio?.address,
           signatureName: getStudioBranding(currentStudio).signatureName,
           signatureTitle: getStudioBranding(currentStudio).signatureTitle,

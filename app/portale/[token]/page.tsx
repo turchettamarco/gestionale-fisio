@@ -2,6 +2,16 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
+type HistoryItem = {
+  id: string;
+  start_at: string;
+  treatment_type: string | null;
+  amount: number | null;
+  payment_method: string | null;
+  /** "paid" = saldata · "unpaid" = da saldare · "package" = inclusa in un pacchetto */
+  payment_state: "paid" | "unpaid" | "package";
+};
+
 export default function PortalPage() {
   const params = useParams();
   const token = params?.token as string;
@@ -30,6 +40,10 @@ export default function PortalPage() {
 
   const patientName = data.patient ? `${data.patient.first_name} ${data.patient.last_name}`.trim() : "Paziente";
   const upcoming = data.upcoming || [];
+  const history: HistoryItem[] = data.history || [];
+  const booking = data.booking;
+  const unpaid = history.filter(h => h.payment_state === "unpaid");
+  const showAmounts = data.show_amounts !== false;
 
   return <Wrap headerTitle={headerTitle} logoBase64={studio?.logo_base64}>
     <div style={{padding:"24px 20px"}}>
@@ -71,6 +85,77 @@ export default function PortalPage() {
             })}
           </div>
         )}
+      </section>
+
+      {/* Prenota una seduta — solo se lo studio ha attivato la pagina pubblica */}
+      {booking && (
+        <section style={{marginBottom:24}}>
+          <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
+            🗓️ Prenota una seduta
+          </h2>
+          <a href={`/prenota/${booking.slug}`} style={{display:"block",padding:"16px 18px",background:"linear-gradient(135deg,#0f5c3f,#14795a)",borderRadius:10,color:"#fff",textDecoration:"none"}}>
+            <div style={{fontSize:15,fontWeight:800,marginBottom:4}}>Richiedi un appuntamento →</div>
+            <div style={{fontSize:11,opacity:0.85}}>Scegli il servizio e l&apos;orario che preferisci</div>
+          </a>
+        </section>
+      )}
+
+      {/* Storico sedute */}
+      <section style={{marginBottom:24}}>
+        <h2 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
+          📋 Le tue sedute
+        </h2>
+
+        {unpaid.length > 0 && (
+          <div style={{marginBottom:10,padding:"10px 14px",borderRadius:8,background:"#fffbeb",border:"1px solid #fde68a",fontSize:12.5,color:"#92400e"}}>
+            {unpaid.length === 1 ? "1 seduta risulta da saldare" : `${unpaid.length} sedute risultano da saldare`}
+            {showAmounts && (() => {
+              const tot = unpaid.reduce((sum, h) => sum + (Number(h.amount) || 0), 0);
+              return tot > 0 ? ` · totale €${tot.toFixed(2).replace(".00","")}` : "";
+            })()}
+          </div>
+        )}
+
+        {history.length === 0 ? (
+          <div style={{padding:20,background:"#f8fafc",borderRadius:10,textAlign:"center",color:"#64748b",fontSize:13}}>
+            Nessuna seduta registrata.
+          </div>
+        ) : (
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {history.map((h) => {
+              const d = new Date(h.start_at);
+              const dStr = d.toLocaleDateString("it-IT",{day:"2-digit",month:"long",year:"numeric"});
+              const tStr = d.toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
+              const badge =
+                h.payment_state === "paid"    ? {label:"Pagata",       color:"#15803d", bg:"#f0fdf4", line:"#bbf7d0"} :
+                h.payment_state === "package" ? {label:"Da pacchetto", color:"#1d4ed8", bg:"#eff6ff", line:"#bfdbfe"} :
+                                                {label:"Da saldare",   color:"#b45309", bg:"#fffbeb", line:"#fde68a"};
+              const showAmount = showAmounts && Number(h.amount) > 0 && h.payment_state !== "package";
+              return (
+                <div key={h.id} style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:10,padding:"12px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:13.5,fontWeight:700,color:"#0f172a"}}>{dStr}</div>
+                    <div style={{fontSize:11.5,color:"#64748b",marginTop:2}}>
+                      {tStr}{h.treatment_type ? ` · ${h.treatment_type}` : ""}
+                    </div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                    {showAmount && (
+                      <span style={{fontSize:13,fontWeight:700,color:"#0f172a"}}>€{h.amount}</span>
+                    )}
+                    <span style={{fontSize:10,fontWeight:800,padding:"3px 8px",borderRadius:5,background:badge.bg,border:`1px solid ${badge.line}`,color:badge.color,textTransform:"uppercase",whiteSpace:"nowrap"}}>
+                      {badge.label}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div style={{fontSize:10.5,color:"#94a3b8",marginTop:8,lineHeight:1.5}}>
+          Per qualsiasi dubbio sugli importi puoi contattare lo studio.
+        </div>
       </section>
 
       {/* Scheda esercizi */}

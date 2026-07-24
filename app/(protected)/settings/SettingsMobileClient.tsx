@@ -14,6 +14,7 @@ import AgendaViewPrefsSection from "./components/sections/AgendaViewPrefsSection
 import CalendarPrefsSection from "./components/sections/CalendarPrefsSection";
 import BlockedDaysSection from "./components/sections/BlockedDaysSection";
 import OnlineBookingSection from "./components/sections/OnlineBookingSection";
+import PatientAreaSection from "./components/sections/PatientAreaSection";
 import TeamSection from "./components/sections/TeamSection";
 import RoomsSection from "./components/sections/RoomsSection";
 import OperatorAbsencesSection from "./components/sections/OperatorAbsencesSection";
@@ -105,6 +106,10 @@ export default function SettingsMobileClient() {
   const [bookingSlug, setBookingSlug] = useState("");
   const [savingBooking, setSavingBooking] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
+  // Area paziente (mig. 087)
+  const [showPatientAreaM, setShowPatientAreaM] = useState(false);
+  const [portalShowAmounts, setPortalShowAmounts] = useState(true);
+  const [savingPatientArea, setSavingPatientArea] = useState(false);
 
   // ── Multi-sede (mig. 014) ──
   const [multiLocationEnabled, setMultiLocationEnabled] = useState(false);
@@ -246,6 +251,10 @@ export default function SettingsMobileClient() {
       setBookingSlug(
         ((currentStudio as { booking_slug?: string | null }).booking_slug) ?? ""
       );
+      // Area paziente (mig. 087)
+      setPortalShowAmounts(
+        ((currentStudio as { portal_show_amounts?: boolean | null }).portal_show_amounts) ?? true
+      );
       // Multi-sede (mig. 014)
       setMultiLocationEnabled(currentStudio.multi_location_enabled ?? false);
       // Professionisti ospiti (mig. 029, 031)
@@ -362,6 +371,23 @@ export default function SettingsMobileClient() {
   }
 
   // Modulo convenzioni (mig. 065)
+  // Area paziente: salvataggio (mig. 087)
+  async function savePatientArea() {
+    if (!currentStudioId) return;
+    setSavingPatientArea(true); setError(""); setSuccess("");
+    try {
+      const { error: err } = await supabase.from("studios")
+        .update({ portal_show_amounts: portalShowAmounts })
+        .eq("id", currentStudioId);
+      if (err) { setError("Errore: " + err.message); return; }
+      await refreshStudio();
+      setSuccess("Impostazioni area paziente salvate.");
+      setTimeout(() => setSuccess(""), 3000);
+    } finally {
+      setSavingPatientArea(false);
+    }
+  }
+
   // Prenotazione online: salvataggio pagina (mig. 083/085)
   async function saveBookingPage() {
     if (!currentStudioId) return;
@@ -914,6 +940,7 @@ export default function SettingsMobileClient() {
     { id: "template",      label: "Template messaggi",        place: "Impostazioni", keywords: "template messaggi whatsapp promemoria testo variabili firma benvenuto compleanno pagamento" },
     { id: "integrazioni",  label: "Integrazioni e backup",    place: "Impostazioni", keywords: "integrazioni google calendar ics feed esterno sincronizzazione backup esporta csv" },
     { id: "booking-legacy",label: "Prenotazioni dal sito",    place: "Impostazioni", keywords: "prenotazioni online booking sito pubblico link" },
+    { id: "area-paziente", label: "Area Paziente", place: "Impostazioni", keywords: "area paziente portale link personale storico sedute importi pagamenti riservata" },
     { id: "prenotazione-online", label: "Prenotazione Online", place: "Impostazioni", keywords: "prenotazioni online booking servizi prenotabili listino prezzo durata link pubblico indirizzo slug condividi whatsapp prenota" },
     { id: "catalogo",      label: "Catalogo trattamenti",     place: "Impostazioni", keywords: "trattamenti catalogo prestazioni tecar laser prezzi durata colore" },
     { id: "orari",         label: "Orari di lavoro",          place: "Impostazioni", keywords: "orari apertura chiusura giorni settimana working hours" },
@@ -928,6 +955,7 @@ export default function SettingsMobileClient() {
       fiscale: setShowFiscM, pagamenti: setShowPayM, gestione: setShowGestM,
       calprefs: setShowCalPrefsM, chiusure: setShowBlockM,
       "prenotazione-online": setShowOnlineBookingM,
+      "area-paziente": setShowPatientAreaM,
       team: setShowTeamM, stanze: setShowRoomsM, assenze: setShowAbsM,
       template: setShowTemplM, integrazioni: setShowIntegrM,
     };
@@ -2432,6 +2460,16 @@ export default function SettingsMobileClient() {
             />
           </div>
         </Section>
+
+        <div id="msec-area-paziente">
+          <PatientAreaSection
+            show={showPatientAreaM} onToggle={() => setShowPatientAreaM(!showPatientAreaM)}
+            portalShowAmounts={portalShowAmounts}
+            setPortalShowAmounts={setPortalShowAmounts}
+            saving={savingPatientArea}
+            onSave={() => void savePatientArea()}
+          />
+        </div>
 
         <div id="msec-prenotazione-online">
           <OnlineBookingSection

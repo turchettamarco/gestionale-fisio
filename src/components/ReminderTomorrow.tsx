@@ -23,7 +23,9 @@ import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { useDisplayPatientName } from "@/src/contexts/PrivacyModeContext";
 import { getStudioBranding } from "@/src/lib/studioBranding";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
-import { buildReminderMessage } from "@/app/(protected)/calendar/utils/reminderMessage";
+import { buildReminderMessage,
+  getPatientAreaLink,
+} from "@/app/(protected)/calendar/utils/reminderMessage";
 
 const T = {
   teal: "#0d9488", blue: "#2563eb", text: "#0f172a", muted: "#64748b",
@@ -123,12 +125,16 @@ export function ReminderTomorrowPanel({
       domicile_address: r.domicile_address,
     } as never;
 
+    // Link all'area riservata del paziente (storico, pagamenti, prenotazioni)
+    const linkArea = await getPatientAreaLink(r.patient_id);
+
     const message = buildReminderMessage({
       appointment: fakeEvent,
       patientFirstName: r.patients?.first_name ?? undefined,
       template: tpl ?? undefined,
       isConfirmation: false,
       linkConferma,
+      linkArea,
       studioAddress: currentStudio?.address,
       signatureName: getStudioBranding(currentStudio).signatureName,
       signatureTitle: getStudioBranding(currentStudio).signatureTitle,

@@ -27,6 +27,7 @@ function openWA(phone: string, message: string = ""): void {
 }
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePortalLinks } from "@/src/hooks/usePortalLinks";
 import ConvenzioniMenuItem from "@/src/components/ConvenzioniMenuItem";
 import { getStudioBranding } from "@/src/lib/studioBranding";
 import { showToast } from "@/src/components/mobile/ToastProvider";
@@ -35,7 +36,8 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/src/lib/supabaseClient";
 import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { usePrivacyMode, useDisplayPatientPhone, usePrivacyDisplay } from "@/src/contexts/PrivacyModeContext";
-import { buildReminderMessage } from "@/app/(protected)/calendar/utils/reminderMessage";
+import { buildReminderMessage,
+} from "@/app/(protected)/calendar/utils/reminderMessage";
 import { resolveAppointmentLocation, locationInitials } from "@/app/(protected)/calendar/utils/locationHelpers";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
 import PaidPill from "@/src/components/PaidPill";
@@ -228,6 +230,12 @@ export default function DashboardMobileClient() {
 
   const [dayAppts,  setDayAppts]  = useState<Appointment[]>([]);
   const [weekAppts, setWeekAppts] = useState<Appointment[]>([]);
+
+  // Link area riservata precaricati per i pazienti in elenco: sendReminder
+  // è sincrono e al click il link deve essere già disponibile.
+  const portalLinks = usePortalLinks(
+    useMemo(() => [...dayAppts, ...weekAppts].map(a => a.patient_id), [dayAppts, weekAppts])
+  );
 
   // Stats settimana lun-dom della settimana corrente (per badge in header)
   // Caricato in parallelo al loadAll per coerenza con il calcolo desktop
@@ -907,12 +915,17 @@ export default function DashboardMobileClient() {
       domicile_address: appt.domicile_address,
     } as any;
 
+    // Link all'area riservata: preso dalla cache precaricata, perché qui
+    // non si può await (l'apertura di WhatsApp deve restare sincrona).
+    const linkArea = appt.patient_id ? (portalLinks[appt.patient_id] ?? "") : "";
+
     const message = buildReminderMessage({
       appointment: fakeEvent,
       patientFirstName: appt.patients?.first_name ?? undefined,
       template: reminderTpl ?? undefined,
       isConfirmation: false,
       linkConferma,
+      linkArea,
       studioAddress: currentStudio?.address,
       signatureName: getStudioBranding(currentStudio).signatureName,
       signatureTitle: getStudioBranding(currentStudio).signatureTitle,

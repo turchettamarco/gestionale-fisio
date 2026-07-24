@@ -32,13 +32,16 @@ export function defaultTemplatePromemoria(signatureName?: string | null, signatu
   );
 }
 
-// Placeholders supportati dal template: {saluto} {nome} {data_relativa} {data} {ora} {luogo} {link_conferma} {link} {firma}
+// Placeholders supportati dal template: {saluto} {nome} {data_relativa} {data} {ora} {luogo} {link_conferma} {link} {link_area} {firma}
 export function buildReminderMessage(params: {
   appointment: CalendarEvent;
   patientFirstName?: string;
   template?: string;
   isConfirmation: boolean;
   linkConferma?: string;
+  /** Link all'area riservata del paziente (/portale/{token}). Facoltativo:
+   *  se assente il messaggio resta identico a prima. */
+  linkArea?: string;
   // ─── Branding studio (multi-tenancy) ───
   studioAddress?: string | null;
   signatureName?: string | null;
@@ -50,6 +53,7 @@ export function buildReminderMessage(params: {
 }): string {
   const {
     appointment, patientFirstName, template, isConfirmation, linkConferma = "",
+    linkArea = "",
     studioAddress, signatureName, signatureTitle,
     studioLocations,
   } = params;
@@ -130,6 +134,7 @@ export function buildReminderMessage(params: {
     .replace(/{luogo}/g, luogo)
     .replace(/{link_conferma}/g, linkConferma)
     .replace(/{link}/g, linkConferma)
+    .replace(/{link_area}/g, linkArea)
     .replace(/{firma}/g, firma);
 
   // Se nel template esiste un "Buongiorno" hardcoded (vecchi template senza {saluto}),
@@ -144,6 +149,13 @@ export function buildReminderMessage(params: {
     message += `\n\n👉 Conferma o annulla con un click:\n${linkConferma}`;
   }
 
+  // Link all'area riservata: appuntamenti, storico sedute e prenotazioni.
+  // Come per il link di conferma, si aggiunge solo se il template non lo
+  // ha già inserito tramite {link_area}.
+  if (linkArea && !message.includes(linkArea)) {
+    message += `\n\n🔒 La tua area riservata:\n${linkArea}`;
+  }
+
   return message;
 }
 
@@ -151,3 +163,26 @@ export function buildReminderMessage(params: {
 // ricevono un template senza firma (vuoto). Preferibile usare le funzioni sopra.
 export const DEFAULT_TEMPLATE_CONFERMA = defaultTemplateConferma();
 export const DEFAULT_TEMPLATE_PROMEMORIA = defaultTemplatePromemoria();
+
+/**
+ * Recupera (o crea) il link all'area riservata del paziente.
+ * L'endpoint riusa un token ancora valido, quindi chiamarlo a ogni
+ * promemoria non moltiplica i link.
+ * In caso di errore restituisce "" e il messaggio parte comunque: il
+ * promemoria è più importante del link all'area.
+ */
+export async function getPatientAreaLink(patientId?: string | null): Promise<string> {
+  if (!patientId || typeof window === "undefined") return "";
+  try {
+    const r = await fetch("/api/portal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ patient_id: patientId }),
+    });
+    const j = await r.json();
+    if (!r.ok || !j?.token) return "";
+    return `${window.location.origin}/portale/${j.token}`;
+  } catch {
+    return "";
+  }
+}

@@ -78,6 +78,7 @@ export { exportWeekToPDF } from "./exportPDF";
 // Costruzione messaggio promemoria WA
 export {
   buildReminderMessage,
+  getPatientAreaLink,
   getGreeting,
   defaultTemplateConferma,
   defaultTemplatePromemoria,

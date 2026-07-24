@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePortalLinks } from "@/src/hooks/usePortalLinks";
 import ConvenzioniMenuItem from "@/src/components/ConvenzioniMenuItem";
 import ConvenzioneFields, { EMPTY_CONVENZIONE, convenzioneToColumns, type ConvenzioneValue } from "@/src/components/convenzioni/ConvenzioneFields";
 import { getStudioBranding } from "@/src/lib/studioBranding";
@@ -13,7 +14,8 @@ import { useCurrentStudio } from "@/src/contexts/StudioContext";
 import { usePermissions } from "@/src/hooks/usePermissions";
 import { useRealtimeCalendar } from "@/src/hooks/calendar/useRealtimeCalendar";
 import { usePrivacyMode, composeInitials } from "@/src/contexts/PrivacyModeContext";
-import { buildReminderMessage } from "./utils/reminderMessage";
+import { buildReminderMessage,
+} from "./utils/reminderMessage";
 import { assignLanes } from "./utils/laneAssignment";
 import { getLocationCardStyle } from "./utils/locationHelpers";
 import { normalizePhoneForWA } from "@/src/lib/whatsapp";
@@ -443,6 +445,12 @@ function CalendarPageInner() {
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
   const [events,  setEvents]  = useState<CalendarEvent[]>([]);
+
+  // Link area riservata precaricati: sendReminder è sincrono e al click
+  // il link deve essere già disponibile.
+  const portalLinks = usePortalLinks(
+    useMemo(() => events.map(e => e.patient_id), [events])
+  );
   const [loading, setLoading] = useState(false);
   const [busy,    setBusy]    = useState(false);
   const [error,   setError]   = useState("");
@@ -1408,12 +1416,17 @@ function CalendarPageInner() {
 
     const template = isConfirmation ? confirmTplCache : reminderTplCache;
 
+    // Link all'area riservata: preso dalla cache precaricata, perché qui
+    // non si può await (l'apertura di WhatsApp deve restare sincrona).
+    const linkArea = appointment.patient_id ? (portalLinks[appointment.patient_id] ?? "") : "";
+
     const message = buildReminderMessage({
       appointment: appointment as any,
       patientFirstName,
       template: template ?? undefined,
       isConfirmation: !!isConfirmation,
       linkConferma,
+      linkArea,
       studioAddress: currentStudio?.address,
       signatureName: getStudioBranding(currentStudio).signatureName,
       signatureTitle: getStudioBranding(currentStudio).signatureTitle,
